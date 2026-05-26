@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+
+{% block title %}Invalid Link — Hapi Vet{% endblock %}
+
+{% block content %}
+<!-- Shown when verification link is invalid or expired -->
+<div class="register-page">
+  <div class="register-card">
+    <h1>Invalid or expired link</h1>
+    <p>
+      This verification link is no longer valid.
+      Please register again or contact the clinic.
+    </p>
+    <a href="{% url 'owner_register' %}">Register again</a>
+  </div>
+</div>
+{% endblock %}

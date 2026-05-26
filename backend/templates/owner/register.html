@@ -1,9 +1,69 @@
 {% extends 'base.html' %}
-{% block title %}Register — Hapi Vet{% endblock %}
+
+{% block title %}Create Account — Hapi Vet{% endblock %}
+
 {% block content %}
+<!-- Pet owner registration page -->
 <div class="register-page">
-  <h1>Create Account</h1>
-  <p>Registration form coming soon.</p>
-  <a href="{% url 'owner_login' %}">← Back to login</a>
+
+  <div class="register-card">
+
+    <div class="register-header">
+      <h1 class="clinic-name">Hapi Vet</h1>
+      <p class="register-subtitle">Create your account</p>
+    </div>
+
+    <!-- Form errors -->
+    {% if form.non_field_errors %}
+      <div class="alert alert-error">
+        {% for error in form.non_field_errors %}
+          <p>{{ error }}</p>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <form method="POST" action="{% url 'owner_register' %}">
+      {% csrf_token %}
+
+      <!-- Email -->
+      <div class="form-group">
+        <label for="id_email">Email Address</label>
+        {{ form.email }}
+        {% if form.email.errors %}
+          <p class="field-error">{{ form.email.errors.0 }}</p>
+        {% endif %}
+      </div>
+
+      <!-- Password -->
+      <div class="form-group">
+        <label for="id_password1">Password</label>
+        {{ form.password1 }}
+        {% if form.password1.errors %}
+          <p class="field-error">{{ form.password1.errors.0 }}</p>
+        {% endif %}
+      </div>
+
+      <!-- Confirm Password -->
+      <div class="form-group">
+        <label for="id_password2">Confirm Password</label>
+        {{ form.password2 }}
+        {% if form.password2.errors %}
+          <p class="field-error">{{ form.password2.errors.0 }}</p>
+        {% endif %}
+      </div>
+
+      <button type="submit" class="btn-primary">
+        Create Account
+      </button>
+
+    </form>
+
+    <div class="login-links">
+      Already have an account?
+      <a href="{% url 'owner_login' %}">Sign in</a>
+    </div>
+
+  </div>
+
 </div>
 {% endblock %}

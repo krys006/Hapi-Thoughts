@@ -108,13 +108,19 @@ LOGIN_REDIRECT_URL = "/"                   # we'll override this with role-based
 ACCOUNT_LOGOUT_REDIRECT_URL = "/login/"
 
 # ─── Email ────────────────────────────────────────────────────────────────────
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = "smtp.gmail.com"
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
-EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
-DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+if DEBUG:
+    # Development — print emails to terminal instead of sending
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+    DEFAULT_FROM_EMAIL = "hapitutzvet@gmail.com"
+else:
+    # Production — send real emails via Gmail SMTP
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+    EMAIL_HOST = "smtp.gmail.com"
+    EMAIL_PORT = 587
+    EMAIL_USE_TLS = True
+    EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+    EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+    DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
 # ─── Static & Media Files ─────────────────────────────────────────────────────
 STATIC_URL = "/static/"
