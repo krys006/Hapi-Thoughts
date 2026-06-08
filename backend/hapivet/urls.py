@@ -5,7 +5,13 @@ from django.contrib.auth import views as auth_views
 from django.conf import settings
 from django.conf.urls.static import static
 
+from django.views.generic import RedirectView
+
 urlpatterns = [
+
+    # Root URL — redirect to login
+    path("", RedirectView.as_view(url="/login/"), name="home"),
+
     # accounts (login, register, verification, dashboards)
     path("", include("accounts.urls")),
     
