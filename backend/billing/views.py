@@ -271,12 +271,17 @@ def admin_receipt_edit(request, pk):
     else:
         form = BillingReceiptForm(instance=receipt)
 
+    items = receipt.billing_items.select_related("service").all()
+    item_form = BillingItemForm()
+
     return render(
         request,
         "admin/billing/receipt_form.html",
         {
             "form": form,
             "receipt": receipt,
+            "items": items,
+            "item_form": item_form,
             "is_edit": True,
         },
     )
@@ -429,3 +434,43 @@ def owner_receipt_detail(request, pk):
             "items": items,
         },
     )
+
+
+@login_required
+def admin_get_service_details(request):
+    """
+    HTMX view — returns service name and pricing details for a selected service.
+    Used to pre-fill the billing item form when a service is selected.
+    Returns JSON consumed by inline JS in the template.
+    """
+    if request.user.role != "admin":
+        return redirect("owner_dashboard")
+
+    import json
+    from django.http import JsonResponse
+
+    service_pk = request.GET.get("service", "")
+
+    if not service_pk:
+        return JsonResponse({"name": "", "price": "", "placeholder": "", "pricing_type": ""})
+
+    try:
+        service = Service.objects.get(pk=int(service_pk))
+    except (Service.DoesNotExist, ValueError):
+        return JsonResponse({"name": "", "price": "", "placeholder": "", "pricing_type": ""})
+
+    data = {
+        "name": service.service_name,
+        "pricing_type": service.pricing_type,
+        "price": "",
+        "placeholder": "",
+    }
+
+    if service.pricing_type == Service.FIXED:
+        data["price"] = str(service.base_price)
+        data["placeholder"] = ""
+    elif service.pricing_type == Service.RANGE:
+        data["price"] = ""
+        data["placeholder"] = f"₱{service.min_price:,.2f} – ₱{service.max_price:,.2f}"
+
+    return JsonResponse(data)

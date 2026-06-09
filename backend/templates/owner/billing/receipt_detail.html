@@ -87,14 +87,17 @@
         <span>₱{{ receipt.subtotal|floatformat:2 }}</span>
       </div>
       {% if receipt.discount_value %}
-        <div class="receipt-total-row">
+        <div class="receipt-total-row receipt-total-row--discount">
           <span>
             Discount
-            {% if receipt.discount_note %}({{ receipt.discount_note }}){% endif %}
+            {% if receipt.discount_type == 'percentage' %}
+              ({{ receipt.discount_value }}% off)
+            {% endif %}
+            {% if receipt.discount_note %}
+              — {{ receipt.discount_note }}
+            {% endif %}
           </span>
-          <span class="text-discount">
-            -₱{{ receipt.discount_value|floatformat:2 }}
-          </span>
+          <span class="text-discount">-₱{{ receipt.discount_amount|floatformat:2 }}</span>
         </div>
       {% endif %}
       <div class="receipt-total-row receipt-total-row--grand">

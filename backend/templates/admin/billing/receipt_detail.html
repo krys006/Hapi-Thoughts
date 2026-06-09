@@ -160,6 +160,7 @@
           <p class="empty-state-text">No items added yet.</p>
         {% endif %}
 
+
         <!-- Totals -->
         <div class="receipt-totals">
           <div class="receipt-total-row">
@@ -167,19 +168,17 @@
             <span>₱{{ receipt.subtotal|floatformat:2 }}</span>
           </div>
           {% if receipt.discount_value %}
-            <div class="receipt-total-row">
+            <div class="receipt-total-row receipt-total-row--discount">
               <span>
                 Discount
-                {% if receipt.discount_note %}
-                  ({{ receipt.discount_note }})
-                {% endif %}
                 {% if receipt.discount_type == 'percentage' %}
-                  — {{ receipt.discount_value }}%
+                  ({{ receipt.discount_value }}% off)
+                {% endif %}
+                {% if receipt.discount_note %}
+                  — {{ receipt.discount_note }}
                 {% endif %}
               </span>
-              <span class="text-discount">
-                -₱{{ receipt.subtotal|floatformat:2 }}
-              </span>
+              <span class="text-discount">-₱{{ receipt.discount_amount|floatformat:2 }}</span>
             </div>
           {% endif %}
           <div class="receipt-total-row receipt-total-row--grand">
@@ -192,20 +191,33 @@
         {% if not receipt.is_locked %}
           <div class="add-item-form">
             <h3 class="form-section-title">Add Item</h3>
-            <form method="post"
-              action="{% url 'admin_billing_item_add' receipt.pk %}">
+            <form method="post" action="{% url 'admin_billing_item_add' receipt.pk %}">
               {% csrf_token %}
 
               <div class="form-group">
                 <label class="form-label">
                   Service <span class="form-optional">(optional)</span>
                 </label>
-                {{ item_form.service }}
+                <select
+                  name="service"
+                  id="id_service_select"
+                  onchange="fetchServiceDetails(this.value)"
+                >
+                  <option value="">Manual item (no service)</option>
+                  {% for s in item_form.service.field.queryset %}
+                    <option value="{{ s.pk }}">{{ s.service_name }}</option>
+                  {% endfor %}
+                </select>
               </div>
 
               <div class="form-group">
                 <label class="form-label">Description</label>
-                {{ item_form.description }}
+                <input
+                  type="text"
+                  name="description"
+                  id="id_item_description"
+                  maxlength="200"
+                />
                 {% if item_form.description.errors %}
                   <p class="form-error">{{ item_form.description.errors.0 }}</p>
                 {% endif %}
@@ -218,7 +230,13 @@
                 </div>
                 <div class="form-group">
                   <label class="form-label">Unit Price (₱)</label>
-                  {{ item_form.unit_price }}
+                  <input
+                    type="number"
+                    name="unit_price"
+                    id="id_item_unit_price"
+                    step="0.01"
+                    min="0"
+                  />
                 </div>
               </div>
 
@@ -234,10 +252,7 @@
             </form>
           </div>
         {% endif %}
-
-      </div>
-
-    </div>
+       
 
     <!-- ── Right: Actions ─────────────────────────────────────────────── -->
     <div class="detail-sidebar">
@@ -287,4 +302,52 @@
 
 </div>
 
-{% endblock %}
+</div>
+
+</div>
+
+{% endblock content %}
+
+{% block extra_js %}
+<script>
+  const SERVICE_DETAILS_URL = "{% url 'admin_get_service_details' %}";
+
+  function fetchServiceDetails(servicePk) {
+    const descField = document.getElementById("id_item_description");
+    const priceField = document.getElementById("id_item_unit_price");
+
+    // No service selected — clear pre-fills
+    if (!servicePk) {
+      descField.value = "";
+      descField.placeholder = "";
+      priceField.value = "";
+      priceField.placeholder = "";
+      return;
+    }
+
+    fetch(`${SERVICE_DETAILS_URL}?service=${servicePk}`)
+      .then(response => response.json())
+      .then(data => {
+        // Pre-fill description with service name
+        if (data.name) {
+          descField.value = data.name;
+        }
+
+        // Fixed pricing — pre-fill price
+        if (data.pricing_type === "fixed" && data.price) {
+          priceField.value = data.price;
+          priceField.placeholder = "";
+        }
+
+        // Range pricing — show range as placeholder, leave field empty
+        if (data.pricing_type === "range") {
+          priceField.value = "";
+          priceField.placeholder = data.placeholder;
+        }
+      })
+      .catch(() => {
+        // Fail silently — admin can still type manually
+      });
+  }
+</script>
+{% endblock extra_js %}
