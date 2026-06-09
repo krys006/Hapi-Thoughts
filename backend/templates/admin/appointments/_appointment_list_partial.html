@@ -1,0 +1,57 @@
+<div id="appointment-list">
+
+  {% if appointments %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Pet</th>
+          <th>Owner</th>
+          <th>Date</th>
+          <th>Time</th>
+          <th>Service</th>
+          <th>Status</th>
+          <th>Type</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for appt in appointments %}
+          <tr class="data-table-row {% if appt.date == today %}data-table-row--today{% endif %}">
+            <td>{{ appt.pet.name }}</td>
+            <td>{{ appt.owner.full_name }}</td>
+            <td>{{ appt.date|date:"M j, Y" }}</td>
+            <td>{{ appt.time|time:"g:i A" }}</td>
+            <td>
+              {% if appt.service %}
+                {{ appt.service.service_name }}
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              <span class="status-badge status-{{ appt.status }}">
+                {{ appt.get_status_display }}
+              </span>
+            </td>
+            <td>
+              {% if appt.is_walk_in %}
+                <span class="walk-in-badge">Walk-in</span>
+              {% else %}
+                <span class="text-muted">Online</span>
+              {% endif %}
+            </td>
+            <td>
+              <a href="{% url 'admin_appointment_detail' appt.pk %}" class="btn-link">
+                View
+              </a>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+  {% else %}
+    <p class="empty-state-text">No appointments found.</p>
+  {% endif %}
+
+</div>

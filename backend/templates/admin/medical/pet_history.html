@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+
+{% block title %}Medical History — {{ pet.name }} — Hapi Vet Admin{% endblock %}
+
+{% block content %}
+
+<div class="admin-page">
+
+  <div class="admin-page-header">
+    <h1 class="admin-page-title">Medical History — {{ pet.name }}</h1>
+    <div class="header-actions">
+      <a href="{% url 'admin_medical_record_create' pet.pk %}" class="btn-primary">
+        + New Record
+      </a>
+      <a href="{% url 'admin_pet_detail' pet.pk %}" class="btn-link">
+        Back to Pet
+      </a>
+    </div>
+  </div>
+
+  {% if messages %}
+    <div class="flash-messages">
+      {% for message in messages %}
+        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if records %}
+    <ul class="record-list">
+      {% for record in records %}
+        <li class="record-card">
+          <div class="record-card-main">
+            <span class="record-date">
+              {{ record.record_date|date:"F j, Y" }}
+            </span>
+            {% if record.diagnosis %}
+              <span class="record-diagnosis">{{ record.diagnosis }}</span>
+            {% endif %}
+            {% if record.follow_up_required %}
+              <span class="followup-badge">Follow-up Required</span>
+            {% endif %}
+          </div>
+          <a href="{% url 'admin_medical_record_detail' record.pk %}" class="btn-link">
+            View
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="empty-state-text">No medical records for {{ pet.name }}.</p>
+  {% endif %}
+
+</div>
+
+{% endblock %}

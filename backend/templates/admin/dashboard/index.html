@@ -37,6 +37,41 @@
       </a>
     </div>
 
+
+    <div class="admin-nav-card">
+      <h3 class="admin-nav-card-title">Clinic Settings</h3>
+      <p class="admin-nav-card-desc">
+        Configure schedule, working days, slot duration, and blocked dates.
+      </p>
+      <a href="{% url 'admin_clinic_settings' %}" class="btn-primary">
+        Go to Settings
+      </a>
+    </div>
+
+    <div class="admin-nav-card">
+      <h3 class="admin-nav-card-title">Appointments</h3>
+      <p class="admin-nav-card-desc">
+        View, approve, and manage all clinic appointments.
+      </p>
+      <a href="{% url 'admin_appointments' %}" class="btn-primary">
+        Go to Appointments
+      </a>
+    </div>
+
+
+    <div class="admin-nav-card">
+      <h3 class="admin-nav-card-title">Billing</h3>
+      <p class="admin-nav-card-desc">Generate and manage billing receipts.</p>
+      <a href="{% url 'admin_receipt_list' %}" class="btn-primary">Go to Billing</a>
+    </div>
+
+    <div class="admin-nav-card">
+      <h3 class="admin-nav-card-title">Services</h3>
+      <p class="admin-nav-card-desc">Manage the clinic service catalog and pricing.</p>
+      <a href="{% url 'admin_service_list' %}" class="btn-primary">Go to Services</a>
+    </div>
+
+
   </div>
 
 </div>

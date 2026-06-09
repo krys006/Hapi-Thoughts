@@ -1,0 +1,89 @@
+{% extends 'base.html' %}
+
+{% block title %}Vaccination History — {{ pet.name }} — Hapi Vet Admin{% endblock %}
+
+{% block content %}
+
+<div class="admin-page">
+
+  <div class="admin-page-header">
+    <h1 class="admin-page-title">Vaccination History — {{ pet.name }}</h1>
+    <div class="header-actions">
+      <a href="{% url 'admin_vaccination_standalone_create' pet.pk %}" class="btn-primary">
+        + Add Vaccination
+      </a>
+      <a href="{% url 'admin_pet_detail' pet.pk %}" class="btn-link">
+        Back to Pet
+      </a>
+    </div>
+  </div>
+
+  {% if messages %}
+    <div class="flash-messages">
+      {% for message in messages %}
+        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if vaccinations %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Vaccine</th>
+          <th>Date</th>
+          <th>Next Due</th>
+          <th>Weight</th>
+          <th>Administered By</th>
+          <th>Batch No.</th>
+          <th>Manufacturer</th>
+          <th>Site</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in vaccinations %}
+          <tr class="{% if v.is_corrected %}row--corrected{% endif %}">
+            <td>{{ v.display_vaccine_name }}</td>
+            <td>{{ v.date_administered|date:"M j, Y" }}</td>
+            <td>
+              {% if v.next_due_date %}
+                {{ v.next_due_date|date:"M j, Y" }}
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if v.weight_at_vaccination %}
+                {{ v.weight_at_vaccination }} kg
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td>{{ v.administered_by|default:"—" }}</td>
+            <td>{{ v.batch_number|default:"—" }}</td>
+            <td>{{ v.manufacturer|default:"—" }}</td>
+            <td>{{ v.site_of_injection|default:"—" }}</td>
+            <td>
+              {% if v.is_corrected %}
+                <span class="corrected-badge"
+                  title="{{ v.correction_note }}">Corrected</span>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              <a href="{% url 'admin_vaccination_edit' v.pk %}?next=history" class="btn-link">Edit</a>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="empty-state-text">No vaccination records for {{ pet.name }}.</p>
+  {% endif %}
+
+</div>
+
+{% endblock %}

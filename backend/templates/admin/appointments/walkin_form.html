@@ -1,0 +1,159 @@
+{% extends 'base.html' %}
+
+{% block title %}Walk-in Appointment — Hapi Vet Admin{% endblock %}
+
+{% block content %}
+
+<div class="admin-page">
+
+  <div class="admin-page-header">
+    <h1 class="admin-page-title">Create Walk-in Appointment</h1>
+    <a href="{% url 'admin_appointments' %}" class="btn-link">
+      Back to Appointments
+    </a>
+  </div>
+
+  {% if messages %}
+    <div class="flash-messages">
+      {% for message in messages %}
+        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+
+<!-- New client notice -->
+  <div class="notice-banner">
+    <p>
+      New client? You need to create their account first before booking.
+      <a href="{% url 'admin_walkin_create' %}" class="link">
+        Create a walk-in client account →
+      </a>
+    </p>
+  </div>
+
+  <form method="post" class="booking-form">
+
+
+  
+  <form method="post" class="booking-form">
+    {% csrf_token %}
+
+    <!-- Owner selection — triggers HTMX pet filter -->
+    <div class="form-group">
+      <label for="{{ form.owner.id_for_label }}" class="form-label">
+        Pet Owner
+      </label>
+      <select
+        name="owner"
+        id="{{ form.owner.id_for_label }}"
+        hx-get="{% url 'admin_get_pets_for_owner' %}"
+        hx-target="#id_pet"
+        hx-swap="innerHTML"
+        hx-trigger="change"
+        hx-include="[name='owner']"
+      >
+        <option value="">Select a pet owner</option>
+        {% for owner in form.owner.field.queryset %}
+          <option value="{{ owner.pk }}"
+            {% if form.owner.value == owner.pk|stringformat:"s" %}selected{% endif %}>
+            {{ owner.full_name }}
+          </option>
+        {% endfor %}
+      </select>
+      {% if form.owner.errors %}
+        <p class="form-error">{{ form.owner.errors.0 }}</p>
+      {% endif %}
+    </div>
+
+    <!-- Pet selection — populated by HTMX when owner is selected -->
+    <div class="form-group">
+      <label for="{{ form.pet.id_for_label }}" class="form-label">
+        Pet
+      </label>
+      <select name="pet" id="{{ form.pet.id_for_label }}">
+        <option value="">Select an owner first</option>
+      </select>
+      {% if form.pet.errors %}
+        <p class="form-error">{{ form.pet.errors.0 }}</p>
+      {% endif %}
+    </div>
+
+    <!-- Service selection -->
+    <div class="form-group">
+      <label for="{{ form.service.id_for_label }}" class="form-label">
+        Service <span class="form-optional">(optional)</span>
+      </label>
+      {{ form.service }}
+      {% if form.service.errors %}
+        <p class="form-error">{{ form.service.errors.0 }}</p>
+      {% endif %}
+    </div>
+
+    <!-- Date — triggers slot load -->
+    <div class="form-group">
+      <label for="{{ form.date.id_for_label }}" class="form-label">
+        Date
+      </label>
+      <input
+        type="date"
+        name="date"
+        id="{{ form.date.id_for_label }}"
+        value="{{ form.date.value|default:'' }}"
+        hx-get="{% url 'admin_get_slots_for_date' %}"
+        hx-target="#id_walkin_time"
+        hx-swap="innerHTML"
+        hx-trigger="change"
+        hx-include="[name='date']"
+      />
+      {% if form.date.errors %}
+        <p class="form-error">{{ form.date.errors.0 }}</p>
+      {% endif %}
+    </div>
+
+    <!-- Time slot -->
+    <div class="form-group">
+      <label for="{{ form.time.id_for_label }}" class="form-label">
+        Time Slot
+      </label>
+      <select name="time" id="id_walkin_time">
+        <option value="">Select a date first</option>
+      </select>
+      {% if form.time.errors %}
+        <p class="form-error">{{ form.time.errors.0 }}</p>
+      {% endif %}
+    </div>
+
+    <!-- Reason -->
+    <div class="form-group">
+      <label for="{{ form.reason.id_for_label }}" class="form-label">
+        Reason for Visit <span class="form-optional">(optional)</span>
+      </label>
+      {{ form.reason }}
+      {% if form.reason.errors %}
+        <p class="form-error">{{ form.reason.errors.0 }}</p>
+      {% endif %}
+    </div>
+
+    {% if form.non_field_errors %}
+      <div class="form-error-block">
+        {% for error in form.non_field_errors %}
+          <p class="form-error">{{ error }}</p>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <div class="form-actions">
+      <button type="submit" class="btn-primary">
+        Create Walk-in Appointment
+      </button>
+      <a href="{% url 'admin_appointments' %}" class="btn-secondary">
+        Cancel
+      </a>
+    </div>
+
+  </form>
+
+</div>
+
+{% endblock %}

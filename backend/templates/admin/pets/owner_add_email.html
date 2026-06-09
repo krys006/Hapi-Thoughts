@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+
+{% block title %}Add Email — {{ owner.full_name }} — Hapi Vet Admin{% endblock %}
+
+{% block content %}
+
+<div class="admin-page">
+
+  <a href="{% url 'admin_owner_detail' owner.pk %}" class="back-link">← Back to {{ owner.full_name }}</a>
+
+  <div class="admin-form-header">
+    <h1 class="admin-form-title">Add Email Address</h1>
+    <p class="admin-form-subtitle">
+      Adding an email will activate this account and send
+      {{ owner.full_name }} a link to set their password.
+    </p>
+  </div>
+
+  <form method="post" class="admin-form">
+    {% csrf_token %}
+
+    <div class="admin-form-section">
+
+      <div class="form-section">
+        <label class="form-label" for="{{ form.email.id_for_label }}">
+          Email Address <span class="required-tag">*</span>
+        </label>
+        {{ form.email }}
+        {% if form.email.errors %}
+          <p class="form-error">{{ form.email.errors.0 }}</p>
+        {% endif %}
+        <p class="form-hint">
+          A claim account email will be sent to this address automatically.
+        </p>
+      </div>
+
+    </div>
+
+    <div class="form-actions">
+      <a href="{% url 'admin_owner_detail' owner.pk %}" class="btn-secondary">Cancel</a>
+      <button type="submit" class="btn-primary">Save and Send Claim Email</button>
+    </div>
+
+  </form>
+
+</div>
+
+{% endblock %}

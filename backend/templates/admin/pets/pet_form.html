@@ -9,13 +9,11 @@
   <div class="admin-form-header">
     <h1 class="admin-form-title">{{ form_title }}</h1>
     {% if pet %}
-      <a href="{% url 'admin_pet_detail' pet.pk %}" class="btn-secondary">
-        Cancel
-      </a>
+      <a href="{% url 'admin_pet_detail' pet.pk %}" class="btn-secondary">Cancel</a>
+    {% elif owner %}
+      <a href="{% url 'admin_owner_detail' owner.pk %}" class="btn-secondary">Cancel</a>
     {% else %}
-      <a href="{% url 'admin_pet_list' %}" class="btn-secondary">
-        Cancel
-      </a>
+      <a href="{% url 'admin_pet_list' %}" class="btn-secondary">Cancel</a>
     {% endif %}
   </div>
 
@@ -141,14 +139,13 @@
     </div>
 
     <div class="form-actions">
+     
       {% if pet %}
-        <a href="{% url 'admin_pet_detail' pet.pk %}" class="btn-secondary">
-          Cancel
-        </a>
+        <a href="{% url 'admin_pet_detail' pet.pk %}" class="btn-secondary">Cancel</a>
+      {% elif owner %}
+        <a href="{% url 'admin_owner_detail' owner.pk %}" class="btn-secondary">Cancel</a>
       {% else %}
-        <a href="{% url 'admin_pet_list' %}" class="btn-secondary">
-          Cancel
-        </a>
+        <a href="{% url 'admin_pet_list' %}" class="btn-secondary">Cancel</a>
       {% endif %}
       <button type="submit" class="btn-primary">{{ submit_label }}</button>
     </div>

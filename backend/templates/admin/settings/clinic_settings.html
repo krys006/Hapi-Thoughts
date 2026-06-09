@@ -1,0 +1,262 @@
+{% extends 'base.html' %}
+
+{% block title %}Clinic Settings — Hapi Vet{% endblock %}
+
+{% block content %}
+
+<div class="admin-page">
+
+  <div class="admin-page-header">
+    <h1 class="admin-page-title">Clinic Settings</h1>
+    <p class="admin-page-subtitle">
+      Configure clinic schedule, contact details, and blocked dates.
+    </p>
+  </div>
+
+  <!-- Flash messages -->
+  {% if messages %}
+    <div class="flash-messages">
+      {% for message in messages %}
+        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="settings-layout">
+
+    <!-- ── Left column: Clinic Settings Form ────────────────────────── -->
+    <div class="settings-main">
+
+      <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+
+        <!-- Clinic Identity -->
+        <section class="settings-section">
+          <h2 class="settings-section-title">Clinic Information</h2>
+
+          <div class="form-group">
+            <label for="{{ form.clinic_name.id_for_label }}" class="form-label">
+              Clinic Name
+            </label>
+            {{ form.clinic_name }}
+            {% if form.clinic_name.errors %}
+              <p class="form-error">{{ form.clinic_name.errors.0 }}</p>
+            {% endif %}
+          </div>
+
+          <div class="form-group">
+            <label for="{{ form.address.id_for_label }}" class="form-label">
+              Address
+            </label>
+            {{ form.address }}
+            {% if form.address.errors %}
+              <p class="form-error">{{ form.address.errors.0 }}</p>
+            {% endif %}
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="{{ form.contact_number.id_for_label }}" class="form-label">
+                Contact Number
+              </label>
+              {{ form.contact_number }}
+              {% if form.contact_number.errors %}
+                <p class="form-error">{{ form.contact_number.errors.0 }}</p>
+              {% endif %}
+            </div>
+
+            <div class="form-group">
+              <label for="{{ form.email.id_for_label }}" class="form-label">
+                Clinic Email
+              </label>
+              {{ form.email }}
+              {% if form.email.errors %}
+                <p class="form-error">{{ form.email.errors.0 }}</p>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="{{ form.notification_email.id_for_label }}" class="form-label">
+              Notification Email
+            </label>
+            <p class="form-help">
+              System notifications (new appointments, etc.) will be sent here.
+            </p>
+            {{ form.notification_email }}
+            {% if form.notification_email.errors %}
+              <p class="form-error">{{ form.notification_email.errors.0 }}</p>
+            {% endif %}
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Clinic Logo</label>
+            {% if settings_obj.logo %}
+              <div class="logo-preview">
+                <img
+                  src="{{ settings_obj.logo.url }}"
+                  alt="Current clinic logo"
+                  class="logo-preview-img"
+                />
+                <p class="form-help">Upload a new file to replace the current logo.</p>
+              </div>
+            {% endif %}
+            {{ form.logo }}
+            {% if form.logo.errors %}
+              <p class="form-error">{{ form.logo.errors.0 }}</p>
+            {% endif %}
+          </div>
+        </section>
+
+        <!-- Schedule Configuration -->
+        <section class="settings-section">
+          <h2 class="settings-section-title">Schedule Configuration</h2>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="{{ form.opening_time.id_for_label }}" class="form-label">
+                Opening Time
+              </label>
+              {{ form.opening_time }}
+              {% if form.opening_time.errors %}
+                <p class="form-error">{{ form.opening_time.errors.0 }}</p>
+              {% endif %}
+            </div>
+
+            <div class="form-group">
+              <label for="{{ form.closing_time.id_for_label }}" class="form-label">
+                Closing Time
+              </label>
+              {{ form.closing_time }}
+              {% if form.closing_time.errors %}
+                <p class="form-error">{{ form.closing_time.errors.0 }}</p>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="{{ form.slot_duration_minutes.id_for_label }}" class="form-label">
+                Appointment Slot Duration
+              </label>
+              {{ form.slot_duration_minutes }}
+              {% if form.slot_duration_minutes.errors %}
+                <p class="form-error">{{ form.slot_duration_minutes.errors.0 }}</p>
+              {% endif %}
+            </div>
+
+            <div class="form-group">
+              <label for="{{ form.same_day_cutoff_time.id_for_label }}" class="form-label">
+                Same-Day Booking Cutoff
+              </label>
+              <p class="form-help">
+                Same-day bookings not allowed after this time.
+              </p>
+              {{ form.same_day_cutoff_time }}
+              {% if form.same_day_cutoff_time.errors %}
+                <p class="form-error">{{ form.same_day_cutoff_time.errors.0 }}</p>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="{{ form.booking_limit_days.id_for_label }}" class="form-label">
+              Advance Booking Limit (days)
+            </label>
+            <p class="form-help">
+              How far in advance pet owners can book appointments.
+            </p>
+            {{ form.booking_limit_days }}
+            {% if form.booking_limit_days.errors %}
+              <p class="form-error">{{ form.booking_limit_days.errors.0 }}</p>
+            {% endif %}
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Working Days</label>
+            <div class="checkbox-group">
+              {% for checkbox in form.working_days %}
+                <label class="checkbox-label">
+                  {{ checkbox.tag }}
+                  {{ checkbox.choice_label }}
+                </label>
+              {% endfor %}
+            </div>
+            {% if form.working_days.errors %}
+              <p class="form-error">{{ form.working_days.errors.0 }}</p>
+            {% endif %}
+          </div>
+
+          <!-- Non-field errors (e.g. closing time before opening time) -->
+          {% if form.non_field_errors %}
+            <div class="form-error-block">
+              {% for error in form.non_field_errors %}
+                <p class="form-error">{{ error }}</p>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </section>
+
+        <div class="form-actions">
+          <button type="submit" class="btn-primary">
+            Save Settings
+          </button>
+        </div>
+
+      </form>
+    </div>
+
+    <!-- ── Right column: Blocked Dates ──────────────────────────────── -->
+    <div class="settings-sidebar">
+
+      <section class="settings-section">
+        <h2 class="settings-section-title">Blocked Dates</h2>
+        <p class="form-help">
+          No appointments can be booked on blocked dates.
+        </p>
+
+        <!-- Add blocked date form -->
+        <form
+          hx-post="{% url 'admin_blocked_date_add' %}"
+          hx-target="#blocked-dates-list"
+          hx-swap="outerHTML"
+          class="blocked-date-form"
+        >
+          {% csrf_token %}
+
+          <div class="form-group">
+            <label for="{{ blocked_form.date.id_for_label }}" class="form-label">
+              Date
+            </label>
+            {{ blocked_form.date }}
+            {% if blocked_form.date.errors %}
+              <p class="form-error">{{ blocked_form.date.errors.0 }}</p>
+            {% endif %}
+          </div>
+
+          <div class="form-group">
+            <label for="{{ blocked_form.reason.id_for_label }}" class="form-label">
+              Reason <span class="form-optional">(optional)</span>
+            </label>
+            {{ blocked_form.reason }}
+            {% if blocked_form.reason.errors %}
+              <p class="form-error">{{ blocked_form.reason.errors.0 }}</p>
+            {% endif %}
+          </div>
+
+          <button type="submit" class="btn-secondary">
+            Block This Date
+          </button>
+        </form>
+
+        <!-- Blocked dates list — updated by HTMX -->
+        {% include 'admin/settings/_blocked_dates_list.html' %}
+
+      </section>
+    </div>
+
+  </div>
+
+</div>
+
+{% endblock %}

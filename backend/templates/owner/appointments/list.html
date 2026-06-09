@@ -1,0 +1,121 @@
+{% extends 'base.html' %}
+
+{% block title %}My Appointments — Hapi Vet{% endblock %}
+
+{% block content %}
+
+<div class="owner-page">
+
+  <div class="owner-page-header">
+    <h1 class="owner-page-title">My Appointments</h1>
+    <a href="{% url 'owner_book_appointment' %}" class="btn-primary">
+      Book New Appointment
+    </a>
+  </div>
+
+  {% if messages %}
+    <div class="flash-messages">
+      {% for message in messages %}
+        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <!-- Upcoming appointments -->
+  <section class="appointments-section">
+    <h2 class="section-title">Upcoming</h2>
+
+    {% if upcoming %}
+      <ul class="appointment-list">
+        {% for appt in upcoming %}
+          <li class="appointment-card">
+            <div class="appointment-card-main">
+              <span class="pet-name">{{ appt.pet.name }}</span>
+              <span class="appointment-date">
+                {{ appt.date|date:"F j, Y" }} at {{ appt.time|time:"g:i A" }}
+              </span>
+              {% if appt.service %}
+                <span class="appointment-service">{{ appt.service.service_name }}</span>
+              {% endif %}
+            </div>
+            <div class="appointment-card-meta">
+              <!-- Status badge -->
+              <span class="status-badge status-{{ appt.status }}">
+                {{ appt.get_status_display }}
+              </span>
+              <a href="{% url 'owner_appointment_detail' appt.pk %}" class="btn-link">
+                View
+              </a>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="empty-state-text">No upcoming appointments.</p>
+    {% endif %}
+  </section>
+
+  <!-- Past appointments -->
+  <section class="appointments-section">
+    <h2 class="section-title">Past</h2>
+
+    {% if past %}
+      <ul class="appointment-list">
+        {% for appt in past %}
+          <li class="appointment-card appointment-card--past">
+            <div class="appointment-card-main">
+              <span class="pet-name">{{ appt.pet.name }}</span>
+              <span class="appointment-date">
+                {{ appt.date|date:"F j, Y" }} at {{ appt.time|time:"g:i A" }}
+              </span>
+              {% if appt.service %}
+                <span class="appointment-service">{{ appt.service.service_name }}</span>
+              {% endif %}
+            </div>
+            <div class="appointment-card-meta">
+              <span class="status-badge status-{{ appt.status }}">
+                {{ appt.get_status_display }}
+              </span>
+              <a href="{% url 'owner_appointment_detail' appt.pk %}" class="btn-link">
+                View
+              </a>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="empty-state-text">No past appointments.</p>
+    {% endif %}
+  </section>
+
+  <!-- Cancelled appointments -->
+  <section class="appointments-section">
+    <h2 class="section-title">Cancelled</h2>
+
+    {% if cancelled %}
+      <ul class="appointment-list">
+        {% for appt in cancelled %}
+          <li class="appointment-card appointment-card--cancelled">
+            <div class="appointment-card-main">
+              <span class="pet-name">{{ appt.pet.name }}</span>
+              <span class="appointment-date">
+                {{ appt.date|date:"F j, Y" }} at {{ appt.time|time:"g:i A" }}
+              </span>
+            </div>
+            <div class="appointment-card-meta">
+              <span class="status-badge status-cancelled">Cancelled</span>
+              <a href="{% url 'owner_appointment_detail' appt.pk %}" class="btn-link">
+                View
+              </a>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="empty-state-text">No cancelled appointments.</p>
+    {% endif %}
+  </section>
+
+</div>
+
+{% endblock %}

@@ -2,33 +2,33 @@
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import redirect, render
-
-from .forms import ContactLinkFormSet, PetForm, PetOwnerProfileForm
-from .models import PetOwner
-
-from .forms import (
-    ContactLinkFormSet,
-    PetDeletionRequestForm,
-    PetForm,
-    PetOwnerProfileForm,
-)
-from .models import Pet, PetDeletionRequest, PetOwner
-
-from django.shortcuts import get_object_or_404, redirect, render
-
-from django.utils import timezone
-
+from django.contrib.auth.tokens import default_token_generator
+from django.core.mail import send_mail
 from django.db.models import Q
-
+from django.shortcuts import (
+    get_object_or_404,
+    redirect,
+    render,
+)
+from django.template.loader import render_to_string
+from django.utils import timezone
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
 
 from .forms import (
+    AdminOwnerEmailForm,
     AdminPetForm,
     AdminPetOwnerForm,
     ContactLinkFormSet,
     PetDeletionRequestForm,
     PetForm,
     PetOwnerProfileForm,
+)
+
+from .models import (
+    Pet,
+    PetDeletionRequest,
+    PetOwner,
 )
 
 
@@ -651,16 +651,37 @@ def admin_owner_edit(request, pk):
     owner = get_object_or_404(PetOwner, pk=pk)
 
     if request.method == "POST":
-        form = AdminPetOwnerForm(request.POST, request.FILES, instance=owner)
+        form = AdminPetOwnerForm(
+            request.POST,
+            request.FILES,
+            instance=owner,
+            current_user=owner.user,  # passed to __init__ for email uniqueness check
+        )
         if form.is_valid():
             form.save()
+
+            # Save email to User model separately — it's not on PetOwner
+            new_email = form.cleaned_data.get("email", "").strip()
+            old_email = owner.user.email
+
+            if new_email != old_email:
+                owner.user.email = new_email
+                # If email is being added for the first time, activate the account
+                if not old_email and new_email:
+                    owner.user.is_active = True
+                    _send_claim_email_for_owner(request, owner.user)
+                owner.user.save()
+
             messages.success(
                 request,
                 f"{owner.full_name}'s details have been updated.",
             )
             return redirect("admin_owner_detail", pk=owner.pk)
     else:
-        form = AdminPetOwnerForm(instance=owner)
+        form = AdminPetOwnerForm(
+            instance=owner,
+            current_user=owner.user,  # pre-populates email field
+        )
 
     return render(
         request,
@@ -723,6 +744,146 @@ def admin_owner_restore(request, pk):
 
 
 # ---------------------------------------------------------------------------
+# Admin — email claim
+# ---------------------------------------------------------------------------
+
+
+def admin_owner_add_email(request, pk):
+    """
+    Adds an email address to a walk-in owner account that was created
+    without one. Activates the account and sends the claim email.
+
+    Only accessible when owner.user.email is blank.
+    URL: /admin/pets/owners/<pk>/add-email/
+    """
+    if not request.user.is_authenticated or request.user.role != "admin":
+        return redirect("owner_dashboard")
+
+    owner = get_object_or_404(PetOwner, pk=pk)
+
+    # Guard: if email already exists, nothing to do here
+    if owner.user.email:
+        messages.info(request, "This account already has an email address.")
+        return redirect("admin_owner_detail", pk=pk)
+
+    form = AdminOwnerEmailForm(
+        request.POST or None,
+        current_user=owner.user,
+    )
+
+    if request.method == "POST" and form.is_valid():
+        email = form.cleaned_data["email"]
+
+        # Update the User record
+        owner.user.email = email
+        owner.user.is_active = True  # Activate — was inactive without email
+        owner.user.save()
+
+        # Send claim account email
+        _send_claim_email_for_owner(request, owner.user)
+
+        messages.success(
+            request,
+            f"Email added for {owner.full_name}. "
+            f"A claim account email has been sent to {email}.",
+        )
+        return redirect("admin_owner_detail", pk=pk)
+
+    return render(
+        request,
+        "admin/pets/owner_add_email.html",
+        {
+            "owner": owner,
+            "form": form,
+        },
+    )
+
+
+def _send_claim_email_for_owner(request, user):
+    """
+    Sends the claim account email for walk-in owners when email is added.
+    Shared by both the walk-in create flow and the add-email flow.
+    """
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    token = default_token_generator.make_token(user)
+
+    claim_link = request.build_absolute_uri(f"/reset-password/{uid}/{token}/")
+
+    subject = render_to_string("owner/emails/claim_account_subject.txt", {}).strip()
+
+    body = render_to_string(
+        "owner/emails/claim_account_body.txt",
+        {
+            "user": user,
+            "claim_link": claim_link,
+            "clinic_name": "Hapi Tutz Vet. Supplies",
+        },
+    )
+
+    send_mail(
+        subject=subject,
+        message=body,
+        from_email=None,
+        recipient_list=[user.email],
+        fail_silently=False,
+    )
+
+
+
+
+
+# ---------------------------------------------------------------------------
+# Admin — Add Pet (to existing owner)
+# ---------------------------------------------------------------------------
+
+@login_required
+def admin_pet_add(request, owner_pk):
+    """
+    Admin manually adds a pet to an existing pet owner account.
+    Redirects to the owner detail page after successful creation.
+
+    URL: /admin/pets/owners/<owner_pk>/add-pet/
+    """
+    guard = _require_admin(request)
+    if guard:
+        return guard
+
+    owner = get_object_or_404(PetOwner, pk=owner_pk)
+
+    if request.method == "POST":
+        form = AdminPetForm(request.POST, request.FILES)
+        if form.is_valid():
+            pet = form.save(commit=False)
+            pet.owner = owner
+            pet.save()
+            messages.success(
+                request,
+                f"{pet.name} has been added to {owner.full_name}'s account.",
+            )
+            return redirect("admin_owner_detail", pk=owner.pk)
+    else:
+        form = AdminPetForm()
+
+    return render(
+        request,
+        "admin/pets/pet_form.html",
+        {
+            "form": form,
+            "owner": owner,        # used for cancel button and context
+            "pet": None,           # signals template this is a create, not edit
+            "form_title": f"Add Pet for {owner.full_name}",
+            "submit_label": "Add Pet",
+        },
+    )
+
+
+
+
+
+
+
+
+# ---------------------------------------------------------------------------
 # Admin — Pet List
 # ---------------------------------------------------------------------------
 
@@ -747,6 +908,11 @@ def admin_pet_list(request):
 
     if species_filter:
         pets = pets.filter(species__icontains=species_filter)
+
+    # Filter by owner PK when coming from owner detail page
+    owner_pk = request.GET.get("owner", "").strip()
+    if owner_pk:
+        pets = pets.filter(owner__pk=owner_pk)
 
     # Get distinct species for the filter dropdown
     species_list = (

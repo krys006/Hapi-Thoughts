@@ -95,6 +95,13 @@ urlpatterns = [
         views.admin_pet_list,
         name="admin_pet_list",
     ),
+
+    path(
+        "admin/pets/add/<int:owner_pk>/",
+        views.admin_pet_add,
+        name="admin_pet_add",
+    ),
+
     path(
         "admin/pets/<int:pk>/",
         views.admin_pet_detail,
@@ -105,6 +112,7 @@ urlpatterns = [
         views.admin_pet_edit,
         name="admin_pet_edit",
     ),
+
     # --- Admin: Deletion Requests ---
     path(
         "admin/pets/deletion-requests/",
@@ -120,5 +128,11 @@ urlpatterns = [
         "admin/pets/deletion-requests/<int:pk>/reject/",
         views.admin_reject_deletion,
         name="admin_reject_deletion",
+    ),
+    # --- Admin: email claim ---
+    path(
+        "admin/pets/owners/<int:pk>/add-email/",
+        views.admin_owner_add_email,
+        name="admin_owner_add_email",
     ),
 ]

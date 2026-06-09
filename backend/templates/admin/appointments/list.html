@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+
+{% block title %}Appointments — Hapi Vet Admin{% endblock %}
+
+{% block content %}
+
+<div class="admin-page">
+
+  <div class="admin-page-header">
+    <h1 class="admin-page-title">Appointments</h1>
+    <a href="{% url 'admin_walkin_appointment_create' %}" class="btn-primary">
+      + Walk-in Appointment
+    </a>
+  </div>
+
+  {% if messages %}
+    <div class="flash-messages">
+      {% for message in messages %}
+        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+<!-- Status filter tabs -->
+<div class="filter-tabs">
+  <a href="{% url 'admin_appointments' %}" class="filter-tab {% if not status_filter %}filter-tab--active{% endif %}">All <span class="filter-count">{{ counts.all }}</span></a>
+  <a href="{% url 'admin_appointments' %}?status=pending" class="filter-tab {% if status_filter == 'pending' %}filter-tab--active{% endif %}">Pending <span class="filter-count">{{ counts.pending }}</span></a>
+  <a href="{% url 'admin_appointments' %}?status=confirmed" class="filter-tab {% if status_filter == 'confirmed' %}filter-tab--active{% endif %}">Confirmed <span class="filter-count">{{ counts.confirmed }}</span></a>
+  <a href="{% url 'admin_appointments' %}?status=completed" class="filter-tab {% if status_filter == 'completed' %}filter-tab--active{% endif %}">Completed <span class="filter-count">{{ counts.completed }}</span></a>
+  <a href="{% url 'admin_appointments' %}?status=cancelled" class="filter-tab {% if status_filter == 'cancelled' %}filter-tab--active{% endif %}">Cancelled <span class="filter-count">{{ counts.cancelled }}</span></a>
+  <a href="{% url 'admin_appointments' %}?status=no_show" class="filter-tab {% if status_filter == 'no_show' %}filter-tab--active{% endif %}">No Show <span class="filter-count">{{ counts.no_show }}</span></a>
+</div>
+
+  <!-- Appointment list — swappable by HTMX -->
+  {% include 'admin/appointments/_appointment_list_partial.html' %}
+
+</div>
+
+{% endblock %}

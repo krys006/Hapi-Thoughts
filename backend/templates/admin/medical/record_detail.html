@@ -1,0 +1,385 @@
+{% extends 'base.html' %}
+
+{% block title %}Medical Record — Hapi Vet Admin{% endblock %}
+
+{% block content %}
+
+<div class="admin-page">
+
+  <div class="admin-page-header">
+    <h1 class="admin-page-title">Medical Record</h1>
+    <div class="header-actions">
+      <a href="{% url 'admin_medical_record_edit' record.pk %}" class="btn-secondary">
+        Edit Record
+      </a>
+      <a href="{% url 'admin_pet_detail' record.pet.pk %}" class="btn-link">
+        Back to Pet
+      </a>
+    </div>
+  </div>
+
+  {% if messages %}
+    <div class="flash-messages">
+      {% for message in messages %}
+        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="detail-layout">
+
+    <!-- ── Left: Record Details ────────────────────────────────────────── -->
+    <div class="detail-main">
+
+      <!-- Core record info -->
+      <div class="detail-card">
+        <h2 class="detail-card-title">Record Details</h2>
+
+        <div class="detail-grid">
+
+          <div class="detail-row">
+            <span class="detail-label">Pet</span>
+            <span class="detail-value">
+              <a href="{% url 'admin_pet_detail' record.pet.pk %}" class="link">
+                {{ record.pet.name }}
+              </a>
+            </span>
+          </div>
+
+          <div class="detail-row">
+            <span class="detail-label">Date</span>
+            <span class="detail-value">
+              {{ record.record_date|date:"F j, Y" }}
+            </span>
+          </div>
+
+          {% if record.appointment %}
+            <div class="detail-row">
+              <span class="detail-label">Linked Appointment</span>
+              <span class="detail-value">
+                <a href="{% url 'admin_appointment_detail' record.appointment.pk %}"
+                  class="link">
+                  {{ record.appointment.date|date:"F j, Y" }}
+                  at {{ record.appointment.time|time:"g:i A" }}
+                </a>
+              </span>
+            </div>
+          {% endif %}
+
+          {% if record.symptoms %}
+            <div class="detail-row">
+              <span class="detail-label">Symptoms</span>
+              <span class="detail-value">{{ record.symptoms }}</span>
+            </div>
+          {% endif %}
+
+          {% if record.diagnosis %}
+            <div class="detail-row">
+              <span class="detail-label">Diagnosis</span>
+              <span class="detail-value">{{ record.diagnosis }}</span>
+            </div>
+          {% endif %}
+
+          {% if record.treatment_given %}
+            <div class="detail-row">
+              <span class="detail-label">Treatment Given</span>
+              <span class="detail-value">{{ record.treatment_given }}</span>
+            </div>
+          {% endif %}
+
+          {% if record.public_notes %}
+            <div class="detail-row">
+              <span class="detail-label">Public Notes</span>
+              <span class="detail-value">{{ record.public_notes }}</span>
+            </div>
+          {% endif %}
+
+          <!-- Private notes — admin only, never shown to pet owner -->
+          {% if record.private_notes %}
+            <div class="detail-row detail-row--private">
+              <span class="detail-label">
+                Private Notes
+                <span class="private-badge">Admin Only</span>
+              </span>
+              <span class="detail-value">{{ record.private_notes }}</span>
+            </div>
+          {% endif %}
+
+          {% if record.follow_up_required %}
+            <div class="detail-row">
+              <span class="detail-label">Follow-up</span>
+              <span class="detail-value">
+                Required —
+                {% if record.follow_up_date %}
+                  {{ record.follow_up_date|date:"F j, Y" }}
+                {% else %}
+                  No date set
+                {% endif %}
+              </span>
+            </div>
+          {% endif %}
+
+          <div class="detail-row">
+            <span class="detail-label">Created By</span>
+            <span class="detail-value">
+              {{ record.created_by.email|default:"Unknown" }}
+            </span>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Prescription items -->
+      <div class="detail-card">
+        <h2 class="detail-card-title">Prescription</h2>
+
+        {% if prescription_items %}
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Medicine</th>
+                <th>Dosage</th>
+                <th>Frequency</th>
+                <th>Duration</th>
+                <th>Notes</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in prescription_items %}
+                <tr>
+                  <td>{{ item.medicine_name }}</td>
+                  <td>{{ item.dosage|default:"—" }}</td>
+                  <td>{{ item.frequency|default:"—" }}</td>
+                  <td>{{ item.duration|default:"—" }}</td>
+                  <td>{{ item.notes|default:"—" }}</td>
+                  <td>
+                    <form method="post"
+                      action="{% url 'admin_prescription_item_delete' item.pk %}">
+                      {% csrf_token %}
+                      <button type="submit" class="btn-danger-sm"
+                        onclick="return confirm('Remove this item?')">
+                        Remove
+                      </button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="empty-state-text">No prescription items.</p>
+        {% endif %}
+
+        <!-- Add prescription item form -->
+        <form method="post"
+          action="{% url 'admin_prescription_item_add' record.pk %}">
+          {% csrf_token %}
+          <div class="inline-form-grid">
+            <div class="form-group">
+              <label class="form-label">Medicine Name</label>
+              {{ prescription_form.medicine_name }}
+            </div>
+            <div class="form-group">
+              <label class="form-label">Dosage</label>
+              {{ prescription_form.dosage }}
+            </div>
+            <div class="form-group">
+              <label class="form-label">Frequency</label>
+              {{ prescription_form.frequency }}
+            </div>
+            <div class="form-group">
+              <label class="form-label">Duration</label>
+              {{ prescription_form.duration }}
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Notes</label>
+            {{ prescription_form.notes }}
+          </div>
+          <button type="submit" class="btn-secondary">Add Item</button>
+        </form>
+
+      </div>
+
+      <!-- Test result files -->
+      <div class="detail-card">
+        <h2 class="detail-card-title">Test Results</h2>
+
+        {% if test_files %}
+          <ul class="file-list">
+            {% for f in test_files %}
+              <li class="file-item">
+                <a href="{{ f.file.url }}" target="_blank" class="file-link">
+                  {{ f.description|default:f.file.name }}
+                </a>
+                <span class="file-date">
+                  {{ f.uploaded_at|date:"M j, Y" }}
+                </span>
+                <form method="post"
+                  action="{% url 'admin_test_result_file_archive' f.pk %}">
+                  {% csrf_token %}
+                  <button type="submit" class="btn-danger-sm"
+                    onclick="return confirm('Remove this file?')">
+                    Remove
+                  </button>
+                </form>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="empty-state-text">No test result files uploaded.</p>
+        {% endif %}
+
+        <!-- Upload file form -->
+        <form method="post" enctype="multipart/form-data"
+          action="{% url 'admin_test_result_file_upload' record.pk %}">
+          {% csrf_token %}
+          <div class="form-group">
+            <label class="form-label">File</label>
+            {{ file_form.file }}
+          </div>
+          <div class="form-group">
+            <label class="form-label">
+              Description <span class="form-optional">(optional)</span>
+            </label>
+            {{ file_form.description }}
+          </div>
+          <button type="submit" class="btn-secondary">Upload File</button>
+        </form>
+
+      </div>
+
+    </div>
+
+    <!-- ── Right: Vaccinations ────────────────────────────────────────── -->
+    <div class="detail-sidebar">
+
+      <div class="detail-card">
+        <h2 class="detail-card-title">Vaccinations</h2>
+
+        {% if vaccinations %}
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Vaccine</th>
+                <th>Date</th>
+                <th>Next Due</th>
+                <th>Weight</th>
+                <th>Administered By</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for v in vaccinations %}
+                <tr class="{% if v.is_corrected %}row--corrected{% endif %}">
+                  <td>{{ v.display_vaccine_name }}</td>
+                  <td>{{ v.date_administered|date:"M j, Y" }}</td>
+                  <td>
+                    {% if v.next_due_date %}
+                      {{ v.next_due_date|date:"M j, Y" }}
+                    {% else %}
+                      <span class="text-muted">—</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if v.weight_at_vaccination %}
+                      {{ v.weight_at_vaccination }} kg
+                    {% else %}
+                      <span class="text-muted">—</span>
+                    {% endif %}
+                  </td>
+                  <td>{{ v.administered_by|default:"—" }}</td>
+                  <td>
+                    {% if v.is_corrected %}
+                      <span class="corrected-badge">Corrected</span>
+                    {% else %}
+                      <span class="text-muted">—</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    <a href="{% url 'admin_vaccination_edit' v.pk %}?next=record" class="btn-link">Edit</a>
+                    <a href="{% url 'admin_pet_vaccination_history' record.pet.pk %}" class="btn-link">View All</a>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="empty-state-text">No vaccinations linked to this record.</p>
+        {% endif %}
+
+        <!-- Add vaccination form -->
+        <form method="post" action="{% url 'admin_vaccination_add' record.pk %}">
+          {% csrf_token %}
+
+          <div class="form-group">
+            <label class="form-label">Vaccine</label>
+            {{ vaccination_form.vaccine_name }}
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">
+              Custom Name <span class="form-optional">(if Other)</span>
+            </label>
+            {{ vaccination_form.custom_vaccine_name }}
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Date Administered</label>
+            {{ vaccination_form.date_administered }}
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">
+              Weight at Vaccination <span class="form-optional">(kg)</span>
+            </label>
+            {{ vaccination_form.weight_at_vaccination }}
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Next Due Date</label>
+            {{ vaccination_form.next_due_date }}
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">
+              Batch Number <span class="form-optional">(optional)</span>
+            </label>
+            {{ vaccination_form.batch_number }}
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">
+              Manufacturer <span class="form-optional">(optional)</span>
+            </label>
+            {{ vaccination_form.manufacturer }}
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">
+              Administered By <span class="form-optional">(optional)</span>
+            </label>
+            {{ vaccination_form.administered_by }}
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">
+              Site of Injection <span class="form-optional">(optional)</span>
+            </label>
+            {{ vaccination_form.site_of_injection }}
+          </div>
+
+          <button type="submit" class="btn-secondary">Add Vaccination Record</button>
+        </form>
+
+      </div>
+    </div>
+    
+    
+  </div>
+
+</div>
+
+{% endblock %}

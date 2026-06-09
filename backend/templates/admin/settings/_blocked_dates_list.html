@@ -1,0 +1,39 @@
+<!-- Blocked dates list partial — swapped by HTMX on add/delete -->
+<div id="blocked-dates-list">
+
+  {% if blocked_dates %}
+    <ul class="blocked-dates-list">
+      {% for blocked in blocked_dates %}
+        <li class="blocked-date-item">
+
+          <div class="blocked-date-info">
+            <span class="blocked-date-date">
+              {{ blocked.date|date:"F j, Y" }}
+            </span>
+            {% if blocked.reason %}
+              <span class="blocked-date-reason">{{ blocked.reason }}</span>
+            {% endif %}
+          </div>
+
+          <!-- Delete button — HTMX POST, swaps this list on success -->
+          <form
+            hx-post="{% url 'admin_blocked_date_delete' blocked.pk %}"
+            hx-target="#blocked-dates-list"
+            hx-swap="outerHTML"
+            hx-confirm="Remove this blocked date?"
+          >
+            {% csrf_token %}
+            <button type="submit" class="btn-danger-sm">
+              Remove
+            </button>
+          </form>
+
+        </li>
+      {% endfor %}
+    </ul>
+
+  {% else %}
+    <p class="empty-state-text">No dates are currently blocked.</p>
+  {% endif %}
+
+</div>

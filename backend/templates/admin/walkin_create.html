@@ -1,0 +1,172 @@
+{% extends 'base.html' %}
+
+{% block title %}Register Walk-in Client — Hapi Vet{% endblock %}
+
+{% block content %}
+
+<!-- Page header -->
+<div class="page-header">
+  <div class="page-header-left">
+    <a href="{% url 'admin_owner_list' %}" class="back-link">← Back to Pet Owners</a>
+    <h1 class="page-title">Register Walk-in Client</h1>
+    <p class="page-subtitle">Create an account on the spot for a new walk-in client.</p>
+  </div>
+</div>
+
+<!-- Walk-in form -->
+<form method="post" class="walkin-form">
+  {% csrf_token %}
+
+  <!-- ------------------------------------------------------------------ -->
+  <!-- Section 1: Owner Details -->
+  <!-- ------------------------------------------------------------------ -->
+  <div class="form-section">
+    <h2 class="form-section-title">Owner Details</h2>
+
+    <div class="form-row">
+      <!-- First name -->
+      <div class="form-group">
+        <label for="{{ owner_form.first_name.id_for_label }}" class="form-label">
+          First Name <span class="required-star">*</span>
+        </label>
+        {{ owner_form.first_name }}
+        {% if owner_form.first_name.errors %}
+          <p class="field-error">{{ owner_form.first_name.errors.0 }}</p>
+        {% endif %}
+      </div>
+
+      <!-- Last name -->
+      <div class="form-group">
+        <label for="{{ owner_form.last_name.id_for_label }}" class="form-label">
+          Last Name <span class="required-star">*</span>
+        </label>
+        {{ owner_form.last_name }}
+        {% if owner_form.last_name.errors %}
+          <p class="field-error">{{ owner_form.last_name.errors.0 }}</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="form-row">
+      <!-- Contact number -->
+      <div class="form-group">
+        <label for="{{ owner_form.contact_number.id_for_label }}" class="form-label">
+          Contact Number
+        </label>
+        {{ owner_form.contact_number }}
+        {% if owner_form.contact_number.errors %}
+          <p class="field-error">{{ owner_form.contact_number.errors.0 }}</p>
+        {% endif %}
+      </div>
+
+      <!-- Email (optional) -->
+      <div class="form-group">
+        <label for="{{ owner_form.email.id_for_label }}" class="form-label">
+          Email Address
+        </label>
+        {{ owner_form.email }}
+        {% if owner_form.email.errors %}
+          <p class="field-error">{{ owner_form.email.errors.0 }}</p>
+        {% endif %}
+        <!-- Helper text: explains what happens if email is provided -->
+        <p class="field-hint">
+          If provided, a claim account email will be sent so the owner can set their password.
+        </p>
+      </div>
+    </div>
+
+    <!-- Contact link (optional) -->
+    <div class="form-group">
+      <label for="{{ owner_form.contact_link.id_for_label }}" class="form-label">
+        Facebook / Contact Link
+      </label>
+      {{ owner_form.contact_link }}
+      {% if owner_form.contact_link.errors %}
+        <p class="field-error">{{ owner_form.contact_link.errors.0 }}</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ------------------------------------------------------------------ -->
+  <!-- Section 2: Pet Details (optional) -->
+  <!-- ------------------------------------------------------------------ -->
+  <div class="form-section">
+    <h2 class="form-section-title">
+      Pet Details
+      <span class="section-optional-label">(optional — can be added later)</span>
+    </h2>
+
+    <div class="form-row">
+      <!-- Pet name -->
+      <div class="form-group">
+        <label for="{{ pet_form.pet_name.id_for_label }}" class="form-label">
+          Pet Name
+        </label>
+        {{ pet_form.pet_name }}
+        {% if pet_form.pet_name.errors %}
+          <p class="field-error">{{ pet_form.pet_name.errors.0 }}</p>
+        {% endif %}
+      </div>
+
+      <!-- Species -->
+      <div class="form-group">
+        <label for="{{ pet_form.species.id_for_label }}" class="form-label">
+          Species
+        </label>
+        {{ pet_form.species }}
+        {% if pet_form.species.errors %}
+          <p class="field-error">{{ pet_form.species.errors.0 }}</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="form-row">
+      <!-- Breed -->
+      <div class="form-group">
+        <label for="{{ pet_form.breed.id_for_label }}" class="form-label">Breed</label>
+        {{ pet_form.breed }}
+      </div>
+
+      <!-- Color -->
+      <div class="form-group">
+        <label for="{{ pet_form.color.id_for_label }}" class="form-label">Color</label>
+        {{ pet_form.color }}
+      </div>
+    </div>
+
+    <div class="form-row">
+      <!-- Gender -->
+      <div class="form-group">
+        <label for="{{ pet_form.gender.id_for_label }}" class="form-label">Gender</label>
+        {{ pet_form.gender }}
+      </div>
+
+      <!-- Date of birth -->
+      <div class="form-group">
+        <label for="{{ pet_form.date_of_birth.id_for_label }}" class="form-label">
+          Date of Birth
+        </label>
+        {{ pet_form.date_of_birth }}
+      </div>
+
+      <!-- Weight -->
+      <div class="form-group">
+        <label for="{{ pet_form.weight.id_for_label }}" class="form-label">
+          Weight (kg)
+        </label>
+        {{ pet_form.weight }}
+      </div>
+    </div>
+  </div>
+
+  <!-- ------------------------------------------------------------------ -->
+  <!-- Form actions -->
+  <!-- ------------------------------------------------------------------ -->
+  <div class="form-actions">
+    <a href="{% url 'admin_owner_list' %}" class="btn-cancel">Cancel</a>
+    <button type="submit" class="btn-primary">Register Walk-in Client</button>
+  </div>
+
+</form>
+
+{% endblock %}

@@ -88,7 +88,9 @@ DATABASES = {
 
 # ─── Password Validation ──────────────────────────────────────────────────────
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"
+    },
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
@@ -101,12 +103,48 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 # allauth configuration
-ACCOUNT_LOGIN_METHODS = {"email"}          # login with email, not username
+ACCOUNT_LOGIN_METHODS = {"email"}  # login with email, not username
 ACCOUNT_SIGNUP_FIELDS = ["email*", "password1*", "password2*"]
-ACCOUNT_EMAIL_VERIFICATION = "mandatory"   # require email confirmation
+ACCOUNT_EMAIL_VERIFICATION = "mandatory"  # require email confirmation
 ACCOUNT_UNIQUE_EMAIL = True
-LOGIN_REDIRECT_URL = "/"                   # we'll override this with role-based redirect
+LOGIN_REDIRECT_URL = "/owner/dashboard/"  # we'll override this with role-based redirect
 ACCOUNT_LOGOUT_REDIRECT_URL = "/login/"
+
+
+
+
+# Override allauth default URLs to use our custom pages
+LOGIN_URL = "/login/"
+ACCOUNT_EMAIL_CONFIRMATION_ANONYMOUS_REDIRECT_URL = "/login/"
+ACCOUNT_EMAIL_CONFIRMATION_AUTHENTICATED_REDIRECT_URL = "/login/"
+ACCOUNT_SIGNUP_REDIRECT_URL = "/owner/onboarding/"
+
+
+
+
+
+# ─── Google OAuth ─────────────────────────────────────────────────────────────
+SOCIALACCOUNT_PROVIDERS = {
+    "google": {
+        "SCOPE": ["profile", "email"],
+        "AUTH_PARAMS": {"access_type": "online"},
+        "VERIFIED_EMAIL": True,  # tell allauth Google emails are pre-verified
+        "APP": {
+            "client_id": env("GOOGLE_CLIENT_ID", default=""),
+            "secret": env("GOOGLE_CLIENT_SECRET", default=""),
+            "key": "",
+        },
+    }
+}
+
+SOCIALACCOUNT_AUTO_SIGNUP = True
+SOCIALACCOUNT_EMAIL_VERIFICATION = "none"  # Google already verified the email
+SOCIALACCOUNT_LOGIN_ON_GET = True  # skip the allauth confirmation page
+SOCIALACCOUNT_EMAIL_REQUIRED = True
+
+SOCIALACCOUNT_ADAPTER = "accounts.adapters.CustomSocialAccountAdapter"
+
+
 
 # ─── Email ────────────────────────────────────────────────────────────────────
 if DEBUG:
@@ -134,7 +172,7 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 # ─── Internationalization ─────────────────────────────────────────────────────
 LANGUAGE_CODE = "en-us"
-TIME_ZONE = "Asia/Manila"   # Philippines timezone
+TIME_ZONE = "Asia/Manila"  # Philippines timezone
 USE_I18N = True
 USE_TZ = True
 

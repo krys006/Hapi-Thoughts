@@ -1,0 +1,8 @@
+{% if pets %}
+  <option value="">Select a pet</option>
+  {% for pet in pets %}
+    <option value="{{ pet.pk }}">{{ pet.name }} ({{ pet.species }})</option>
+  {% endfor %}
+{% else %}
+  <option value="">No pets found for this owner</option>
+{% endif %}

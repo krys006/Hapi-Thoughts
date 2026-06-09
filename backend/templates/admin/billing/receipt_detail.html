@@ -1,0 +1,353 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ receipt.receipt_number }} — Hapi Vet Admin{% endblock %}
+
+{% block content %}
+
+<div class="admin-page">
+
+  <div class="admin-page-header">
+    <h1 class="admin-page-title">{{ receipt.receipt_number }}</h1>
+    <div class="header-actions">
+      {% if not receipt.is_locked %}
+        <a href="{% url 'admin_receipt_edit' receipt.pk %}" class="btn-secondary">
+          Edit Receipt
+        </a>
+      {% endif %}
+      <a href="{% url 'admin_receipt_list' %}" class="btn-link">
+        Back to Billing
+      </a>
+    </div>
+  </div>
+
+  {% if messages %}
+    <div class="flash-messages">
+      {% for message in messages %}
+        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="detail-layout">
+
+    <!-- ── Left: Receipt Info + Items ────────────────────────────────── -->
+    <div class="detail-main">
+
+      <!-- Receipt header -->
+      <div class="detail-card">
+        <h2 class="detail-card-title">Receipt Details</h2>
+
+        <div class="detail-grid">
+
+          <div class="detail-row">
+            <span class="detail-label">Receipt No.</span>
+            <span class="detail-value">{{ receipt.receipt_number }}</span>
+          </div>
+
+          <div class="detail-row">
+            <span class="detail-label">Date</span>
+            <span class="detail-value">
+              {{ receipt.billing_date|date:"F j, Y" }}
+            </span>
+          </div>
+
+          <div class="detail-row">
+            <span class="detail-label">Owner</span>
+            <span class="detail-value">
+              {% if receipt.owner %}
+                <a href="{% url 'admin_owner_detail' receipt.owner.pk %}" class="link">
+                  {{ receipt.owner.full_name }}
+                </a>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </span>
+          </div>
+
+          <div class="detail-row">
+            <span class="detail-label">Pet</span>
+            <span class="detail-value">
+              {% if receipt.pet %}
+                <a href="{% url 'admin_pet_detail' receipt.pet.pk %}" class="link">
+                  {{ receipt.pet.name }}
+                </a>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </span>
+          </div>
+
+          {% if receipt.appointment %}
+            <div class="detail-row">
+              <span class="detail-label">Linked Appointment</span>
+              <span class="detail-value">
+                <a href="{% url 'admin_appointment_detail' receipt.appointment.pk %}"
+                  class="link">
+                  {{ receipt.appointment.date|date:"F j, Y" }}
+                  at {{ receipt.appointment.time|time:"g:i A" }}
+                </a>
+              </span>
+            </div>
+          {% endif %}
+
+          <div class="detail-row">
+            <span class="detail-label">Payment Method</span>
+            <span class="detail-value">
+              {{ receipt.payment_method|default:"—" }}
+            </span>
+          </div>
+
+          <div class="detail-row">
+            <span class="detail-label">Payment Status</span>
+            <span class="detail-value">
+              <span class="status-badge status-{{ receipt.payment_status }}">
+                {{ receipt.get_payment_status_display }}
+              </span>
+            </span>
+          </div>
+
+          {% if receipt.payment_date %}
+            <div class="detail-row">
+              <span class="detail-label">Payment Date</span>
+              <span class="detail-value">
+                {{ receipt.payment_date|date:"F j, Y" }}
+              </span>
+            </div>
+          {% endif %}
+
+        </div>
+      </div>
+
+      <!-- Billing items -->
+      <div class="detail-card">
+        <h2 class="detail-card-title">Services & Items</h2>
+
+        {% if items %}
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th>Qty</th>
+                <th>Unit Price</th>
+                <th>Subtotal</th>
+                {% if not receipt.is_locked %}<th></th>{% endif %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in items %}
+                <tr>
+                  <td>{{ item.description }}</td>
+                  <td>{{ item.quantity }}</td>
+                  <td>₱{{ item.unit_price|floatformat:2 }}</td>
+                  <td>₱{{ item.subtotal|floatformat:2 }}</td>
+                  {% if not receipt.is_locked %}
+                    <td>
+                      <form method="post"
+                        action="{% url 'admin_billing_item_delete' item.pk %}">
+                        {% csrf_token %}
+                        <button type="submit" class="btn-danger-sm"
+                          onclick="return confirm('Remove this item?')">
+                          Remove
+                        </button>
+                      </form>
+                    </td>
+                  {% endif %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="empty-state-text">No items added yet.</p>
+        {% endif %}
+
+
+        <!-- Totals -->
+        <div class="receipt-totals">
+          <div class="receipt-total-row">
+            <span>Subtotal</span>
+            <span>₱{{ receipt.subtotal|floatformat:2 }}</span>
+          </div>
+          {% if receipt.discount_value %}
+            <div class="receipt-total-row receipt-total-row--discount">
+              <span>
+                Discount
+                {% if receipt.discount_type == 'percentage' %}
+                  ({{ receipt.discount_value }}% off)
+                {% endif %}
+                {% if receipt.discount_note %}
+                  — {{ receipt.discount_note }}
+                {% endif %}
+              </span>
+              <span class="text-discount">-₱{{ receipt.discount_amount|floatformat:2 }}</span>
+            </div>
+          {% endif %}
+          <div class="receipt-total-row receipt-total-row--grand">
+            <span>Total</span>
+            <span>₱{{ receipt.total_amount|floatformat:2 }}</span>
+          </div>
+        </div>
+
+        <!-- Add item form — hidden if locked -->
+        {% if not receipt.is_locked %}
+          <div class="add-item-form">
+            <h3 class="form-section-title">Add Item</h3>
+            <form method="post" action="{% url 'admin_billing_item_add' receipt.pk %}">
+              {% csrf_token %}
+
+              <div class="form-group">
+                <label class="form-label">
+                  Service <span class="form-optional">(optional)</span>
+                </label>
+                <select
+                  name="service"
+                  id="id_service_select"
+                  onchange="fetchServiceDetails(this.value)"
+                >
+                  <option value="">Manual item (no service)</option>
+                  {% for s in item_form.service.field.queryset %}
+                    <option value="{{ s.pk }}">{{ s.service_name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Description</label>
+                <input
+                  type="text"
+                  name="description"
+                  id="id_item_description"
+                  maxlength="200"
+                />
+                {% if item_form.description.errors %}
+                  <p class="form-error">{{ item_form.description.errors.0 }}</p>
+                {% endif %}
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Quantity</label>
+                  {{ item_form.quantity }}
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Unit Price (₱)</label>
+                  <input
+                    type="number"
+                    name="unit_price"
+                    id="id_item_unit_price"
+                    step="0.01"
+                    min="0"
+                  />
+                </div>
+              </div>
+
+              {% if item_form.non_field_errors %}
+                <div class="form-error-block">
+                  {% for error in item_form.non_field_errors %}
+                    <p class="form-error">{{ error }}</p>
+                  {% endfor %}
+                </div>
+              {% endif %}
+
+              <button type="submit" class="btn-secondary">Add Item</button>
+            </form>
+          </div>
+        {% endif %}
+       
+
+    <!-- ── Right: Actions ─────────────────────────────────────────────── -->
+    <div class="detail-sidebar">
+
+      <div class="action-card">
+        <h2 class="action-card-title">Actions</h2>
+
+        {% if receipt.is_locked %}
+          <p class="text-muted">
+            This receipt is locked — payment has been recorded.
+          </p>
+        {% else %}
+
+          {% if receipt.payment_status == 'pending' %}
+            <!-- Mark as Paid -->
+            <form method="post"
+              action="{% url 'admin_receipt_mark_paid' receipt.pk %}">
+              {% csrf_token %}
+              <button type="submit" class="btn-primary btn-block"
+                onclick="return confirm('Mark this receipt as paid?')">
+                Mark as Paid
+              </button>
+            </form>
+
+            <!-- Cancel Receipt -->
+            <form method="post"
+              action="{% url 'admin_receipt_mark_cancelled' receipt.pk %}">
+              {% csrf_token %}
+              <button type="submit" class="btn-danger btn-block"
+                onclick="return confirm('Cancel this receipt?')">
+                Cancel Receipt
+              </button>
+            </form>
+          {% endif %}
+
+          {% if receipt.payment_status == 'cancelled' %}
+            <p class="text-muted">This receipt has been cancelled.</p>
+          {% endif %}
+
+        {% endif %}
+
+      </div>
+
+    </div>
+
+  </div>
+
+</div>
+
+</div>
+
+</div>
+
+{% endblock content %}
+
+{% block extra_js %}
+<script>
+  const SERVICE_DETAILS_URL = "{% url 'admin_get_service_details' %}";
+
+  function fetchServiceDetails(servicePk) {
+    const descField = document.getElementById("id_item_description");
+    const priceField = document.getElementById("id_item_unit_price");
+
+    // No service selected — clear pre-fills
+    if (!servicePk) {
+      descField.value = "";
+      descField.placeholder = "";
+      priceField.value = "";
+      priceField.placeholder = "";
+      return;
+    }
+
+    fetch(`${SERVICE_DETAILS_URL}?service=${servicePk}`)
+      .then(response => response.json())
+      .then(data => {
+        // Pre-fill description with service name
+        if (data.name) {
+          descField.value = data.name;
+        }
+
+        // Fixed pricing — pre-fill price
+        if (data.pricing_type === "fixed" && data.price) {
+          priceField.value = data.price;
+          priceField.placeholder = "";
+        }
+
+        // Range pricing — show range as placeholder, leave field empty
+        if (data.pricing_type === "range") {
+          priceField.value = "";
+          priceField.placeholder = data.placeholder;
+        }
+      })
+      .catch(() => {
+        // Fail silently — admin can still type manually
+      });
+  }
+</script>
+{% endblock extra_js %}

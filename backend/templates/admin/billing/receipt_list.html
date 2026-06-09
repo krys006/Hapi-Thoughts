@@ -1,0 +1,71 @@
+{% extends 'base.html' %}
+
+{% block title %}Billing — Hapi Vet Admin{% endblock %}
+
+{% block content %}
+
+<div class="admin-page">
+
+  <div class="admin-page-header">
+    <h1 class="admin-page-title">Billing</h1>
+    <a href="{% url 'admin_receipt_create' %}" class="btn-primary">
+      + New Receipt
+    </a>
+  </div>
+
+  {% if messages %}
+    <div class="flash-messages">
+      {% for message in messages %}
+        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <!-- Status filter tabs -->
+  <div class="filter-tabs">
+    <a href="{% url 'admin_receipt_list' %}" class="filter-tab {% if not status_filter %}filter-tab--active{% endif %}">All <span class="filter-count">{{ counts.all }}</span></a>
+    <a href="{% url 'admin_receipt_list' %}?status=pending" class="filter-tab {% if status_filter == 'pending' %}filter-tab--active{% endif %}">Pending <span class="filter-count">{{ counts.pending }}</span></a>
+    <a href="{% url 'admin_receipt_list' %}?status=paid" class="filter-tab {% if status_filter == 'paid' %}filter-tab--active{% endif %}">Paid <span class="filter-count">{{ counts.paid }}</span></a>
+    <a href="{% url 'admin_receipt_list' %}?status=cancelled" class="filter-tab {% if status_filter == 'cancelled' %}filter-tab--active{% endif %}">Cancelled <span class="filter-count">{{ counts.cancelled }}</span></a>
+  </div>
+
+  {% if receipts %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Receipt No.</th>
+          <th>Owner</th>
+          <th>Pet</th>
+          <th>Date</th>
+          <th>Total</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for receipt in receipts %}
+          <tr>
+            <td>{{ receipt.receipt_number }}</td>
+            <td>{{ receipt.owner.full_name|default:"—" }}</td>
+            <td>{{ receipt.pet.name|default:"—" }}</td>
+            <td>{{ receipt.billing_date|date:"M j, Y" }}</td>
+            <td>₱{{ receipt.total_amount|floatformat:2 }}</td>
+            <td>
+              <span class="status-badge status-{{ receipt.payment_status }}">
+                {{ receipt.get_payment_status_display }}
+              </span>
+            </td>
+            <td>
+              <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="btn-link">View</a>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="empty-state-text">No billing receipts found.</p>
+  {% endif %}
+
+</div>
+
+{% endblock %}

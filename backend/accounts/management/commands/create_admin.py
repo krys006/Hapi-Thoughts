@@ -13,9 +13,9 @@ class Command(BaseCommand):
         password = "hapivet2025"
 
         if User.objects.filter(email=email).exists():
-            self.stdout.write(self.style.WARNING(
-                f"Admin account already exists: {email}"
-            ))
+            self.stdout.write(
+                self.style.WARNING(f"Admin account already exists: {email}")
+            )
             return
 
         user = User.objects.create_user(
@@ -27,11 +27,12 @@ class Command(BaseCommand):
             is_staff=True,  # allows future Django shell access if needed
         )
 
-        self.stdout.write(self.style.SUCCESS(
-            f"Admin account created successfully.\n"
-            f"  Email:    {email}\n"
-            f"  Password: {password}\n"
-            f"  Role:     {user.get_role_display()}\n"
-            f"\nChange this password after first login."
-        ))
-        
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Admin account created successfully.\n"
+                f"  Email:    {email}\n"
+                f"  Password: {password}\n"
+                f"  Role:     {user.get_role_display()}\n"
+                f"\nChange this password after first login."
+            )
+        )

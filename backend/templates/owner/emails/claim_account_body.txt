@@ -1,0 +1,15 @@
+Hello {{ user.petowner.first_name }},
+
+Dr. Edgar has registered you as a client at {{ clinic_name }}.
+
+You can now set your password and access your pet's records online using the link below:
+
+{{ claim_link }}
+
+This link can only be used once. If you did not expect this email, you can safely ignore it — no account changes will be made without clicking the link.
+
+If you have any questions, please contact the clinic directly.
+
+— {{ clinic_name }}
+  Bognuyan, Gasan, Marinduque
+  hapitutzvet@gmail.com

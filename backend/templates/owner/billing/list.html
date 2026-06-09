@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+
+{% block title %}Billing — Hapi Vet{% endblock %}
+
+{% block content %}
+
+<div class="owner-page">
+
+  <div class="owner-page-header">
+    <h1 class="owner-page-title">My Billing</h1>
+  </div>
+
+  {% if receipts %}
+    <ul class="receipt-list">
+      {% for receipt in receipts %}
+        <li class="receipt-card">
+          <div class="receipt-card-main">
+            <span class="receipt-number">{{ receipt.receipt_number }}</span>
+            <span class="receipt-date">
+              {{ receipt.billing_date|date:"F j, Y" }}
+            </span>
+            {% if receipt.pet %}
+              <span class="receipt-pet">{{ receipt.pet.name }}</span>
+            {% endif %}
+            <span class="receipt-total">
+              ₱{{ receipt.total_amount|floatformat:2 }}
+            </span>
+          </div>
+          <div class="receipt-card-meta">
+            <span class="status-badge status-{{ receipt.payment_status }}">
+              {{ receipt.get_payment_status_display }}
+            </span>
+            <a href="{% url 'owner_receipt_detail' receipt.pk %}" class="btn-link">View</a>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="empty-state-text">No billing records found.</p>
+  {% endif %}
+
+</div>
+
+{% endblock %}

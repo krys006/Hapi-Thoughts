@@ -1,0 +1,263 @@
+{% extends 'base.html' %}
+
+{% block title %}Appointment Detail — Hapi Vet{% endblock %}
+
+{% block content %}
+
+<div class="owner-page">
+
+  <div class="owner-page-header">
+    <h1 class="owner-page-title">Appointment Detail</h1>
+    <a href="{% url 'owner_appointments' %}" class="btn-link">
+      Back to Appointments
+    </a>
+  </div>
+
+  {% if messages %}
+    <div class="flash-messages">
+      {% for message in messages %}
+        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <!-- Appointment summary card -->
+  <div class="detail-card">
+
+    <div class="detail-header">
+      <span class="status-badge status-{{ appointment.status }}">
+        {{ appointment.get_status_display }}
+      </span>
+      {% if appointment.is_walk_in %}
+        <span class="walk-in-badge">Walk-in</span>
+      {% endif %}
+    </div>
+
+    <div class="detail-grid">
+
+      <div class="detail-row">
+        <span class="detail-label">Pet</span>
+        <span class="detail-value">{{ appointment.pet.name }}</span>
+      </div>
+
+      <div class="detail-row">
+        <span class="detail-label">Date</span>
+        <span class="detail-value">{{ appointment.date|date:"F j, Y" }}</span>
+      </div>
+
+      <div class="detail-row">
+        <span class="detail-label">Time</span>
+        <span class="detail-value">{{ appointment.time|time:"g:i A" }}</span>
+      </div>
+
+      {% if appointment.service %}
+        <div class="detail-row">
+          <span class="detail-label">Service</span>
+          <span class="detail-value">{{ appointment.service.service_name }}</span>
+        </div>
+      {% endif %}
+
+      {% if appointment.reason %}
+        <div class="detail-row">
+          <span class="detail-label">Reason for Visit</span>
+          <span class="detail-value">{{ appointment.reason }}</span>
+        </div>
+      {% endif %}
+
+      {% if appointment.notes %}
+        <div class="detail-row">
+          <span class="detail-label">Admin Notes</span>
+          <span class="detail-value">{{ appointment.notes }}</span>
+        </div>
+      {% endif %}
+
+      {% if appointment.rescheduled_from %}
+        <div class="detail-row">
+          <span class="detail-label">Rescheduled From</span>
+          <span class="detail-value">
+            {{ appointment.rescheduled_from.date|date:"F j, Y" }}
+            at {{ appointment.rescheduled_from.time|time:"g:i A" }}
+          </span>
+        </div>
+      {% endif %}
+
+      {% if appointment.cancellation_reason %}
+        <div class="detail-row">
+          <span class="detail-label">Cancellation Reason</span>
+          <span class="detail-value">
+            {{ appointment.get_cancellation_reason_display }}
+            {% if appointment.cancellation_detail %}
+              — {{ appointment.cancellation_detail }}
+            {% endif %}
+          </span>
+        </div>
+      {% endif %}
+
+    </div>
+
+    <!-- Action buttons — only shown for active appointments -->
+    {% if appointment.status == 'pending' or appointment.status == 'confirmed' %}
+      <div class="detail-actions">
+
+        {% if not show_reschedule_form and not show_cancel_form %}
+          <a href="{% url 'owner_appointment_reschedule' appointment.pk %}" class="btn-secondary">
+            Request Reschedule
+          </a>
+          <a href="{% url 'owner_appointment_cancel' appointment.pk %}" class="btn-danger">
+            Cancel Appointment
+          </a>
+        {% endif %}
+
+      </div>
+    {% endif %}
+
+  </div>
+
+  <!-- Reschedule form — shown inline when reschedule is requested -->
+  {% if show_reschedule_form %}
+    <div class="inline-form-section">
+      <h2 class="section-title">Request Reschedule</h2>
+
+      <form method="post"
+        action="{% url 'owner_appointment_reschedule' appointment.pk %}">
+        {% csrf_token %}
+
+        <div class="form-group">
+          <label for="{{ reschedule_form.date.id_for_label }}" class="form-label">
+            New Date
+          </label>
+
+          <input
+            type="date"
+            name="date"
+            id="{{ reschedule_form.date.id_for_label }}"
+            value="{{ reschedule_form.date.value|default:'' }}"
+            hx-get="{% url 'owner_get_slots' %}"
+            hx-target="#id_reschedule_time"
+            hx-swap="innerHTML"
+            hx-trigger="change"
+            hx-include="[name='date']"
+          />
+
+          {% if reschedule_form.date.errors %}
+            <p class="form-error">{{ reschedule_form.date.errors.0 }}</p>
+          {% endif %}
+        </div>
+
+        <div class="form-group">
+          <label for="id_reschedule_time" class="form-label">
+            New Time Slot
+          </label>
+          <select name="time" id="id_reschedule_time">
+            <option value="">Select a date first</option>
+          </select>
+          {% if reschedule_form.time.errors %}
+            <p class="form-error">{{ reschedule_form.time.errors.0 }}</p>
+          {% endif %}
+        </div>
+
+        <div class="form-group">
+          <label for="{{ reschedule_form.reschedule_reason.id_for_label }}"
+            class="form-label">
+            Reason for Reschedule
+          </label>
+          {{ reschedule_form.reschedule_reason }}
+          {% if reschedule_form.reschedule_reason.errors %}
+            <p class="form-error">
+              {{ reschedule_form.reschedule_reason.errors.0 }}
+            </p>
+          {% endif %}
+        </div>
+
+        {% if reschedule_form.non_field_errors %}
+          <div class="form-error-block">
+            {% for error in reschedule_form.non_field_errors %}
+              <p class="form-error">{{ error }}</p>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        <div class="form-actions">
+          <button type="submit" class="btn-primary">
+            Submit Reschedule Request
+          </button>
+          <a href="{% url 'owner_appointment_detail' appointment.pk %}"
+            class="btn-secondary">
+            Cancel
+          </a>
+        </div>
+
+      </form>
+    </div>
+  {% endif %}
+
+  <!-- Cancellation form — shown inline when cancel is requested -->
+  {% if show_cancel_form %}
+    <div class="inline-form-section">
+      <h2 class="section-title">Cancel Appointment</h2>
+
+      {% if not appointment.is_cancellable_freely %}
+        <div class="warning-banner">
+          <p>
+            This appointment is within 24 hours.
+            Cancellations at this stage are recorded and noted by the clinic.
+          </p>
+        </div>
+      {% endif %}
+
+      <form method="post"
+        action="{% url 'owner_appointment_cancel' appointment.pk %}">
+        {% csrf_token %}
+
+        <div class="form-group">
+          <label for="{{ cancellation_form.cancellation_reason.id_for_label }}"
+            class="form-label">
+            Reason for Cancellation
+          </label>
+          {{ cancellation_form.cancellation_reason }}
+          {% if cancellation_form.cancellation_reason.errors %}
+            <p class="form-error">
+              {{ cancellation_form.cancellation_reason.errors.0 }}
+            </p>
+          {% endif %}
+        </div>
+
+        <div class="form-group">
+          <label for="{{ cancellation_form.cancellation_detail.id_for_label }}"
+            class="form-label">
+            Additional Detail
+            <span class="form-optional">(required if Other)</span>
+          </label>
+          {{ cancellation_form.cancellation_detail }}
+          {% if cancellation_form.cancellation_detail.errors %}
+            <p class="form-error">
+              {{ cancellation_form.cancellation_detail.errors.0 }}
+            </p>
+          {% endif %}
+        </div>
+
+        {% if cancellation_form.non_field_errors %}
+          <div class="form-error-block">
+            {% for error in cancellation_form.non_field_errors %}
+              <p class="form-error">{{ error }}</p>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        <div class="form-actions">
+          <button type="submit" class="btn-danger">
+            Confirm Cancellation
+          </button>
+          <a href="{% url 'owner_appointment_detail' appointment.pk %}"
+            class="btn-secondary">
+            Go Back
+          </a>
+        </div>
+
+      </form>
+    </div>
+  {% endif %}
+
+</div>
+
+{% endblock %}

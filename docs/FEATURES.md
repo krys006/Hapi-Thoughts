@@ -118,7 +118,7 @@ Phase 7 — Dashboards & Polish
 | Auto-generated initials avatar if no pet photo uploaded | `complete` |
 | Request pet deletion with predefined reason | `complete` |
 | Predefined deletion reasons (passed away, rehomed, duplicate, other) | `complete` |
-| Deletion request goes to Admin for approval | `planned` |
+| Deletion request goes to Admin for approval | `complete` |
 | View pet profile | `complete` |
 | View pet vaccination history | `planned` |
 | View pet medical history (read-only, public notes only) | `planned` |
@@ -140,30 +140,30 @@ Phase 7 — Dashboards & Polish
 ### 2.4 Pet & Owner Management (Admin)
 | Feature | Status |
 |---|---|
-| View all registered pet owners | `planned` |
-| Search pet owners (global search) | `planned` |
-| Filter pet owners | `planned` |
-| View individual pet owner profile and their pets | `planned` |
-| Create pet owner account manually (for walk-ins) | `planned` |
-| Edit pet owner details | `planned` |
-| Archive pet owner account (soft delete) | `planned` |
-| Restore archived pet owner account | `planned` |
-| View all registered pets | `planned` |
-| Search and filter pets | `planned` |
-| View individual pet profile | `planned` |
-| Add a pet manually | `planned` |
-| Edit pet details | `planned` |
-| Approve pet deletion request | `planned` |
-| Reject pet deletion request | `planned` |
+| View all registered pet owners | `complete` |
+| Search pet owners (global search) | `complete` |
+| Filter pet owners | `complete` |
+| View individual pet owner profile and their pets | `complete` |
+| Create pet owner account manually (for walk-ins) | `complete` |
+| Edit pet owner details | `complete` |
+| Archive pet owner account (soft delete) | `complete` |
+| Restore archived pet owner account | `complete` |
+| View all registered pets | `complete` |
+| Search and filter pets | `complete` |
+| View individual pet profile | `complete` |
+| Add a pet manually | `complete` |
+| Edit pet details | `complete` |
+| Approve pet deletion request | `complete` |
+| Reject pet deletion request | `complete.` |
 
 ### 2.5 Walk-in Client Flow
 | Feature | Status |
 |---|---|
-| Admin creates pet owner account with minimum details | `planned` |
-| System sends claim account email automatically if email provided | `planned` |
-| Pet owner receives one-time link to set their own password | `planned` |
-| If no email provided — account saved, claim email sent when email is added later | `planned` |
-| Admin creates appointment directly as CONFIRMED for walk-in | `planned` |
+| Admin creates pet owner account with minimum details | `complete` |
+| System sends claim account email automatically if email provided | `complete` |
+| Pet owner receives one-time link to set their own password | `complete` |
+| If no email provided — account saved, claim email sent when email is added later | `complete` |
+| Admin creates appointment directly as CONFIRMED for walk-in | `complete` |
 
 ---
 
@@ -172,26 +172,26 @@ Phase 7 — Dashboards & Polish
 ### 3.1 Clinic Schedule Configuration (Admin)
 | Feature | Status |
 |---|---|
-| Set clinic opening and closing time | `planned` |
-| Set working days per week | `planned` |
-| Set appointment slot duration (configurable — 30 or 60 minutes) | `planned` |
-| Set same-day booking cutoff time | `planned` |
-| System auto-generates available slots based on configuration | `planned` |
-| Admin can block specific dates (holidays, rest days) | `planned` |
+| Set clinic opening and closing time | `complete` |
+| Set working days per week | `complete` |
+| Set appointment slot duration (configurable — 30 or 60 minutes) | `complete` |
+| Set same-day booking cutoff time | `complete` |
+| System auto-generates available slots based on configuration | `complete` |
+| Admin can block specific dates (holidays, rest days) | `complete` |
 
 ### 3.2 Booking (Pet Owner)
 | Feature | Status |
 |---|---|
-| View available appointment slots | `planned` |
+| View available appointment slots | `complete` |
 | View list of active services and pricing before booking | `planned` |
-| Book an appointment (select pet, date, time slot, service, reason) | `planned` |
-| Booking limited to 30 days in advance | `planned` |
-| Same-day booking allowed before configured cutoff time | `planned` |
-| Request reschedule — select new slot and provide reason | `planned` |
-| Cancel appointment freely up to 24 hours before | `planned` |
-| Cancellation within 24 hours requires Admin approval | `planned` |
-| Predefined cancellation reasons (change of plans, pet unwell, cannot make time, other) | `planned` |
-| View appointment history and current status | `planned` |
+| Book an appointment (select pet, date, time slot, service, reason) | `complete` |
+| Booking limited to 30 days in advance | `complete` |
+| Same-day booking allowed before configured cutoff time | `complete` |
+| Request reschedule — select new slot and provide reason | `complete` |
+| Cancel appointment freely up to 24 hours before | `complete` |
+| Cancellation within 24 hours requires Admin approval | `complete` |
+| Predefined cancellation reasons (change of plans, pet unwell, cannot make time, other) | `complete` |
+| View appointment history and current status | `complete` |
 
 ### 3.3 Appointment Management (Admin)
 | Feature | Status |
@@ -200,16 +200,16 @@ Phase 7 — Dashboards & Polish
 | Calendar monthly and weekly view toggle | `planned` |
 | Colored dot indicators on calendar days with appointments | `planned` |
 | Click day to view appointment details in side panel | `planned` |
-| Approve appointment request (PENDING → CONFIRMED) | `planned` |
-| Reject appointment request (PENDING → CANCELLED) | `planned` |
-| Mark appointment as COMPLETED | `planned` |
-| Mark appointment as NO_SHOW | `planned` |
-| Add notes to appointment | `planned` |
-| Reschedule appointment on behalf of pet owner with reason | `planned` |
-| Cancel appointment on behalf of pet owner with reason | `planned` |
-| Create walk-in appointment directly as CONFIRMED | `planned` |
-| Slot conflict prevention (no double booking enforced) | `planned` |
-| Cancelled slot freed immediately and becomes available | `planned` |
+| Approve appointment request (PENDING → CONFIRMED) | `complete` |
+| Reject appointment request (PENDING → CANCELLED) | `plancompletened` |
+| Mark appointment as COMPLETED | `complete` |
+| Mark appointment as NO_SHOW | `complete` |
+| Add notes to appointment | `complete` |
+| Reschedule appointment on behalf of pet owner with reason | `complete` |
+| Cancel appointment on behalf of pet owner with reason | `complete` |
+| Create walk-in appointment directly as CONFIRMED | `complete` |
+| Slot conflict prevention (no double booking enforced) | `complete` |
+| Cancelled slot freed immediately and becomes available | `complete` |
 
 ### 3.4 Appointment Status Flow
 ```
@@ -235,19 +235,19 @@ PENDING → CONFIRMED → COMPLETED
 ### 4.1 Medical Records (Admin)
 | Feature | Status |
 |---|---|
-| Create medical record (no timing restriction) | `planned` |
+| Create medical record (no timing restriction) | `complete` |
 | One medical record per appointment | `planned` |
-| Record: diagnosis, symptoms, treatment given | `planned` |
-| Structured prescriptions (list of medicine items) | `planned` |
-| Each prescription item: medicine name, dosage, frequency, duration, notes | `planned` |
-| Test results — text description | `planned` |
-| Test results — file/image upload (PDF, image) | `planned` |
-| Public notes (pet owner visible) | `planned` |
-| Private notes (Admin only, strictly hidden) | `planned` |
-| Follow-up required toggle (boolean) | `planned` |
-| Follow-up date field | `planned` |
-| Medical records are immutable — no deletion allowed | `planned` |
-| View full medical history per pet | `planned` |
+| Record: diagnosis, symptoms, treatment given | `complete` |
+| Structured prescriptions (list of medicine items) | `complete` |
+| Each prescription item: medicine name, dosage, frequency, duration, notes | `complete` |
+| Test results — text description | `complete` |
+| Test results — file/image upload (PDF, image) | `complete` |
+| Public notes (pet owner visible) | `complete` |
+| Private notes (Admin only, strictly hidden) | `complete` |
+| Follow-up required toggle (boolean) | `complete` |
+| Follow-up date field | `complete` |
+| Medical records are immutable — no deletion allowed | `complete` |
+| View full medical history per pet | `complete` |
 
 ### 4.2 Medical Records (Pet Owner)
 | Feature | Status |
@@ -261,13 +261,13 @@ PENDING → CONFIRMED → COMPLETED
 ### 4.3 Vaccination Tracking
 | Feature | Status |
 |---|---|
-| Create vaccination record through appointment (linked to medical record) | `planned` |
-| Create standalone vaccination record (no appointment needed) | `planned` |
-| Both paths update pet vaccination history | `planned` |
-| Predefined vaccine name options (Deworming, Ivermectin, Anti-rabies, 6-in-1, 7-in-1, 8-in-1, Bordetella) | `planned` |
-| Custom vaccine name input if not in predefined list | `planned` |
-| Vaccination fields: vaccine name, date administered, weight at time of vaccination, next due date, batch/lot number, manufacturer, administered by, site of injection | `planned` |
-| View complete vaccination history per pet | `planned` |
+| Create vaccination record through appointment (linked to medical record) | `complete` |
+| Create standalone vaccination record (no appointment needed) | `complete` |
+| Both paths update pet vaccination history | `complete` |
+| Predefined vaccine name options (Deworming, Ivermectin, Anti-rabies, 6-in-1, 7-in-1, 8-in-1, Bordetella) | `complete` |
+| Custom vaccine name input if not in predefined list | `complete` |
+| Vaccination fields: vaccine name, date administered, weight at time of vaccination, next due date, batch/lot number, manufacturer, administered by, site of injection | `complete` |
+| View complete vaccination history per pet | `complete` |
 | Admin can manually trigger vaccination reminder | `planned` |
 
 ---

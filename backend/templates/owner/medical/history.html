@@ -1,0 +1,91 @@
+{% extends 'base.html' %}
+
+{% block title %}Medical History — {{ pet.name }} — Hapi Vet{% endblock %}
+
+{% block content %}
+
+<div class="owner-page">
+
+  <div class="owner-page-header">
+    <h1 class="owner-page-title">Medical History — {{ pet.name }}</h1>
+    <a href="{% url 'owner_pet_detail' pet.pk %}" class="btn-link">
+      Back to Pet
+    </a>
+  </div>
+
+  {% if records %}
+    <ul class="record-list">
+      {% for record in records %}
+        <li class="record-card">
+
+          <div class="record-card-header">
+            <span class="record-date">
+              {{ record.record_date|date:"F j, Y" }}
+            </span>
+            {% if record.follow_up_required %}
+              <span class="followup-badge">Follow-up Required</span>
+            {% endif %}
+          </div>
+
+          {% if record.diagnosis %}
+            <p class="record-field">
+              <span class="record-label">Diagnosis:</span>
+              {{ record.diagnosis }}
+            </p>
+          {% endif %}
+
+          {% if record.symptoms %}
+            <p class="record-field">
+              <span class="record-label">Symptoms:</span>
+              {{ record.symptoms }}
+            </p>
+          {% endif %}
+
+          {% if record.treatment_given %}
+            <p class="record-field">
+              <span class="record-label">Treatment:</span>
+              {{ record.treatment_given }}
+            </p>
+          {% endif %}
+
+          {% if record.public_notes %}
+            <p class="record-field">
+              <span class="record-label">Notes:</span>
+              {{ record.public_notes }}
+            </p>
+          {% endif %}
+
+          <!-- Prescription items if any -->
+          {% if record.prescription_items.all %}
+            <div class="prescription-summary">
+              <p class="record-label">Prescription:</p>
+              <ul class="prescription-list">
+                {% for item in record.prescription_items.all %}
+                  <li class="prescription-item">
+                    <strong>{{ item.medicine_name }}</strong>
+                    {% if item.dosage %} — {{ item.dosage }}{% endif %}
+                    {% if item.frequency %}, {{ item.frequency }}{% endif %}
+                    {% if item.duration %}, {{ item.duration }}{% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% endif %}
+
+          {% if record.follow_up_date %}
+            <p class="record-field">
+              <span class="record-label">Follow-up Date:</span>
+              {{ record.follow_up_date|date:"F j, Y" }}
+            </p>
+          {% endif %}
+
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="empty-state-text">No medical records found for {{ pet.name }}.</p>
+  {% endif %}
+
+</div>
+
+{% endblock %}

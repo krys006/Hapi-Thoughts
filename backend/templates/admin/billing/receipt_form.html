@@ -1,0 +1,410 @@
+{% extends 'base.html' %}
+
+{% block title %}
+  {% if is_edit %}Edit Receipt — {{ receipt.receipt_number }}{% else %}New Receipt{% endif %}
+  — Hapi Vet Admin
+{% endblock %}
+
+{% block content %}
+
+<div class="admin-page">
+
+  <div class="admin-page-header">
+    <h1 class="admin-page-title">
+      {% if is_edit %}Edit Receipt — {{ receipt.receipt_number }}{% else %}New Receipt{% endif %}
+    </h1>
+    {% if is_edit %}
+      <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="btn-link">
+        Back to Receipt
+      </a>
+    {% else %}
+      <a href="{% url 'admin_receipt_list' %}" class="btn-link">
+        Back to Billing
+      </a>
+    {% endif %}
+  </div>
+
+  {% if messages %}
+    <div class="flash-messages">
+      {% for message in messages %}
+        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="detail-layout">
+
+    <!-- ── Left: Receipt Header Form + Items ─────────────────────────── -->
+    <div class="detail-main">
+
+      <!-- Context info — appointment link or owner/pet selection -->
+      {% if appointment %}
+        <div class="detail-card">
+          <h2 class="detail-card-title">Linked Appointment</h2>
+          <div class="detail-grid">
+            <div class="detail-row">
+              <span class="detail-label">Owner</span>
+              <span class="detail-value">{{ appointment.owner.full_name }}</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Pet</span>
+              <span class="detail-value">{{ appointment.pet.name }}</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Appointment</span>
+              <span class="detail-value">
+                {{ appointment.date|date:"F j, Y" }} at {{ appointment.time|time:"g:i A" }}
+              </span>
+            </div>
+          </div>
+        </div>
+      {% endif %}
+
+      <!-- Receipt header form -->
+      <div class="detail-card">
+        <h2 class="detail-card-title">Receipt Details</h2>
+
+        <form method="post" class="billing-form">
+          {% csrf_token %}
+
+          <!-- Manual owner/pet selection — only when not linked to appointment -->
+          {% if not appointment and not is_edit %}
+            <div class="form-group">
+              <label class="form-label">Pet Owner</label>
+              <select
+                name="owner"
+                id="id_owner"
+                hx-get="{% url 'admin_get_pets_for_owner' %}"
+                hx-target="#id_pet_select"
+                hx-swap="innerHTML"
+                hx-trigger="change"
+                hx-include="[name='owner']"
+              >
+                <option value="">Select a pet owner</option>
+                {% for o in owners %}
+                  <option value="{{ o.pk }}"
+                    {% if selected_owner_pk == o.pk|stringformat:"s" %}selected{% endif %}>
+                    {{ o.full_name }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Pet</label>
+              <select name="pet" id="id_pet_select">
+                <option value="">Select an owner first</option>
+              </select>
+            </div>
+          {% endif %}
+
+          {% if is_edit %}
+            <!-- Show owner/pet as read-only when editing -->
+            <div class="detail-grid">
+              <div class="detail-row">
+                <span class="detail-label">Owner</span>
+                <span class="detail-value">
+                  {{ receipt.owner.full_name|default:"—" }}
+                </span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Pet</span>
+                <span class="detail-value">
+                  {{ receipt.pet.name|default:"—" }}
+                </span>
+              </div>
+            </div>
+          {% endif %}
+
+          <div class="form-group">
+            <label for="{{ form.billing_date.id_for_label }}" class="form-label">
+              Billing Date
+            </label>
+            {{ form.billing_date }}
+            {% if form.billing_date.errors %}
+              <p class="form-error">{{ form.billing_date.errors.0 }}</p>
+            {% endif %}
+          </div>
+
+          <div class="form-group">
+            <label for="{{ form.payment_method.id_for_label }}" class="form-label">
+              Payment Method
+            </label>
+            {{ form.payment_method }}
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="{{ form.discount_type.id_for_label }}" class="form-label">
+                Discount Type <span class="form-optional">(optional)</span>
+              </label>
+              {{ form.discount_type }}
+            </div>
+            <div class="form-group">
+              <label for="{{ form.discount_value.id_for_label }}" class="form-label">
+                Discount Value
+              </label>
+              {{ form.discount_value }}
+              {% if form.discount_value.errors %}
+                <p class="form-error">{{ form.discount_value.errors.0 }}</p>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="{{ form.discount_note.id_for_label }}" class="form-label">
+              Discount Note <span class="form-optional">(optional)</span>
+            </label>
+            {{ form.discount_note }}
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="{{ form.payment_status.id_for_label }}" class="form-label">
+                Payment Status
+              </label>
+              {{ form.payment_status }}
+            </div>
+            <div class="form-group">
+              <label for="{{ form.payment_date.id_for_label }}" class="form-label">
+                Payment Date <span class="form-optional">(optional)</span>
+              </label>
+              {{ form.payment_date }}
+            </div>
+          </div>
+
+          {% if form.non_field_errors %}
+            <div class="form-error-block">
+              {% for error in form.non_field_errors %}
+                <p class="form-error">{{ error }}</p>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          <div class="form-actions">
+            <button type="submit" class="btn-primary">
+              {% if is_edit %}Save Changes{% else %}Create Receipt{% endif %}
+            </button>
+            {% if is_edit %}
+              <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="btn-secondary">
+                Cancel
+              </a>
+            {% else %}
+              <a href="{% url 'admin_receipt_list' %}" class="btn-secondary">
+                Cancel
+              </a>
+            {% endif %}
+          </div>
+
+        </form>
+      </div>
+
+      <!-- Items section — only shown after receipt is created (edit mode) -->
+      {% if is_edit and receipt %}
+
+        <div class="detail-card">
+          <h2 class="detail-card-title">Services & Items</h2>
+
+          {% if items %}
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Description</th>
+                  <th>Qty</th>
+                  <th>Unit Price</th>
+                  <th>Subtotal</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in items %}
+                  <tr>
+                    <td>{{ item.description }}</td>
+                    <td>{{ item.quantity }}</td>
+                    <td>₱{{ item.unit_price|floatformat:2 }}</td>
+                    <td>₱{{ item.subtotal|floatformat:2 }}</td>
+                    <td>
+                      <form method="post"
+                        action="{% url 'admin_billing_item_delete' item.pk %}">
+                        {% csrf_token %}
+                        <button type="submit" class="btn-danger-sm"
+                          onclick="return confirm('Remove this item?')">
+                          Remove
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% else %}
+            <p class="empty-state-text">No items added yet.</p>
+          {% endif %}
+
+          <!-- Totals -->
+          <div class="receipt-totals">
+            <div class="receipt-total-row">
+              <span>Subtotal</span>
+              <span>₱{{ receipt.subtotal|floatformat:2 }}</span>
+            </div>
+            {% if receipt.discount_value %}
+              <div class="receipt-total-row receipt-total-row--discount">
+                <span>
+                  Discount
+                  {% if receipt.discount_type == 'percentage' %}
+                    ({{ receipt.discount_value }}% off)
+                  {% endif %}
+                  {% if receipt.discount_note %}
+                    — {{ receipt.discount_note }}
+                  {% endif %}
+                </span>
+                <span class="text-discount">
+                  -₱{{ receipt.discount_amount|floatformat:2 }}
+                </span>
+              </div>
+            {% endif %}
+            <div class="receipt-total-row receipt-total-row--grand">
+              <span>Total</span>
+              <span>₱{{ receipt.total_amount|floatformat:2 }}</span>
+            </div>
+          </div>
+
+          <!-- Add item form -->
+          <div class="add-item-form">
+            <h3 class="form-section-title">Add Item</h3>
+            <form method="post"
+              action="{% url 'admin_billing_item_add' receipt.pk %}">
+              {% csrf_token %}
+
+              <div class="form-group">
+                <label class="form-label">
+                  Service <span class="form-optional">(optional)</span>
+                </label>
+                <select
+                  name="service"
+                  id="id_service_select"
+                  onchange="fetchServiceDetails(this.value)"
+                >
+                  <option value="">Manual item (no service)</option>
+                  {% for s in item_form.service.field.queryset %}
+                    <option value="{{ s.pk }}">{{ s.service_name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Description</label>
+                <input type="text" name="description" id="id_item_description" maxlength="200" />
+                {% if item_form.description.errors %}
+                  <p class="form-error">{{ item_form.description.errors.0 }}</p>
+                {% endif %}
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Quantity</label>
+                  {{ item_form.quantity }}
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Unit Price (₱)</label>
+                  <input type="number" name="unit_price" id="id_item_unit_price" step="0.01" min="0" />
+                </div>
+              </div>
+
+              {% if item_form.non_field_errors %}
+                <div class="form-error-block">
+                  {% for error in item_form.non_field_errors %}
+                    <p class="form-error">{{ error }}</p>
+                  {% endfor %}
+                </div>
+              {% endif %}
+
+              <button type="submit" class="btn-secondary">Add Item</button>
+            </form>
+          </div>
+
+        </div>
+
+      {% endif %}
+
+    </div>
+
+    <!-- ── Right: Actions (edit mode only) ───────────────────────────── -->
+    {% if is_edit and receipt %}
+      <div class="detail-sidebar">
+        <div class="action-card">
+          <h2 class="action-card-title">Actions</h2>
+
+          {% if receipt.payment_status == 'pending' %}
+            <form method="post"
+              action="{% url 'admin_receipt_mark_paid' receipt.pk %}">
+              {% csrf_token %}
+              <button type="submit" class="btn-primary btn-block"
+                onclick="return confirm('Mark this receipt as paid?')">
+                Mark as Paid
+              </button>
+            </form>
+
+            <form method="post"
+              action="{% url 'admin_receipt_mark_cancelled' receipt.pk %}">
+              {% csrf_token %}
+              <button type="submit" class="btn-danger btn-block"
+                onclick="return confirm('Cancel this receipt?')">
+                Cancel Receipt
+              </button>
+            </form>
+          {% endif %}
+
+          {% if receipt.payment_status == 'cancelled' %}
+            <p class="text-muted">This receipt has been cancelled.</p>
+          {% endif %}
+
+          <hr class="action-divider" />
+          <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="btn-link">
+            View Receipt Detail
+          </a>
+        </div>
+      </div>
+    {% endif %}
+
+  </div>
+
+</div>
+
+{% endblock content %}
+
+{% block extra_js %}
+{% if is_edit %}
+<script>
+  const SERVICE_DETAILS_URL = "{% url 'admin_get_service_details' %}";
+
+  function fetchServiceDetails(servicePk) {
+    const descField = document.getElementById("id_item_description");
+    const priceField = document.getElementById("id_item_unit_price");
+
+    if (!servicePk) {
+      descField.value = "";
+      descField.placeholder = "";
+      priceField.value = "";
+      priceField.placeholder = "";
+      return;
+    }
+
+    fetch(`${SERVICE_DETAILS_URL}?service=${servicePk}`)
+      .then(response => response.json())
+      .then(data => {
+        if (data.name) descField.value = data.name;
+        if (data.pricing_type === "fixed" && data.price) {
+          priceField.value = data.price;
+          priceField.placeholder = "";
+        }
+        if (data.pricing_type === "range") {
+          priceField.value = "";
+          priceField.placeholder = data.placeholder;
+        }
+      })
+      .catch(() => {});
+  }
+</script>
+{% endif %}
+{% endblock extra_js %}

@@ -1,76 +1,229 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block title %}Login — Hapi Vet{% endblock %}
 
 {% block content %}
-<!-- Pet Owner login page -->
-<div class="login-page">
+<div class="min-h-screen bg-gradient-to-br from-cyan-500 via-sky-500 to-indigo-600 flex items-center justify-center px-4 py-8">
 
-  <div class="login-card">
+    <div class="w-full max-w-sm">
 
-    <!-- Clinic branding -->
-    <div class="login-header">
-      <h1 class="clinic-name">Hapi Vet</h1>
-      <p class="clinic-tagline">Hapi Tutz Veterinary Clinic</p>
-    </div>
+        <!-- Glass Card -->
+        <div class="backdrop-blur-xl bg-white/15 border border-white/20 shadow-2xl rounded-3xl p-8">
 
-    <!-- Flash messages -->
-    {% if messages %}
-      {% for message in messages %}
-        <div class="alert alert-{{ message.tags }}">
-          {{ message }}
+            <!-- Logo -->
+            <div class="flex justify-center mb-4">
+                <img
+                    src="{% static 'images/clinic/logo.png' %}"
+                    alt="Hapi Vet Logo"
+                    class="w-44 h-auto"
+                >
+            </div>
+
+            <!-- Header -->
+            <div class="text-center mb-6">
+                <h1 class="text-3xl font-bold text-white">
+                    Welcome Back
+                </h1>
+
+                <p class="text-white/80 mt-2 text-sm">
+                    Sign in to your Hapi Vet account
+                </p>
+            </div>
+
+            <!-- Messages -->
+            {% if messages %}
+                <div class="space-y-3 mb-5">
+                    {% for message in messages %}
+                        <div class="rounded-xl px-4 py-3 text-sm font-medium
+                            {% if message.tags == 'error' %}
+                                bg-red-500/20 border border-red-300/30 text-white
+                            {% elif message.tags == 'success' %}
+                                bg-green-500/20 border border-green-300/30 text-white
+                            {% else %}
+                                bg-white/20 border border-white/20 text-white
+                            {% endif %}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            <!-- Form -->
+            <form method="POST" action="{% url 'owner_login' %}" class="space-y-5">
+
+                {% csrf_token %}
+
+                <!-- Email -->
+                <div>
+                    <label
+                        for="email"
+                        class="block text-sm font-medium text-white mb-2"
+                    >
+                        Email Address
+                    </label>
+
+                    <input
+                        type="email"
+                        id="email"
+                        name="email"
+                        value="{{ email|default:'' }}"
+                        placeholder="you@email.com"
+                        required
+                        autofocus
+                        class="w-full rounded-xl border border-white/20 bg-white/20 text-white placeholder-white/60 px-4 py-3 outline-none focus:ring-2 focus:ring-cyan-300"
+                    >
+                </div>
+
+                <!-- Password -->
+                <div>
+                    <label
+                        for="password"
+                        class="block text-sm font-medium text-white mb-2"
+                    >
+                        Password
+                    </label>
+
+                    <div class="relative">
+                        <input
+                            type="password"
+                            id="password"
+                            name="password"
+                            placeholder="Enter your password"
+                            required
+                            class="w-full rounded-xl border border-white/20 bg-white/20 text-white placeholder-white/60 px-4 py-3 pr-12 outline-none focus:ring-2 focus:ring-cyan-300"
+                        >
+
+                        <button
+                            type="button"
+                            id="togglePassword"
+                            class="absolute right-3 top-1/2 -translate-y-1/2 text-white/80 hover:text-white"
+                        >
+                            👁
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Remember Me + Forgot -->
+                <div class="flex items-center justify-between text-sm">
+
+                    <label class="flex items-center gap-2 text-white">
+                        <input
+                            type="checkbox"
+                            name="remember_me"
+                            id="remember_me"
+                            class="rounded"
+                        >
+                        Remember Me
+                    </label>
+
+                    <a
+                        href="{% url 'forgot_password' %}"
+                        class="text-white hover:underline"
+                    >
+                        Forgot Password?
+                    </a>
+
+                </div>
+
+                <!-- Submit -->
+                <button
+                    type="submit"
+                    class="w-full bg-white text-cyan-700 font-semibold py-3 rounded-xl hover:bg-cyan-50 transition"
+                >
+                    Sign In
+                </button>
+
+            </form>
+
+
+            {% load socialaccount %}
+
+            <!-- Google Sign In -->
+            <div class="flex items-center my-5">
+                <div class="flex-1 border-t border-white/30"></div>
+                <span class="mx-3 text-white/70 text-sm">or</span>
+                <div class="flex-1 border-t border-white/30"></div>
+            </div>
+
+            <a href="{% provider_login_url 'google' %}" class="block w-full">
+                <button type="button" class="gsi-material-button w-full">
+                    <div class="gsi-material-button-state"></div>
+                    <div class="gsi-material-button-content-wrapper">
+                        <div class="gsi-material-button-icon">
+                            <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" style="display: block;">
+                                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                                <path fill="none" d="M0 0h48v48H0z"></path>
+                            </svg>
+                        </div>
+                        <span class="gsi-material-button-contents">Sign in with Google</span>
+                        <span style="display: none;">Sign in with Google</span>
+                    </div>
+                </button>
+            </a>
+
+
+
+            <!-- Register -->
+            <div class="mt-6 text-center text-sm text-white">
+
+                Don't have an account?
+
+                <a
+                    href="{% url 'owner_register' %}"
+                    class="font-semibold underline"
+                >
+                    Create Account
+                </a>
+
+            </div>
+
+            <!-- Footer -->
+            <div class="mt-6 text-center text-xs text-white/70 space-x-4">
+
+                <a href="#">
+                    Terms
+                </a>
+
+                <a href="#">
+                    Privacy
+                </a>
+
+            </div>
+
         </div>
-      {% endfor %}
-    {% endif %}
 
-    <!-- Login form -->
-    <form method="POST" action="{% url 'owner_login' %}">
-      {% csrf_token %}
-
-      <div class="form-group">
-        <label for="email">Email Address</label>
-        <input
-          type="email"
-          id="email"
-          name="email"
-          value="{{ email|default:'' }}"
-          placeholder="you@email.com"
-          required
-          autofocus
-        />
-      </div>
-
-      <div class="form-group">
-        <label for="password">Password</label>
-        <input
-          type="password"
-          id="password"
-          name="password"
-          placeholder="Your password"
-          required
-        />
-      </div>
-
-      <button type="submit" class="btn-primary">
-        Sign In
-      </button>
-
-    </form>
-
-    <!-- Links -->
-    <div class="login-links">
-      <a href="{% url 'forgot_password' %}">Forgot password?</a>
-      <span>·</span>
-      <a href="{% url 'owner_register' %}">Create an account</a>
     </div>
-
-    <!-- Admin login link 
-    <div class="admin-login-link">
-      <a href="{% url 'admin_login' %}">Admin login →</a>
-    </div>  -->
-    
-    
-  </div>
 
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+
+    const toggleBtn = document.getElementById('togglePassword');
+    const passwordInput = document.getElementById('password');
+
+    toggleBtn.addEventListener('click', function () {
+
+        if (passwordInput.type === 'password') {
+            passwordInput.type = 'text';
+        } else {
+            passwordInput.type = 'password';
+        }
+
+    });
+
+});
+</script>
+
+{% endblock %}
+
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/owner/google-button.css' %}">
 {% endblock %}

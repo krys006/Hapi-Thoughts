@@ -215,9 +215,15 @@ class PetDeletionRequestForm(forms.ModelForm):
 class AdminPetOwnerForm(forms.ModelForm):
     """
     Used by Admin to manually create or edit a pet owner account.
-    Does not include user account fields (email, password) —
-    those are handled separately during walk-in creation in Phase 2.5.
+    Does not include password — email is handled as an extra field
+    since it lives on the User model, not PetOwner.
     """
+
+    # Extra field — not part of PetOwner model, saved to owner.user.email
+    email = forms.EmailField(
+        required=False,
+        widget=forms.EmailInput(attrs={"placeholder": "owner@email.com"}),
+    )
 
     class Meta:
         model = PetOwner
@@ -272,6 +278,28 @@ class AdminPetOwnerForm(forms.ModelForm):
     def clean_province(self):
         value = self.cleaned_data.get("province", "").strip()
         return value.title()
+
+    def __init__(self, *args, **kwargs):
+        # Accept the current user so we can exclude them from uniqueness check
+        self.current_user = kwargs.pop("current_user", None)
+        super().__init__(*args, **kwargs)
+        # Pre-populate email from the linked User account
+        if self.current_user:
+            self.fields["email"].initial = self.current_user.email
+
+    def clean_email(self):
+        email = self.cleaned_data.get("email", "").strip()
+        if not email:
+            return email
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        qs = User.objects.filter(email=email)
+        if self.current_user:
+            qs = qs.exclude(pk=self.current_user.pk)
+        if qs.exists():
+            raise forms.ValidationError("An account with this email already exists.")
+        return email
 
 
 class AdminPetForm(forms.ModelForm):
@@ -353,3 +381,31 @@ class AdminPetForm(forms.ModelForm):
         if dob and dob > timezone.now().date():
             raise forms.ValidationError("Date of birth cannot be in the future.")
         return dob
+
+
+class AdminOwnerEmailForm(forms.Form):
+    """
+    Adds or updates the email address on a walk-in owner's User account.
+    Only shown when owner.user.email is blank.
+    """
+
+    email = forms.EmailField(
+        widget=forms.EmailInput(attrs={"placeholder": "owner@email.com"}),
+    )
+
+    def __init__(self, *args, current_user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.current_user = current_user
+
+    def clean_email(self):
+        email = self.cleaned_data.get("email")
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        # Check uniqueness but exclude the current user
+        qs = User.objects.filter(email=email)
+        if self.current_user:
+            qs = qs.exclude(pk=self.current_user.pk)
+        if qs.exists():
+            raise forms.ValidationError("An account with this email already exists.")
+        return email

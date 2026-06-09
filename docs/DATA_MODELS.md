@@ -375,7 +375,7 @@ Can be created through an appointment or as a standalone entry.
 | `pet` | ForeignKey | Pet, on_delete=CASCADE | Always required |
 | `medical_record` | ForeignKey | MedicalRecord, null=True, blank=True, on_delete=SET_NULL | Null if standalone |
 | `appointment` | ForeignKey | Appointment, null=True, blank=True, on_delete=SET_NULL | Null if standalone |
-| `vaccine_name` | CharField | max_length=100 | Predefined list + custom input |
+| `vaccine_name` | CharField | max_length=20 | Predefined list + custom input |
 | `date_administered` | DateField | — | — |
 | `weight_at_vaccination` | DecimalField | max_digits=6, decimal_places=2, null=True | Pet weight at time of vaccination |
 | `next_due_date` | DateField | null=True, blank=True | Triggers reminder |
@@ -404,9 +404,15 @@ Custom input allowed if not in list.
 - If `medical_record` and `appointment` are null — standalone entry
 - Both paths update the pet's vaccination history
 - `next_due_date` is used to trigger vaccination reminders
-- Vaccination records are immutable — no deletion allowed
-- If an entry was made incorrectly, Admin sets `is_corrected = True` and adds a `correction_note`
-- Corrected records remain visible but are flagged in the UI
+- Vaccination records cannot be deleted — ever
+- All fields are editable by Admin
+- A correction note is required only when clinical fields are changed:
+  `vaccine_name`, `custom_vaccine_name`, `date_administered`,
+  `next_due_date`, `weight_at_vaccination`, `site_of_injection`
+- When a clinical field is changed, `is_corrected` is set to `True` automatically
+- Administrative fields (`batch_number`, `manufacturer`, `administered_by`)
+  can be edited freely without a correction note
+- Corrected records remain visible but are flagged in the UI with the correction note
 
 ---
 
@@ -667,7 +673,7 @@ PetDeletionRequest (ForeignKey to Pet)
 | MedicalRecord | Immutable | No delete, no archive | Legal and ethical obligation |
 | PrescriptionItem | Immutable | Follows MedicalRecord | Part of clinical record |
 | TestResultFile | Soft delete | `is_archived = True` | Wrong uploads can be hidden |
-| Vaccination | Immutable + correction | `is_corrected` + `correction_note` | Permanent health history |
+| Vaccination | Editable + correction flag | `is_corrected` + `correction_note` | Permanent health history |
 | Appointment | Status-based | CANCELLED status | Status tells the full story |
 | BillingReceipt | Status-based | CANCELLED status | Financial audit trail |
 | BillingItem | No deletion | Locked with receipt | Integrity of billing record |

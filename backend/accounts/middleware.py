@@ -1,7 +1,6 @@
 from django.shortcuts import redirect
 from django.urls import reverse
 
-
 # URLs that don't require login
 PUBLIC_URLS = [
     "/login/",

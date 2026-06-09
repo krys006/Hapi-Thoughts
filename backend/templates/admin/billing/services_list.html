@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+
+{% block title %}Services — Hapi Vet Admin{% endblock %}
+
+{% block content %}
+
+<div class="admin-page">
+
+  <div class="admin-page-header">
+    <h1 class="admin-page-title">Service Catalog</h1>
+    <a href="{% url 'admin_service_create' %}" class="btn-primary">
+      + Add Service
+    </a>
+  </div>
+
+  {% if messages %}
+    <div class="flash-messages">
+      {% for message in messages %}
+        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <!-- Status filter tabs -->
+  <div class="filter-tabs">
+    <a href="{% url 'admin_service_list' %}" class="filter-tab {% if not status_filter %}filter-tab--active{% endif %}">All <span class="filter-count">{{ counts.all }}</span></a>
+    <a href="{% url 'admin_service_list' %}?status=active" class="filter-tab {% if status_filter == 'active' %}filter-tab--active{% endif %}">Active <span class="filter-count">{{ counts.active }}</span></a>
+    <a href="{% url 'admin_service_list' %}?status=draft" class="filter-tab {% if status_filter == 'draft' %}filter-tab--active{% endif %}">Draft <span class="filter-count">{{ counts.draft }}</span></a>
+    <a href="{% url 'admin_service_list' %}?status=unlisted" class="filter-tab {% if status_filter == 'unlisted' %}filter-tab--active{% endif %}">Unlisted <span class="filter-count">{{ counts.unlisted }}</span></a>
+    <a href="{% url 'admin_service_list' %}?status=closed" class="filter-tab {% if status_filter == 'closed' %}filter-tab--active{% endif %}">Closed <span class="filter-count">{{ counts.closed }}</span></a>
+  </div>
+
+  {% if services %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Service Name</th>
+          <th>Category</th>
+          <th>Pricing</th>
+          <th>Price</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for service in services %}
+          <tr>
+            <td>{{ service.service_name }}</td>
+            <td>{{ service.category|default:"—" }}</td>
+            <td>{{ service.get_pricing_type_display }}</td>
+            <td>{{ service.display_price }}</td>
+            <td>
+              <span class="status-badge status-{{ service.status }}">
+                {{ service.get_status_display }}
+              </span>
+            </td>
+            <td>
+              <a href="{% url 'admin_service_edit' service.pk %}" class="btn-link">Edit</a>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="empty-state-text">No services found.</p>
+  {% endif %}
+
+</div>
+
+{% endblock %}

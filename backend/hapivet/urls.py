@@ -5,13 +5,27 @@ from django.contrib.auth import views as auth_views
 from django.conf import settings
 from django.conf.urls.static import static
 
+from django.views.generic import RedirectView
+
 urlpatterns = [
+
+    # Root URL — redirect to login
+    path("", RedirectView.as_view(url="/login/"), name="home"),
 
     # accounts (login, register, verification, dashboards)
     path("", include("accounts.urls")),
-
+    
     # pets (onboarding, pet management)
     path("", include("pets.urls")),
+
+    # appointments (booking, calendar, clinic settings)
+    path("", include("appointments.urls")),   
+    
+    # medical records (clinical documentation, prescriptions, test results)
+    path("", include("medical.urls")),  
+    
+    # billing (services, receipts, payment status)
+    path("", include("billing.urls")),
 
     # allauth (Google OAuth, email verification, etc.)
     path("accounts/", include("allauth.urls")),

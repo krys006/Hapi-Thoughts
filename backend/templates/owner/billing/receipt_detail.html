@@ -1,0 +1,113 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ receipt.receipt_number }} — Hapi Vet{% endblock %}
+
+{% block content %}
+
+<div class="owner-page">
+
+  <div class="owner-page-header">
+    <h1 class="owner-page-title">{{ receipt.receipt_number }}</h1>
+    <a href="{% url 'owner_billing_list' %}" class="btn-link">
+      Back to Billing
+    </a>
+  </div>
+
+  <div class="detail-card">
+
+    <div class="detail-grid">
+
+      <div class="detail-row">
+        <span class="detail-label">Receipt No.</span>
+        <span class="detail-value">{{ receipt.receipt_number }}</span>
+      </div>
+
+      <div class="detail-row">
+        <span class="detail-label">Date</span>
+        <span class="detail-value">
+          {{ receipt.billing_date|date:"F j, Y" }}
+        </span>
+      </div>
+
+      {% if receipt.pet %}
+        <div class="detail-row">
+          <span class="detail-label">Pet</span>
+          <span class="detail-value">{{ receipt.pet.name }}</span>
+        </div>
+      {% endif %}
+
+      <div class="detail-row">
+        <span class="detail-label">Payment Status</span>
+        <span class="detail-value">
+          <span class="status-badge status-{{ receipt.payment_status }}">
+            {{ receipt.get_payment_status_display }}
+          </span>
+        </span>
+      </div>
+
+      {% if receipt.payment_date %}
+        <div class="detail-row">
+          <span class="detail-label">Payment Date</span>
+          <span class="detail-value">
+            {{ receipt.payment_date|date:"F j, Y" }}
+          </span>
+        </div>
+      {% endif %}
+
+    </div>
+
+    <!-- Items table -->
+    {% if items %}
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Description</th>
+            <th>Qty</th>
+            <th>Unit Price</th>
+            <th>Subtotal</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in items %}
+            <tr>
+              <td>{{ item.description }}</td>
+              <td>{{ item.quantity }}</td>
+              <td>₱{{ item.unit_price|floatformat:2 }}</td>
+              <td>₱{{ item.subtotal|floatformat:2 }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    <!-- Totals -->
+    <div class="receipt-totals">
+      <div class="receipt-total-row">
+        <span>Subtotal</span>
+        <span>₱{{ receipt.subtotal|floatformat:2 }}</span>
+      </div>
+      {% if receipt.discount_value %}
+        <div class="receipt-total-row receipt-total-row--discount">
+          <span>
+            Discount
+            {% if receipt.discount_type == 'percentage' %}
+              ({{ receipt.discount_value }}% off)
+            {% endif %}
+            {% if receipt.discount_note %}
+              — {{ receipt.discount_note }}
+            {% endif %}
+          </span>
+          <span class="text-discount">-₱{{ receipt.discount_amount|floatformat:2 }}</span>
+        </div>
+      {% endif %}
+      <div class="receipt-total-row receipt-total-row--grand">
+        <span>Total</span>
+        <span>₱{{ receipt.total_amount|floatformat:2 }}</span>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+{% endblock %}

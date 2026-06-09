@@ -1,0 +1,8 @@
+{% if slots %}
+  <option value="">Select a time</option>
+  {% for slot in slots %}
+    <option value="{{ slot|time:'H:i:s' }}">{{ slot|time:"g:i A" }}</option>
+  {% endfor %}
+{% else %}
+  <option value="">No slots available for this date</option>
+{% endif %}

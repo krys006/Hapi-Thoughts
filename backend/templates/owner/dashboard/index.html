@@ -1,10 +1,44 @@
 {% extends 'base.html' %}
+
 {% block title %}Dashboard — Hapi Vet{% endblock %}
+
 {% block content %}
-<!-- Pet owner dashboard placeholder -->
-<div class="dashboard-page">
-  <h1>Pet Owner Dashboard</h1>
-  <p>Logged in as: {{ request.user.email }}</p>
-  <a href="{% url 'logout' %}">Logout</a>
+
+<div class="owner-page">
+
+  <div class="owner-page-header">
+    <h1 class="owner-page-title">My Dashboard</h1>
+    <a href="{% url 'logout' %}" class="btn-link">Logout</a>
+  </div>
+
+  <div class="admin-nav-grid">
+
+    <div class="admin-nav-card">
+      <h3 class="admin-nav-card-title">My Appointments</h3>
+      <p class="admin-nav-card-desc">View, book, and manage your appointments.</p>
+      <a href="{% url 'owner_appointments' %}" class="btn-primary">Go to Appointments</a>
+    </div>
+
+    <div class="admin-nav-card">
+      <h3 class="admin-nav-card-title">My Pets</h3>
+      <p class="admin-nav-card-desc">View and manage your registered pets.</p>
+      <a href="{% url 'owner_pet_list' %}" class="btn-primary">Go to My Pets</a>
+    </div>
+
+    <div class="admin-nav-card">
+      <h3 class="admin-nav-card-title">Billing</h3>
+      <p class="admin-nav-card-desc">View your billing history and receipts.</p>
+      <a href="{% url 'owner_billing_list' %}" class="btn-primary">Go to Billing</a>
+    </div>
+
+    <div class="admin-nav-card">
+      <h3 class="admin-nav-card-title">My Profile</h3>
+      <p class="admin-nav-card-desc">View and update your profile information.</p>
+      <a href="{% url 'owner_profile' %}" class="btn-primary">Go to Profile</a>
+    </div>
+
+  </div>
+
 </div>
+
 {% endblock %}

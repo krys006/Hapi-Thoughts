@@ -1,0 +1,128 @@
+{% extends 'base.html' %}
+
+{% block title %}
+  {% if is_edit %}Edit Service{% else %}Add Service{% endif %}
+  — Hapi Vet Admin
+{% endblock %}
+
+{% block content %}
+
+<div class="admin-page">
+
+  <div class="admin-page-header">
+    <h1 class="admin-page-title">
+      {% if is_edit %}Edit Service{% else %}Add Service{% endif %}
+    </h1>
+    <a href="{% url 'admin_service_list' %}" class="btn-link">
+      Back to Services
+    </a>
+  </div>
+
+  {% if messages %}
+    <div class="flash-messages">
+      {% for message in messages %}
+        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <form method="post" class="billing-form">
+    {% csrf_token %}
+
+    <div class="form-group">
+      <label for="{{ form.service_name.id_for_label }}" class="form-label">
+        Service Name
+      </label>
+      {{ form.service_name }}
+      {% if form.service_name.errors %}
+        <p class="form-error">{{ form.service_name.errors.0 }}</p>
+      {% endif %}
+    </div>
+
+    <div class="form-group">
+      <label for="{{ form.category.id_for_label }}" class="form-label">
+        Category <span class="form-optional">(optional)</span>
+      </label>
+      {{ form.category }}
+    </div>
+
+    <div class="form-group">
+      <label for="{{ form.description.id_for_label }}" class="form-label">
+        Description <span class="form-optional">(optional)</span>
+      </label>
+      {{ form.description }}
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label for="{{ form.pricing_type.id_for_label }}" class="form-label">
+          Pricing Type
+        </label>
+        {{ form.pricing_type }}
+      </div>
+
+      <div class="form-group">
+        <label for="{{ form.status.id_for_label }}" class="form-label">
+          Status
+        </label>
+        {{ form.status }}
+      </div>
+    </div>
+
+    <!-- Fixed pricing -->
+    <div class="form-group">
+      <label for="{{ form.base_price.id_for_label }}" class="form-label">
+        Base Price (₱)
+        <span class="form-help-inline">For Fixed pricing</span>
+      </label>
+      {{ form.base_price }}
+      {% if form.base_price.errors %}
+        <p class="form-error">{{ form.base_price.errors.0 }}</p>
+      {% endif %}
+    </div>
+
+    <!-- Range pricing -->
+    <div class="form-row">
+      <div class="form-group">
+        <label for="{{ form.min_price.id_for_label }}" class="form-label">
+          Min Price (₱)
+          <span class="form-help-inline">For Range pricing</span>
+        </label>
+        {{ form.min_price }}
+        {% if form.min_price.errors %}
+          <p class="form-error">{{ form.min_price.errors.0 }}</p>
+        {% endif %}
+      </div>
+
+      <div class="form-group">
+        <label for="{{ form.max_price.id_for_label }}" class="form-label">
+          Max Price (₱)
+          <span class="form-help-inline">For Range pricing</span>
+        </label>
+        {{ form.max_price }}
+        {% if form.max_price.errors %}
+          <p class="form-error">{{ form.max_price.errors.0 }}</p>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if form.non_field_errors %}
+      <div class="form-error-block">
+        {% for error in form.non_field_errors %}
+          <p class="form-error">{{ error }}</p>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <div class="form-actions">
+      <button type="submit" class="btn-primary">
+        {% if is_edit %}Save Changes{% else %}Create Service{% endif %}
+      </button>
+      <a href="{% url 'admin_service_list' %}" class="btn-secondary">Cancel</a>
+    </div>
+
+  </form>
+
+</div>
+
+{% endblock %}

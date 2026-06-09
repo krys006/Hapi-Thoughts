@@ -1,0 +1,175 @@
+{% extends 'base.html' %}
+
+{% block title %}Edit Vaccination — {{ pet.name }} — Hapi Vet Admin{% endblock %}
+
+{% block content %}
+
+<div class="admin-page">
+
+  <div class="admin-page-header">
+    <h1 class="admin-page-title">Edit Vaccination — {{ pet.name }}</h1>
+    {% if next == 'record' and vaccination.medical_record %}
+      <a href="{% url 'admin_medical_record_detail' vaccination.medical_record.pk %}" class="btn-link">
+        Back to Medical Record
+      </a>
+    {% else %}
+      <a href="{% url 'admin_pet_vaccination_history' pet.pk %}" class="btn-link">
+        Back to Vaccination History
+      </a>
+    {% endif %}
+  </div>
+
+  {% if messages %}
+    <div class="flash-messages">
+      {% for message in messages %}
+        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if vaccination.is_corrected %}
+    <div class="warning-banner">
+      <p>This record has already been marked as corrected.</p>
+      <p class="correction-note-display">
+        Previous note: {{ vaccination.correction_note }}
+      </p>
+    </div>
+  {% endif %}
+
+  <form method="post" class="medical-form">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ next }}" />
+
+    <!-- Clinical fields — correction note required if changed -->
+    <div class="form-section">
+      <h2 class="form-section-title">
+        Clinical Fields
+        <span class="form-help-inline">
+          Correction note required if you change any of these
+        </span>
+      </h2>
+
+      <div class="form-group">
+        <label for="{{ form.vaccine_name.id_for_label }}" class="form-label">
+          Vaccine
+        </label>
+        {{ form.vaccine_name }}
+        {% if form.vaccine_name.errors %}
+          <p class="form-error">{{ form.vaccine_name.errors.0 }}</p>
+        {% endif %}
+      </div>
+
+      <div class="form-group">
+        <label for="{{ form.custom_vaccine_name.id_for_label }}" class="form-label">
+          Custom Vaccine Name
+          <span class="form-optional">(required if Other selected)</span>
+        </label>
+        {{ form.custom_vaccine_name }}
+        {% if form.custom_vaccine_name.errors %}
+          <p class="form-error">{{ form.custom_vaccine_name.errors.0 }}</p>
+        {% endif %}
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="{{ form.date_administered.id_for_label }}" class="form-label">
+            Date Administered
+          </label>
+          {{ form.date_administered }}
+          {% if form.date_administered.errors %}
+            <p class="form-error">{{ form.date_administered.errors.0 }}</p>
+          {% endif %}
+        </div>
+
+        <div class="form-group">
+          <label for="{{ form.next_due_date.id_for_label }}" class="form-label">
+            Next Due Date <span class="form-optional">(optional)</span>
+          </label>
+          {{ form.next_due_date }}
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="{{ form.weight_at_vaccination.id_for_label }}" class="form-label">
+            Weight at Vaccination (kg)
+            <span class="form-optional">(optional)</span>
+          </label>
+          {{ form.weight_at_vaccination }}
+        </div>
+
+        <div class="form-group">
+          <label for="{{ form.site_of_injection.id_for_label }}" class="form-label">
+            Site of Injection
+            <span class="form-optional">(optional)</span>
+          </label>
+          {{ form.site_of_injection }}
+        </div>
+      </div>
+    </div>
+
+    <!-- Administrative fields — no correction note needed -->
+    <div class="form-section">
+      <h2 class="form-section-title">Administrative Fields</h2>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="{{ form.batch_number.id_for_label }}" class="form-label">
+            Batch / Lot Number <span class="form-optional">(optional)</span>
+          </label>
+          {{ form.batch_number }}
+        </div>
+
+        <div class="form-group">
+          <label for="{{ form.manufacturer.id_for_label }}" class="form-label">
+            Manufacturer <span class="form-optional">(optional)</span>
+          </label>
+          {{ form.manufacturer }}
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="{{ form.administered_by.id_for_label }}" class="form-label">
+          Administered By <span class="form-optional">(optional)</span>
+        </label>
+        {{ form.administered_by }}
+      </div>
+    </div>
+
+    <!-- Correction note — required only when clinical fields change -->
+    <div class="form-section">
+      <h2 class="form-section-title">Correction Note</h2>
+      <p class="form-help">
+        Only required if you changed a clinical field above.
+        Explain what was incorrect and what the correct value is.
+      </p>
+      <div class="form-group">
+        {{ form.correction_note }}
+        {% if form.correction_note.errors %}
+          <p class="form-error">{{ form.correction_note.errors.0 }}</p>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if form.non_field_errors %}
+      <div class="form-error-block">
+        {% for error in form.non_field_errors %}
+          <p class="form-error">{{ error }}</p>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <div class="form-actions">
+      <button type="submit" class="btn-primary">Save Changes</button>
+      {% if next == 'record' and vaccination.medical_record %}
+        <a href="{% url 'admin_medical_record_detail' vaccination.medical_record.pk %}" class="btn-secondary">Cancel</a>
+      {% else %}
+        <a href="{% url 'admin_pet_vaccination_history' pet.pk %}" class="btn-secondary">Cancel</a>
+      {% endif %}
+    </div>
+
+  </form>
+
+</div>
+
+{% endblock %}

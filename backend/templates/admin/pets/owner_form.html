@@ -84,6 +84,22 @@
         {% endif %}
       </div>
 
+      <!-- Email — lives on User model, saved separately in the view -->
+      <div class="form-section">
+        <label class="form-label" for="{{ form.email.id_for_label }}">
+          Email Address <span class="optional-tag">(optional)</span>
+        </label>
+        {{ form.email }}
+        {% if form.email.errors %}
+          <p class="form-error">{{ form.email.errors.0 }}</p>
+        {% endif %}
+        {% if not owner.user.email %}
+          <p class="form-hint">
+            Adding an email will activate this account and send a claim link.
+          </p>
+        {% endif %}
+      </div>
+
     </div>
 
     <!-- Address -->
