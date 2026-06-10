@@ -9,6 +9,9 @@ from django.views.generic import RedirectView
 
 urlpatterns = [
 
+    # notifications (bell panel, mark read, clear)
+    path("", include("notifications.urls")),
+    
     # Root URL — redirect to login
     path("", RedirectView.as_view(url="/login/"), name="home"),
 

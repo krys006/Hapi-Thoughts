@@ -1,0 +1,20 @@
+<!-- Single notification row — re-rendered in place on mark-read -->
+<div id="notification-{{ notification.pk }}"
+  class="notification-row {% if not notification.is_read %}notification-row-unread{% endif %}"
+  hx-post="{% url 'notification_mark_read' notification.pk %}"
+  hx-target="#notification-{{ notification.pk }}"
+  hx-swap="outerHTML">
+
+  <!-- Unread dot -->
+  {% if not notification.is_read %}
+  <span class="notification-unread-dot"></span>
+  {% endif %}
+
+  <!-- Content -->
+  <div class="notification-content">
+    <p class="notification-title">{{ notification.title }}</p>
+    <p class="notification-message">{{ notification.message }}</p>
+    <p class="notification-time">{{ notification.created_at|timesince }} ago</p>
+  </div>
+
+</div>

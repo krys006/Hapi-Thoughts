@@ -1,0 +1,85 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Hapi Vet{% endblock %}</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- HTMX CDN -->
+  <script src="https://unpkg.com/htmx.org@latest"></script>
+  
+  <!-- CSRF token for HTMX POST requests -->
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      document.body.addEventListener("htmx:configRequest", function (e) {
+        e.detail.headers["X-CSRFToken"] = "{{ csrf_token }}";
+      });
+    });
+  </script>
+
+  {% block extra_css %}{% endblock %}
+</head>
+
+<body>
+
+  <!-- ─── Top Header Bar ─────────────────────────────────────────────── -->
+  <!-- Placeholder header — frontend teammate replaces with final design -->
+  <header class="dashboard-header">
+
+    <!-- Left: clinic name / logo placeholder -->
+    <div class="dashboard-header-brand">
+      <span class="dashboard-brand-name">Hapi Vet</span>
+    </div>
+
+    <!-- Right: bell icon + notification panel container -->
+    <div class="dashboard-header-actions">
+
+      <!-- Bell button — triggers HTMX load of notification panel -->
+      <button id="bell-button"
+        hx-get="{% url 'notifications_panel' %}"
+        hx-target="#notification-panel-container"
+        hx-swap="innerHTML"
+        class="bell-button">
+
+        <!-- Bell icon (inline SVG — no extra dependency) -->
+        <svg class="bell-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="24" height="24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+        </svg>
+
+        <!-- Unread badge — hidden when count is zero -->
+        {% if unread_count > 0 %}
+        <span class="bell-badge">{{ unread_count }}</span>
+        {% endif %}
+
+      </button>
+
+      <!-- Notification panel mounts here -->
+      <!-- On mobile: full-screen overlay -->
+      <!-- On desktop: absolute dropdown anchored to bell button -->
+      <div id="notification-panel-container" class="notification-panel-container"></div>
+
+    </div>
+  </header>
+
+  <!-- ─── Flash Messages ─────────────────────────────────────────────── -->
+  {% if messages %}
+  <div class="flash-messages">
+    {% for message in messages %}
+    <div class="flash-message flash-{{ message.tags }}">
+      {{ message }}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- ─── Main Content ───────────────────────────────────────────────── -->
+  {% block content %}{% endblock %}
+
+  {% block extra_js %}{% endblock %}
+</body>
+</html>
