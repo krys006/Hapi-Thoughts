@@ -42,6 +42,8 @@ INSTALLED_APPS = [
     "notifications",
     "health",
     "dashboard",
+    # Optional utilities
+    "django_extensions",
 ]
 
 SITE_ID = 1

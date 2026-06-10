@@ -5,12 +5,20 @@
 
 {% block content %}
 
-<div
-    class="min-h-screen flex items-center justify-center px-4 py-8 bg-cover bg-center bg-no-repeat"
-    style="background-image: url('{% static 'images/clinic/auth-bg.jpeg' %}');"
->
+<div class="relative min-h-screen flex items-center justify-center px-4 py-8 overflow-hidden">
+   
+    <!-- Background Image -->
+    <img
+        src="{% static 'images/clinic/auth-bg.jpeg' %}"
+        alt="Background"
+        class="absolute inset-0 w-full h-full object-cover"
+    >
 
-    <div class="w-full max-w-sm">
+    <!-- Dark Overlay (optional but recommended) 
+    <div class="absolute inset-0 bg-black/40"></div>-->
+
+
+    <div class="relative z-10 w-full max-w-sm">
 
         <!-- Glass Card -->
         <div class="backdrop-blur-xl bg-white/15 border border-white/20 shadow-2xl rounded-3xl p-8">
