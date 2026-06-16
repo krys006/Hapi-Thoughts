@@ -1,0 +1,95 @@
+{% extends 'base_dashboard.html' %}
+
+{% block title %}Medical Records — Hapi Vet Admin{% endblock %}
+
+{% block content %}
+
+<div class="admin-page">
+
+  <div class="admin-page-header">
+    <h1 class="admin-page-title">Medical Records</h1>
+    <span class="admin-page-count">{{ total_count }} record{{ total_count|pluralize }}</span>
+  </div>
+
+  <!-- Search bar -->
+  <form method="get" class="admin-search-form">
+    <input
+      type="text"
+      name="search"
+      value="{{ search_query }}"
+      placeholder="Search by pet name or owner name..."
+      class="admin-search-input"
+    />
+    <button type="submit" class="btn-primary">Search</button>
+    {% if search_query %}<a href="{% url 'admin_medical_record_list' %}" class="btn-secondary">Clear</a>{% endif %}
+  </form>
+
+  {% if search_query %}
+  <p class="admin-search-result-note">
+    Showing results for "{{ search_query }}"
+  </p>
+  {% endif %}
+
+  <!-- Records table -->
+  {% if records %}
+  <div class="admin-table-wrapper">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th class="admin-table-header">Date</th>
+          <th class="admin-table-header">Pet</th>
+          <th class="admin-table-header">Owner</th>
+          <th class="admin-table-header">Diagnosis</th>
+          <th class="admin-table-header">Follow-up</th>
+          <th class="admin-table-header">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for record in records %}
+        <tr class="admin-table-row">
+
+          <td class="admin-table-cell">
+            {{ record.record_date|date:"F d, Y" }}
+          </td>
+
+          <td class="admin-table-cell">
+            <a href="{% url 'admin_pet_detail' record.pet.pk %}" class="admin-table-link">{{ record.pet.name }}</a>
+          </td>
+
+          <td class="admin-table-cell">
+            <a href="{% url 'admin_owner_detail' record.pet.owner.pk %}" class="admin-table-link">{{ record.pet.owner.full_name }}</a>
+          </td>
+
+          <td class="admin-table-cell">
+            {{ record.diagnosis|default:"—"|truncatechars:50 }}
+          </td>
+
+          <td class="admin-table-cell">
+            {% if record.follow_up_required and record.follow_up_date %}
+              <span class="admin-followup-badge">{{ record.follow_up_date|date:"M d, Y" }}</span>
+            {% else %}
+              <span class="admin-table-muted">—</span>
+            {% endif %}
+          </td>
+
+          <td class="admin-table-cell">
+            <a href="{% url 'admin_medical_record_detail' record.pk %}" class="btn-small-primary">View</a>
+          </td>
+
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% else %}
+    {% if search_query %}
+      <p class="admin-empty-state">No records found for "{{ search_query }}".</p>
+    {% else %}
+      <p class="admin-empty-state">No medical records yet.</p>
+    {% endif %}
+  {% endif %}
+
+</div>
+
+{% endblock %}

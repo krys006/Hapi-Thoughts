@@ -945,14 +945,14 @@ def admin_pet_list(request):
 # Admin — Pet Detail
 # ---------------------------------------------------------------------------
 
-
 @login_required
 def admin_pet_detail(request, pk):
     guard = _require_admin(request)
     if guard:
         return guard
 
-    # Admin can view archived pets too
+    from medical.models import MedicalRecord, Vaccination
+
     pet = get_object_or_404(Pet, pk=pk)
 
     pending_deletion = PetDeletionRequest.objects.filter(
@@ -960,15 +960,24 @@ def admin_pet_detail(request, pk):
         status=PetDeletionRequest.PENDING,
     ).first()
 
+    medical_records = MedicalRecord.objects.filter(
+        pet=pet,
+    ).order_by("-record_date")
+
+    vaccinations = Vaccination.objects.filter(
+        pet=pet,
+    ).order_by("-date_administered")
+
     return render(
         request,
         "admin/pets/pet_detail.html",
         {
             "pet": pet,
             "pending_deletion": pending_deletion,
+            "medical_records": medical_records,
+            "vaccinations": vaccinations,
         },
     )
-
 
 # ---------------------------------------------------------------------------
 # Admin — Edit Pet

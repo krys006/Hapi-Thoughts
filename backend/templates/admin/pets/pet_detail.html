@@ -103,18 +103,123 @@
 
   </div>
 
-  <!-- Medical history stub — Phase 4 -->
+<!-- Medical history -->
   <div class="admin-detail-section">
     <h3 class="admin-detail-section-title">Medical History</h3>
-    <p class="admin-detail-empty">Medical records will appear here.</p>
+
+    <div class="admin-detail-section-actions">
+      <a href="{% url 'admin_medical_record_create' pet.pk %}" class="btn-primary">Add Medical Record</a>
+      <a href="{% url 'admin_pet_medical_history' pet.pk %}" class="btn-secondary">View Full History</a>
+    </div>
+
+    {% if medical_records %}
+      {% for record in medical_records %}
+      <div class="medical-record-card">
+
+        <div class="medical-record-header">
+          <span class="medical-record-date">{{ record.record_date|date:"F d, Y" }}</span>
+          {% if record.follow_up_required and record.follow_up_date %}
+          <span class="medical-record-followup-badge">Follow-up: {{ record.follow_up_date|date:"F d, Y" }}</span>
+          {% endif %}
+          <a href="{% url 'admin_medical_record_detail' record.pk %}" class="medical-record-view-link">View / Edit</a>
+        </div>
+
+        {% if record.diagnosis %}
+        <div class="medical-record-field">
+          <span class="medical-record-label">Diagnosis</span>
+          <span class="medical-record-value">{{ record.diagnosis }}</span>
+        </div>
+        {% endif %}
+
+        {% if record.symptoms %}
+        <div class="medical-record-field">
+          <span class="medical-record-label">Symptoms</span>
+          <span class="medical-record-value">{{ record.symptoms }}</span>
+        </div>
+        {% endif %}
+
+        {% if record.treatment_given %}
+        <div class="medical-record-field">
+          <span class="medical-record-label">Treatment</span>
+          <span class="medical-record-value">{{ record.treatment_given }}</span>
+        </div>
+        {% endif %}
+
+        {% if record.public_notes %}
+        <div class="medical-record-field">
+          <span class="medical-record-label">Public Notes</span>
+          <span class="medical-record-value">{{ record.public_notes }}</span>
+        </div>
+        {% endif %}
+
+        {% if record.private_notes %}
+        <div class="medical-record-field">
+          <span class="medical-record-label">Private Notes</span>
+          <span class="medical-record-value">{{ record.private_notes }}</span>
+        </div>
+        {% endif %}
+
+      </div>
+      {% endfor %}
+    {% else %}
+      <p class="admin-detail-empty">No medical records yet.</p>
+    {% endif %}
+
   </div>
 
-  <!-- Vaccination history stub — Phase 4 -->
+<!-- Vaccination history -->
   <div class="admin-detail-section">
     <h3 class="admin-detail-section-title">Vaccination History</h3>
-    <p class="admin-detail-empty">Vaccination records will appear here.</p>
-  </div>
 
-</div>
+    <div class="admin-detail-section-actions">
+      <a href="{% url 'admin_vaccination_standalone_create' pet.pk %}" class="btn-primary">Add Vaccination</a>
+      <a href="{% url 'admin_pet_vaccination_history' pet.pk %}" class="btn-secondary">View Full History</a>
+    </div>
+
+    {% if vaccinations %}
+      {% for vaccination in vaccinations %}
+      <div class="vaccination-card {% if vaccination.is_corrected %}vaccination-card-corrected{% endif %}">
+
+        <div class="vaccination-header">
+          <span class="vaccination-name">{{ vaccination.display_vaccine_name }}</span>
+          <span class="vaccination-date">{{ vaccination.date_administered|date:"F d, Y" }}</span>
+          <a href="{% url 'admin_vaccination_edit' vaccination.pk %}" class="vaccination-edit-link">Edit</a>
+        </div>
+
+        {% if vaccination.next_due_date %}
+        <div class="vaccination-field">
+          <span class="vaccination-label">Next due</span>
+          <span class="vaccination-value">{{ vaccination.next_due_date|date:"F d, Y" }}</span>
+        </div>
+        {% endif %}
+
+        {% if vaccination.administered_by %}
+        <div class="vaccination-field">
+          <span class="vaccination-label">Administered by</span>
+          <span class="vaccination-value">{{ vaccination.administered_by }}</span>
+        </div>
+        {% endif %}
+
+        {% if vaccination.weight_at_vaccination %}
+        <div class="vaccination-field">
+          <span class="vaccination-label">Weight at vaccination</span>
+          <span class="vaccination-value">{{ vaccination.weight_at_vaccination }} kg</span>
+        </div>
+        {% endif %}
+
+        {% if vaccination.is_corrected %}
+        <div class="vaccination-correction-note">
+          <span class="vaccination-correction-label">Correction note</span>
+          <span class="vaccination-correction-text">{{ vaccination.correction_note }}</span>
+        </div>
+        {% endif %}
+
+      </div>
+      {% endfor %}
+    {% else %}
+      <p class="admin-detail-empty">No vaccination records yet.</p>
+    {% endif %}
+
+  </div>
 
 {% endblock %}

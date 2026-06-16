@@ -4,6 +4,12 @@ from . import views
 urlpatterns = [
     # ── Admin — Medical Records ───────────────────────────────────────────
     path(
+        "admin/medical/",
+        views.admin_medical_record_list,
+        name="admin_medical_record_list",
+    ),
+        
+    path(
         "admin/medical/pet/<int:pet_pk>/create/",
         views.admin_medical_record_create,
         name="admin_medical_record_create",

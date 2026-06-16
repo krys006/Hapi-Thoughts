@@ -15,6 +15,8 @@ from .forms import (
 
 from notifications.utils import notify
 
+from django.db.models import Q
+
 # ── Admin — Medical Records ───────────────────────────────────────────────────
 
 
@@ -383,6 +385,39 @@ def admin_pet_medical_history(request, pk):
         {
             "pet": pet,
             "records": records,
+        },
+    )
+
+
+@login_required
+def admin_medical_record_list(request):
+    """
+    Admin view — list all medical records across all pets.
+    Searchable by pet name and pet owner name.
+    """
+    if request.user.role != "admin":
+        return redirect("owner_dashboard")
+
+    search_query = request.GET.get("search", "").strip()
+
+    records = MedicalRecord.objects.select_related(
+        "pet", "pet__owner"
+    ).order_by("-record_date", "-created_at")
+
+    if search_query:
+        records = records.filter(
+            Q(pet__name__icontains=search_query)
+            | Q(pet__owner__first_name__icontains=search_query)
+            | Q(pet__owner__last_name__icontains=search_query)
+        )
+
+    return render(
+        request,
+        "admin/medical/record_list.html",
+        {
+            "records": records,
+            "search_query": search_query,
+            "total_count": records.count(),
         },
     )
 
