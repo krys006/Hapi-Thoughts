@@ -945,6 +945,7 @@ def admin_pet_list(request):
 # Admin — Pet Detail
 # ---------------------------------------------------------------------------
 
+
 @login_required
 def admin_pet_detail(request, pk):
     guard = _require_admin(request)
@@ -978,6 +979,7 @@ def admin_pet_detail(request, pk):
             "vaccinations": vaccinations,
         },
     )
+
 
 # ---------------------------------------------------------------------------
 # Admin — Edit Pet

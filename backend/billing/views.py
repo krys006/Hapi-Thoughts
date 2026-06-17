@@ -8,6 +8,8 @@ from .forms import ServiceForm, BillingReceiptForm, BillingItemForm
 
 from notifications.utils import notify
 
+from appointments.models import ClinicSettings
+
 # ── Admin — Services ──────────────────────────────────────────────────────────
 
 
@@ -240,6 +242,7 @@ def admin_receipt_detail(request, pk):
             "receipt": receipt,
             "items": items,
             "item_form": item_form,
+            "clinic_settings": ClinicSettings.objects.first(),
         },
     )
 
@@ -447,6 +450,7 @@ def owner_receipt_detail(request, pk):
         {
             "receipt": receipt,
             "items": items,
+            "clinic_settings": ClinicSettings.objects.first(),
         },
     )
 

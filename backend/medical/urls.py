@@ -8,7 +8,6 @@ urlpatterns = [
         views.admin_medical_record_list,
         name="admin_medical_record_list",
     ),
-        
     path(
         "admin/medical/pet/<int:pet_pk>/create/",
         views.admin_medical_record_create,
@@ -53,6 +52,11 @@ urlpatterns = [
     ),
     # ── Admin — Vaccinations ──────────────────────────────────────────────
     path(
+        "admin/vaccinations/",
+        views.admin_vaccination_list,
+        name="admin_vaccination_list",
+    ),
+    path(
         "admin/medical/<int:record_pk>/vaccination/add/",
         views.admin_vaccination_add,
         name="admin_vaccination_add",
@@ -76,6 +80,17 @@ urlpatterns = [
         "admin/medical/vaccination/<int:pk>/edit/",
         views.admin_vaccination_edit,
         name="admin_vaccination_edit",
+    ),
+    # ── Admin — Manual Notif Trigger  ─────────────────────────────────────────
+    path(
+        "admin/medical/vaccination/<int:pk>/trigger-reminder/",
+        views.admin_trigger_vaccination_reminder,
+        name="admin_trigger_vaccination_reminder",
+    ),
+    path(
+        "admin/medical/<int:pk>/trigger-followup-reminder/",
+        views.admin_trigger_followup_reminder,
+        name="admin_trigger_followup_reminder",
     ),
     # ── Pet Owner — Medical History ───────────────────────────────────────
     path(

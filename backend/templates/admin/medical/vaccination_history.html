@@ -18,6 +18,15 @@
     </div>
   </div>
 
+  <!-- Last reminder sent note -->
+  <p class="reminder-last-sent">
+    {% if last_reminder %}
+      Last vaccination reminder sent to {{ pet.owner.full_name }}: {{ last_reminder.created_at|date:"F j, Y, g:i A" }}
+    {% else %}
+      No vaccination reminder has been sent to {{ pet.owner.full_name }} yet.
+    {% endif %}
+  </p>
+
   {% if messages %}
     <div class="flash-messages">
       {% for message in messages %}
@@ -39,6 +48,7 @@
           <th>Manufacturer</th>
           <th>Site</th>
           <th>Status</th>
+          <th></th>
           <th></th>
         </tr>
       </thead>
@@ -75,6 +85,12 @@
             </td>
             <td>
               <a href="{% url 'admin_vaccination_edit' v.pk %}?next=history" class="btn-link">Edit</a>
+            </td>
+            <td>
+              <form method="post" action="{% url 'admin_trigger_vaccination_reminder' v.pk %}">
+                {% csrf_token %}
+                <button type="submit" class="btn-secondary-sm">Send Reminder</button>
+              </form>
             </td>
           </tr>
         {% endfor %}

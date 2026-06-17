@@ -8,16 +8,21 @@
 
   <div class="admin-page-header">
     <h1 class="admin-page-title">{{ receipt.receipt_number }}</h1>
+
     <div class="header-actions">
       {% if not receipt.is_locked %}
         <a href="{% url 'admin_receipt_edit' receipt.pk %}" class="btn-secondary">
           Edit Receipt
         </a>
       {% endif %}
+      <button type="button" class="btn-secondary no-print" onclick="window.print()">
+        Print / Save as PDF
+      </button>
       <a href="{% url 'admin_receipt_list' %}" class="btn-link">
         Back to Billing
       </a>
     </div>
+    
   </div>
 
   {% if messages %}
@@ -350,4 +355,7 @@
       });
   }
 </script>
+
+{% include "shared/billing/_receipt_print.html" %}
+
 {% endblock extra_js %}

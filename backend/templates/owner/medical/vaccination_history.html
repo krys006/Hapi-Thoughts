@@ -4,7 +4,9 @@
 
 {% block content %}
 
-<div class="owner-page-header">
+<div class="owner-page">
+
+  <div class="owner-page-header">
     <h1 class="owner-page-title">Vaccination History — {{ pet.name }}</h1>
     <a href="{% url 'owner_pet_medical_history' pet.pk %}" class="btn-link">
       View Medical History
@@ -23,17 +25,15 @@
           <th>Next Due</th>
           <th>Weight</th>
           <th>Administered By</th>
+          <th>Batch No.</th>
+          <th>Manufacturer</th>
+          <th>Site</th>
         </tr>
       </thead>
       <tbody>
         {% for v in vaccinations %}
           <tr>
-            <td>
-              {{ v.display_vaccine_name }}
-              {% if v.is_corrected %}
-                <span class="corrected-badge">Corrected</span>
-              {% endif %}
-            </td>
+            <td>{{ v.display_vaccine_name }}</td>
             <td>{{ v.date_administered|date:"M j, Y" }}</td>
             <td>
               {% if v.next_due_date %}
@@ -49,17 +49,11 @@
                 <span class="text-muted">—</span>
               {% endif %}
             </td>
-            <td>
-              {{ v.administered_by|default:"—" }}
-            </td>
+            <td>{{ v.administered_by|default:"—" }}</td>
+            <td>{{ v.batch_number|default:"—" }}</td>
+            <td>{{ v.manufacturer|default:"—" }}</td>
+            <td>{{ v.site_of_injection|default:"—" }}</td>
           </tr>
-          {% if v.is_corrected and v.correction_note %}
-          <tr class="correction-note-row">
-            <td colspan="5">
-              <span class="record-label">Correction note:</span> {{ v.correction_note }}
-            </td>
-          </tr>
-          {% endif %}
         {% endfor %}
       </tbody>
     </table>

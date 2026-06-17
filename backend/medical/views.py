@@ -17,6 +17,8 @@ from notifications.utils import notify
 
 from django.db.models import Q
 
+from notifications.models import Notification
+
 # ── Admin — Medical Records ───────────────────────────────────────────────────
 
 
@@ -121,6 +123,16 @@ def admin_medical_record_detail(request, pk):
     file_form = TestResultFileForm()
     vaccination_form = VaccinationForm()
 
+    last_followup_reminder = (
+        Notification.objects.filter(
+            recipient=record.pet.owner.user,
+            notification_type=Notification.FOLLOWUP_REMINDER,
+            related_pet=record.pet,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+
     return render(
         request,
         "admin/medical/record_detail.html",
@@ -132,6 +144,7 @@ def admin_medical_record_detail(request, pk):
             "prescription_form": prescription_form,
             "file_form": file_form,
             "vaccination_form": vaccination_form,
+            "last_followup_reminder": last_followup_reminder,
         },
     )
 
@@ -355,12 +368,23 @@ def admin_pet_vaccination_history(request, pk):
     pet = get_object_or_404(Pet, pk=pk)
     vaccinations = Vaccination.objects.filter(pet=pet).order_by("-date_administered")
 
+    last_reminder = (
+        Notification.objects.filter(
+            recipient=pet.owner.user,
+            notification_type=Notification.VACCINATION_REMINDER,
+            related_pet=pet,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+
     return render(
         request,
         "admin/medical/vaccination_history.html",
         {
             "pet": pet,
             "vaccinations": vaccinations,
+            "last_reminder": last_reminder,
         },
     )
 
@@ -400,9 +424,9 @@ def admin_medical_record_list(request):
 
     search_query = request.GET.get("search", "").strip()
 
-    records = MedicalRecord.objects.select_related(
-        "pet", "pet__owner"
-    ).order_by("-record_date", "-created_at")
+    records = MedicalRecord.objects.select_related("pet", "pet__owner").order_by(
+        "-record_date", "-created_at"
+    )
 
     if search_query:
         records = records.filter(
@@ -418,6 +442,39 @@ def admin_medical_record_list(request):
             "records": records,
             "search_query": search_query,
             "total_count": records.count(),
+        },
+    )
+
+
+@login_required
+def admin_vaccination_list(request):
+    """
+    Admin view — list all vaccination records across all pets.
+    Searchable by pet name and pet owner name.
+    """
+    if request.user.role != "admin":
+        return redirect("owner_dashboard")
+
+    search_query = request.GET.get("search", "").strip()
+
+    vaccinations = Vaccination.objects.select_related("pet", "pet__owner").order_by(
+        "-date_administered"
+    )
+
+    if search_query:
+        vaccinations = vaccinations.filter(
+            Q(pet__name__icontains=search_query)
+            | Q(pet__owner__first_name__icontains=search_query)
+            | Q(pet__owner__last_name__icontains=search_query)
+        )
+
+    return render(
+        request,
+        "admin/medical/vaccination_list.html",
+        {
+            "vaccinations": vaccinations,
+            "search_query": search_query,
+            "total_count": vaccinations.count(),
         },
     )
 
@@ -474,6 +531,101 @@ def admin_vaccination_edit(request, pk):
             "next": next_param,
         },
     )
+
+
+@login_required
+def admin_trigger_vaccination_reminder(request, pk):
+    """
+    Admin action — manually send a vaccination reminder to the pet owner.
+    Bypasses the duplicate-prevention check used by the automated cron job,
+    since this is an intentional resend. Called from the vaccination
+    history page.
+    """
+    if request.user.role != "admin":
+        return redirect("owner_dashboard")
+
+    vaccination = get_object_or_404(Vaccination, pk=pk)
+
+    if request.method == "POST":
+        owner_user = vaccination.pet.owner.user
+        vaccine_display = vaccination.display_vaccine_name
+
+        if vaccination.next_due_date:
+            message = (
+                f"This is a reminder that {vaccination.pet.name}'s "
+                f"{vaccine_display} vaccination is due on "
+                f"{vaccination.next_due_date.strftime('%B %d, %Y')}. "
+                f"Please contact the clinic to schedule an appointment."
+            )
+        else:
+            message = (
+                f"This is a reminder regarding {vaccination.pet.name}'s "
+                f"{vaccine_display} vaccination. "
+                f"Please contact the clinic for more information."
+            )
+
+        notify(
+            recipient=owner_user,
+            notification_type=Notification.VACCINATION_REMINDER,
+            title=f"Vaccination Reminder — {vaccination.pet.name}",
+            message=message,
+            related_pet=vaccination.pet,
+            email_subject="Vaccination Reminder — Hapi Vet",
+        )
+        messages.success(
+            request,
+            f"Reminder sent to {vaccination.pet.owner.full_name}.",
+        )
+
+    return redirect("admin_pet_vaccination_history", pk=vaccination.pet.pk)
+
+
+@login_required
+def admin_trigger_followup_reminder(request, pk):
+    """
+    Admin action — manually send a follow-up reminder to the pet owner.
+    Bypasses the duplicate-prevention check used by the automated cron job.
+    """
+    if request.user.role != "admin":
+        return redirect("owner_dashboard")
+
+    record = get_object_or_404(MedicalRecord, pk=pk)
+
+    if request.method == "POST":
+        if not record.follow_up_required:
+            messages.error(request, "This record does not have a follow-up scheduled.")
+            return redirect("admin_medical_record_detail", pk=pk)
+
+        owner_user = record.pet.owner.user
+
+        if record.follow_up_date:
+            message = (
+                f"This is a reminder that {record.pet.name} has a follow-up "
+                f"visit scheduled for "
+                f"{record.follow_up_date.strftime('%B %d, %Y')}. "
+                f"Please contact the clinic to confirm your appointment."
+            )
+        else:
+            message = (
+                f"This is a reminder that {record.pet.name} has a follow-up "
+                f"visit recommended. Please contact the clinic to schedule."
+            )
+
+        notify(
+            recipient=owner_user,
+            notification_type=Notification.FOLLOWUP_REMINDER,
+            title=f"Follow-up Reminder — {record.pet.name}",
+            message=message,
+            related_appointment=record.appointment,
+            related_pet=record.pet,
+            email_subject="Follow-up Reminder — Hapi Vet",
+        )
+        messages.success(
+            request,
+            f"Follow-up reminder sent to {record.pet.owner.full_name}.",
+        )
+
+    return redirect("admin_medical_record_detail", pk=pk)
 
 
 # ── Pet Owner — Medical Records ───────────────────────────────────────────────

@@ -1,0 +1,108 @@
+<!-- Printable receipt — follows the official FEATURES.md receipt format -->
+<!-- Hidden on screen, shown only when printing or saving as PDF -->
+
+<style>
+  .receipt-print-wrapper {
+    display: none;
+  }
+
+  @media print {
+    body * {
+      visibility: hidden;
+    }
+    .receipt-print-wrapper,
+    .receipt-print-wrapper * {
+      visibility: visible;
+    }
+    .receipt-print-wrapper {
+      display: block;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+    }
+    .no-print {
+      display: none !important;
+    }
+  }
+</style>
+
+<div id="printable-receipt" class="receipt-print-wrapper">
+
+  <!-- Clinic header -->
+  <div class="receipt-print-header">
+    {% if clinic_settings.logo %}
+    <img src="{{ clinic_settings.logo.url }}" alt="{{ clinic_settings.clinic_name }}" class="receipt-print-logo" />
+    {% endif %}
+    <h2 class="receipt-print-clinic-name">{{ clinic_settings.clinic_name|default:"Hapi Tutz Vet. Supplies" }}</h2>
+    <p class="receipt-print-clinic-address">{{ clinic_settings.address|default:"Bognuyan, Gasan, Marinduque" }}</p>
+    {% if clinic_settings.contact_number %}
+    <p class="receipt-print-clinic-line">Contact: {{ clinic_settings.contact_number }}</p>
+    {% endif %}
+    {% if clinic_settings.email %}
+    <p class="receipt-print-clinic-line">Email: {{ clinic_settings.email }}</p>
+    {% endif %}
+  </div>
+
+  <!-- Receipt info -->
+  <div class="receipt-print-section">
+    <h3 class="receipt-print-section-title">RECEIPT</h3>
+    <div class="receipt-print-field"><span>Receipt #:</span><span>{{ receipt.receipt_number }}</span></div>
+    <div class="receipt-print-field"><span>Date:</span><span>{{ receipt.billing_date|date:"F j, Y" }}</span></div>
+    <div class="receipt-print-field"><span>Payment Status:</span><span>{{ receipt.get_payment_status_display }}</span></div>
+  </div>
+
+  <!-- Billed to -->
+  <div class="receipt-print-section">
+    <h3 class="receipt-print-section-title">BILLED TO</h3>
+    {% if receipt.owner %}
+    <div class="receipt-print-field"><span>Name:</span><span>{{ receipt.owner.full_name }}</span></div>
+    <div class="receipt-print-field"><span>Contact:</span><span>{{ receipt.owner.contact_number|default:"—" }}</span></div>
+    {% endif %}
+    {% if receipt.pet %}
+    <div class="receipt-print-field"><span>Pet:</span><span>{{ receipt.pet.name }}</span></div>
+    {% endif %}
+  </div>
+
+  <!-- Services & items -->
+  <div class="receipt-print-section">
+    <h3 class="receipt-print-section-title">SERVICES &amp; ITEMS</h3>
+    <table class="receipt-print-table">
+      <thead>
+        <tr>
+          <th>Qty</th>
+          <th>Description</th>
+          <th>Unit</th>
+          <th>Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td>{{ item.quantity }}</td>
+          <td>{{ item.description }}</td>
+          <td>₱{{ item.unit_price|floatformat:2 }}</td>
+          <td>₱{{ item.subtotal|floatformat:2 }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Totals -->
+  <div class="receipt-print-totals">
+    <div class="receipt-print-total-row"><span>Subtotal:</span><span>₱{{ receipt.subtotal|floatformat:2 }}</span></div>
+    {% if receipt.discount_value %}
+    <div class="receipt-print-total-row"><span>Discount:</span><span>-₱{{ receipt.discount_amount|floatformat:2 }}</span></div>
+    {% endif %}
+    <div class="receipt-print-total-row receipt-print-total-row--grand"><span>TOTAL:</span><span>₱{{ receipt.total_amount|floatformat:2 }}</span></div>
+  </div>
+
+  <!-- Footer -->
+  <div class="receipt-print-footer">
+    <p>Thank you for trusting</p>
+    <p>{{ clinic_settings.clinic_name|default:"Hapi Tutz Vet. Supplies" }}!</p>
+    <p>We care for your pets like our own.</p>
+  </div>
+
+</div>
