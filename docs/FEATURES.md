@@ -201,7 +201,7 @@ Phase 7 — Dashboards & Polish
 | Colored dot indicators on calendar days with appointments | `planned` |
 | Click day to view appointment details in side panel | `planned` |
 | Approve appointment request (PENDING → CONFIRMED) | `complete` |
-| Reject appointment request (PENDING → CANCELLED) | `plancompletened` |
+| Reject appointment request (PENDING → CANCELLED) | `complete` |
 | Mark appointment as COMPLETED | `complete` |
 | Mark appointment as NO_SHOW | `complete` |
 | Add notes to appointment | `complete` |
@@ -252,11 +252,11 @@ PENDING → CONFIRMED → COMPLETED
 ### 4.2 Medical Records (Pet Owner)
 | Feature | Status |
 |---|---|
-| View pet medical history (read-only) | `planned` |
-| View public notes only | `planned` |
-| View prescription details | `planned` |
-| View test results (text only, no file access) | `planned` |
-| View vaccination records per pet | `planned` |
+| View pet medical history (read-only) | `complete` |
+| View public notes only | `complete` |
+| View prescription details | `complete` |
+| View test results (text only, no file access) | `complete` |
+| View vaccination records per pet | `complete` |
 
 ### 4.3 Vaccination Tracking
 | Feature | Status |
@@ -268,7 +268,7 @@ PENDING → CONFIRMED → COMPLETED
 | Custom vaccine name input if not in predefined list | `complete` |
 | Vaccination fields: vaccine name, date administered, weight at time of vaccination, next due date, batch/lot number, manufacturer, administered by, site of injection | `complete` |
 | View complete vaccination history per pet | `complete` |
-| Admin can manually trigger vaccination reminder | `planned` |
+| Admin can manually trigger vaccination reminder | `complete` |
 
 ---
 
@@ -280,7 +280,7 @@ PENDING → CONFIRMED → COMPLETED
 | Create a new service | `complete` |
 | Edit service name, description, and pricing | `complete` |
 | Set pricing type: Fixed or Range | `complete` |
-| Fixed pricing — single base price | `planncompleteed` |
+| Fixed pricing — single base price | `complete` |
 | Range pricing — min price and max price shown to pet owners | `complete` |
 | Actual billed amount set by Admin at billing time | `complete` |
 | Set service status: Draft / Active / Unlisted / Closed | `complete` |
@@ -316,8 +316,8 @@ PENDING → CONFIRMED → COMPLETED
 |---|---|
 | View billing receipt for completed appointments | `complete` |
 | View full billing history | `complete` |
-| Download receipt as PDF | `planned` |
-| Print receipt | `planned` |
+| Download receipt as PDF | `complete` |
+| Print receipt | `complete` |
 | Receive notification when billing is generated | `complete` |
 
 ### Receipt Format
@@ -393,9 +393,9 @@ PENDING → CONFIRMED → COMPLETED
 | Pet Owner per-type email toggle (appointment reminders on/off) | `complete` |
 | Pet Owner per-type email toggle (appointment status updates on/off) | `complete` |
 | Pet Owner per-type email toggle (billing notifications on/off) | `complete` |
-| Pet Owner per-type email toggle (vaccination reminders on/off) | `placompletenned` |
+| Pet Owner per-type email toggle (vaccination reminders on/off) | `complete` |
 | Pet Owner per-type email toggle (follow-up reminders on/off) | `complete` |
-| Pet Owner appointment reminder timing preference (days before) | `plcompletenned` |
+| Pet Owner appointment reminder timing preference (days before) | `complete` |
 | Pet Owner vaccination reminder timing preference (days before) | `complete` |
 | Admin per-type email toggles (all on by default) | `complete` |
 
@@ -405,7 +405,7 @@ PENDING → CONFIRMED → COMPLETED
 | Appointment reminder — pet owner configurable (default 1 day before) | `complete` |
 | Appointment day-of reminder always fires (safety net) | `complete` |
 | Vaccination reminder — pet owner configurable (default 7 days before) | `complete` |
-| Vaccination day-of reminder always fires (safety net) | `plancompletened` |
+| Vaccination day-of reminder always fires (safety net) | `complete` |
 | Admin can manually trigger vaccination reminder at any time | `complete` |
 | Follow-up reminder auto-triggers 3 days before follow-up date | `complete` |
 | Follow-up day-of reminder always fires (safety net) | `complete` |
