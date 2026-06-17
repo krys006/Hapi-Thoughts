@@ -4,10 +4,11 @@
 
 {% block content %}
 
-<div class="owner-page">
-
-  <div class="owner-page-header">
+<div class="owner-page-header">
     <h1 class="owner-page-title">Medical History — {{ pet.name }}</h1>
+    <a href="{% url 'owner_vaccination_history' pet.pk %}" class="btn-link">
+      View Vaccination History
+    </a>
     <a href="{% url 'owner_pet_detail' pet.pk %}" class="btn-link">
       Back to Pet
     </a>
@@ -70,6 +71,13 @@
                 {% endfor %}
               </ul>
             </div>
+          {% endif %}
+
+          {% if record.test_result_files.all %}
+            <p class="record-field">
+              <span class="record-label">Test Results:</span>
+              On file. Please contact the clinic for details.
+            </p>
           {% endif %}
 
           {% if record.follow_up_date %}
