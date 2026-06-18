@@ -12,6 +12,8 @@ urlpatterns = [
     path("", include("notifications.urls")),
     # Root URL — redirect to login
     path("", RedirectView.as_view(url="/login/"), name="home"),
+    # dashboard (admin and pet owner dashboard homes)
+    path("", include("dashboard.urls")),
     # accounts (login, register, verification, dashboards)
     path("", include("accounts.urls")),
     # pets (onboarding, pet management)
