@@ -25,14 +25,14 @@
   {% block extra_css %}{% endblock %}
 </head>
 
-<body>
+<body class="min-h-screen bg-gradient-to-br from-indigo-500 via-sky-500 to-cyan-400">
 
   <!-- ─── Top Header Bar ─────────────────────────────────────────────── -->
   <!-- Placeholder header — frontend teammate replaces with final design -->
-  <header class="dashboard-header">
+  <header class="dashboard-header flex h-20 items-center justify-between px-4 md:px-8 bg-black/10 backdrop-blur-md border-b border-white/10">
 
     <!-- Left: sidebar toggle (mobile only) + clinic name / logo placeholder -->
-    <div class="dashboard-header-brand">
+    <div class="dashboard-header-brand flex items-center gap-4">
 
       <!-- Sidebar toggle — mobile only, frontend wires visibility via Tailwind -->
       <button id="sidebar-toggle-button" onclick="toggleSidebar()" class="sidebar-toggle-button" aria-label="Toggle navigation menu">
@@ -42,7 +42,8 @@
       </button>
 
       {% if request.user.is_admin %}
-      <a href="{% url 'admin_dashboard' %}" class="dashboard-brand-name">Hapi Vet</a>
+      <a href="{% url 'admin_dashboard' %}"
+         class="dashboard-brand-name text-2xl font-bold text-white tracking-tight">Hapi Vet</a>
       {% else %}
       <a href="{% url 'owner_dashboard' %}" class="dashboard-brand-name">Hapi Vet</a>
       {% endif %}

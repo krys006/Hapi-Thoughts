@@ -7,47 +7,47 @@
   hx-swap="outerHTML">
 
   <!-- ─── Summary Stats Row ───────────────────────────────────────────── -->
-  <div class="stats-grid">
+  <div class="stats-grid grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
 
-    <div class="stat-card">
+    <div class="stat-card p-6 bg-white/15 border border-white/20 rounded-3xl backdrop-blur-md shadow-lg">
       <p class="stat-card-label">Today's Appointments</p>
-      <p class="stat-card-value">{{ todays_appointments }}</p>
+      <p class="stat-card-value mt-3 text-4xl font-bold text-white">{{ todays_appointments }}</p>
       <a href="{% url 'admin_appointments' %}" class="stat-card-link">View appointments</a>
     </div>
 
     <div class="stat-card {% if pending_approvals > 0 %}stat-card-urgent{% endif %}">
       <p class="stat-card-label">Pending Approvals</p>
-      <p class="stat-card-value">{{ pending_approvals }}</p>
+      <p class="stat-card-value mt-3 text-4xl font-bold text-white">{{ pending_approvals }}</p>
       <a href="{% url 'admin_appointments' %}" class="stat-card-link">Review requests</a>
     </div>
 
-    <div class="stat-card">
+    <div class="stat-card p-6 bg-white/15 border border-white/20 rounded-3xl backdrop-blur-md shadow-lg">
       <p class="stat-card-label">Registered Owners</p>
-      <p class="stat-card-value">{{ total_owners }}</p>
+      <p class="stat-card-value mt-3 text-4xl font-bold text-white">{{ total_owners }}</p>
       <a href="{% url 'admin_owner_list' %}" class="stat-card-link">View owners</a>
     </div>
 
-    <div class="stat-card">
+    <div class="stat-card p-6 bg-white/15 border border-white/20 rounded-3xl backdrop-blur-md shadow-lg">
       <p class="stat-card-label">Registered Pets</p>
-      <p class="stat-card-value">{{ total_pets }}</p>
+      <p class="stat-card-value mt-3 text-4xl font-bold text-white">{{ total_pets }}</p>
       <a href="{% url 'admin_pet_list' %}" class="stat-card-link">View pets</a>
     </div>
 
     <div class="stat-card {% if unpaid_bills > 0 %}stat-card-urgent{% endif %}">
       <p class="stat-card-label">Unpaid Bills</p>
-      <p class="stat-card-value">{{ unpaid_bills }}</p>
+      <p class="stat-card-value mt-3 text-4xl font-bold text-white">{{ unpaid_bills }}</p>
       <a href="{% url 'admin_receipt_list' %}" class="stat-card-link">View billing</a>
     </div>
 
     <div class="stat-card {% if vaccinations_due > 0 %}stat-card-warning{% endif %}">
       <p class="stat-card-label">Vaccinations Due (7 days)</p>
-      <p class="stat-card-value">{{ vaccinations_due }}</p>
+      <p class="stat-card-value mt-3 text-4xl font-bold text-white">{{ vaccinations_due }}</p>
       <a href="{% url 'admin_vaccination_list' %}" class="stat-card-link">View vaccinations</a>
     </div>
 
     <div class="stat-card {% if followups_due > 0 %}stat-card-warning{% endif %}">
       <p class="stat-card-label">Follow-ups Due (7 days)</p>
-      <p class="stat-card-value">{{ followups_due }}</p>
+      <p class="stat-card-value mt-3 text-4xl font-bold text-white">{{ followups_due }}</p>
       <a href="{% url 'admin_medical_record_list' %}" class="stat-card-link">View records</a>
     </div>
 
@@ -58,7 +58,7 @@
   <div class="dashboard-widgets">
 
     <!-- ── Pending Approvals Widget ──────────────────────────────────── -->
-    <div class="dashboard-widget">
+    <div class="dashboard-widget p-6 bg-white/15 border border-white/20 rounded-3xl backdrop-blur-md shadow-lg">
 
       <div class="dashboard-widget-header">
         <h2 class="dashboard-widget-title">Pending Approvals</h2>
@@ -100,7 +100,7 @@
     <!-- end pending approvals widget -->
 
     <!-- ── Recent Notifications Widget ──────────────────────────────── -->
-    <div class="dashboard-widget">
+    <div class="dashboard-widget p-6 bg-white/15 border border-white/20 rounded-3xl backdrop-blur-md shadow-lg">
 
       <div class="dashboard-widget-header">
         <h2 class="dashboard-widget-title">Recent Notifications</h2>
