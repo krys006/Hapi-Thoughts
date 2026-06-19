@@ -1,0 +1,34 @@
+<!-- Admin sidebar navigation -->
+<nav class="sidebar-nav">
+
+  <div class="sidebar-nav-group">
+    <p class="sidebar-nav-group-label">Overview</p>
+    <a href="{% url 'admin_dashboard' %}" class="sidebar-link {% if request.resolver_match.url_name == 'admin_dashboard' %}sidebar-link-active{% endif %}">Dashboard</a>
+  </div>
+
+  <div class="sidebar-nav-group">
+    <p class="sidebar-nav-group-label">Clinic Operations</p>
+    <a href="{% url 'admin_appointments' %}" class="sidebar-link {% if request.resolver_match.url_name == 'admin_appointments' %}sidebar-link-active{% endif %}">Appointments</a>
+    <a href="{% url 'admin_owner_list' %}" class="sidebar-link {% if request.resolver_match.url_name == 'admin_owner_list' %}sidebar-link-active{% endif %}">Pet Owners</a>
+    <a href="{% url 'admin_pet_list' %}" class="sidebar-link {% if request.resolver_match.url_name == 'admin_pet_list' %}sidebar-link-active{% endif %}">Pets</a>
+    <a href="{% url 'admin_deletion_requests' %}" class="sidebar-link {% if request.resolver_match.url_name == 'admin_deletion_requests' %}sidebar-link-active{% endif %}">Deletion Requests</a>
+  </div>
+
+  <div class="sidebar-nav-group">
+    <p class="sidebar-nav-group-label">Records</p>
+    <a href="{% url 'admin_medical_record_list' %}" class="sidebar-link {% if request.resolver_match.url_name == 'admin_medical_record_list' %}sidebar-link-active{% endif %}">Medical Records</a>
+    <a href="{% url 'admin_vaccination_list' %}" class="sidebar-link {% if request.resolver_match.url_name == 'admin_vaccination_list' %}sidebar-link-active{% endif %}">Vaccinations</a>
+  </div>
+
+  <div class="sidebar-nav-group">
+    <p class="sidebar-nav-group-label">Billing</p>
+    <a href="{% url 'admin_receipt_list' %}" class="sidebar-link {% if request.resolver_match.url_name == 'admin_receipt_list' %}sidebar-link-active{% endif %}">Billing</a>
+    <a href="{% url 'admin_service_list' %}" class="sidebar-link {% if request.resolver_match.url_name == 'admin_service_list' %}sidebar-link-active{% endif %}">Services</a>
+  </div>
+
+  <div class="sidebar-nav-group">
+    <p class="sidebar-nav-group-label">Configuration</p>
+    <a href="{% url 'admin_clinic_settings' %}" class="sidebar-link {% if request.resolver_match.url_name == 'admin_clinic_settings' %}sidebar-link-active{% endif %}">Clinic Settings</a>
+  </div>
+
+</nav>

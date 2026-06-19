@@ -12,7 +12,7 @@
 
   <!-- HTMX CDN -->
   <script src="https://unpkg.com/htmx.org@latest"></script>
-  
+
   <!-- CSRF token for HTMX POST requests -->
   <script>
     document.addEventListener("DOMContentLoaded", function () {
@@ -31,13 +31,21 @@
   <!-- Placeholder header — frontend teammate replaces with final design -->
   <header class="dashboard-header">
 
-    <!-- Left: clinic name / logo placeholder -->
+    <!-- Left: sidebar toggle (mobile only) + clinic name / logo placeholder -->
     <div class="dashboard-header-brand">
-    {% if request.user.is_admin %}
-    <a href="{% url 'admin_dashboard' %}" class="dashboard-brand-name">Hapi Vet</a>
-    {% else %}
-    <a href="{% url 'owner_dashboard' %}" class="dashboard-brand-name">Hapi Vet</a>
-    {% endif %}
+
+      <!-- Sidebar toggle — mobile only, frontend wires visibility via Tailwind -->
+      <button id="sidebar-toggle-button" onclick="toggleSidebar()" class="sidebar-toggle-button" aria-label="Toggle navigation menu">
+        <svg class="sidebar-toggle-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="24" height="24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" />
+        </svg>
+      </button>
+
+      {% if request.user.is_admin %}
+      <a href="{% url 'admin_dashboard' %}" class="dashboard-brand-name">Hapi Vet</a>
+      {% else %}
+      <a href="{% url 'owner_dashboard' %}" class="dashboard-brand-name">Hapi Vet</a>
+      {% endif %}
     </div>
 
     <!-- Right: bell icon + notification panel container -->
@@ -81,8 +89,39 @@
   </div>
   {% endif %}
 
-  <!-- ─── Main Content ───────────────────────────────────────────────── -->
-  {% block content %}{% endblock %}
+  <!-- ─── Sidebar + Main Content Layout ─────────────────────────────── -->
+  <div class="dashboard-layout">
+
+    <!-- Sidebar — role-based nav, collapsible on mobile -->
+    <aside id="dashboard-sidebar" class="dashboard-sidebar">
+      {% if request.user.is_admin %}
+        {% include 'shared/sidebar_admin.html' %}
+      {% else %}
+        {% include 'shared/sidebar_owner.html' %}
+      {% endif %}
+    </aside>
+
+    <!-- Backdrop — mobile only, closes sidebar on tap outside -->
+    <div id="sidebar-backdrop" class="sidebar-backdrop" onclick="closeSidebar()"></div>
+
+    <!-- Main page content -->
+    <main class="dashboard-main">
+      {% block content %}{% endblock %}
+    </main>
+
+  </div>
+
+  <!-- Sidebar toggle script — mobile open/close only, no server round-trip -->
+  <script>
+    function toggleSidebar() {
+      document.getElementById('dashboard-sidebar').classList.toggle('sidebar-open');
+      document.getElementById('sidebar-backdrop').classList.toggle('sidebar-backdrop-visible');
+    }
+    function closeSidebar() {
+      document.getElementById('dashboard-sidebar').classList.remove('sidebar-open');
+      document.getElementById('sidebar-backdrop').classList.remove('sidebar-backdrop-visible');
+    }
+  </script>
 
   {% block extra_js %}{% endblock %}
 </body>

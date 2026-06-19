@@ -1,0 +1,139 @@
+<!-- Dashboard stats + widgets block — polls itself every 30s via HTMX. -->
+<!-- hx-swap="outerHTML" replaces this whole div, including the polling -->
+<!-- trigger attributes, so polling continues indefinitely on each refresh. -->
+<div id="dashboard-content"
+  hx-get="{% url 'admin_dashboard_refresh' %}"
+  hx-trigger="every 30s"
+  hx-swap="outerHTML">
+
+  <!-- ─── Summary Stats Row ───────────────────────────────────────────── -->
+  <div class="stats-grid">
+
+    <div class="stat-card">
+      <p class="stat-card-label">Today's Appointments</p>
+      <p class="stat-card-value">{{ todays_appointments }}</p>
+      <a href="{% url 'admin_appointments' %}" class="stat-card-link">View appointments</a>
+    </div>
+
+    <div class="stat-card {% if pending_approvals > 0 %}stat-card-urgent{% endif %}">
+      <p class="stat-card-label">Pending Approvals</p>
+      <p class="stat-card-value">{{ pending_approvals }}</p>
+      <a href="{% url 'admin_appointments' %}" class="stat-card-link">Review requests</a>
+    </div>
+
+    <div class="stat-card">
+      <p class="stat-card-label">Registered Owners</p>
+      <p class="stat-card-value">{{ total_owners }}</p>
+      <a href="{% url 'admin_owner_list' %}" class="stat-card-link">View owners</a>
+    </div>
+
+    <div class="stat-card">
+      <p class="stat-card-label">Registered Pets</p>
+      <p class="stat-card-value">{{ total_pets }}</p>
+      <a href="{% url 'admin_pet_list' %}" class="stat-card-link">View pets</a>
+    </div>
+
+    <div class="stat-card {% if unpaid_bills > 0 %}stat-card-urgent{% endif %}">
+      <p class="stat-card-label">Unpaid Bills</p>
+      <p class="stat-card-value">{{ unpaid_bills }}</p>
+      <a href="{% url 'admin_receipt_list' %}" class="stat-card-link">View billing</a>
+    </div>
+
+    <div class="stat-card {% if vaccinations_due > 0 %}stat-card-warning{% endif %}">
+      <p class="stat-card-label">Vaccinations Due (7 days)</p>
+      <p class="stat-card-value">{{ vaccinations_due }}</p>
+      <a href="{% url 'admin_vaccination_list' %}" class="stat-card-link">View vaccinations</a>
+    </div>
+
+    <div class="stat-card {% if followups_due > 0 %}stat-card-warning{% endif %}">
+      <p class="stat-card-label">Follow-ups Due (7 days)</p>
+      <p class="stat-card-value">{{ followups_due }}</p>
+      <a href="{% url 'admin_medical_record_list' %}" class="stat-card-link">View records</a>
+    </div>
+
+  </div>
+  <!-- end stats-grid -->
+
+  <!-- ─── Widgets Row ──────────────────────────────────────────────────── -->
+  <div class="dashboard-widgets">
+
+    <!-- ── Pending Approvals Widget ──────────────────────────────────── -->
+    <div class="dashboard-widget">
+
+      <div class="dashboard-widget-header">
+        <h2 class="dashboard-widget-title">Pending Approvals</h2>
+        <a href="{% url 'admin_appointments' %}" class="dashboard-widget-action">View all</a>
+      </div>
+
+      {% if pending_appointments %}
+      <table class="widget-table">
+        <thead>
+          <tr>
+            <th class="widget-table-head">Pet</th>
+            <th class="widget-table-head">Owner</th>
+            <th class="widget-table-head">Date</th>
+            <th class="widget-table-head">Time</th>
+            <th class="widget-table-head">Service</th>
+            <th class="widget-table-head">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for appointment in pending_appointments %}
+          <tr class="widget-table-row">
+            <td class="widget-table-cell">{{ appointment.pet.name }}</td>
+            <td class="widget-table-cell">{{ appointment.owner.first_name }} {{ appointment.owner.last_name }}</td>
+            <td class="widget-table-cell">{{ appointment.date|date:"M j, Y" }}</td>
+            <td class="widget-table-cell">{{ appointment.time|time:"g:i A" }}</td>
+            <td class="widget-table-cell">{{ appointment.service.service_name|default:"—" }}</td>
+            <td class="widget-table-cell"><a href="{% url 'admin_appointment_detail' appointment.pk %}" class="widget-table-link">Review</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="widget-empty">
+        <p class="widget-empty-text">No pending appointments.</p>
+      </div>
+      {% endif %}
+
+    </div>
+    <!-- end pending approvals widget -->
+
+    <!-- ── Recent Notifications Widget ──────────────────────────────── -->
+    <div class="dashboard-widget">
+
+      <div class="dashboard-widget-header">
+        <h2 class="dashboard-widget-title">Recent Notifications</h2>
+        <button id="dashboard-bell-button"
+          hx-get="{% url 'notifications_panel' %}"
+          hx-target="#notification-panel-container"
+          hx-swap="innerHTML"
+          class="dashboard-widget-action">View all</button>
+      </div>
+
+      {% if recent_notifications %}
+      <ul class="widget-notification-list">
+        {% for notification in recent_notifications %}
+        <li class="widget-notification-row {% if not notification.is_read %}widget-notification-unread{% endif %}">
+          <div class="widget-notification-content">
+            <p class="widget-notification-title">{{ notification.title }}</p>
+            <p class="widget-notification-time">{{ notification.created_at|timesince }} ago</p>
+          </div>
+          <a href="{% url 'notification_open' notification.pk %}" class="widget-notification-link">View</a>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="widget-empty">
+        <p class="widget-empty-text">No notifications yet.</p>
+      </div>
+      {% endif %}
+
+    </div>
+    <!-- end recent notifications widget -->
+
+  </div>
+  <!-- end dashboard-widgets -->
+
+</div>
+<!-- end dashboard-content -->
