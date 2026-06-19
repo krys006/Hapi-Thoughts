@@ -1,0 +1,62 @@
+<!-- Global search results dropdown — grouped by type, max 5 per group. -->
+{% if too_short %}
+<!-- Nothing shown for queries under 2 characters — avoids noisy results -->
+{% elif has_results %}
+<div class="search-results-dropdown">
+
+  {% if search_owners %}
+  <div class="search-results-group">
+    <p class="search-results-group-label">Pet Owners</p>
+    {% for owner in search_owners %}
+    <a href="{% url 'admin_owner_detail' owner.pk %}" class="search-result-row">
+      <span class="search-result-title">{{ owner.first_name }} {{ owner.last_name }}</span>
+      <span class="search-result-meta">{{ owner.contact_number|default:"No contact number" }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if search_pets %}
+  <div class="search-results-group">
+    <p class="search-results-group-label">Pets</p>
+    {% for pet in search_pets %}
+    <a href="{% url 'admin_pet_detail' pet.pk %}" class="search-result-row">
+      <span class="search-result-title">{{ pet.name }}</span>
+      <span class="search-result-meta">{{ pet.species }} — {{ pet.owner.first_name }} {{ pet.owner.last_name }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if search_appointments %}
+  <div class="search-results-group">
+    <p class="search-results-group-label">Appointments</p>
+    {% for appointment in search_appointments %}
+    <a href="{% url 'admin_appointment_detail' appointment.pk %}" class="search-result-row">
+      <span class="search-result-title">{{ appointment.pet.name }} — {{ appointment.date|date:"M j, Y" }}</span>
+      <span class="search-result-meta">{{ appointment.owner.first_name }} {{ appointment.owner.last_name }} — {{ appointment.get_status_display }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if search_medical_records %}
+  <div class="search-results-group">
+    <p class="search-results-group-label">Medical Records</p>
+    {% for record in search_medical_records %}
+    <a href="{% url 'admin_medical_record_detail' record.pk %}" class="search-result-row">
+      <span class="search-result-title">{{ record.pet.name }} — {{ record.record_date|date:"M j, Y" }}</span>
+      <span class="search-result-meta">{{ record.pet.owner.first_name }} {{ record.pet.owner.last_name }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+</div>
+{% elif search_query %}
+<div class="search-results-dropdown">
+  <div class="widget-empty">
+    <p class="widget-empty-text">No results for "{{ search_query }}".</p>
+  </div>
+</div>
+{% endif %}

@@ -48,6 +48,26 @@
       {% endif %}
     </div>
 
+
+<!-- Middle: global search — admin only, accessible from every admin page -->
+    {% if request.user.is_admin %}
+    <div class="dashboard-header-search" id="global-search-container">
+      <input
+        type="text"
+        name="q"
+        placeholder="Search owners, pets, appointments, records..."
+        class="global-search-input"
+        autocomplete="off"
+        hx-get="{% url 'admin_global_search' %}"
+        hx-trigger="keyup changed delay:300ms, search"
+        hx-target="#global-search-results"
+        hx-swap="innerHTML" />
+      <div id="global-search-results" class="global-search-results-container"></div>
+    </div>
+    {% endif %}
+
+
+
     <!-- Right: bell icon + notification panel container -->
     <div class="dashboard-header-actions">
 
@@ -122,6 +142,19 @@
       document.getElementById('sidebar-backdrop').classList.remove('sidebar-backdrop-visible');
     }
   </script>
+
+
+  <!-- Global search — click outside the search box clears the dropdown -->
+  <script>
+    document.addEventListener('click', function (e) {
+      var searchContainer = document.getElementById('global-search-container');
+      var resultsBox = document.getElementById('global-search-results');
+      if (searchContainer && resultsBox && !searchContainer.contains(e.target)) {
+        resultsBox.innerHTML = '';
+      }
+    });
+  </script>
+
 
   {% block extra_js %}{% endblock %}
 </body>

@@ -16,7 +16,7 @@ from .forms import (
     AdminWalkInAppointmentForm,
 )
 
-from .utils import get_available_slots
+from .utils import get_available_slots, get_admin_calendar_context
 
 from notifications.utils import notify
 from django.contrib.auth import get_user_model
@@ -905,4 +905,59 @@ def admin_get_slots_for_date(request):
         request,
         "admin/appointments/_slot_options.html",
         {"slots": slots},
+    )
+
+
+@login_required
+def admin_appointment_calendar_grid(request):
+    """
+    HTMX view — returns the calendar grid + nav controls for the admin
+    dashboard calendar widget. e.g. ?view=month&date=2026-06-01
+    Self-targeting swap — triggered by click (nav/toggle), not a timer,
+    so it never collides with the dashboard's 30s stats polling.
+    """
+    if request.user.role != "admin":
+        return redirect("owner_dashboard")
+
+    view = request.GET.get("view", "month")
+    date_str = request.GET.get("date", "")
+
+    context = get_admin_calendar_context(view, date_str)
+
+    return render(request, "admin/appointments/_calendar_grid.html", context)
+
+
+@login_required
+def admin_appointment_calendar_day(request):
+    """
+    HTMX view — returns the day-detail panel for the admin calendar
+    widget. Shows all appointments for the selected date, all statuses
+    (including cancelled, for the full picture). View-only — links out
+    to admin_appointment_detail, where all actions already live.
+    """
+    if request.user.role != "admin":
+        return redirect("owner_dashboard")
+
+    date_str = request.GET.get("date", "")
+    selected_date = None
+    appointments = Appointment.objects.none()
+
+    if date_str:
+        try:
+            selected_date = datetime.date.fromisoformat(date_str)
+            appointments = (
+                Appointment.objects.filter(date=selected_date)
+                .select_related("owner", "pet", "service")
+                .order_by("time")
+            )
+        except ValueError:
+            pass
+
+    return render(
+        request,
+        "admin/appointments/_calendar_day_panel.html",
+        {
+            "selected_date": selected_date,
+            "day_appointments": appointments,
+        },
     )

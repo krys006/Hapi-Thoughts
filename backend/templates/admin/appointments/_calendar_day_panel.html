@@ -1,0 +1,33 @@
+<!-- Calendar day detail panel — all appointments for the selected date, -->
+<!-- all statuses including cancelled (full picture). View-only — links -->
+<!-- out to admin_appointment_detail, where all actions already live. -->
+{% if selected_date %}
+<div class="calendar-day-panel-header">
+  <h3 class="calendar-day-panel-title">{{ selected_date|date:"l, F j, Y" }}</h3>
+</div>
+
+{% if day_appointments %}
+<ul class="calendar-day-appointment-list">
+  {% for appointment in day_appointments %}
+  <li class="calendar-day-appointment-row">
+    <div class="calendar-day-appointment-info">
+      <span class="status-badge status-badge-{{ appointment.status }}">{{ appointment.get_status_display }}</span>
+      <p class="calendar-day-appointment-time">{{ appointment.time|time:"g:i A" }}</p>
+      <p class="calendar-day-appointment-pet">{{ appointment.pet.name }} — {{ appointment.owner.first_name }} {{ appointment.owner.last_name }}</p>
+      <p class="calendar-day-appointment-service">{{ appointment.service.service_name|default:"—" }}</p>
+    </div>
+    <a href="{% url 'admin_appointment_detail' appointment.pk %}" class="calendar-day-appointment-link">View</a>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="widget-empty">
+  <p class="widget-empty-text">No appointments on this date.</p>
+</div>
+{% endif %}
+
+{% else %}
+<div class="widget-empty">
+  <p class="widget-empty-text">Click a day on the calendar to view appointments.</p>
+</div>
+{% endif %}

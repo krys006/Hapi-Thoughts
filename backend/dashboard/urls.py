@@ -9,4 +9,5 @@ urlpatterns = [
         views.admin_dashboard_partial,
         name="admin_dashboard_refresh",
     ),
+    path("admin/search/", views.admin_global_search, name="admin_global_search"),
 ]

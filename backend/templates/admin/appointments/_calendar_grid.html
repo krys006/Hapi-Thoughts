@@ -1,0 +1,65 @@
+<!-- Admin dashboard calendar widget — month/week grid with nav controls. -->
+<!-- Self-contained: nav/toggle clicks re-fetch and swap this whole block. -->
+<!-- Clicking a day fetches the day panel separately into #calendar-day-panel, -->
+<!-- defined in the parent dashboard template. -->
+<div id="admin-calendar-grid">
+
+  <div class="calendar-header">
+
+    <div class="calendar-nav">
+      <button hx-get="{% url 'admin_appointment_calendar_grid' %}?view={{ calendar_view }}&date={{ calendar_prev_date|date:'Y-m-d' }}" hx-target="#admin-calendar-grid" hx-swap="outerHTML" class="calendar-nav-button">Previous</button>
+      <button hx-get="{% url 'admin_appointment_calendar_grid' %}?view={{ calendar_view }}&date={{ calendar_today_date|date:'Y-m-d' }}" hx-target="#admin-calendar-grid" hx-swap="outerHTML" class="calendar-nav-button">Today</button>
+      <button hx-get="{% url 'admin_appointment_calendar_grid' %}?view={{ calendar_view }}&date={{ calendar_next_date|date:'Y-m-d' }}" hx-target="#admin-calendar-grid" hx-swap="outerHTML" class="calendar-nav-button">Next</button>
+    </div>
+
+    <p class="calendar-period-label">{{ calendar_period_label }}</p>
+
+    <div class="calendar-view-toggle">
+      <button hx-get="{% url 'admin_appointment_calendar_grid' %}?view=month&date={{ anchor_date|date:'Y-m-d' }}" hx-target="#admin-calendar-grid" hx-swap="outerHTML" class="calendar-toggle-button {% if calendar_view == 'month' %}calendar-toggle-active{% endif %}">Month</button>
+      <button hx-get="{% url 'admin_appointment_calendar_grid' %}?view=week&date={{ anchor_date|date:'Y-m-d' }}" hx-target="#admin-calendar-grid" hx-swap="outerHTML" class="calendar-toggle-button {% if calendar_view == 'week' %}calendar-toggle-active{% endif %}">Week</button>
+    </div>
+
+  </div>
+  <!-- end calendar-header -->
+
+  <!-- Weekday header row -->
+  <div class="calendar-weekday-row">
+    <span class="calendar-weekday-label">Mon</span>
+    <span class="calendar-weekday-label">Tue</span>
+    <span class="calendar-weekday-label">Wed</span>
+    <span class="calendar-weekday-label">Thu</span>
+    <span class="calendar-weekday-label">Fri</span>
+    <span class="calendar-weekday-label">Sat</span>
+    <span class="calendar-weekday-label">Sun</span>
+  </div>
+
+  <!-- Calendar grid -->
+  <div class="calendar-grid calendar-grid-{{ calendar_view }}">
+    {% for week in calendar_weeks %}
+    <div class="calendar-week-row">
+      {% for cell in week %}
+        {% if cell.is_current_period %}
+        <button hx-get="{% url 'admin_appointment_calendar_day' %}?date={{ cell.date|date:'Y-m-d' }}" hx-target="#calendar-day-panel" hx-swap="innerHTML" class="calendar-day-cell {% if cell.is_today %}calendar-day-today{% endif %} {% if not cell.is_working_day %}calendar-day-non-working{% endif %} {% if cell.is_blocked %}calendar-day-blocked{% endif %}">
+          <span class="calendar-day-number">{{ cell.day_number }}</span>
+          {% if cell.statuses %}
+          <span class="calendar-day-dots">
+            {% for status_item in cell.statuses %}
+            <span class="calendar-dot calendar-dot-{{ status_item.status }}" title="{{ status_item.count }} {{ status_item.status }}"></span>
+            {% endfor %}
+          </span>
+          {% endif %}
+        </button>
+        {% else %}
+        <!-- Filler day from adjacent month — not clickable, dimmed -->
+        <div class="calendar-day-cell calendar-day-outside">
+          <span class="calendar-day-number">{{ cell.day_number }}</span>
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+  <!-- end calendar-grid -->
+
+</div>
+<!-- end admin-calendar-grid -->

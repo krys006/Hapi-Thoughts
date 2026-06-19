@@ -14,6 +14,32 @@
   <!-- Stats + widgets — self-polling block, see _dashboard_partial.html -->
   {% include 'admin/dashboard/_dashboard_partial.html' %}
 
+  <!-- ─── Calendar Widget ────────────────────────────────────────────── -->
+  <!-- NOT part of the polling block above — nav state (month/week, -->
+  <!-- selected date) is preserved; only updates on explicit click. -->
+  <div class="dashboard-calendar-section">
+
+    <div class="dashboard-widget-header">
+      <h2 class="dashboard-widget-title">Calendar</h2>
+    </div>
+
+    <div class="dashboard-calendar-layout">
+
+      {% include 'admin/appointments/_calendar_grid.html' %}
+
+      <!-- Day detail panel — populated via HTMX when a day is clicked -->
+      <div id="calendar-day-panel" class="calendar-day-panel">
+        <div class="widget-empty">
+          <p class="widget-empty-text">Click a day on the calendar to view appointments.</p>
+        </div>
+      </div>
+
+    </div>
+    <!-- end dashboard-calendar-layout -->
+
+  </div>
+  <!-- end dashboard-calendar-section -->
+
 </div>
 
 {% endblock %}

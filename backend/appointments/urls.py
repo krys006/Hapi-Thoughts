@@ -80,6 +80,16 @@ urlpatterns = [
         views.admin_get_slots_for_date,
         name="admin_get_slots_for_date",
     ),
+    path(
+        "admin/appointments/calendar-grid/",
+        views.admin_appointment_calendar_grid,
+        name="admin_appointment_calendar_grid",
+    ),
+    path(
+        "admin/appointments/calendar-day/",
+        views.admin_appointment_calendar_day,
+        name="admin_appointment_calendar_day",
+    ),
     # ── Pet Owner — Appointments ──────────────────────────────────────────
     path(
         "owner/appointments/",
