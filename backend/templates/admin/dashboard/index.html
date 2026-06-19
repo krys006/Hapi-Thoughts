@@ -4,11 +4,11 @@
 
 {% block content %}
 
-<div class="admin-page space-y-8">
+<div class="admin-page flex flex-col gap-6">
 
-  <div class="admin-page-header">
-    <h1 class="admin-page-title text-4xl font-bold text-white">Dashboard</h1>
-    <p class="admin-page-subtitle mt-2 text-white/70">{{ today|date:"l, F j, Y" }}</p>
+  <div class="admin-page-header flex flex-col gap-1">
+    <h1 class="admin-page-title text-2xl font-bold text-slate-800">Dashboard</h1>
+    <p class="admin-page-subtitle text-sm text-slate-500">{{ today|date:"l, F j, Y" }}</p>
   </div>
 
   <!-- Stats + widgets — self-polling block, see _dashboard_partial.html -->
@@ -17,20 +17,20 @@
   <!-- ─── Calendar Widget ────────────────────────────────────────────── -->
   <!-- NOT part of the polling block above — nav state (month/week, -->
   <!-- selected date) is preserved; only updates on explicit click. -->
-  <div class="dashboard-calendar-section">
+  <div class="dashboard-calendar-section flex flex-col gap-4 p-5 bg-white rounded-2xl border border-slate-100 shadow-sm">
 
-    <div class="dashboard-widget-header">
-      <h2 class="dashboard-widget-title">Calendar</h2>
+    <div class="dashboard-widget-header flex items-center justify-between">
+      <h2 class="dashboard-widget-title text-lg font-semibold text-slate-800">Calendar</h2>
     </div>
 
-    <div class="dashboard-calendar-layout">
+    <div class="dashboard-calendar-layout flex flex-col gap-6 lg:flex-row">
 
       {% include 'admin/appointments/_calendar_grid.html' %}
 
       <!-- Day detail panel — populated via HTMX when a day is clicked -->
-      <div id="calendar-day-panel" class="calendar-day-panel">
-        <div class="widget-empty">
-          <p class="widget-empty-text">Click a day on the calendar to view appointments.</p>
+      <div id="calendar-day-panel" class="calendar-day-panel flex flex-col gap-3 w-full shrink-0 lg:w-96">
+        <div class="widget-empty flex items-center justify-center p-6">
+          <p class="widget-empty-text text-sm text-slate-400">Click a day on the calendar to view appointments.</p>
         </div>
       </div>
 

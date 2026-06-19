@@ -2,32 +2,32 @@
 <!-- all statuses including cancelled (full picture). View-only — links -->
 <!-- out to admin_appointment_detail, where all actions already live. -->
 {% if selected_date %}
-<div class="calendar-day-panel-header">
-  <h3 class="calendar-day-panel-title">{{ selected_date|date:"l, F j, Y" }}</h3>
+<div class="calendar-day-panel-header mb-3">
+  <h3 class="calendar-day-panel-title text-base font-semibold text-slate-800">{{ selected_date|date:"l, F j, Y" }}</h3>
 </div>
 
 {% if day_appointments %}
-<ul class="calendar-day-appointment-list">
+<ul class="calendar-day-appointment-list flex flex-col gap-3">
   {% for appointment in day_appointments %}
-  <li class="calendar-day-appointment-row flex items-center justify-between p-4 rounded-2xl bg-white/10">
-    <div class="calendar-day-appointment-info">
-      <span class="status-badge status-badge-{{ appointment.status }}">{{ appointment.get_status_display }}</span>
-      <p class="calendar-day-appointment-time">{{ appointment.time|time:"g:i A" }}</p>
-      <p class="calendar-day-appointment-pet">{{ appointment.pet.name }} — {{ appointment.owner.first_name }} {{ appointment.owner.last_name }}</p>
-      <p class="calendar-day-appointment-service">{{ appointment.service.service_name|default:"—" }}</p>
+  <li class="calendar-day-appointment-row flex items-start justify-between gap-3 p-4 bg-white rounded-xl border border-slate-100 shadow-sm">
+    <div class="calendar-day-appointment-info flex flex-col gap-1">
+      <span class="status-badge status-badge-{{ appointment.status }} inline-flex items-center self-start px-2.5 py-0.5 text-xs font-medium rounded-full {% if appointment.status == 'pending' %}text-yellow-700 bg-yellow-100{% elif appointment.status == 'confirmed' %}text-blue-700 bg-blue-100{% elif appointment.status == 'completed' %}text-green-700 bg-green-100{% elif appointment.status == 'cancelled' %}text-red-700 bg-red-100{% elif appointment.status == 'no_show' %}text-gray-700 bg-gray-100{% endif %}">{{ appointment.get_status_display }}</span>
+      <p class="calendar-day-appointment-time text-sm font-semibold text-slate-700">{{ appointment.time|time:"g:i A" }}</p>
+      <p class="calendar-day-appointment-pet text-sm text-slate-600">{{ appointment.pet.name }} — {{ appointment.owner.first_name }} {{ appointment.owner.last_name }}</p>
+      <p class="calendar-day-appointment-service text-xs text-slate-400">{{ appointment.service.service_name|default:"—" }}</p>
     </div>
-    <a href="{% url 'admin_appointment_detail' appointment.pk %}" class="calendar-day-appointment-link">View</a>
+    <a href="{% url 'admin_appointment_detail' appointment.pk %}" class="calendar-day-appointment-link text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline">View</a>
   </li>
   {% endfor %}
 </ul>
 {% else %}
-<div class="widget-empty">
-  <p class="widget-empty-text">No appointments on this date.</p>
+<div class="widget-empty flex items-center justify-center p-6">
+  <p class="widget-empty-text text-sm text-slate-400">No appointments on this date.</p>
 </div>
 {% endif %}
 
 {% else %}
-<div class="widget-empty">
-  <p class="widget-empty-text">Click a day on the calendar to view appointments.</p>
+<div class="widget-empty flex items-center justify-center p-6">
+  <p class="widget-empty-text text-sm text-slate-400">Click a day on the calendar to view appointments.</p>
 </div>
 {% endif %}
