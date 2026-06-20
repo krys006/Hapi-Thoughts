@@ -47,6 +47,9 @@ class ClinicSettingsForm(forms.ModelForm):
             "contact_number",
             "email",
             "logo",
+            "veterinarian_name",
+            "veterinarian_license_number",
+            "veterinarian_bio",
             "opening_time",
             "closing_time",
             "slot_duration_minutes",
@@ -60,6 +63,7 @@ class ClinicSettingsForm(forms.ModelForm):
             "closing_time": forms.TimeInput(attrs={"type": "time"}),
             "same_day_cutoff_time": forms.TimeInput(attrs={"type": "time"}),
             "address": forms.Textarea(attrs={"rows": 3}),
+            "veterinarian_bio": forms.Textarea(attrs={"rows": 4}),
         }
 
     def clean(self):

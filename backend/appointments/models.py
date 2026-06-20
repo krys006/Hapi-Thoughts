@@ -19,6 +19,20 @@ class ClinicSettings(models.Model):
         null=True,
     )
 
+    logo = models.ImageField(
+        upload_to="clinic/",
+        blank=True,
+        null=True,
+    )
+
+    # ── Veterinarian Profile ─────────────────────────────────────────────────
+    veterinarian_name = models.CharField(max_length=100, blank=True)
+    veterinarian_license_number = models.CharField(max_length=50, blank=True)
+    veterinarian_bio = models.TextField(blank=True)
+
+    # ── Schedule Configuration ───────────────────────────────────────────────
+    opening_time = models.TimeField()
+
     # ── Schedule Configuration ───────────────────────────────────────────────
     opening_time = models.TimeField()
     closing_time = models.TimeField()
