@@ -63,13 +63,15 @@
         type="text"
         name="q"
         placeholder="Search owners, pets, appointments, records..."
-        class="global-search-input w-full h-10 px-4 text-sm text-slate-700 placeholder-slate-400 bg-white rounded-full border border-transparent shadow-sm focus:outline-none focus:ring-2 focus:ring-white/70"
+        class="global-search-input"
         autocomplete="off"
         hx-get="{% url 'admin_global_search' %}"
         hx-trigger="keyup changed delay:300ms, search"
         hx-target="#global-search-results"
+        hx-indicator="#global-search-spinner"
         hx-swap="innerHTML" />
-      <div id="global-search-results" class="global-search-results-container absolute left-0 right-0 top-12 z-40"></div>
+      <span id="global-search-spinner" class="htmx-indicator search-spinner"></span>
+      <div id="global-search-results" class="global-search-results-container"></div>
     </div>
     {% else %}
     <div class="dashboard-header-search" id="global-search-container">
@@ -176,6 +178,8 @@
     });
   </script>
 
+  <!-- Reusable confirmation modal — shared by any destructive action -->
+  {% include 'shared/modals.html' %}
 
   {% block extra_js %}{% endblock %}
 </body>

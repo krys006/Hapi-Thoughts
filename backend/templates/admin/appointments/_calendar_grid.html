@@ -12,7 +12,7 @@
       <button hx-get="{% url 'admin_appointment_calendar_grid' %}?view={{ calendar_view }}&date={{ calendar_next_date|date:'Y-m-d' }}" hx-target="#admin-calendar-grid" hx-swap="outerHTML" class="calendar-nav-button px-3 py-1.5 text-sm font-medium text-slate-200 bg-white/10 rounded-lg hover:bg-white/20">Next</button>
     </div>
 
-    <p class="calendar-period-label text-xl font-bold text-white">{{ calendar_period_label }}</p>
+    <p class="calendar-period-label text-xl font-bold text-white">{{ calendar_period_label }} <span class="htmx-indicator calendar-spinner"></span></p>
 
     <div class="calendar-view-toggle flex items-center gap-1 p-1 bg-white/10 rounded-lg">
       <button hx-get="{% url 'admin_appointment_calendar_grid' %}?view=month&date={{ anchor_date|date:'Y-m-d' }}" hx-target="#admin-calendar-grid" hx-swap="outerHTML" class="calendar-toggle-button px-3 py-1 text-sm font-medium text-slate-200 rounded-md hover:text-white {% if calendar_view == 'month' %}calendar-toggle-active !bg-white !text-slate-800 shadow-sm{% endif %}">Month</button>
