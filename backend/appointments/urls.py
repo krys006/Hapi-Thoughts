@@ -18,6 +18,8 @@ urlpatterns = [
         views.admin_blocked_date_delete,
         name="admin_blocked_date_delete",
     ),
+    # ── Shared — Clinic Info ──────────────────────────────────────────────
+    path("clinic-info/", views.clinic_info, name="clinic_info"),
     # ── Admin — Appointments ──────────────────────────────────────────────
     path(
         "admin/appointments/",

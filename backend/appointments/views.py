@@ -21,9 +21,8 @@ from .utils import get_available_slots, get_admin_calendar_context
 from notifications.utils import notify
 from django.contrib.auth import get_user_model
 
+
 # ── Admin — Clinic Settings ───────────────────────────────────────────────────
-
-
 @login_required
 def admin_clinic_settings(request):
     """
@@ -126,6 +125,37 @@ def admin_blocked_date_delete(request, pk):
         request,
         "admin/settings/_blocked_dates_list.html",
         {"blocked_dates": blocked_dates},
+    )
+
+
+# ── Shared — Clinic Info & About Page ──────────────────────────────────────
+
+
+@login_required
+def clinic_info(request):
+    """
+    Clinic info & about page — visible to both Admin and Pet Owner.
+    Shows clinic identity, veterinarian profile, and operating hours.
+    Google Maps embed is built dynamically from the address field using
+    Google's keyless embed pattern — no API key, no cost.
+    """
+    from urllib.parse import quote
+
+    clinic = ClinicSettings.objects.first()
+
+    maps_embed_url = ""
+    if clinic and clinic.address:
+        maps_embed_url = (
+            f"https://www.google.com/maps?q={quote(clinic.address)}&output=embed"
+        )
+
+    return render(
+        request,
+        "shared/clinic_info.html",
+        {
+            "clinic": clinic,
+            "maps_embed_url": maps_embed_url,
+        },
     )
 
 

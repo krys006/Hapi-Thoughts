@@ -1,0 +1,68 @@
+{% extends 'base_dashboard.html' %}
+
+{% block title %}Health Library — Hapi Vet{% endblock %}
+
+{% block content %}
+
+<div class="admin-page">
+
+  <div class="admin-page-header">
+    <h1 class="admin-page-title">Health Library</h1>
+    <a href="{% url 'admin_health_article_create' %}" class="btn-primary">New Article</a>
+  </div>
+
+  <!-- Search by condition name -->
+  <form method="get" class="health-search-form">
+    <input type="text" name="q" value="{{ query }}" placeholder="Search by condition name..." class="health-search-input" />
+    <button type="submit" class="btn-secondary">Search</button>
+  </form>
+
+  {% if articles %}
+  <table class="health-article-table">
+    <thead>
+      <tr>
+        <th class="widget-table-head">Title</th>
+        <th class="widget-table-head">Status</th>
+        <th class="widget-table-head">Last Updated</th>
+        <th class="widget-table-head">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for article in articles %}
+      <tr class="widget-table-row">
+        <td class="widget-table-cell">{{ article.title }}</td>
+        <td class="widget-table-cell">
+          {% if article.is_published %}
+          <span class="status-badge status-badge-completed">Published</span>
+          {% else %}
+          <span class="status-badge status-badge-pending">Draft</span>
+          {% endif %}
+        </td>
+        <td class="widget-table-cell">{{ article.updated_at|date:"M j, Y" }}</td>
+        <td class="widget-table-cell health-article-actions">
+          <a href="{% url 'admin_health_article_edit' article.pk %}" class="widget-table-link">Edit</a>
+
+          <form method="post" action="{% url 'admin_health_article_toggle_publish' article.pk %}" class="health-inline-form">
+            {% csrf_token %}
+            <button type="submit" class="widget-table-link">{% if article.is_published %}Unpublish{% else %}Publish{% endif %}</button>
+          </form>
+
+          <!-- Hard delete — irreversible. JS confirm dialog planned for 7.6 polish. -->
+          <form method="post" action="{% url 'admin_health_article_delete' article.pk %}" class="health-inline-form">
+            {% csrf_token %}
+            <button type="submit" class="widget-table-link health-delete-link">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="widget-empty">
+    <p class="widget-empty-text">{% if query %}No articles match "{{ query }}".{% else %}No health articles yet.{% endif %}</p>
+  </div>
+  {% endif %}
+
+</div>
+
+{% endblock %}

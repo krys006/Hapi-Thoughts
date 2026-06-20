@@ -8,6 +8,7 @@ from django.conf.urls.static import static
 from django.views.generic import RedirectView
 
 urlpatterns = [
+    path("", include("health.urls")),
     # notifications (bell panel, mark read, clear)
     path("", include("notifications.urls")),
     # Root URL — redirect to login

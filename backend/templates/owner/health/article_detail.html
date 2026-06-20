@@ -1,0 +1,46 @@
+{% extends 'base_dashboard.html' %}
+
+{% block title %}{{ article.title }} — Hapi Vet{% endblock %}
+
+{% block content %}
+
+<div class="owner-page">
+
+  <div class="owner-page-header">
+    <h1 class="owner-page-title">{{ article.title }}</h1>
+    <a href="{% url 'owner_health_article_list' %}" class="btn-link">Back to Health Library</a>
+  </div>
+
+  <article class="health-article-detail">
+
+    <section class="health-article-section">
+      <h2 class="health-article-section-title">Overview</h2>
+      <p class="health-article-text">{{ article.description|linebreaks }}</p>
+    </section>
+
+    {% if article.causes %}
+    <section class="health-article-section">
+      <h2 class="health-article-section-title">Causes</h2>
+      <p class="health-article-text">{{ article.causes|linebreaks }}</p>
+    </section>
+    {% endif %}
+
+    {% if article.symptoms %}
+    <section class="health-article-section">
+      <h2 class="health-article-section-title">Symptoms</h2>
+      <p class="health-article-text">{{ article.symptoms|linebreaks }}</p>
+    </section>
+    {% endif %}
+
+    {% if article.general_care %}
+    <section class="health-article-section">
+      <h2 class="health-article-section-title">General Care</h2>
+      <p class="health-article-text">{{ article.general_care|linebreaks }}</p>
+    </section>
+    {% endif %}
+
+  </article>
+
+</div>
+
+{% endblock %}

@@ -56,7 +56,7 @@
     </div>
 
 
-<!-- Middle: global search — admin only, accessible from every admin page -->
+    <!-- Middle: global search — role-conditional endpoint and placeholder -->
     {% if request.user.is_admin %}
     <div class="dashboard-header-search relative hidden md:block flex-1 max-w-md" id="global-search-container">
       <input
@@ -70,6 +70,20 @@
         hx-target="#global-search-results"
         hx-swap="innerHTML" />
       <div id="global-search-results" class="global-search-results-container absolute left-0 right-0 top-12 z-40"></div>
+    </div>
+    {% else %}
+    <div class="dashboard-header-search" id="global-search-container">
+      <input
+        type="text"
+        name="q"
+        placeholder="Search my pets, appointments, billing..."
+        class="global-search-input"
+        autocomplete="off"
+        hx-get="{% url 'owner_global_search' %}"
+        hx-trigger="keyup changed delay:300ms, search"
+        hx-target="#global-search-results"
+        hx-swap="innerHTML" />
+      <div id="global-search-results" class="global-search-results-container"></div>
     </div>
     {% endif %}
 

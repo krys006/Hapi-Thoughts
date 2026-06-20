@@ -4,6 +4,7 @@
   <div class="sidebar-nav-group flex flex-col gap-1">
     <p class="sidebar-nav-group-label px-3 mb-1 text-xs font-semibold uppercase tracking-wider text-violet-500">Overview</p>
     <a href="{% url 'admin_dashboard' %}" class="sidebar-link flex items-center px-3 py-2 text-sm font-medium text-slate-600 rounded-lg hover:text-violet-700 hover:bg-white/60 transition-colors {% if request.resolver_match.url_name == 'admin_dashboard' %}sidebar-link-active !text-violet-700 !font-semibold !bg-white shadow-sm{% endif %}">Dashboard</a>
+    <a href="{% url 'clinic_info' %}" class="sidebar-link {% if request.resolver_match.url_name == 'clinic_info' %}sidebar-link-active{% endif %}">Clinic Info</a>
   </div>
 
   <div class="sidebar-nav-group flex flex-col gap-1">
@@ -18,6 +19,7 @@
     <p class="sidebar-nav-group-label px-3 mb-1 text-xs font-semibold uppercase tracking-wider text-violet-500">Records</p>
     <a href="{% url 'admin_medical_record_list' %}" class="sidebar-link flex items-center px-3 py-2 text-sm font-medium text-slate-600 rounded-lg hover:text-violet-700 hover:bg-white/60 transition-colors {% if request.resolver_match.url_name == 'admin_medical_record_list' %}sidebar-link-active !text-violet-700 !font-semibold !bg-white shadow-sm{% endif %}">Medical Records</a>
     <a href="{% url 'admin_vaccination_list' %}" class="sidebar-link flex items-center px-3 py-2 text-sm font-medium text-slate-600 rounded-lg hover:text-violet-700 hover:bg-white/60 transition-colors {% if request.resolver_match.url_name == 'admin_vaccination_list' %}sidebar-link-active !text-violet-700 !font-semibold !bg-white shadow-sm{% endif %}">Vaccinations</a>
+    <a href="{% url 'admin_health_article_list' %}" class="sidebar-link {% if request.resolver_match.url_name == 'admin_health_article_list' %}sidebar-link-active{% endif %}">Health Library</a>
   </div>
 
   <div class="sidebar-nav-group flex flex-col gap-1">

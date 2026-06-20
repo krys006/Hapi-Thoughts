@@ -4,6 +4,7 @@
   <div class="sidebar-nav-group">
     <p class="sidebar-nav-group-label">Overview</p>
     <a href="{% url 'owner_dashboard' %}" class="sidebar-link {% if request.resolver_match.url_name == 'owner_dashboard' %}sidebar-link-active{% endif %}">Dashboard</a>
+    <a href="{% url 'clinic_info' %}" class="sidebar-link {% if request.resolver_match.url_name == 'clinic_info' %}sidebar-link-active{% endif %}">Clinic Info</a>
   </div>
 
   <div class="sidebar-nav-group">
@@ -11,6 +12,7 @@
     <a href="{% url 'owner_pet_list' %}" class="sidebar-link {% if request.resolver_match.url_name == 'owner_pet_list' %}sidebar-link-active{% endif %}">My Pets</a>
     <a href="{% url 'owner_appointments' %}" class="sidebar-link {% if request.resolver_match.url_name == 'owner_appointments' %}sidebar-link-active{% endif %}">Appointments</a>
     <a href="{% url 'owner_billing_list' %}" class="sidebar-link {% if request.resolver_match.url_name == 'owner_billing_list' %}sidebar-link-active{% endif %}">Billing</a>
+    <a href="{% url 'owner_health_article_list' %}" class="sidebar-link {% if request.resolver_match.url_name == 'owner_health_article_list' %}sidebar-link-active{% endif %}">Health Library</a>
   </div>
 
   <div class="sidebar-nav-group">

@@ -1,90 +1,13 @@
 from django.contrib.auth.decorators import login_required
+from django.db.models import Q
 from django.shortcuts import redirect, render
 from django.utils import timezone
 
-from appointments.utils import get_admin_calendar_context
 from appointments.models import Appointment
 from billing.models import BillingReceipt
 from medical.models import MedicalRecord, Vaccination
 from notifications.models import Notification
 from pets.models import Pet, PetOwner
-
-from django.db.models import Q
-
-
-def _run_global_search(query):
-    """
-    Searches pet owners, pets, appointments, and medical records for the
-    given query string. Each group capped at 5 results — this is a quick
-    lookup tool for the header, not a full search results page.
-    Archived owners/pets excluded, consistent with dashboard stats.
-    """
-    owners = PetOwner.objects.filter(
-        Q(first_name__icontains=query)
-        | Q(last_name__icontains=query)
-        | Q(contact_number__icontains=query),
-        is_archived=False,
-    )[:5]
-
-    pets = Pet.objects.select_related("owner").filter(
-        Q(name__icontains=query)
-        | Q(species__icontains=query)
-        | Q(breed__icontains=query),
-        is_archived=False,
-    )[:5]
-
-    appointments = (
-        Appointment.objects.select_related("pet", "owner")
-        .filter(
-            Q(pet__name__icontains=query)
-            | Q(owner__first_name__icontains=query)
-            | Q(owner__last_name__icontains=query)
-            | Q(reason__icontains=query)
-        )
-        .order_by("-date", "-time")[:5]
-    )
-
-    medical_records = (
-        MedicalRecord.objects.select_related("pet", "pet__owner")
-        .filter(
-            Q(pet__name__icontains=query)
-            | Q(diagnosis__icontains=query)
-            | Q(symptoms__icontains=query)
-        )
-        .order_by("-record_date")[:5]
-    )
-
-    return {
-        "search_query": query,
-        "search_owners": owners,
-        "search_pets": pets,
-        "search_appointments": appointments,
-        "search_medical_records": medical_records,
-        "has_results": any([owners, pets, appointments, medical_records]),
-    }
-
-
-@login_required
-def admin_global_search(request):
-    """
-    HTMX view — header global search. Returns a grouped dropdown of
-    matching pet owners, pets, appointments, and medical records.
-    Minimum 2 characters required to avoid noisy single-letter queries.
-    """
-    if request.user.role != "admin":
-        return redirect("owner_dashboard")
-
-    query = request.GET.get("q", "").strip()
-
-    if len(query) < 2:
-        return render(
-            request,
-            "shared/_global_search_results.html",
-            {"search_query": query, "has_results": False, "too_short": True},
-        )
-
-    context = _run_global_search(query)
-    return render(request, "shared/_global_search_results.html", context)
 
 
 def _get_admin_dashboard_context(request):
@@ -152,18 +75,148 @@ def _get_admin_dashboard_context(request):
     }
 
 
+def _run_global_search(query):
+    """
+    Admin global search — pet owners, pets, appointments, medical records.
+    Each group capped at 5 results. Archived owners/pets excluded.
+    """
+    owners = PetOwner.objects.filter(
+        Q(first_name__icontains=query)
+        | Q(last_name__icontains=query)
+        | Q(contact_number__icontains=query),
+        is_archived=False,
+    )[:5]
+
+    pets = Pet.objects.select_related("owner").filter(
+        Q(name__icontains=query)
+        | Q(species__icontains=query)
+        | Q(breed__icontains=query),
+        is_archived=False,
+    )[:5]
+
+    appointments = (
+        Appointment.objects.select_related("pet", "owner")
+        .filter(
+            Q(pet__name__icontains=query)
+            | Q(owner__first_name__icontains=query)
+            | Q(owner__last_name__icontains=query)
+            | Q(reason__icontains=query)
+        )
+        .order_by("-date", "-time")[:5]
+    )
+
+    medical_records = (
+        MedicalRecord.objects.select_related("pet", "pet__owner")
+        .filter(
+            Q(pet__name__icontains=query)
+            | Q(diagnosis__icontains=query)
+            | Q(symptoms__icontains=query)
+        )
+        .order_by("-record_date")[:5]
+    )
+
+    return {
+        "search_query": query,
+        "search_owners": owners,
+        "search_pets": pets,
+        "search_appointments": appointments,
+        "search_medical_records": medical_records,
+        "has_results": any([owners, pets, appointments, medical_records]),
+    }
+
+
+def _get_owner_dashboard_context(request):
+    """
+    Builds the widget context for the pet owner dashboard.
+    Shared by the full-page view and the HTMX polling partial.
+    """
+    owner = request.user.petowner
+    today = timezone.now().date()
+
+    upcoming_appointments = (
+        Appointment.objects.filter(owner=owner, date__gte=today)
+        .exclude(status=Appointment.CANCELLED)
+        .select_related("pet", "service")
+        .order_by("date", "time")[:5]
+    )
+
+    my_pets = Pet.objects.filter(owner=owner, is_archived=False).order_by("name")[:6]
+
+    recent_notifications = Notification.objects.filter(
+        recipient=request.user,
+    ).order_by("is_read", "-created_at")[:5]
+
+    return {
+        "today": today,
+        "upcoming_appointments": upcoming_appointments,
+        "my_pets": my_pets,
+        "recent_notifications": recent_notifications,
+    }
+
+
+def _run_owner_search(owner, query):
+    """
+    Pet owner scoped search — own pets, appointments, billing, and
+    medical records only. Each group capped at 5 results.
+    """
+    pets = Pet.objects.filter(
+        Q(name__icontains=query)
+        | Q(species__icontains=query)
+        | Q(breed__icontains=query),
+        owner=owner,
+        is_archived=False,
+    )[:5]
+
+    appointments = (
+        Appointment.objects.filter(
+            Q(pet__name__icontains=query) | Q(reason__icontains=query),
+            owner=owner,
+        )
+        .select_related("pet")
+        .order_by("-date", "-time")[:5]
+    )
+
+    receipts = (
+        BillingReceipt.objects.filter(
+            Q(receipt_number__icontains=query) | Q(pet__name__icontains=query),
+            owner=owner,
+        )
+        .select_related("pet")
+        .order_by("-billing_date")[:5]
+    )
+
+    # Matches on diagnosis/symptoms text only — private_notes is never
+    # searched or displayed, consistent with the public/private note rule.
+    medical_records = (
+        MedicalRecord.objects.filter(
+            Q(pet__name__icontains=query)
+            | Q(diagnosis__icontains=query)
+            | Q(symptoms__icontains=query),
+            pet__owner=owner,
+        )
+        .select_related("pet")
+        .order_by("-record_date")[:5]
+    )
+
+    return {
+        "search_query": query,
+        "search_pets": pets,
+        "search_appointments": appointments,
+        "search_receipts": receipts,
+        "search_medical_records": medical_records,
+        "has_results": any([pets, appointments, receipts, medical_records]),
+    }
+
+
 @login_required
 def admin_dashboard(request):
     """Admin dashboard — full page, stats/widgets/calendar render server-side first."""
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    context = _get_admin_dashboard_context(request)
+    from appointments.utils import get_admin_calendar_context
 
-    # Calendar widget — month view, current date, on initial load only.
-    # After this, navigation happens entirely via HTMX against the
-    # appointments app's endpoints — it's deliberately NOT part of the
-    # 30s polling partial, so the admin's nav position never resets.
+    context = _get_admin_dashboard_context(request)
     context.update(get_admin_calendar_context("month", None))
 
     return render(request, "admin/dashboard/index.html", context)
@@ -173,8 +226,7 @@ def admin_dashboard(request):
 def admin_dashboard_partial(request):
     """
     Returns the stats + widgets block only.
-    Polled automatically every 30s by the block itself (see
-    _dashboard_partial.html) — single-partial polling, not per-section.
+    Polled automatically every 30s by the block itself.
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
@@ -184,10 +236,73 @@ def admin_dashboard_partial(request):
 
 
 @login_required
+def admin_global_search(request):
+    """
+    HTMX view — header global search. Returns a grouped dropdown of
+    matching pet owners, pets, appointments, and medical records.
+    """
+    if request.user.role != "admin":
+        return redirect("owner_dashboard")
+
+    query = request.GET.get("q", "").strip()
+
+    if len(query) < 2:
+        return render(
+            request,
+            "shared/_global_search_results.html",
+            {"search_query": query, "has_results": False, "too_short": True},
+        )
+
+    context = _run_global_search(query)
+    return render(request, "shared/_global_search_results.html", context)
+
+
+@login_required
 def owner_dashboard(request):
-    """Placeholder pet owner dashboard."""
+    """Owner dashboard — full page, widgets render server-side first."""
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
     if not request.user.is_onboarded:
         return redirect("owner_onboarding")
-    return render(request, "owner/dashboard/index.html")
+
+    context = _get_owner_dashboard_context(request)
+    return render(request, "owner/dashboard/index.html", context)
+
+
+@login_required
+def owner_dashboard_partial(request):
+    """
+    Returns the owner dashboard widgets block only.
+    Polled automatically every 30s by the block itself.
+    """
+    if request.user.role != "pet_owner":
+        return redirect("admin_dashboard")
+    if not request.user.is_onboarded:
+        return redirect("owner_onboarding")
+
+    context = _get_owner_dashboard_context(request)
+    return render(request, "owner/dashboard/_dashboard_partial.html", context)
+
+
+@login_required
+def owner_global_search(request):
+    """
+    HTMX view — header scoped search for pet owners. Returns a grouped
+    dropdown of the owner's own pets, appointments, billing, and
+    medical records only.
+    """
+    if request.user.role != "pet_owner":
+        return redirect("admin_dashboard")
+
+    owner = request.user.petowner
+    query = request.GET.get("q", "").strip()
+
+    if len(query) < 2:
+        return render(
+            request,
+            "shared/_owner_search_results.html",
+            {"search_query": query, "has_results": False, "too_short": True},
+        )
+
+    context = _run_owner_search(owner, query)
+    return render(request, "shared/_owner_search_results.html", context)
