@@ -212,6 +212,9 @@ Only one instance exists — Admin edits it through clinic settings page.
 | `contact_number` | CharField | max_length=20, blank=True | — |
 | `email` | EmailField | blank=True | — |
 | `logo` | ImageField | upload_to='clinic/', blank=True, null=True | Clinic logo for receipts and UI |
+| `veterinarian_name` | CharField | max_length=100, blank=True | Shown on clinic info page |
+| `veterinarian_license_number` | CharField | max_length=50, blank=True | — |
+| `veterinarian_bio` | TextField | blank=True | — |
 | `opening_time` | TimeField | — | e.g. 08:00 |
 | `closing_time` | TimeField | — | e.g. 17:00 |
 | `slot_duration_minutes` | IntegerField | default=60 | 30 or 60 minutes |

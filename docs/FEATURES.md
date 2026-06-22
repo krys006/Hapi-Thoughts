@@ -469,13 +469,13 @@ PENDING → CONFIRMED → COMPLETED
 ### 7.4 Clinic Settings (Admin)
 | Feature | Status |
 |---|---|
-| Edit clinic name, address, contact number, email | `planned` |
-| Upload clinic logo | `planned` |
-| Edit operating hours and working days | `planned` |
-| Edit appointment slot duration | `planned` |
-| Set same-day booking cutoff time | `planned` |
-| Set admin notification email | `planned` |
-| Edit veterinarian profile (Dr. Edgar's details and bio) | `planned` |
+| Edit clinic name, address, contact number, email | `complete` |
+| Upload clinic logo | `complete` |
+| Edit operating hours and working days | `complete` |
+| Edit appointment slot duration | `complete` |
+| Set same-day booking cutoff time | `complete` |
+| Set admin notification email | `complete` |
+| Edit veterinarian profile (Dr. Edgar's details and bio) | `complete` |
 
 ### 7.5 Health Library
 | Feature | Status |
