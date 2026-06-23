@@ -37,21 +37,11 @@
               <tr class="admin-table-row">
 
                 <td class="admin-table-cell">
-                  
-                    href="{% url 'admin_pet_detail' req.pet.pk %}"
-                    class="admin-table-link"
-                  >
-                    {{ req.pet.name }}
-                  </a>
+                  <a href="{% url 'admin_pet_detail' req.pet.pk %}" class="admin-table-link">{{ req.pet.name }}</a>
                 </td>
 
                 <td class="admin-table-cell">
-                  
-                    href="{% url 'admin_owner_detail' req.pet.owner.pk %}"
-                    class="admin-table-link"
-                  >
-                    {{ req.pet.owner.full_name }}
-                  </a>
+                  <a href="{% url 'admin_owner_detail' req.pet.owner.pk %}" class="admin-table-link">{{ req.pet.owner.full_name }}</a>
                 </td>
 
                 <td class="admin-table-cell">
@@ -69,17 +59,16 @@
                 <td class="admin-table-cell">
                   <div class="admin-action-buttons">
 
-                    <form
-                      method="post"
-                      action="{% url 'admin_approve_deletion' req.pk %}"
-                      style="display:inline;"
-                    >
-                      {% csrf_token %}
-                      <button type="submit" class="btn-danger">
-                        Approve
-                      </button>
-                    </form>
+                    <!-- Approve — permanently archives the pet, no restore -->
+                    <!-- path currently exists. Confirmed via shared modal. -->
+                    <button
+                      type="button"
+                      class="btn-danger"
+                      onclick="openConfirmModal('{% url 'admin_approve_deletion' req.pk %}', 'Approve Deletion Request', 'Archive {{ req.pet.name|escapejs }}, owned by {{ req.pet.owner.full_name|escapejs }}? There is currently no way to restore an archived pet. Reason given: {{ req.get_reason_display|escapejs }}.')">
+                      Approve
+                    </button>
 
+                    <!-- Reject — not destructive, pet stays active, no modal needed -->
                     <form
                       method="post"
                       action="{% url 'admin_reject_deletion' req.pk %}"
