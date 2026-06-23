@@ -4,4 +4,5 @@
     <option value="{{ slot|time:'H:i:s' }}">{{ slot|time:"g:i A" }}</option>
   {% endfor %}
 {% else %}
-bbbbbbbbbbbbbvvgyvuygvuvuvgvuyvu
+  <option value="">No slots available for this date</option>
+{% endif %}
