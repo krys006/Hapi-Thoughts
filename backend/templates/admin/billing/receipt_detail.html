@@ -1,4 +1,4 @@
-{% extends 'base.html' %}
+{% extends 'base_dashboard.html' %}
 
 {% block title %}{{ receipt.receipt_number }} — Hapi Vet Admin{% endblock %}
 
@@ -8,16 +8,21 @@
 
   <div class="admin-page-header">
     <h1 class="admin-page-title">{{ receipt.receipt_number }}</h1>
+
     <div class="header-actions">
       {% if not receipt.is_locked %}
         <a href="{% url 'admin_receipt_edit' receipt.pk %}" class="btn-secondary">
           Edit Receipt
         </a>
       {% endif %}
+      <button type="button" class="btn-secondary no-print" onclick="window.print()">
+        Print / Save as PDF
+      </button>
       <a href="{% url 'admin_receipt_list' %}" class="btn-link">
         Back to Billing
       </a>
     </div>
+    
   </div>
 
   {% if messages %}
@@ -142,14 +147,13 @@
                   <td>₱{{ item.subtotal|floatformat:2 }}</td>
                   {% if not receipt.is_locked %}
                     <td>
-                      <form method="post"
-                        action="{% url 'admin_billing_item_delete' item.pk %}">
-                        {% csrf_token %}
-                        <button type="submit" class="btn-danger-sm"
-                          onclick="return confirm('Remove this item?')">
-                          Remove
-                        </button>
-                      </form>
+                      <!-- Remove item — confirmed via shared modal -->
+                      <button
+                        type="button"
+                        class="btn-danger-sm"
+                        onclick="openConfirmModal('{% url 'admin_billing_item_delete' item.pk %}', 'Remove Item', 'Remove &quot;{{ item.description|escapejs }}&quot; from this receipt? This cannot be undone.')">
+                        Remove
+                      </button>
                     </td>
                   {% endif %}
                 </tr>
@@ -267,25 +271,21 @@
         {% else %}
 
           {% if receipt.payment_status == 'pending' %}
-            <!-- Mark as Paid -->
-            <form method="post"
-              action="{% url 'admin_receipt_mark_paid' receipt.pk %}">
-              {% csrf_token %}
-              <button type="submit" class="btn-primary btn-block"
-                onclick="return confirm('Mark this receipt as paid?')">
-                Mark as Paid
-              </button>
-            </form>
+            <!-- Mark as Paid — irreversible: locks the receipt for editing -->
+            <button
+              type="button"
+              class="btn-primary btn-block"
+              onclick="openConfirmModal('{% url 'admin_receipt_mark_paid' receipt.pk %}', 'Mark as Paid', 'Mark {{ receipt.receipt_number|escapejs }} as paid? This will lock the receipt and it can no longer be edited.')">
+              Mark as Paid
+            </button>
 
             <!-- Cancel Receipt -->
-            <form method="post"
-              action="{% url 'admin_receipt_mark_cancelled' receipt.pk %}">
-              {% csrf_token %}
-              <button type="submit" class="btn-danger btn-block"
-                onclick="return confirm('Cancel this receipt?')">
-                Cancel Receipt
-              </button>
-            </form>
+            <button
+              type="button"
+              class="btn-danger btn-block"
+              onclick="openConfirmModal('{% url 'admin_receipt_mark_cancelled' receipt.pk %}', 'Cancel Receipt', 'Cancel {{ receipt.receipt_number|escapejs }}? This action cannot be undone.')">
+              Cancel Receipt
+            </button>
           {% endif %}
 
           {% if receipt.payment_status == 'cancelled' %}
@@ -350,4 +350,7 @@
       });
   }
 </script>
+
+{% include "shared/billing/_receipt_print.html" %}
+
 {% endblock extra_js %}

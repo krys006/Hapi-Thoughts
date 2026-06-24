@@ -1,0 +1,100 @@
+{% extends 'base_dashboard.html' %}
+
+{% block title %}Vaccinations — Hapi Vet Admin{% endblock %}
+
+{% block content %}
+
+<div class="admin-page">
+
+  <div class="admin-page-header">
+    <h1 class="admin-page-title">Vaccinations</h1>
+    <span class="admin-page-count">{{ total_count }} record{{ total_count|pluralize }}</span>
+  </div>
+
+  <!-- Search bar -->
+  <form method="get" class="admin-search-form">
+    <input
+      type="text"
+      name="search"
+      value="{{ search_query }}"
+      placeholder="Search by pet name or owner name..."
+      class="admin-search-input"
+    />
+    <button type="submit" class="btn-primary">Search</button>
+    {% if search_query %}<a href="{% url 'admin_vaccination_list' %}" class="btn-secondary">Clear</a>{% endif %}
+  </form>
+
+  {% if search_query %}
+  <p class="admin-search-result-note">
+    Showing results for "{{ search_query }}"
+  </p>
+  {% endif %}
+
+  <!-- Vaccinations table -->
+  {% if vaccinations %}
+  <div class="admin-table-wrapper">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th class="admin-table-header">Vaccine</th>
+          <th class="admin-table-header">Date Given</th>
+          <th class="admin-table-header">Next Due</th>
+          <th class="admin-table-header">Pet</th>
+          <th class="admin-table-header">Owner</th>
+          <th class="admin-table-header">Status</th>
+          <th class="admin-table-header">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in vaccinations %}
+        <tr class="admin-table-row {% if v.is_corrected %}row--corrected{% endif %}">
+
+          <td class="admin-table-cell">{{ v.display_vaccine_name }}</td>
+
+          <td class="admin-table-cell">{{ v.date_administered|date:"M j, Y" }}</td>
+
+          <td class="admin-table-cell">
+            {% if v.next_due_date %}
+              {{ v.next_due_date|date:"M j, Y" }}
+            {% else %}
+              <span class="admin-table-muted">—</span>
+            {% endif %}
+          </td>
+
+          <td class="admin-table-cell">
+            <a href="{% url 'admin_pet_detail' v.pet.pk %}" class="admin-table-link">{{ v.pet.name }}</a>
+          </td>
+
+          <td class="admin-table-cell">
+            <a href="{% url 'admin_owner_detail' v.pet.owner.pk %}" class="admin-table-link">{{ v.pet.owner.full_name }}</a>
+          </td>
+
+          <td class="admin-table-cell">
+            {% if v.is_corrected %}
+              <span class="corrected-badge" title="{{ v.correction_note }}">Corrected</span>
+            {% else %}
+              <span class="admin-table-muted">—</span>
+            {% endif %}
+          </td>
+
+          <td class="admin-table-cell">
+            <a href="{% url 'admin_pet_vaccination_history' v.pet.pk %}" class="btn-small-primary">View All for Pet</a>
+          </td>
+
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% else %}
+    {% if search_query %}
+      <p class="admin-empty-state">No vaccination records found for "{{ search_query }}".</p>
+    {% else %}
+      <p class="admin-empty-state">No vaccination records yet.</p>
+    {% endif %}
+  {% endif %}
+
+</div>
+
+{% endblock %}

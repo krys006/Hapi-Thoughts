@@ -1,4 +1,5 @@
 import datetime
+from django.db.models import Count
 from django.utils import timezone
 from .models import ClinicSettings, BlockedDate, Appointment
 
@@ -141,3 +142,123 @@ def get_available_dates(month, year):
             available_dates.add(date)
 
     return available_dates
+
+
+def _format_calendar_week_label(start, end):
+    """
+    Formats a week range label for the calendar widget header.
+    e.g. 'Jun 15 - 21, 2026' or 'Jun 29 - Jul 05, 2026' if the
+    week spans two months.
+    """
+    if start.month == end.month:
+        return f"{start.strftime('%b %d')} - {end.strftime('%d, %Y')}"
+    return f"{start.strftime('%b %d')} - {end.strftime('%b %d, %Y')}"
+
+
+def get_admin_calendar_context(view, date_str):
+    """
+    Builds the calendar grid context for the admin dashboard calendar
+    widget. Used by both the initial dashboard page load and the HTMX
+    grid-refresh endpoint, so navigation always produces identical output.
+
+    view: "month" or "week" — defaults to "month" on any other value
+    date_str: ISO date string (YYYY-MM-DD) to anchor the grid on,
+    falls back to today if missing or invalid.
+
+    Returns a dict of calendar_* keys (prefixed to avoid colliding with
+    other dashboard context keys when merged together).
+    """
+    import calendar
+
+    today = timezone.now().date()
+
+    try:
+        anchor_date = datetime.date.fromisoformat(date_str) if date_str else today
+    except ValueError:
+        anchor_date = today
+
+    clinic = ClinicSettings.objects.first()
+    working_days = clinic.working_days if clinic else []
+
+    if view == "week":
+        # Monday of the anchor date's week (weekday() returns 0=Mon)
+        week_start = anchor_date - datetime.timedelta(days=anchor_date.weekday())
+        days = [week_start + datetime.timedelta(days=i) for i in range(7)]
+        weeks = [days]
+        prev_date = week_start - datetime.timedelta(days=7)
+        next_date = week_start + datetime.timedelta(days=7)
+        period_label = _format_calendar_week_label(days[0], days[-1])
+    else:
+        view = "month"  # normalize any unexpected query param value
+
+        cal = calendar.Calendar(firstweekday=0)  # Monday-start
+        all_days = list(cal.itermonthdates(anchor_date.year, anchor_date.month))
+        weeks = [all_days[i : i + 7] for i in range(0, len(all_days), 7)]
+
+        first_of_month = anchor_date.replace(day=1)
+        prev_date = (first_of_month - datetime.timedelta(days=1)).replace(day=1)
+
+        next_month = anchor_date.month + 1
+        next_year = anchor_date.year
+        if next_month > 12:
+            next_month = 1
+            next_year += 1
+        next_date = datetime.date(next_year, next_month, 1)
+
+        period_label = anchor_date.strftime("%B %Y")
+
+    flat_days = [d for week in weeks for d in week]
+    start_range = min(flat_days)
+    end_range = max(flat_days)
+
+    # One query for all status counts across the visible grid.
+    # Cancelled excluded — dots represent active/relevant activity only;
+    # the day-detail panel shows cancelled appointments separately.
+    status_rows = (
+        Appointment.objects.filter(date__range=[start_range, end_range])
+        .exclude(status=Appointment.CANCELLED)
+        .values("date", "status")
+        .annotate(count=Count("id"))
+    )
+    status_map = {}
+    for row in status_rows:
+        status_map.setdefault(row["date"], []).append(
+            {"status": row["status"], "count": row["count"]}
+        )
+
+    blocked_set = set(
+        BlockedDate.objects.filter(date__range=[start_range, end_range]).values_list(
+            "date", flat=True
+        )
+    )
+
+    grid_weeks = []
+    for week in weeks:
+        week_cells = []
+        for d in week:
+            week_cells.append(
+                {
+                    "date": d,
+                    "day_number": d.day,
+                    # Week view has no "outside period" concept — every
+                    # day shown belongs to the selected week.
+                    "is_current_period": (
+                        True if view == "week" else d.month == anchor_date.month
+                    ),
+                    "is_today": d == today,
+                    "is_working_day": d.weekday() in working_days,
+                    "is_blocked": d in blocked_set,
+                    "statuses": status_map.get(d, []),
+                }
+            )
+        grid_weeks.append(week_cells)
+
+    return {
+        "calendar_view": view,
+        "anchor_date": anchor_date,
+        "calendar_weeks": grid_weeks,
+        "calendar_prev_date": prev_date,
+        "calendar_next_date": next_date,
+        "calendar_today_date": today,
+        "calendar_period_label": period_label,
+    }

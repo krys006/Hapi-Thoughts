@@ -1,136 +1,191 @@
-{% extends 'base.html' %}
+{% extends 'base_dashboard.html' %}
+{% load static %}
 
 {% block title %}Add a Pet — Hapi Vet{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/pet_form.css' %}">
+{% endblock %}
 
 {% block content %}
 
 <div class="pet-form-page">
 
   <div class="pet-form-header">
-    <h1 class="pet-form-title">Add a Pet</h1>
+    <div class="pet-form-header-text">
+      <h1 class="pet-form-title">Add a Pet</h1>
+      <p class="pet-form-subtitle">Tell us about your companion — the basics take less than a minute.</p>
+    </div>
     <a href="{% url 'owner_pet_list' %}" class="btn-secondary">Cancel</a>
   </div>
 
-  <form method="post" enctype="multipart/form-data" class="pet-form">
-    {% csrf_token %}
+  <div class="pet-form-card">
 
-    <!-- Pet photo -->
-    <div class="form-section">
-      <label class="form-label">
-        Pet Photo <span class="optional-tag">(optional)</span>
-      </label>
-      {{ form.photo }}
-      {% if form.photo.errors %}
-        <p class="form-error">{{ form.photo.errors.0 }}</p>
-      {% endif %}
-    </div>
+    <form method="post" enctype="multipart/form-data" class="pet-form" novalidate>
+      {% csrf_token %}
 
-    <!-- Pet name -->
-    <div class="form-section">
-      <label class="form-label" for="{{ form.name.id_for_label }}">
-        Pet Name <span class="required-tag">*</span>
-      </label>
-      {{ form.name }}
-      {% if form.name.errors %}
-        <p class="form-error">{{ form.name.errors.0 }}</p>
-      {% endif %}
-    </div>
-
-    <!-- Species and breed -->
-    <div class="form-row-two-col">
-
-      <div class="form-section">
-        <label class="form-label" for="{{ form.species.id_for_label }}">
-          Species <span class="required-tag">*</span>
+      <!-- Pet photo -->
+      <div class="form-section photo-section">
+        <label class="form-label">
+          Pet Photo <span class="optional-tag">(optional)</span>
         </label>
-        {{ form.species }}
-        {% if form.species.errors %}
-          <p class="form-error">{{ form.species.errors.0 }}</p>
+
+        <div class="photo-upload-row">
+          <div class="photo-preview" id="photoPreview">
+            <img id="photoPreviewImg" src="" alt="Pet preview" class="photo-preview-img hidden-field">
+            <span class="photo-preview-placeholder" id="photoPreviewPlaceholder">🐾</span>
+          </div>
+
+          <label for="{{ form.photo.id_for_label }}" class="photo-upload-btn">
+            Choose Photo
+            {{ form.photo }}
+          </label>
+        </div>
+
+        {% if form.photo.errors %}
+          <p class="form-error">{{ form.photo.errors.0 }}</p>
         {% endif %}
       </div>
 
+      <!-- Pet name -->
       <div class="form-section">
-        <label class="form-label" for="{{ form.breed.id_for_label }}">
-          Breed <span class="optional-tag">(optional)</span>
+        <label class="form-label" for="{{ form.name.id_for_label }}">
+          Pet Name <span class="required-tag">*</span>
         </label>
-        {{ form.breed }}
-        {% if form.breed.errors %}
-          <p class="form-error">{{ form.breed.errors.0 }}</p>
-        {% endif %}
-        <!-- NOTE for frontend teammate:
-             Species + breed upgraded to cascading HTMX dropdown in Phase 7. -->
-      </div>
-
-    </div>
-
-    <!-- Gender and date of birth -->
-    <div class="form-row-two-col">
-
-      <div class="form-section">
-        <label class="form-label" for="{{ form.gender.id_for_label }}">
-          Gender <span class="required-tag">*</span>
-        </label>
-        {{ form.gender }}
-        {% if form.gender.errors %}
-          <p class="form-error">{{ form.gender.errors.0 }}</p>
+        {{ form.name }}
+        {% if form.name.errors %}
+          <p class="form-error">{{ form.name.errors.0 }}</p>
         {% endif %}
       </div>
 
+      <!-- Species and breed — cascading dropdown with custom input fallback -->
+      <div class="form-row-two-col">
+
+        <div class="form-section">
+          <label class="form-label" for="{{ form.species.id_for_label }}_select">
+            Species <span class="required-tag">*</span>
+          </label>
+          <select id="{{ form.species.id_for_label }}_select" class="species-select">
+            <option value="">Select a species</option>
+            <option value="Dog">Dog</option>
+            <option value="Cat">Cat</option>
+            <option value="Bird">Bird</option>
+            <option value="Rabbit">Rabbit</option>
+            <option value="Hamster">Hamster</option>
+            <option value="__other__">Other (please specify)</option>
+          </select>
+          <!-- Actual submitted field — hidden unless "Other" is chosen -->
+          <div id="{{ form.species.id_for_label }}_custom_wrapper" class="hidden-field custom-input-wrapper">
+            {{ form.species }}
+          </div>
+          {% if form.species.errors %}
+            <p class="form-error">{{ form.species.errors.0 }}</p>
+          {% endif %}
+        </div>
+
+        <div class="form-section">
+          <label class="form-label" for="{{ form.breed.id_for_label }}_select">
+            Breed <span class="optional-tag">(optional)</span>
+          </label>
+          <select id="{{ form.breed.id_for_label }}_select" class="breed-select">
+            <option value="">Select species first</option>
+          </select>
+          <!-- Actual submitted field — hidden unless "Other" is chosen -->
+          <div id="{{ form.breed.id_for_label }}_custom_wrapper" class="hidden-field custom-input-wrapper">
+            {{ form.breed }}
+          </div>
+          {% if form.breed.errors %}
+            <p class="form-error">{{ form.breed.errors.0 }}</p>
+          {% endif %}
+        </div>
+
+      </div>
+
+      <!-- Gender and date of birth -->
+      <div class="form-row-two-col">
+
+        <div class="form-section">
+          <label class="form-label" for="{{ form.gender.id_for_label }}">
+            Gender <span class="required-tag">*</span>
+          </label>
+          {{ form.gender }}
+          {% if form.gender.errors %}
+            <p class="form-error">{{ form.gender.errors.0 }}</p>
+          {% endif %}
+        </div>
+
+        <div class="form-section">
+          <label class="form-label" for="{{ form.date_of_birth.id_for_label }}">
+            Date of Birth <span class="optional-tag">(optional)</span>
+          </label>
+          {{ form.date_of_birth }}
+          {% if form.date_of_birth.errors %}
+            <p class="form-error">{{ form.date_of_birth.errors.0 }}</p>
+          {% endif %}
+        </div>
+
+      </div>
+
+      <!-- Color and weight -->
+      <div class="form-row-two-col">
+
+        <div class="form-section">
+          <label class="form-label" for="{{ form.color.id_for_label }}">
+            Color <span class="optional-tag">(optional)</span>
+          </label>
+          {{ form.color }}
+          {% if form.color.errors %}
+            <p class="form-error">{{ form.color.errors.0 }}</p>
+          {% endif %}
+        </div>
+
+        <div class="form-section">
+          <label class="form-label" for="{{ form.weight.id_for_label }}">
+            Weight (kg) <span class="optional-tag">(optional)</span>
+          </label>
+          {{ form.weight }}
+          {% if form.weight.errors %}
+            <p class="form-error">{{ form.weight.errors.0 }}</p>
+          {% endif %}
+        </div>
+
+      </div>
+
+      <!-- Registration number -->
       <div class="form-section">
-        <label class="form-label" for="{{ form.date_of_birth.id_for_label }}">
-          Date of Birth <span class="optional-tag">(optional)</span>
+        <label class="form-label" for="{{ form.registration_number.id_for_label }}">
+          Registration Number <span class="optional-tag">(optional)</span>
         </label>
-        {{ form.date_of_birth }}
-        {% if form.date_of_birth.errors %}
-          <p class="form-error">{{ form.date_of_birth.errors.0 }}</p>
+        {{ form.registration_number }}
+        {% if form.registration_number.errors %}
+          <p class="form-error">{{ form.registration_number.errors.0 }}</p>
         {% endif %}
       </div>
 
-    </div>
-
-    <!-- Color and weight -->
-    <div class="form-row-two-col">
-
-      <div class="form-section">
-        <label class="form-label" for="{{ form.color.id_for_label }}">
-          Color <span class="optional-tag">(optional)</span>
-        </label>
-        {{ form.color }}
-        {% if form.color.errors %}
-          <p class="form-error">{{ form.color.errors.0 }}</p>
-        {% endif %}
+      <div class="form-actions">
+        <a href="{% url 'owner_pet_list' %}" class="btn-secondary">Cancel</a>
+        <button type="submit" class="btn-primary">Add Pet</button>
       </div>
 
-      <div class="form-section">
-        <label class="form-label" for="{{ form.weight.id_for_label }}">
-          Weight (kg) <span class="optional-tag">(optional)</span>
-        </label>
-        {{ form.weight }}
-        {% if form.weight.errors %}
-          <p class="form-error">{{ form.weight.errors.0 }}</p>
-        {% endif %}
-      </div>
+    </form>
 
-    </div>
-
-    <!-- Registration number -->
-    <div class="form-section">
-      <label class="form-label" for="{{ form.registration_number.id_for_label }}">
-        Registration Number <span class="optional-tag">(optional)</span>
-      </label>
-      {{ form.registration_number }}
-      {% if form.registration_number.errors %}
-        <p class="form-error">{{ form.registration_number.errors.0 }}</p>
-      {% endif %}
-    </div>
-
-    <div class="form-actions">
-      <a href="{% url 'owner_pet_list' %}" class="btn-secondary">Cancel</a>
-      <button type="submit" class="btn-primary">Add Pet</button>
-    </div>
-
-  </form>
+  </div>
 
 </div>
 
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/shared/pet_species_breed.js' %}"></script>
+<script src="{% static 'js/pet_photo_preview.js' %}"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    initPetSpeciesBreedFields(
+      '{{ form.species.id_for_label }}',
+      '{{ form.breed.id_for_label }}'
+    );
+
+    initPetPhotoPreview('{{ form.photo.id_for_label }}');
+  });
+</script>
 {% endblock %}

@@ -18,6 +18,7 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
         # Check if email already exists as a regular account
         try:
             from django.contrib.auth import get_user_model
+
             User = get_user_model()
             email = sociallogin.account.extra_data.get("email", "")
             if email:

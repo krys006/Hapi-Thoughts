@@ -193,8 +193,6 @@ class BillingReceipt(models.Model):
         self.total_amount = max(self.subtotal - discount, Decimal("0"))
         self.save()
 
-
-
     @property
     def is_locked(self):
         """Receipt is locked once payment status is PAID."""
@@ -204,6 +202,7 @@ class BillingReceipt(models.Model):
     def discount_amount(self):
         """Returns the actual peso amount deducted as discount."""
         from decimal import Decimal
+
         if not self.discount_value or not self.discount_type:
             return Decimal("0")
         if self.discount_type == self.PERCENTAGE:
@@ -211,10 +210,6 @@ class BillingReceipt(models.Model):
         if self.discount_type == self.FIXED_DISCOUNT:
             return self.discount_value
         return Decimal("0")
-
-
-
-
 
     @classmethod
     def generate_receipt_number(cls):

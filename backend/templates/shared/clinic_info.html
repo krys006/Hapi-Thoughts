@@ -1,0 +1,85 @@
+{% extends 'base_dashboard.html' %}
+
+{% block title %}Clinic Info — Hapi Vet{% endblock %}
+
+{% block content %}
+
+<div class="clinic-info-page">
+
+  <div class="clinic-info-header">
+    {% if clinic.logo %}
+    <img src="{{ clinic.logo.url }}" alt="{{ clinic.clinic_name }} logo" class="clinic-info-logo" />
+    {% endif %}
+    <h1 class="clinic-info-name">{{ clinic.clinic_name }}</h1>
+    <p class="clinic-info-address">{{ clinic.address }}</p>
+  </div>
+
+  <div class="clinic-info-layout">
+
+    <!-- ── Left column: Contact + Hours + Veterinarian ────────────────── -->
+    <div class="clinic-info-main">
+
+      <!-- Contact Details -->
+      <section class="clinic-info-section">
+        <h2 class="clinic-info-section-title">Contact</h2>
+        {% if clinic.contact_number %}
+        <p class="clinic-info-detail">Phone: {{ clinic.contact_number }}</p>
+        {% endif %}
+        {% if clinic.email %}
+        <p class="clinic-info-detail">Email: {{ clinic.email }}</p>
+        {% endif %}
+      </section>
+
+      <!-- Operating Hours -->
+      <section class="clinic-info-section">
+        <h2 class="clinic-info-section-title">Operating Hours</h2>
+        <p class="clinic-info-detail">
+          {{ clinic.opening_time|time:"g:i A" }} – {{ clinic.closing_time|time:"g:i A" }}
+        </p>
+        <p class="clinic-info-detail">
+          Open: {{ clinic.get_working_day_names|join:", " }}
+        </p>
+      </section>
+
+      <!-- Veterinarian Profile — only shown if filled in -->
+      {% if clinic.veterinarian_name %}
+      <section class="clinic-info-section">
+        <h2 class="clinic-info-section-title">Your Veterinarian</h2>
+        <p class="clinic-info-vet-name">{{ clinic.veterinarian_name }}</p>
+        {% if clinic.veterinarian_license_number %}
+        <p class="clinic-info-detail">License No. {{ clinic.veterinarian_license_number }}</p>
+        {% endif %}
+        {% if clinic.veterinarian_bio %}
+        <p class="clinic-info-vet-bio">{{ clinic.veterinarian_bio|linebreaks }}</p>
+        {% endif %}
+      </section>
+      {% endif %}
+
+      <!-- Book Appointment — pet owners only -->
+      {% if not request.user.is_admin %}
+      <div class="clinic-info-cta">
+        <a href="{% url 'owner_book_appointment' %}" class="btn-primary">Book an Appointment</a>
+      </div>
+      {% endif %}
+
+    </div>
+    <!-- end clinic-info-main -->
+
+    <!-- ── Right column: Map ───────────────────────────────────────────── -->
+    <div class="clinic-info-map-container">
+      {% if maps_embed_url %}
+      <iframe
+        src="{{ maps_embed_url }}"
+        class="clinic-info-map"
+        loading="lazy"
+        referrerpolicy="no-referrer-when-downgrade">
+      </iframe>
+      {% endif %}
+    </div>
+
+  </div>
+  <!-- end clinic-info-layout -->
+
+</div>
+
+{% endblock %}

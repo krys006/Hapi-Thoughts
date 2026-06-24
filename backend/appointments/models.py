@@ -19,6 +19,20 @@ class ClinicSettings(models.Model):
         null=True,
     )
 
+    logo = models.ImageField(
+        upload_to="clinic/",
+        blank=True,
+        null=True,
+    )
+
+    # ── Veterinarian Profile ─────────────────────────────────────────────────
+    veterinarian_name = models.CharField(max_length=100, blank=True)
+    veterinarian_license_number = models.CharField(max_length=50, blank=True)
+    veterinarian_bio = models.TextField(blank=True)
+
+    # ── Schedule Configuration ───────────────────────────────────────────────
+    opening_time = models.TimeField()
+
     # ── Schedule Configuration ───────────────────────────────────────────────
     opening_time = models.TimeField()
     closing_time = models.TimeField()
@@ -176,6 +190,7 @@ class Appointment(models.Model):
     @property
     def is_upcoming(self):
         from django.utils import timezone
+
         return self.date >= timezone.now().date()
 
     @property
@@ -190,7 +205,5 @@ class Appointment(models.Model):
         appointment_datetime = timezone.make_aware(
             datetime.datetime.combine(self.date, self.time)
         )
-        hours_until = (
-            appointment_datetime - timezone.now()
-        ).total_seconds() / 3600
+        hours_until = (appointment_datetime - timezone.now()).total_seconds() / 3600
         return hours_until > 24

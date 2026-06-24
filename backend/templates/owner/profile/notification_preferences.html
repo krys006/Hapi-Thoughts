@@ -1,0 +1,98 @@
+{% extends 'base_dashboard.html' %}
+
+{% block title %}Notification Preferences — Hapi Vet{% endblock %}
+
+{% block content %}
+
+<div class="preferences-page">
+
+  <div class="preferences-header">
+    <h1 class="preferences-title">Notification Preferences</h1>
+    <p class="preferences-subtitle">Choose which email notifications you want to receive.</p>
+  </div>
+
+  <form method="post" class="preferences-form">
+    {% csrf_token %}
+
+    <!-- Email notification toggles -->
+    <div class="preferences-section">
+      <h2 class="preferences-section-title">Email Notifications</h2>
+      <p class="preferences-section-desc">In-app notifications are always on regardless of these settings.</p>
+
+      <div class="preferences-toggle-row">
+        <div class="preferences-toggle-info">
+          <label class="preferences-toggle-label" for="{{ form.email_appointment_reminders.id_for_label }}">Appointment Reminders</label>
+          <p class="preferences-toggle-desc">Email reminder before your upcoming appointments.</p>
+        </div>
+        {{ form.email_appointment_reminders }}
+      </div>
+
+      <div class="preferences-toggle-row">
+        <div class="preferences-toggle-info">
+          <label class="preferences-toggle-label" for="{{ form.email_appointment_status.id_for_label }}">Appointment Status Updates</label>
+          <p class="preferences-toggle-desc">Email when your appointment is confirmed or rejected.</p>
+        </div>
+        {{ form.email_appointment_status }}
+      </div>
+
+      <div class="preferences-toggle-row">
+        <div class="preferences-toggle-info">
+          <label class="preferences-toggle-label" for="{{ form.email_billing.id_for_label }}">Billing Notifications</label>
+          <p class="preferences-toggle-desc">Email when a billing receipt is generated for you.</p>
+        </div>
+        {{ form.email_billing }}
+      </div>
+
+      <div class="preferences-toggle-row">
+        <div class="preferences-toggle-info">
+          <label class="preferences-toggle-label" for="{{ form.email_vaccination.id_for_label }}">Vaccination Reminders</label>
+          <p class="preferences-toggle-desc">Email when your pet's vaccination is coming due.</p>
+        </div>
+        {{ form.email_vaccination }}
+      </div>
+
+      <div class="preferences-toggle-row">
+        <div class="preferences-toggle-info">
+          <label class="preferences-toggle-label" for="{{ form.email_followup.id_for_label }}">Follow-up Reminders</label>
+          <p class="preferences-toggle-desc">Email when your pet has a scheduled follow-up coming up.</p>
+        </div>
+        {{ form.email_followup }}
+      </div>
+
+    </div>
+
+    <!-- Reminder timing -->
+    <div class="preferences-section">
+      <h2 class="preferences-section-title">Reminder Timing</h2>
+
+      <div class="preferences-timing-row">
+        <label class="preferences-timing-label" for="{{ form.appointment_reminder_days.id_for_label }}">Send appointment reminder</label>
+        {{ form.appointment_reminder_days }}
+        <span class="preferences-timing-unit">day(s) before</span>
+        {% if form.appointment_reminder_days.errors %}
+          <p class="preferences-field-error">{{ form.appointment_reminder_days.errors.0 }}</p>
+        {% endif %}
+      </div>
+
+      <div class="preferences-timing-row">
+        <label class="preferences-timing-label" for="{{ form.vaccination_reminder_days.id_for_label }}">Send vaccination reminder</label>
+        {{ form.vaccination_reminder_days }}
+        <span class="preferences-timing-unit">day(s) before</span>
+        {% if form.vaccination_reminder_days.errors %}
+          <p class="preferences-field-error">{{ form.vaccination_reminder_days.errors.0 }}</p>
+        {% endif %}
+      </div>
+
+    </div>
+
+    <!-- Actions -->
+    <div class="preferences-actions">
+      <button type="submit" class="btn-primary">Save Preferences</button>
+      <a href="{% url 'owner_profile' %}" class="btn-secondary">Cancel</a>
+    </div>
+
+  </form>
+
+</div>
+
+{% endblock %}

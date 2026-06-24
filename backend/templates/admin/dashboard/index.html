@@ -1,78 +1,44 @@
-{% extends 'base.html' %}
+{% extends 'base_dashboard.html' %}
 
 {% block title %}Admin Dashboard — Hapi Vet{% endblock %}
 
 {% block content %}
 
-<div class="admin-page">
+<div class="admin-page flex flex-col gap-6">
 
-  <div class="admin-page-header">
-    <h1 class="admin-page-title">Admin Dashboard</h1>
+  <div class="admin-page-header flex flex-col gap-1">
+    <h1 class="admin-page-title text-2xl font-bold text-slate-800">Dashboard</h1>
+    <p class="admin-page-subtitle text-sm text-slate-500">{{ today|date:"l, F j, Y" }}</p>
   </div>
 
-  <!-- Quick navigation — temporary until Phase 7 sidebar is built -->
-  <div class="admin-nav-grid">
+  <!-- Stats + widgets — self-polling block, see _dashboard_partial.html -->
+  {% include 'admin/dashboard/_dashboard_partial.html' %}
 
-    <div class="admin-nav-card">
-      <h3 class="admin-nav-card-title">Pet Owners</h3>
-      <p class="admin-nav-card-desc">View, create, and manage pet owner accounts.</p>
-      <a href="{% url 'admin_owner_list' %}" class="btn-primary">
-        Go to Pet Owners
-      </a>
+  <!-- ─── Calendar Widget ────────────────────────────────────────────── -->
+  <!-- NOT part of the polling block above — nav state (month/week, -->
+  <!-- selected date) is preserved; only updates on explicit click. -->
+  <div class="dashboard-calendar-section flex flex-col gap-4 p-5 bg-white rounded-2xl border border-slate-100 shadow-sm">
+
+    <div class="dashboard-widget-header flex items-center justify-between">
+      <h2 class="dashboard-widget-title text-lg font-semibold text-slate-800">Calendar</h2>
     </div>
 
-    <div class="admin-nav-card">
-      <h3 class="admin-nav-card-title">Pets</h3>
-      <p class="admin-nav-card-desc">View and manage all registered pets.</p>
-      <a href="{% url 'admin_pet_list' %}" class="btn-primary">
-        Go to Pets
-      </a>
+    <div class="dashboard-calendar-layout flex flex-col gap-6 lg:flex-row">
+
+      {% include 'admin/appointments/_calendar_grid.html' %}
+
+      <!-- Day detail panel — populated via HTMX when a day is clicked -->
+      <div id="calendar-day-panel" class="calendar-day-panel flex flex-col gap-3 w-full shrink-0 lg:w-96">
+        <div class="widget-empty flex items-center justify-center p-6">
+          <p class="widget-empty-text text-sm text-slate-400">Click a day on the calendar to view appointments.</p>
+        </div>
+      </div>
+
     </div>
-
-    <div class="admin-nav-card">
-      <h3 class="admin-nav-card-title">Deletion Requests</h3>
-      <p class="admin-nav-card-desc">Review and action pending pet deletion requests.</p>
-      <a href="{% url 'admin_deletion_requests' %}" class="btn-primary">
-        Go to Deletion Requests
-      </a>
-    </div>
-
-
-    <div class="admin-nav-card">
-      <h3 class="admin-nav-card-title">Clinic Settings</h3>
-      <p class="admin-nav-card-desc">
-        Configure schedule, working days, slot duration, and blocked dates.
-      </p>
-      <a href="{% url 'admin_clinic_settings' %}" class="btn-primary">
-        Go to Settings
-      </a>
-    </div>
-
-    <div class="admin-nav-card">
-      <h3 class="admin-nav-card-title">Appointments</h3>
-      <p class="admin-nav-card-desc">
-        View, approve, and manage all clinic appointments.
-      </p>
-      <a href="{% url 'admin_appointments' %}" class="btn-primary">
-        Go to Appointments
-      </a>
-    </div>
-
-
-    <div class="admin-nav-card">
-      <h3 class="admin-nav-card-title">Billing</h3>
-      <p class="admin-nav-card-desc">Generate and manage billing receipts.</p>
-      <a href="{% url 'admin_receipt_list' %}" class="btn-primary">Go to Billing</a>
-    </div>
-
-    <div class="admin-nav-card">
-      <h3 class="admin-nav-card-title">Services</h3>
-      <p class="admin-nav-card-desc">Manage the clinic service catalog and pricing.</p>
-      <a href="{% url 'admin_service_list' %}" class="btn-primary">Go to Services</a>
-    </div>
-
+    <!-- end dashboard-calendar-layout -->
 
   </div>
+  <!-- end dashboard-calendar-section -->
 
 </div>
 

@@ -141,7 +141,7 @@ class VaccinationCorrectionForm(forms.ModelForm):
         if not note:
             raise forms.ValidationError("A correction note is required.")
         return note
-    
+
 
 # Clinical fields — correction note required if any of these change
 CLINICAL_FIELDS = [
@@ -152,6 +152,7 @@ CLINICAL_FIELDS = [
     "weight_at_vaccination",
     "site_of_injection",
 ]
+
 
 class VaccinationEditForm(forms.ModelForm):
     """
@@ -208,7 +209,8 @@ class VaccinationEditForm(forms.ModelForm):
         # Check if any clinical field has changed
         if self.original:
             clinical_changed = any(
-                str(cleaned_data.get(field, "")) != str(getattr(self.original, field) or "")
+                str(cleaned_data.get(field, ""))
+                != str(getattr(self.original, field) or "")
                 for field in CLINICAL_FIELDS
             )
             if clinical_changed and not cleaned_data.get("correction_note", "").strip():

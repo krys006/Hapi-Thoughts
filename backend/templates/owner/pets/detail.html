@@ -1,4 +1,4 @@
-{% extends 'base.html' %}
+{% extends 'base_dashboard.html' %}
 
 {% block title %}{{ pet.name }} — Hapi Vet{% endblock %}
 
@@ -107,16 +107,41 @@
 
       </div>
 
-      <!-- Medical history stub — wired up in Phase 4 -->
+      <!-- Medical history — compressed summary -->
       <div class="pet-detail-section">
         <h3 class="pet-detail-section-title">Medical History</h3>
-        <p class="pet-detail-empty">Medical records will appear here.</p>
+
+        {% if medical_records %}
+          <ul class="pet-summary-list">
+            {% for record in medical_records %}
+            <li class="pet-summary-item">{{ record.record_date|date:"F d, Y" }}</li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="pet-detail-empty">No medical records yet.</p>
+        {% endif %}
+
+        <a href="{% url 'owner_pet_medical_history' pet.pk %}" class="pet-summary-view-link">View Medical History →</a>
+
       </div>
 
-      <!-- Vaccination history stub — wired up in Phase 4 -->
+
+      <!-- Vaccination history — compressed summary -->
       <div class="pet-detail-section">
         <h3 class="pet-detail-section-title">Vaccination History</h3>
-        <p class="pet-detail-empty">Vaccination records will appear here.</p>
+
+        {% if vaccinations %}
+          <ul class="pet-summary-list">
+            {% for vaccination in vaccinations %}
+            <li class="pet-summary-item">{{ vaccination.display_vaccine_name }} — {{ vaccination.date_administered|date:"F d, Y" }}</li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="pet-detail-empty">No vaccination records yet.</p>
+        {% endif %}
+
+        <a href="{% url 'owner_vaccination_history' pet.pk %}" class="pet-summary-view-link">View Vaccination History →</a>
+
       </div>
 
     </div>

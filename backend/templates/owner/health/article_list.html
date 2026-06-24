@@ -1,0 +1,35 @@
+{% extends 'base_dashboard.html' %}
+
+{% block title %}Health Library — Hapi Vet{% endblock %}
+
+{% block content %}
+
+<div class="owner-page">
+
+  <div class="owner-page-header">
+    <h1 class="owner-page-title">Health Library</h1>
+  </div>
+
+  <form method="get" class="health-search-form">
+    <input type="text" name="q" value="{{ query }}" placeholder="Search by condition name..." class="health-search-input" />
+    <button type="submit" class="btn-secondary">Search</button>
+  </form>
+
+  {% if articles %}
+  <div class="health-article-grid">
+    {% for article in articles %}
+    <a href="{% url 'owner_health_article_detail' article.pk %}" class="health-article-card">
+      <h3 class="health-article-card-title">{{ article.title }}</h3>
+      <p class="health-article-card-excerpt">{{ article.description|truncatewords:20 }}</p>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="widget-empty">
+    <p class="widget-empty-text">{% if query %}No articles match "{{ query }}".{% else %}No health articles available yet.{% endif %}</p>
+  </div>
+  {% endif %}
+
+</div>
+
+{% endblock %}

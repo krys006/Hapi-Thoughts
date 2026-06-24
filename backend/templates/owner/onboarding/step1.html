@@ -1,19 +1,506 @@
-<!-- templates/owner/onboarding/step1.html -->
 {% extends 'base.html' %}
 
 {% block title %}Set Up Your Profile — Hapi Vet{% endblock %}
 
 {% block content %}
 
-<!-- Onboarding wrapper — full screen centered layout -->
-<div class="onboarding-page">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-  <!-- Card container -->
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* ============================================================
+     PAGE WRAPPER
+  ============================================================ */
+  .onboarding-page {
+    min-height: 100vh;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 16px 48px;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: linear-gradient(
+      135deg,
+      #7C5CBF 0%,
+      #8B6FCF 20%,
+      #6FA8DC 55%,
+      #4FC3DC 80%,
+      #48CAE4 100%
+    );
+    background-attachment: fixed;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  .onboarding-page::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: radial-gradient(circle, rgba(255,255,255,0.06) 1px, transparent 1px);
+    background-size: 32px 32px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ============================================================
+     CARD
+  ============================================================ */
+  .onboarding-card {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 520px;
+    background: rgba(255, 255, 255, 0.18);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.30);
+    border-radius: 28px;
+    padding: 36px 28px 40px;
+    box-shadow:
+      0 8px 32px rgba(80, 60, 160, 0.18),
+      0 1px 0 rgba(255,255,255,0.35) inset;
+    animation: cardIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  @keyframes cardIn {
+    from { opacity: 0; transform: translateY(24px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* ============================================================
+     HEADER
+  ============================================================ */
+  .onboarding-header {
+    text-align: center;
+    margin-bottom: 28px;
+  }
+
+  .onboarding-title {
+    font-size: clamp(1.5rem, 5vw, 1.9rem);
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.3px;
+    line-height: 1.2;
+    text-shadow: 0 1px 8px rgba(80,60,160,0.18);
+  }
+
+  .onboarding-subtitle {
+    margin-top: 8px;
+    font-size: 0.95rem;
+    font-weight: 400;
+    color: #fff;
+    line-height: 1.5;
+  }
+
+  /* ============================================================
+     STEP INDICATOR
+  ============================================================ */
+  .step-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 32px;
+  }
+
+  .step-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    min-width: 80px;
+  }
+
+  .step-number {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    font-weight: 700;
+    transition: background 0.3s, box-shadow 0.3s;
+  }
+
+  .step-active .step-number {
+    background: #fff;
+    color: #7C5CBF;
+    box-shadow: 0 0 0 4px rgba(255,255,255,0.28), 0 4px 12px rgba(80,60,160,0.22);
+  }
+
+  .step-inactive .step-number {
+    background: rgba(255,255,255,0.22);
+    color: rgba(255,255,255,0.70);
+    border: 1.5px solid rgba(255,255,255,0.35);
+  }
+
+  .step-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .step-active .step-label  { color: #fff; }
+  .step-inactive .step-label { color: rgba(255,255,255,0.55); }
+
+  .step-divider {
+    flex: 1;
+    height: 2px;
+    background: rgba(255,255,255,0.28);
+    max-width: 80px;
+    margin-bottom: 22px;
+    border-radius: 2px;
+  }
+
+  /* ============================================================
+     AVATAR UPLOAD AREA — standalone, not inside form-section grid
+  ============================================================ */
+  .avatar-upload-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 28px;
+  }
+
+  /* Visually hide the Django file input but keep it accessible */
+  .avatar-upload-section input[type="file"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .avatar-circle {
+    width: 110px;
+    height: 110px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.22);
+    border: 2.5px dashed rgba(255,255,255,0.60);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    transition: background 0.25s, border-color 0.25s, transform 0.2s;
+    box-shadow: 0 4px 20px rgba(80,60,160,0.18);
+    cursor: pointer;
+  }
+
+  .avatar-circle:hover {
+    background: rgba(255,255,255,0.32);
+    border-color: rgba(255,255,255,0.85);
+    transform: scale(1.04);
+  }
+
+  .avatar-upload-hint {
+    margin-top: 10px;
+    font-size: 0.82rem;
+    color: #fff;
+    font-weight: 500;
+    text-align: center;
+  }
+
+  .avatar-label-text {
+    margin-top: 4px;
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.75);
+    font-weight: 400;
+  }
+
+  /* ============================================================
+     FORM LABELS
+     — Bumped up: solid white, larger size, stronger weight
+       for elderly / low-vision users
+  ============================================================ */
+  .form-label {
+    display: block;
+    font-size: 0.9rem;         /* was 0.82rem */
+    font-weight: 700;          /* was 600 */
+    color: #fff;               /* was rgba 0.88 */
+    margin-bottom: 8px;
+    letter-spacing: 0.01em;
+  }
+
+  .form-label-sub {
+    display: block;
+    font-size: 0.85rem;        /* was 0.78rem */
+    font-weight: 600;          /* was 500 */
+    color: #fff;               /* was rgba 0.72 */
+    margin-bottom: 6px;
+    letter-spacing: 0.01em;
+  }
+
+  .optional-tag {
+    font-size: 0.78rem;
+    font-weight: 400;
+    color: rgba(255,255,255,0.68);  /* was 0.50 — more readable */
+    margin-left: 4px;
+  }
+
+  .required-tag {
+    color: #FFD6DE;            /* lighter pink — easier to see */
+    font-weight: 700;
+    margin-left: 2px;
+  }
+
+  /* ============================================================
+     FORM SECTION WRAPPER
+     KEY FIX: explicit flex-column so label always sits
+     ABOVE the input, never beside or below it
+  ============================================================ */
+  .form-section {
+    display: flex;
+    flex-direction: column;   /* ← THIS is the alignment fix */
+    margin-bottom: 20px;
+  }
+
+  /* ============================================================
+     TWO-COLUMN ROW — First Name / Last Name
+     align-items: start keeps both columns top-aligned
+     so their labels + inputs line up at the same baseline
+  ============================================================ */
+  .form-row-two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    align-items: start;        /* ← keeps label+input pairs top-aligned */
+    margin-bottom: 20px;
+  }
+
+  .form-row-two-col .form-section {
+    margin-bottom: 0;
+  }
+
+  /* ============================================================
+     INPUTS — improved contrast & readability
+     Solid white text, darker background tint
+  ============================================================ */
+  .onboarding-form input[type="text"],
+  .onboarding-form input[type="tel"],
+  .onboarding-form input[type="email"],
+  .onboarding-form input[type="url"],
+  .onboarding-form input[type="number"],
+  .onboarding-form textarea,
+  .onboarding-form select {
+    width: 100%;
+    padding: 13px 16px;
+    background: rgba(255, 255, 255, 0.22);   /* was 0.14 — more visible */
+    border: 1.5px solid rgba(255, 255, 255, 0.40); /* was 0.28 */
+    border-radius: 12px;
+    color: #fff;
+    font-family: inherit;
+    font-size: 0.95rem;        /* was 0.9rem — larger for readability */
+    font-weight: 500;          /* was 400 */
+    line-height: 1.4;
+    outline: none;
+    transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  /* Placeholder — bumped to 0.65 opacity (was 0.40) */
+  .onboarding-form input::placeholder,
+  .onboarding-form textarea::placeholder {
+    color: rgba(255,255,255,0.62);
+  }
+
+  .onboarding-form input:hover,
+  .onboarding-form textarea:hover,
+  .onboarding-form select:hover {
+    background: rgba(255, 255, 255, 0.28);
+    border-color: rgba(255, 255, 255, 0.55);
+  }
+
+  .onboarding-form input:focus,
+  .onboarding-form textarea:focus,
+  .onboarding-form select:focus {
+    background: rgba(255, 255, 255, 0.32);
+    border-color: #fff;
+    box-shadow: 0 0 0 3px rgba(255,255,255,0.20);
+  }
+
+  /* Select arrow */
+  .onboarding-form select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='rgba(255,255,255,0.8)' stroke-width='1.8' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 36px;
+    cursor: pointer;
+  }
+
+  .onboarding-form select option {
+    background: #6B4FB8;
+    color: #fff;
+  }
+
+  /* ============================================================
+     ADDRESS SECTION
+  ============================================================ */
+  .address-line-field {
+    margin-bottom: 12px;
+  }
+
+  .address-field {
+    margin-top: 12px;
+  }
+
+  /* ============================================================
+     FORM HINT
+  ============================================================ */
+  .form-hint {
+    font-size: 0.83rem;
+    color: rgba(255,255,255,0.78);  /* was 0.55 */
+    margin-bottom: 12px;
+    line-height: 1.5;
+  }
+
+  /* ============================================================
+     CONTACT LINKS
+  ============================================================ */
+  .contact-links-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .contact-link-row {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    gap: 10px;
+    align-items: start;
+  }
+
+  .contact-link-platform,
+  .contact-link-handle {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ============================================================
+     FORM ERRORS
+  ============================================================ */
+  .form-error {
+    font-size: 0.8rem;
+    color: #FFD6DE;
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 600;
+  }
+
+  .form-error::before {
+    content: '!';
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: rgba(255,100,120,0.40);
+    font-size: 0.68rem;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  /* ============================================================
+     SECTION DIVIDER
+  ============================================================ */
+  .form-group-divider {
+    height: 1px;
+    background: rgba(255,255,255,0.18);
+    margin: 24px 0;
+    border: none;
+  }
+
+  /* ============================================================
+     SUBMIT BUTTON
+  ============================================================ */
+  .form-actions {
+    margin-top: 28px;
+  }
+
+  .btn-primary {
+    width: 100%;
+    padding: 16px 24px;
+    background: rgba(255,255,255,0.95);
+    color: #6E4FC0;
+    border: none;
+    border-radius: 14px;
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+    box-shadow: 0 4px 20px rgba(80,60,160,0.25), 0 1px 0 rgba(255,255,255,0.6) inset;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .btn-primary:hover {
+    background: #fff;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 28px rgba(80,60,160,0.32);
+  }
+
+  .btn-primary:active {
+    transform: translateY(0);
+  }
+
+  .btn-primary::after {
+    content: '→';
+    font-size: 1.1em;
+    transition: transform 0.2s;
+  }
+
+  .btn-primary:hover::after {
+    transform: translateX(4px);
+  }
+
+  /* ============================================================
+     RESPONSIVE
+  ============================================================ */
+  @media (min-width: 520px) {
+    .onboarding-card { padding: 44px 40px 48px; }
+  }
+
+  @media (max-width: 400px) {
+    .onboarding-card { padding: 28px 18px 32px; border-radius: 20px; }
+
+    /* Stack name fields on very small screens */
+    .form-row-two-col { grid-template-columns: 1fr; }
+    .contact-link-row { grid-template-columns: 1fr; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .onboarding-card { animation: none; }
+    .btn-primary, .avatar-circle,
+    .onboarding-form input,
+    .onboarding-form select,
+    .onboarding-form textarea { transition: none; }
+  }
+</style>
+
+<!-- ============================================================
+     PAGE
+============================================================ -->
+<div class="onboarding-page">
   <div class="onboarding-card">
 
     <!-- Header -->
     <div class="onboarding-header">
-      <h1 class="onboarding-title">Welcome to Hapi Vet</h1>
+      <h1 class="onboarding-title">Tell me about you…</h1>
       <p class="onboarding-subtitle">Let's set up your profile before we get started.</p>
     </div>
 
@@ -34,16 +521,31 @@
     <form method="post" enctype="multipart/form-data" class="onboarding-form">
       {% csrf_token %}
 
-      <!-- Profile photo upload -->
-      <div class="form-section">
-        <label class="form-label">Profile Photo <span class="optional-tag">(optional)</span></label>
-        {{ profile_form.profile_photo }}
+      <!-- ── Avatar upload ── standalone section, NOT inside form-section -->
+      <div class="avatar-upload-section">
+        <label for="{{ profile_form.profile_photo.id_for_label }}">
+          <div class="avatar-circle">
+            <svg width="58" height="58" viewBox="0 0 58 58" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="29" cy="21" r="12" fill="rgba(255,255,255,0.75)"/>
+              <ellipse cx="29" cy="48" rx="19" ry="12" fill="rgba(255,255,255,0.75)"/>
+            </svg>
+          </div>
+        </label>
+        <p class="avatar-upload-hint">Tap to upload a photo</p>
+        <p class="avatar-label-text">Profile Photo <span class="optional-tag">(optional)</span></p>
+        <!-- Django file input — hidden but accessible -->
+        <div style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;clip:rect(0,0,0,0);">
+          {{ profile_form.profile_photo }}
+        </div>
         {% if profile_form.profile_photo.errors %}
           <p class="form-error">{{ profile_form.profile_photo.errors.0 }}</p>
         {% endif %}
       </div>
 
-      <!-- Name row — first and last side by side -->
+      <hr class="form-group-divider">
+
+      <!-- ── Name row — FIXED: each field is its own form-section (flex-column)
+               so label sits above its input; grid handles side-by-side layout ── -->
       <div class="form-row-two-col">
 
         <div class="form-section">
@@ -68,7 +570,7 @@
 
       </div>
 
-      <!-- Contact number -->
+      <!-- ── Contact number ── -->
       <div class="form-section">
         <label class="form-label" for="{{ profile_form.contact_number.id_for_label }}">
           Contact Number <span class="optional-tag">(optional)</span>
@@ -79,118 +581,90 @@
         {% endif %}
       </div>
 
-      <!-- Address 
-      <div class="form-section">
-        <label class="form-label" for="{{ profile_form.address.id_for_label }}">
-          Address <span class="optional-tag">(optional)</span>
-        </label>
-        {{ profile_form.address }}
-        {% if profile_form.address.errors %}
-          <p class="form-error">{{ profile_form.address.errors.0 }}</p>
-        {% endif %}
-      </div>  -->
+      <hr class="form-group-divider">
 
-      <!-- Address section — structured Philippine address fields -->
+      <!-- ── Address ── -->
       <div class="form-section">
         <label class="form-label">
           Address <span class="optional-tag">(optional)</span>
         </label>
 
-      <!-- Address line — full width -->
-      <div class="address-line-field">
-        {{ profile_form.address_line }}
-        {% if profile_form.address_line.errors %}
-          <p class="form-error">{{ profile_form.address_line.errors.0 }}</p>
-        {% endif %}
-      </div>
-
-      <!-- Barangay and City/Municipality side by side -->
-      <div class="form-row-two-col">
-
-        <div class="address-field">
-          <label class="form-label-sub" for="{{ profile_form.barangay.id_for_label }}">
-            Barangay
-          </label>
-          {{ profile_form.barangay }}
-          {% if profile_form.barangay.errors %}
-            <p class="form-error">{{ profile_form.barangay.errors.0 }}</p>
+        <div class="address-line-field">
+          {{ profile_form.address_line }}
+          {% if profile_form.address_line.errors %}
+            <p class="form-error">{{ profile_form.address_line.errors.0 }}</p>
           {% endif %}
         </div>
 
-        <div class="address-field">
-          <label class="form-label-sub" for="{{ profile_form.city_municipality.id_for_label }}">
-            City / Municipality
-          </label>
-          {{ profile_form.city_municipality }}
-          {% if profile_form.city_municipality.errors %}
-            <p class="form-error">{{ profile_form.city_municipality.errors.0 }}</p>
-          {% endif %}
+        <div class="form-row-two-col">
+          <div class="address-field">
+            <label class="form-label-sub" for="{{ profile_form.barangay.id_for_label }}">Barangay</label>
+            {{ profile_form.barangay }}
+            {% if profile_form.barangay.errors %}
+              <p class="form-error">{{ profile_form.barangay.errors.0 }}</p>
+            {% endif %}
+          </div>
+
+          <div class="address-field">
+            <label class="form-label-sub" for="{{ profile_form.city_municipality.id_for_label }}">City / Municipality</label>
+            {{ profile_form.city_municipality }}
+            {% if profile_form.city_municipality.errors %}
+              <p class="form-error">{{ profile_form.city_municipality.errors.0 }}</p>
+            {% endif %}
+          </div>
         </div>
 
+        <div class="address-field">
+          <label class="form-label-sub" for="{{ profile_form.province.id_for_label }}">Province</label>
+          {{ profile_form.province }}
+          {% if profile_form.province.errors %}
+            <p class="form-error">{{ profile_form.province.errors.0 }}</p>
+          {% endif %}
+        </div>
       </div>
 
-      <!-- Province — full width -->
-      <div class="address-field">
-        <label class="form-label-sub" for="{{ profile_form.province.id_for_label }}">
-          Province
-        </label>
-        {{ profile_form.province }}
-        {% if profile_form.province.errors %}
-          <p class="form-error">{{ profile_form.province.errors.0 }}</p>
-        {% endif %}
-      </div>
+      <hr class="form-group-divider">
 
-    </div>
-
-      <!-- Contact links section -->
+      <!-- ── Social / Contact Links ── -->
       <div class="form-section">
         <label class="form-label">
           Social / Contact Links <span class="optional-tag">(optional)</span>
         </label>
         <p class="form-hint">Add Facebook, Instagram, or any other contact link.</p>
 
-        <!-- Formset management form — required by Django, do not remove -->
         {{ link_formset.management_form }}
 
-        <!-- Contact link rows -->
         <div class="contact-links-list">
           {% for link_form in link_formset %}
             <div class="contact-link-row">
-
               <div class="contact-link-platform">
                 {{ link_form.platform }}
                 {% if link_form.platform.errors %}
                   <p class="form-error">{{ link_form.platform.errors.0 }}</p>
                 {% endif %}
               </div>
-
               <div class="contact-link-handle">
                 {{ link_form.url_or_handle }}
                 {% if link_form.url_or_handle.errors %}
                   <p class="form-error">{{ link_form.url_or_handle.errors.0 }}</p>
                 {% endif %}
-            </div>
-
-              <!-- Non-field errors on this row (e.g. one field filled without the other) -->
+              </div>
               {% if link_form.non_field_errors %}
                 <p class="form-error">{{ link_form.non_field_errors.0 }}</p>
               {% endif %}
-
             </div>
           {% endfor %}
         </div>
-
       </div>
 
-      <!-- Submit -->
+      <!-- ── Submit ── -->
       <div class="form-actions">
         <button type="submit" class="btn-primary">
-          Continue to Step 2 →
+          Continue to Step 2
         </button>
       </div>
 
     </form>
-
   </div>
 </div>
 

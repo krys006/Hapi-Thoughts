@@ -16,11 +16,13 @@ from .forms import (
     AdminWalkInAppointmentForm,
 )
 
-from .utils import get_available_slots
+from .utils import get_available_slots, get_admin_calendar_context
+
+from notifications.utils import notify
+from django.contrib.auth import get_user_model
 
 
 # ── Admin — Clinic Settings ───────────────────────────────────────────────────
-
 @login_required
 def admin_clinic_settings(request):
     """
@@ -126,7 +128,39 @@ def admin_blocked_date_delete(request, pk):
     )
 
 
+# ── Shared — Clinic Info & About Page ──────────────────────────────────────
+
+
+@login_required
+def clinic_info(request):
+    """
+    Clinic info & about page — visible to both Admin and Pet Owner.
+    Shows clinic identity, veterinarian profile, and operating hours.
+    Google Maps embed is built dynamically from the address field using
+    Google's keyless embed pattern — no API key, no cost.
+    """
+    from urllib.parse import quote
+
+    clinic = ClinicSettings.objects.first()
+
+    maps_embed_url = ""
+    if clinic and clinic.address:
+        maps_embed_url = (
+            f"https://www.google.com/maps?q={quote(clinic.address)}&output=embed"
+        )
+
+    return render(
+        request,
+        "shared/clinic_info.html",
+        {
+            "clinic": clinic,
+            "maps_embed_url": maps_embed_url,
+        },
+    )
+
+
 # ── Pet Owner — Appointments ──────────────────────────────────────────────────
+
 
 @login_required
 def owner_appointment_list(request):
@@ -140,10 +174,14 @@ def owner_appointment_list(request):
     owner = request.user.petowner
     today = timezone.now().date()
 
-    upcoming = Appointment.objects.filter(
-        owner=owner,
-        date__gte=today,
-    ).exclude(status=Appointment.CANCELLED).order_by("date", "time")
+    upcoming = (
+        Appointment.objects.filter(
+            owner=owner,
+            date__gte=today,
+        )
+        .exclude(status=Appointment.CANCELLED)
+        .order_by("date", "time")
+    )
 
     past = Appointment.objects.filter(
         owner=owner,
@@ -190,6 +228,26 @@ def owner_book_appointment(request):
                 reason=form.cleaned_data.get("reason", ""),
                 status=Appointment.PENDING,
             )
+
+            # Notify admin of new appointment request
+            User = get_user_model()
+            admin_user = User.objects.filter(role="admin").first()
+            if admin_user:
+                notify(
+                    recipient=admin_user,
+                    notification_type="appointment_requested",
+                    title="New Appointment Request",
+                    message=(
+                        f"{owner.first_name} {owner.last_name} has requested "
+                        f"an appointment for {appointment.pet.name} on "
+                        f"{appointment.date.strftime('%B %d, %Y')} "
+                        f"at {appointment.time.strftime('%I:%M %p')}."
+                    ),
+                    related_appointment=appointment,
+                    related_pet=appointment.pet,
+                    email_subject="New Appointment Request — Hapi Vet",
+                )
+
             messages.success(
                 request,
                 "Appointment request submitted. "
@@ -265,6 +323,25 @@ def owner_appointment_cancel(request, pk):
             appointment.cancelled_by = request.user
             appointment.save()
 
+            # Notify admin of cancellation
+            User = get_user_model()
+            admin_user = User.objects.filter(role="admin").first()
+            if admin_user:
+                notify(
+                    recipient=admin_user,
+                    notification_type="appointment_cancelled",
+                    title="Appointment Cancelled",
+                    message=(
+                        f"{owner.first_name} {owner.last_name} has cancelled "
+                        f"their appointment for {appointment.pet.name} on "
+                        f"{appointment.date.strftime('%B %d, %Y')} "
+                        f"at {appointment.time.strftime('%I:%M %p')}."
+                    ),
+                    related_appointment=appointment,
+                    related_pet=appointment.pet,
+                    email_subject="Appointment Cancelled — Hapi Vet",
+                )
+
             messages.success(request, "Your appointment has been cancelled.")
             return redirect("owner_appointments")
         else:
@@ -324,6 +401,25 @@ def owner_appointment_reschedule(request, pk):
                 status=Appointment.PENDING,
             )
 
+            # Notify admin of reschedule request
+            User = get_user_model()
+            admin_user = User.objects.filter(role="admin").first()
+            if admin_user:
+                notify(
+                    recipient=admin_user,
+                    notification_type="appointment_requested",
+                    title="Appointment Reschedule Request",
+                    message=(
+                        f"{owner.first_name} {owner.last_name} has requested "
+                        f"to reschedule their appointment for {new_appointment.pet.name} "
+                        f"to {new_appointment.date.strftime('%B %d, %Y')} "
+                        f"at {new_appointment.time.strftime('%I:%M %p')}."
+                    ),
+                    related_appointment=new_appointment,
+                    related_pet=new_appointment.pet,
+                    email_subject="Appointment Reschedule Request — Hapi Vet",
+                )
+
             messages.success(
                 request,
                 "Reschedule request submitted. "
@@ -380,6 +476,7 @@ def owner_get_slots(request):
 
 # ── Admin — Appointments ──────────────────────────────────────────────────────
 
+
 @login_required
 def admin_appointment_list(request):
     """
@@ -403,18 +500,10 @@ def admin_appointment_list(request):
     counts = {
         "all": Appointment.objects.count(),
         "pending": Appointment.objects.filter(status=Appointment.PENDING).count(),
-        "confirmed": Appointment.objects.filter(
-            status=Appointment.CONFIRMED
-        ).count(),
-        "completed": Appointment.objects.filter(
-            status=Appointment.COMPLETED
-        ).count(),
-        "cancelled": Appointment.objects.filter(
-            status=Appointment.CANCELLED
-        ).count(),
-        "no_show": Appointment.objects.filter(
-            status=Appointment.NO_SHOW
-        ).count(),
+        "confirmed": Appointment.objects.filter(status=Appointment.CONFIRMED).count(),
+        "completed": Appointment.objects.filter(status=Appointment.COMPLETED).count(),
+        "cancelled": Appointment.objects.filter(status=Appointment.CANCELLED).count(),
+        "no_show": Appointment.objects.filter(status=Appointment.NO_SHOW).count(),
     }
 
     # Check if this is an HTMX request — return partial only
@@ -486,6 +575,23 @@ def admin_appointment_approve(request, pk):
         else:
             appointment.status = Appointment.CONFIRMED
             appointment.save()
+
+            # Notify pet owner of approval
+            notify(
+                recipient=appointment.owner.user,
+                notification_type="appointment_approved",
+                title="Appointment Confirmed",
+                message=(
+                    f"Your appointment for {appointment.pet.name} on "
+                    f"{appointment.date.strftime('%B %d, %Y')} "
+                    f"at {appointment.time.strftime('%I:%M %p')} "
+                    f"has been confirmed."
+                ),
+                related_appointment=appointment,
+                related_pet=appointment.pet,
+                email_subject="Appointment Confirmed — Hapi Vet",
+            )
+
             messages.success(
                 request,
                 f"Appointment for {appointment.pet.name} has been confirmed.",
@@ -511,6 +617,24 @@ def admin_appointment_reject(request, pk):
             appointment.cancellation_detail = "Rejected by clinic."
             appointment.cancelled_by = request.user
             appointment.save()
+
+            # Notify pet owner of rejection
+            notify(
+                recipient=appointment.owner.user,
+                notification_type="appointment_rejected",
+                title="Appointment Not Confirmed",
+                message=(
+                    f"Your appointment request for {appointment.pet.name} on "
+                    f"{appointment.date.strftime('%B %d, %Y')} "
+                    f"at {appointment.time.strftime('%I:%M %p')} "
+                    f"was not confirmed by the clinic. "
+                    f"Please contact the clinic for more information."
+                ),
+                related_appointment=appointment,
+                related_pet=appointment.pet,
+                email_subject="Appointment Update — Hapi Vet",
+            )
+
             messages.success(
                 request,
                 f"Appointment for {appointment.pet.name} has been rejected.",
@@ -603,14 +727,30 @@ def admin_appointment_cancel(request, pk):
         form = AdminAppointmentCancelForm(request.POST)
         if form.is_valid():
             appointment.status = Appointment.CANCELLED
-            appointment.cancellation_reason = form.cleaned_data[
-                "cancellation_reason"
-            ]
+            appointment.cancellation_reason = form.cleaned_data["cancellation_reason"]
             appointment.cancellation_detail = form.cleaned_data.get(
                 "cancellation_detail", ""
             )
             appointment.cancelled_by = request.user
             appointment.save()
+
+            # Notify pet owner of cancellation by clinic
+            notify(
+                recipient=appointment.owner.user,
+                notification_type="appointment_cancelled",
+                title="Appointment Cancelled by Clinic",
+                message=(
+                    f"Your appointment for {appointment.pet.name} on "
+                    f"{appointment.date.strftime('%B %d, %Y')} "
+                    f"at {appointment.time.strftime('%I:%M %p')} "
+                    f"has been cancelled by the clinic. "
+                    f"Please contact the clinic for more information."
+                ),
+                related_appointment=appointment,
+                related_pet=appointment.pet,
+                email_subject="Appointment Cancelled — Hapi Vet",
+            )
+
             messages.success(request, "Appointment cancelled.")
         else:
             messages.error(request, "Please correct the errors.")
@@ -655,6 +795,22 @@ def admin_appointment_reschedule(request, pk):
                 rescheduled_from=appointment,
                 status=Appointment.CONFIRMED,
             )
+
+            # Notify pet owner of reschedule by clinic
+            notify(
+                recipient=new_appointment.owner.user,
+                notification_type="appointment_approved",
+                title="Appointment Rescheduled by Clinic",
+                message=(
+                    f"Your appointment for {new_appointment.pet.name} has been "
+                    f"rescheduled to {new_appointment.date.strftime('%B %d, %Y')} "
+                    f"at {new_appointment.time.strftime('%I:%M %p')} by the clinic."
+                ),
+                related_appointment=new_appointment,
+                related_pet=new_appointment.pet,
+                email_subject="Appointment Rescheduled — Hapi Vet",
+            )
+
             messages.success(
                 request,
                 f"Appointment rescheduled to "
@@ -689,6 +845,24 @@ def admin_walkin_appointment_create(request):
                 status=Appointment.CONFIRMED,
                 is_walk_in=True,
             )
+
+            # Notify pet owner of their walk-in appointment if they have an email
+            if appointment.owner.user.email and appointment.owner.user.is_active:
+                notify(
+                    recipient=appointment.owner.user,
+                    notification_type="appointment_approved",
+                    title="Walk-in Appointment Created",
+                    message=(
+                        f"A walk-in appointment has been created for "
+                        f"{appointment.pet.name} on "
+                        f"{appointment.date.strftime('%B %d, %Y')} "
+                        f"at {appointment.time.strftime('%I:%M %p')}."
+                    ),
+                    related_appointment=appointment,
+                    related_pet=appointment.pet,
+                    email_subject="Appointment Created — Hapi Vet",
+                )
+
             messages.success(
                 request,
                 f"Walk-in appointment created for {appointment.pet.name}.",
@@ -761,4 +935,59 @@ def admin_get_slots_for_date(request):
         request,
         "admin/appointments/_slot_options.html",
         {"slots": slots},
+    )
+
+
+@login_required
+def admin_appointment_calendar_grid(request):
+    """
+    HTMX view — returns the calendar grid + nav controls for the admin
+    dashboard calendar widget. e.g. ?view=month&date=2026-06-01
+    Self-targeting swap — triggered by click (nav/toggle), not a timer,
+    so it never collides with the dashboard's 30s stats polling.
+    """
+    if request.user.role != "admin":
+        return redirect("owner_dashboard")
+
+    view = request.GET.get("view", "month")
+    date_str = request.GET.get("date", "")
+
+    context = get_admin_calendar_context(view, date_str)
+
+    return render(request, "admin/appointments/_calendar_grid.html", context)
+
+
+@login_required
+def admin_appointment_calendar_day(request):
+    """
+    HTMX view — returns the day-detail panel for the admin calendar
+    widget. Shows all appointments for the selected date, all statuses
+    (including cancelled, for the full picture). View-only — links out
+    to admin_appointment_detail, where all actions already live.
+    """
+    if request.user.role != "admin":
+        return redirect("owner_dashboard")
+
+    date_str = request.GET.get("date", "")
+    selected_date = None
+    appointments = Appointment.objects.none()
+
+    if date_str:
+        try:
+            selected_date = datetime.date.fromisoformat(date_str)
+            appointments = (
+                Appointment.objects.filter(date=selected_date)
+                .select_related("owner", "pet", "service")
+                .order_by("time")
+            )
+        except ValueError:
+            pass
+
+    return render(
+        request,
+        "admin/appointments/_calendar_day_panel.html",
+        {
+            "selected_date": selected_date,
+            "day_appointments": appointments,
+        },
     )

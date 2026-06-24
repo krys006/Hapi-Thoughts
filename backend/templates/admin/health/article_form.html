@@ -1,0 +1,63 @@
+{% extends 'base_dashboard.html' %}
+
+{% block title %}{% if is_edit %}Edit Article{% else %}New Article{% endif %} — Hapi Vet{% endblock %}
+
+{% block content %}
+
+<div class="admin-page">
+
+  <div class="admin-page-header">
+    <h1 class="admin-page-title">{% if is_edit %}Edit Article{% else %}New Article{% endif %}</h1>
+  </div>
+
+  <form method="post" class="health-article-form">
+    {% csrf_token %}
+
+    <div class="form-group">
+      <label for="{{ form.title.id_for_label }}" class="form-label">Condition Name</label>
+      {{ form.title }}
+      {% if form.title.errors %}<p class="form-error">{{ form.title.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div class="form-group">
+      <label for="{{ form.description.id_for_label }}" class="form-label">Description</label>
+      {{ form.description }}
+      {% if form.description.errors %}<p class="form-error">{{ form.description.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div class="form-group">
+      <label for="{{ form.causes.id_for_label }}" class="form-label">Causes</label>
+      {{ form.causes }}
+      {% if form.causes.errors %}<p class="form-error">{{ form.causes.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div class="form-group">
+      <label for="{{ form.symptoms.id_for_label }}" class="form-label">Symptoms</label>
+      {{ form.symptoms }}
+      {% if form.symptoms.errors %}<p class="form-error">{{ form.symptoms.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div class="form-group">
+      <label for="{{ form.general_care.id_for_label }}" class="form-label">General Care</label>
+      {{ form.general_care }}
+      {% if form.general_care.errors %}<p class="form-error">{{ form.general_care.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div class="form-group">
+      <label class="checkbox-label">
+        {{ form.is_published }}
+        Published (visible to pet owners)
+      </label>
+      {% if form.is_published.errors %}<p class="form-error">{{ form.is_published.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn-primary">{% if is_edit %}Save Changes{% else %}Create Article{% endif %}</button>
+      <a href="{% url 'admin_health_article_list' %}" class="btn-link">Cancel</a>
+    </div>
+
+  </form>
+
+</div>
+
+{% endblock %}

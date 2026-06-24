@@ -1,0 +1,117 @@
+{% comment %}
+  owner/dashboard/_dashboard_partial.html
+  Included by owner/dashboard/index.html, and returned standalone by
+  owner_dashboard_partial() for the 30s auto-poll.
+
+  Context expected (from _get_owner_dashboard_context, see
+  VIEWS_CHANGES.txt for the calendar_month / calendar_days addition):
+    - today
+    - upcoming_appointments: queryset (pet, service, date, time, status)
+    - my_pets: queryset (name, species, photo)
+    - recent_notifications
+    - calendar_month: e.g. "March"
+    - calendar_days: list of dicts {day, in_month, is_today, weekday, markers}
+{% endcomment %}
+{% load static %}
+
+<section class="calendar-section">
+  <h2 class="section-title">Calendar</h2>
+
+  <div class="calendar-card">
+    <div class="calendar-nav">
+      <button class="calendar-arrow" id="calPrev" aria-label="Previous month">&lsaquo;</button>
+      <h3 class="calendar-month">{{ calendar_month }}</h3>
+      <button class="calendar-arrow" id="calNext" aria-label="Next month">&rsaquo;</button>
+    </div>
+
+    <div class="calendar-grid calendar-weekdays">
+      <span class="weekday weekday-sun">Su</span>
+      <span class="weekday">Mo</span>
+      <span class="weekday">Tu</span>
+      <span class="weekday">We</span>
+      <span class="weekday">Th</span>
+      <span class="weekday">Fr</span>
+      <span class="weekday">Sa</span>
+    </div>
+
+    <div class="calendar-grid calendar-days">
+      {% for day in calendar_days %}
+        <div class="calendar-day-cell">
+          <span
+            class="calendar-day-number
+              {% if not day.in_month %}day-muted{% endif %}
+              {% if day.is_today %}day-today{% endif %}
+              {% if day.weekday == 0 %}day-sunday{% endif %}"
+          >{{ day.day }}</span>
+          {% if day.markers %}
+            <span class="day-markers">
+              {% for color in day.markers %}
+                <span class="marker-dot marker-{{ color }}"></span>
+              {% endfor %}
+            </span>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="pets-section">
+  <h2 class="section-title">Pets</h2>
+
+  {% for pet in my_pets %}
+    <a href="{% url 'owner_pet_detail' pet.id %}" class="pet-card">
+      <img
+        src="{% if pet.photo %}{{ pet.photo.url }}{% else %}{% static 'img/default-pet.png' %}{% endif %}"
+        alt="{{ pet.name }}"
+        class="pet-photo"
+      >
+      <div class="pet-info">
+        <span class="pet-name">{{ pet.name }}</span>
+        <span class="pet-species">{{ pet.species }}</span>
+      </div>
+    </a>
+  {% empty %}
+    <a href="{% url 'owner_add_pet' %}" class="pet-card pet-card-empty">
+      <span class="pet-info">No pets yet — add your first pet</span>
+    </a>
+  {% endfor %}
+</section>
+
+<section class="services-section">
+  <h2 class="section-title">Services</h2>
+
+  {% comment %}
+    No Service model is queried in views.py, so this is a static list
+    matching the reference image. Swap for a real loop if/when you add
+    a Service model — e.g. {% for service in services %}.
+  {% endcomment %}
+  <div class="services-grid">
+    <a href="{% url 'owner_book_appointment' %}?service=consultation" class="service-card">
+      <img src="{% static 'img/icons/consultation.svg' %}" alt="Consultation" class="service-icon">
+      <span class="service-label">Consultation</span>
+    </a>
+    <a href="{% url 'owner_book_appointment' %}?service=surgery" class="service-card">
+      <img src="{% static 'img/icons/surgery.svg' %}" alt="Surgery" class="service-icon">
+      <span class="service-label">Surgery</span>
+    </a>
+    <a href="{% url 'owner_book_appointment' %}?service=vaccination" class="service-card">
+      <img src="{% static 'img/icons/vaccination.svg' %}" alt="Vaccination" class="service-icon">
+      <span class="service-label">Vaccination</span>
+    </a>
+  </div>
+</section>
+
+{% if upcoming_appointments %}
+<section class="upcoming-section">
+  <h2 class="section-title">Upcoming Appointments</h2>
+  {% for appt in upcoming_appointments %}
+    <div class="pet-card">
+      <div class="pet-info">
+        <span class="pet-name">{{ appt.pet.name }} — {{ appt.service }}</span>
+        <span class="pet-species">{{ appt.date|date:"M j" }} at {{ appt.time|time:"g:i A" }}</span>
+      </div>
+    </div>
+  {% endfor %}
+</section>
+{% endif %}

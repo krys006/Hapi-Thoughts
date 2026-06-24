@@ -1,4 +1,4 @@
-{% extends 'base.html' %}
+{% extends 'base_dashboard.html' %}
 
 {% block title %}Clinic Settings — Hapi Vet{% endblock %}
 
@@ -104,6 +104,44 @@
             {{ form.logo }}
             {% if form.logo.errors %}
               <p class="form-error">{{ form.logo.errors.0 }}</p>
+            {% endif %}
+          </div>
+        </section>
+
+        <!-- Veterinarian Profile -->
+        <section class="settings-section">
+          <h2 class="settings-section-title">Veterinarian Profile</h2>
+          <p class="form-help">
+            Shown on the clinic info page visible to both Admin and Pet Owners.
+          </p>
+
+          <div class="form-group">
+            <label for="{{ form.veterinarian_name.id_for_label }}" class="form-label">
+              Veterinarian Name
+            </label>
+            {{ form.veterinarian_name }}
+            {% if form.veterinarian_name.errors %}
+              <p class="form-error">{{ form.veterinarian_name.errors.0 }}</p>
+            {% endif %}
+          </div>
+
+          <div class="form-group">
+            <label for="{{ form.veterinarian_license_number.id_for_label }}" class="form-label">
+              License Number
+            </label>
+            {{ form.veterinarian_license_number }}
+            {% if form.veterinarian_license_number.errors %}
+              <p class="form-error">{{ form.veterinarian_license_number.errors.0 }}</p>
+            {% endif %}
+          </div>
+
+          <div class="form-group">
+            <label for="{{ form.veterinarian_bio.id_for_label }}" class="form-label">
+              Bio
+            </label>
+            {{ form.veterinarian_bio }}
+            {% if form.veterinarian_bio.errors %}
+              <p class="form-error">{{ form.veterinarian_bio.errors.0 }}</p>
             {% endif %}
           </div>
         </section>

@@ -1,0 +1,161 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Dashboard | Hapi Vet{% endblock %}
+
+{% block extra_css %}
+<style>
+  /* Paw/cross watermark pattern used behind the calendar + services panels.
+     Swap the data-uri for your own static asset if you have the original artwork. */
+  .pattern-bg {
+    background-image:
+      radial-gradient(circle at 20% 20%, rgba(255,255,255,0.06) 0, transparent 40%),
+      radial-gradient(circle at 80% 70%, rgba(255,255,255,0.05) 0, transparent 40%);
+  }
+  .day-dot { width: 6px; height: 6px; border-radius: 9999px; display: inline-block; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-content max-w-md mx-auto lg:max-w-3xl">
+
+  <!-- ─── Brand / Profile row (mirrors header but kept in-page per design) ─── -->
+  <div class="flex items-center justify-between mb-6">
+    <div class="flex items-center gap-3">
+      <img src="{% static 'images/hapi-tutz-logo.png' %}" alt="Hapi Tutz" class="w-16 h-16 object-contain">
+      <h1 class="text-3xl font-extrabold tracking-tight text-indigo-700">Hapi Tutz</h1>
+    </div>
+    <a href="{% url 'owner_profile' %}" class="block">
+      <img src="{{ request.user.profile_image.url|default:'/static/images/default-avatar.png' }}"
+           alt="{{ request.user.get_full_name }}"
+           class="w-16 h-16 rounded-full object-cover ring-2 ring-white/60 shadow-lg">
+    </a>
+  </div>
+
+  <!-- ─── Calendar Section ─────────────────────────────────────────── -->
+  <section class="mb-8">
+    <h2 class="text-xl font-bold text-white mb-3">Calendar</h2>
+
+    <div class="pattern-bg rounded-2xl bg-slate-900/30 backdrop-blur-sm p-4 shadow-lg">
+
+      <!-- Month nav -->
+      <div class="flex items-center justify-between mb-4 px-1">
+        <button hx-get="{% url 'owner_calendar' %}?month={{ prev_month }}"
+                hx-target="#calendar-grid-wrapper" hx-swap="innerHTML"
+                class="text-white/90 hover:text-white p-1" aria-label="Previous month">
+          <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+          </svg>
+        </button>
+        <h3 class="text-2xl font-extrabold text-white">{{ current_month_name|default:"March" }}</h3>
+        <button hx-get="{% url 'owner_calendar' %}?month={{ next_month }}"
+                hx-target="#calendar-grid-wrapper" hx-swap="innerHTML"
+                class="text-white/90 hover:text-white p-1" aria-label="Next month">
+          <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+          </svg>
+        </button>
+      </div>
+
+      <div id="calendar-grid-wrapper">
+        <!-- Weekday header -->
+        <div class="grid grid-cols-7 text-center mb-2">
+          <span class="text-sm font-semibold text-cyan-300">Su</span>
+          <span class="text-sm font-semibold text-white/90">Mo</span>
+          <span class="text-sm font-semibold text-white/90">Tu</span>
+          <span class="text-sm font-semibold text-white/90">We</span>
+          <span class="text-sm font-semibold text-white/90">Th</span>
+          <span class="text-sm font-semibold text-white/90">Fr</span>
+          <span class="text-sm font-semibold text-white/90">Sa</span>
+        </div>
+
+        <!-- Day grid -->
+        <div class="grid grid-cols-7 gap-y-3 text-center">
+          {% for day in calendar_days %}
+          <div class="flex flex-col items-center">
+            {% if day.in_month %}
+              {% if day.is_today %}
+                <span class="w-9 h-9 flex items-center justify-center rounded-full bg-white/30 text-white font-bold">{{ day.number }}</span>
+              {% else %}
+                <span class="w-9 h-9 flex items-center justify-center text-lg {% if day.is_sunday %}text-cyan-300{% else %}text-white{% endif %}">{{ day.number }}</span>
+              {% endif %}
+              {% if day.markers %}
+              <div class="flex gap-1 mt-0.5">
+                {% for color in day.markers %}
+                <span class="day-dot" style="background-color: {{ color }};"></span>
+                {% endfor %}
+              </div>
+              {% endif %}
+            {% else %}
+              <span class="w-9 h-9"></span>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Pets Section ───────────────────────────────────────────────── -->
+  <section class="mb-8">
+    <h2 class="text-xl font-bold text-white mb-3">Pets</h2>
+
+    <div class="flex flex-col gap-3">
+      {% for pet in pets %}
+      <a href="{% url 'owner_pet_detail' pet.id %}"
+         class="flex items-center gap-4 bg-white/25 backdrop-blur-sm rounded-2xl px-4 py-3 shadow hover:bg-white/35 transition">
+        <img src="{{ pet.photo.url|default:'/static/images/default-pet.png' }}"
+             alt="{{ pet.name }}"
+             class="w-14 h-14 rounded-full object-cover ring-2 ring-white/50">
+        <div>
+          <p class="text-white font-semibold leading-tight">{{ pet.name }}</p>
+          <p class="text-indigo-700 font-bold leading-tight">{{ pet.species }}</p>
+        </div>
+      </a>
+      {% empty %}
+      <p class="text-white/80 text-sm bg-white/15 rounded-2xl px-4 py-3">No pets added yet.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <!-- ─── Services Section ───────────────────────────────────────────── -->
+  <section class="mb-8">
+    <h2 class="text-xl font-bold text-white mb-3">Services</h2>
+
+    <div class="grid grid-cols-3 gap-3">
+      <a href="{% url 'owner_book_service' 'consultation' %}"
+         class="flex flex-col items-center justify-center gap-2 bg-white/25 backdrop-blur-sm rounded-2xl py-5 px-2 shadow hover:bg-white/35 transition">
+        <svg class="w-10 h-10 text-slate-900" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M6 4a1 1 0 00-1 1v10a1 1 0 001 1h1v3a1 1 0 001.6.8L11 17h7a1 1 0 001-1V5a1 1 0 00-1-1H6zm10 4h-3v3h-2V8H8V6h3V3h2v3h3v2z"/>
+        </svg>
+        <span class="text-sm font-semibold text-white text-center">Consultation</span>
+      </a>
+
+      <a href="{% url 'owner_book_service' 'surgery' %}"
+         class="flex flex-col items-center justify-center gap-2 bg-white/25 backdrop-blur-sm rounded-2xl py-5 px-2 shadow hover:bg-white/35 transition">
+        <svg class="w-10 h-10 text-slate-900" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M19 3l2 2-9 9-3-1 1-3 9-9zM3 21l4-1 9-9-3-3-9 9-1 4z"/>
+        </svg>
+        <span class="text-sm font-semibold text-white text-center">Surgery</span>
+      </a>
+
+      <a href="{% url 'owner_book_service' 'vaccination' %}"
+         class="flex flex-col items-center justify-center gap-2 bg-white/25 backdrop-blur-sm rounded-2xl py-5 px-2 shadow hover:bg-white/35 transition">
+        <svg class="w-10 h-10 text-slate-900" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M17 2l1.5 1.5-1 1L19 6l-1 1-1.5-1.5-2 2 1 1L14 10l-1-1-6 6 1.5 1.5-1 1L7 16l-1.5 1.5L4 16l6-6-1-1 1.5-1.5 1 1 2-2-1.5-1.5 1-1L14 7l1.5-1.5z"/>
+        </svg>
+        <span class="text-sm font-semibold text-white text-center">Vaccination</span>
+      </a>
+    </div>
+  </section>
+
+  <!-- ─── Promo / Featured banner (bottom image strip in design) ────── -->
+  {% if promo_banner %}
+  <section class="mb-4">
+    <img src="{{ promo_banner.image.url }}" alt="{{ promo_banner.title }}"
+         class="w-full h-32 object-cover rounded-2xl shadow">
+  </section>
+  {% endif %}
+
+</div>
+{% endblock %}

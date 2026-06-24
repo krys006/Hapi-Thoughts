@@ -18,7 +18,6 @@ urlpatterns = [
         views.admin_service_edit,
         name="admin_service_edit",
     ),
-
     # ── Admin — Billing Receipts ──────────────────────────────────────────
     path(
         "admin/billing/",
@@ -50,7 +49,6 @@ urlpatterns = [
         views.admin_receipt_mark_cancelled,
         name="admin_receipt_mark_cancelled",
     ),
-
     # ── Admin — Billing Items ─────────────────────────────────────────────
     path(
         "admin/billing/<int:receipt_pk>/items/add/",
@@ -62,16 +60,12 @@ urlpatterns = [
         views.admin_billing_item_delete,
         name="admin_billing_item_delete",
     ),
-
-
     # ── Admin — HTMX helpers ──────────────────────────────────────────────
     path(
         "admin/billing/service-details/",
         views.admin_get_service_details,
         name="admin_get_service_details",
     ),
-
-
     # ── Pet Owner — Billing ───────────────────────────────────────────────
     path(
         "owner/billing/",

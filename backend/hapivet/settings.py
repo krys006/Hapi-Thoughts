@@ -42,6 +42,8 @@ INSTALLED_APPS = [
     "notifications",
     "health",
     "dashboard",
+    # Optional utilities
+    "django_extensions",
 ]
 
 SITE_ID = 1
@@ -111,16 +113,11 @@ LOGIN_REDIRECT_URL = "/owner/dashboard/"  # we'll override this with role-based 
 ACCOUNT_LOGOUT_REDIRECT_URL = "/login/"
 
 
-
-
 # Override allauth default URLs to use our custom pages
 LOGIN_URL = "/login/"
 ACCOUNT_EMAIL_CONFIRMATION_ANONYMOUS_REDIRECT_URL = "/login/"
 ACCOUNT_EMAIL_CONFIRMATION_AUTHENTICATED_REDIRECT_URL = "/login/"
 ACCOUNT_SIGNUP_REDIRECT_URL = "/owner/onboarding/"
-
-
-
 
 
 # ─── Google OAuth ─────────────────────────────────────────────────────────────
@@ -143,7 +140,6 @@ SOCIALACCOUNT_LOGIN_ON_GET = True  # skip the allauth confirmation page
 SOCIALACCOUNT_EMAIL_REQUIRED = True
 
 SOCIALACCOUNT_ADAPTER = "accounts.adapters.CustomSocialAccountAdapter"
-
 
 
 # ─── Email ────────────────────────────────────────────────────────────────────

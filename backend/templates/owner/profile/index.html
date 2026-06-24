@@ -1,4 +1,4 @@
-{% extends 'base.html' %}
+{% extends 'base_dashboard.html' %}
 
 {% block title %}My Profile — Hapi Vet{% endblock %}
 
@@ -90,12 +90,49 @@
 
       </div>
 
-      <!-- Notification preferences stub — wired up in Phase 6 -->
+      <!-- Notification Preferences section -->
       <div class="profile-section">
         <h3 class="profile-section-title">Notification Preferences</h3>
-        <p class="profile-field-empty">
-          Notification settings will be available here soon.
-        </p>
+
+        <div class="profile-field">
+          <span class="profile-field-label">Appointment reminders</span>
+          <span class="profile-field-value">{% if preference.email_appointment_reminders %}On{% else %}Off{% endif %}</span>
+        </div>
+
+        <div class="profile-field">
+          <span class="profile-field-label">Appointment status updates</span>
+          <span class="profile-field-value">{% if preference.email_appointment_status %}On{% else %}Off{% endif %}</span>
+        </div>
+
+        <div class="profile-field">
+          <span class="profile-field-label">Billing notifications</span>
+          <span class="profile-field-value">{% if preference.email_billing %}On{% else %}Off{% endif %}</span>
+        </div>
+
+        <div class="profile-field">
+          <span class="profile-field-label">Vaccination reminders</span>
+          <span class="profile-field-value">{% if preference.email_vaccination %}On{% else %}Off{% endif %}</span>
+        </div>
+
+        <div class="profile-field">
+          <span class="profile-field-label">Follow-up reminders</span>
+          <span class="profile-field-value">{% if preference.email_followup %}On{% else %}Off{% endif %}</span>
+        </div>
+
+        <div class="profile-field">
+          <span class="profile-field-label">Appointment reminder timing</span>
+          <span class="profile-field-value">{{ preference.appointment_reminder_days }} day{{ preference.appointment_reminder_days|pluralize }} before</span>
+        </div>
+
+        <div class="profile-field">
+          <span class="profile-field-label">Vaccination reminder timing</span>
+          <span class="profile-field-value">{{ preference.vaccination_reminder_days }} day{{ preference.vaccination_reminder_days|pluralize }} before</span>
+        </div>
+
+        <div class="profile-notification-edit">
+          <a href="{% url 'owner_notification_preferences' %}" class="btn-secondary">Edit Notification Preferences</a>
+        </div>
+
       </div>
 
     </div>

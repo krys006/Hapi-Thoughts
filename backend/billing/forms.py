@@ -103,9 +103,7 @@ class BillingItemForm(forms.Form):
 
     # Optional — if set, description auto-fills from service name
     service = forms.ModelChoiceField(
-        queryset=Service.objects.filter(
-            status__in=[Service.ACTIVE, Service.UNLISTED]
-        ),
+        queryset=Service.objects.filter(status__in=[Service.ACTIVE, Service.UNLISTED]),
         required=False,
         empty_label="Manual item (no service)",
     )

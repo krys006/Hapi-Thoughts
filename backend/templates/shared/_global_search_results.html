@@ -1,0 +1,62 @@
+<!-- Global search results dropdown — grouped by type, max 5 per group. -->
+{% if too_short %}
+<!-- Nothing shown for queries under 2 characters — avoids noisy results -->
+{% elif has_results %}
+<div class="search-results-dropdown flex flex-col w-full max-h-96 overflow-y-auto bg-white rounded-xl border border-slate-200 shadow-lg">
+
+  {% if search_owners %}
+  <div class="search-results-group flex flex-col py-2 border-b border-slate-100">
+    <p class="search-results-group-label px-4 py-1 text-xs font-semibold uppercase tracking-wider text-slate-400">Pet Owners</p>
+    {% for owner in search_owners %}
+    <a href="{% url 'admin_owner_detail' owner.pk %}" class="search-result-row flex flex-col gap-0.5 px-4 py-2 hover:bg-slate-50">
+      <span class="search-result-title text-sm font-medium text-slate-700">{{ owner.first_name }} {{ owner.last_name }}</span>
+      <span class="search-result-meta text-xs text-slate-400">{{ owner.contact_number|default:"No contact number" }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if search_pets %}
+  <div class="search-results-group flex flex-col py-2 border-b border-slate-100">
+    <p class="search-results-group-label px-4 py-1 text-xs font-semibold uppercase tracking-wider text-slate-400">Pets</p>
+    {% for pet in search_pets %}
+    <a href="{% url 'admin_pet_detail' pet.pk %}" class="search-result-row flex flex-col gap-0.5 px-4 py-2 hover:bg-slate-50">
+      <span class="search-result-title text-sm font-medium text-slate-700">{{ pet.name }}</span>
+      <span class="search-result-meta text-xs text-slate-400">{{ pet.species }} — {{ pet.owner.first_name }} {{ pet.owner.last_name }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if search_appointments %}
+  <div class="search-results-group flex flex-col py-2 border-b border-slate-100">
+    <p class="search-results-group-label px-4 py-1 text-xs font-semibold uppercase tracking-wider text-slate-400">Appointments</p>
+    {% for appointment in search_appointments %}
+    <a href="{% url 'admin_appointment_detail' appointment.pk %}" class="search-result-row flex flex-col gap-0.5 px-4 py-2 hover:bg-slate-50">
+      <span class="search-result-title text-sm font-medium text-slate-700">{{ appointment.pet.name }} — {{ appointment.date|date:"M j, Y" }}</span>
+      <span class="search-result-meta text-xs text-slate-400">{{ appointment.owner.first_name }} {{ appointment.owner.last_name }} — {{ appointment.get_status_display }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if search_medical_records %}
+  <div class="search-results-group flex flex-col py-2 border-b border-slate-100">
+    <p class="search-results-group-label px-4 py-1 text-xs font-semibold uppercase tracking-wider text-slate-400">Medical Records</p>
+    {% for record in search_medical_records %}
+    <a href="{% url 'admin_medical_record_detail' record.pk %}" class="search-result-row flex flex-col gap-0.5 px-4 py-2 hover:bg-slate-50">
+      <span class="search-result-title text-sm font-medium text-slate-700">{{ record.pet.name }} — {{ record.record_date|date:"M j, Y" }}</span>
+      <span class="search-result-meta text-xs text-slate-400">{{ record.pet.owner.first_name }} {{ record.pet.owner.last_name }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+</div>
+{% elif search_query %}
+<div class="search-results-dropdown flex flex-col w-full bg-white rounded-xl border border-slate-200 shadow-lg">
+  <div class="widget-empty flex items-center justify-center p-6">
+    <p class="widget-empty-text text-sm text-slate-400">No results for "{{ search_query }}".</p>
+  </div>
+</div>
+{% endif %}

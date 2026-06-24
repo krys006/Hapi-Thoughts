@@ -1,0 +1,62 @@
+<!-- Pet owner scoped search results — own pets, appointments, billing, -->
+<!-- and medical records only. -->
+{% if too_short %}
+{% elif has_results %}
+<div class="search-results-dropdown">
+
+  {% if search_pets %}
+  <div class="search-results-group">
+    <p class="search-results-group-label">My Pets</p>
+    {% for pet in search_pets %}
+    <a href="{% url 'owner_pet_detail' pet.pk %}" class="search-result-row">
+      <span class="search-result-title">{{ pet.name }}</span>
+      <span class="search-result-meta">{{ pet.species }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if search_appointments %}
+  <div class="search-results-group">
+    <p class="search-results-group-label">Appointments</p>
+    {% for appointment in search_appointments %}
+    <a href="{% url 'owner_appointment_detail' appointment.pk %}" class="search-result-row">
+      <span class="search-result-title">{{ appointment.pet.name }} — {{ appointment.date|date:"M j, Y" }}</span>
+      <span class="search-result-meta">{{ appointment.get_status_display }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if search_receipts %}
+  <div class="search-results-group">
+    <p class="search-results-group-label">Billing</p>
+    {% for receipt in search_receipts %}
+    <a href="{% url 'owner_receipt_detail' receipt.pk %}" class="search-result-row">
+      <span class="search-result-title">{{ receipt.receipt_number }}</span>
+      <span class="search-result-meta">{{ receipt.pet.name|default:"—" }} — {{ receipt.get_payment_status_display }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if search_medical_records %}
+  <div class="search-results-group">
+    <p class="search-results-group-label">Medical History</p>
+    {% for record in search_medical_records %}
+    <a href="{% url 'owner_pet_medical_history' record.pet.pk %}" class="search-result-row">
+      <span class="search-result-title">{{ record.pet.name }} — {{ record.record_date|date:"M j, Y" }}</span>
+      <span class="search-result-meta">View full history</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+</div>
+{% elif search_query %}
+<div class="search-results-dropdown">
+  <div class="widget-empty">
+    <p class="widget-empty-text">No results for "{{ search_query }}".</p>
+  </div>
+</div>
+{% endif %}

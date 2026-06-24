@@ -8,28 +8,25 @@ from django.conf.urls.static import static
 from django.views.generic import RedirectView
 
 urlpatterns = [
-
+    path("", include("health.urls")),
+    # notifications (bell panel, mark read, clear)
+    path("", include("notifications.urls")),
     # Root URL — redirect to login
     path("", RedirectView.as_view(url="/login/"), name="home"),
-
+    # dashboard (admin and pet owner dashboard homes)
+    path("", include("dashboard.urls")),
     # accounts (login, register, verification, dashboards)
     path("", include("accounts.urls")),
-    
     # pets (onboarding, pet management)
     path("", include("pets.urls")),
-
     # appointments (booking, calendar, clinic settings)
-    path("", include("appointments.urls")),   
-    
+    path("", include("appointments.urls")),
     # medical records (clinical documentation, prescriptions, test results)
-    path("", include("medical.urls")),  
-    
+    path("", include("medical.urls")),
     # billing (services, receipts, payment status)
     path("", include("billing.urls")),
-
     # allauth (Google OAuth, email verification, etc.)
     path("accounts/", include("allauth.urls")),
-
     # ─── Password Reset (Django built-in views) ───────────────────────────
     path(
         "forgot-password/",

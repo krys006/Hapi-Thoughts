@@ -1,14 +1,479 @@
-<!-- templates/owner/onboarding/step2.html -->
-{% extends 'base.html' %}
+
 
 {% block title %}Add Your Pet — Hapi Vet{% endblock %}
 
 {% block content %}
 
-<!-- Onboarding wrapper -->
-<div class="onboarding-page">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-  <!-- Card container -->
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* ============================================================
+     PAGE WRAPPER
+  ============================================================ */
+  .onboarding-page {
+    min-height: 100vh;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 16px 48px;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: linear-gradient(
+      135deg,
+      #7C5CBF 0%,
+      #8B6FCF 20%,
+      #6FA8DC 55%,
+      #4FC3DC 80%,
+      #48CAE4 100%
+    );
+    background-attachment: fixed;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  .onboarding-page::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: radial-gradient(circle, rgba(255,255,255,0.06) 1px, transparent 1px);
+    background-size: 32px 32px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ============================================================
+     CARD
+  ============================================================ */
+  .onboarding-card {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 520px;
+    background: rgba(255, 255, 255, 0.18);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.30);
+    border-radius: 28px;
+    padding: 36px 28px 40px;
+    box-shadow:
+      0 8px 32px rgba(80, 60, 160, 0.18),
+      0 1px 0 rgba(255,255,255,0.35) inset;
+    animation: cardIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  @keyframes cardIn {
+    from { opacity: 0; transform: translateY(24px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* ============================================================
+     HEADER
+  ============================================================ */
+  .onboarding-header {
+    text-align: center;
+    margin-bottom: 28px;
+  }
+
+  .onboarding-title {
+    font-size: clamp(1.5rem, 5vw, 1.9rem);
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.3px;
+    line-height: 1.2;
+    text-shadow: 0 1px 8px rgba(80,60,160,0.18);
+  }
+
+  .onboarding-subtitle {
+    margin-top: 8px;
+    font-size: 0.95rem;
+    font-weight: 400;
+    color: #fff;
+    line-height: 1.5;
+  }
+
+  /* ============================================================
+     STEP INDICATOR
+  ============================================================ */
+  .step-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 32px;
+  }
+
+  .step-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    min-width: 80px;
+  }
+
+  .step-number {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    font-weight: 700;
+    transition: background 0.3s, box-shadow 0.3s;
+  }
+
+  /* Step 1 — completed, shows a checkmark */
+  .step-complete .step-number {
+    background: rgba(255,255,255,0.35);
+    color: #fff;
+    border: 2px solid rgba(255,255,255,0.60);
+    font-size: 1rem;
+  }
+
+  /* Step 2 — active */
+  .step-active .step-number {
+    background: #fff;
+    color: #7C5CBF;
+    box-shadow: 0 0 0 4px rgba(255,255,255,0.28), 0 4px 12px rgba(80,60,160,0.22);
+  }
+
+  .step-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .step-complete .step-label { color: rgba(255,255,255,0.75); }
+  .step-active  .step-label  { color: #fff; }
+
+  .step-divider {
+    flex: 1;
+    height: 2px;
+    /* Fully lit divider since step 1 is done */
+    background: rgba(255,255,255,0.55);
+    max-width: 80px;
+    margin-bottom: 22px;
+    border-radius: 2px;
+  }
+
+  /* ============================================================
+     PET PHOTO UPLOAD — mirrors avatar circle from Step 1
+  ============================================================ */
+  .pet-photo-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 28px;
+  }
+
+  .pet-photo-section input[type="file"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .pet-avatar-circle {
+    width: 110px;
+    height: 110px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.22);
+    border: 2.5px dashed rgba(255,255,255,0.60);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    transition: background 0.25s, border-color 0.25s, transform 0.2s;
+    box-shadow: 0 4px 20px rgba(80,60,160,0.18);
+    cursor: pointer;
+  }
+
+  .pet-avatar-circle:hover {
+    background: rgba(255,255,255,0.32);
+    border-color: rgba(255,255,255,0.85);
+    transform: scale(1.04);
+  }
+
+  .pet-avatar-hint {
+    margin-top: 10px;
+    font-size: 0.82rem;
+    color: #fff;
+    font-weight: 500;
+    text-align: center;
+  }
+
+  .pet-avatar-label-text {
+    margin-top: 4px;
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.75);
+    font-weight: 400;
+  }
+
+  /* ============================================================
+     FORM SECTION — flex-column ensures label always above input
+  ============================================================ */
+  .form-section {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 20px;
+  }
+
+  /* ============================================================
+     LABELS — solid white, large enough for elderly users
+  ============================================================ */
+  .form-label {
+    display: block;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 8px;
+    letter-spacing: 0.01em;
+  }
+
+  .optional-tag {
+    font-size: 0.78rem;
+    font-weight: 400;
+    color: rgba(255,255,255,0.68);
+    margin-left: 4px;
+  }
+
+  .required-tag {
+    color: #FFD6DE;
+    font-weight: 700;
+    margin-left: 2px;
+  }
+
+  /* ============================================================
+     TWO-COLUMN GRID — top-aligned so labels stay level
+  ============================================================ */
+  .form-row-two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    align-items: start;
+    margin-bottom: 0;
+  }
+
+  .form-row-two-col .form-section {
+    margin-bottom: 20px;
+  }
+
+  /* ============================================================
+     INPUTS
+  ============================================================ */
+  .onboarding-form input[type="text"],
+  .onboarding-form input[type="tel"],
+  .onboarding-form input[type="email"],
+  .onboarding-form input[type="url"],
+  .onboarding-form input[type="number"],
+  .onboarding-form input[type="date"],
+  .onboarding-form textarea,
+  .onboarding-form select {
+    width: 100%;
+    padding: 13px 16px;
+    background: rgba(255, 255, 255, 0.22);
+    border: 1.5px solid rgba(255, 255, 255, 0.40);
+    border-radius: 12px;
+    color: #fff;
+    font-family: inherit;
+    font-size: 0.95rem;
+    font-weight: 500;
+    line-height: 1.4;
+    outline: none;
+    transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  .onboarding-form input::placeholder,
+  .onboarding-form textarea::placeholder {
+    color: rgba(255,255,255,0.62);
+  }
+
+  /* Date input — keep calendar icon visible */
+  .onboarding-form input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1) opacity(0.7);
+    cursor: pointer;
+  }
+
+  .onboarding-form input:hover,
+  .onboarding-form textarea:hover,
+  .onboarding-form select:hover {
+    background: rgba(255, 255, 255, 0.28);
+    border-color: rgba(255, 255, 255, 0.55);
+  }
+
+  .onboarding-form input:focus,
+  .onboarding-form textarea:focus,
+  .onboarding-form select:focus {
+    background: rgba(255, 255, 255, 0.32);
+    border-color: #fff;
+    box-shadow: 0 0 0 3px rgba(255,255,255,0.20);
+  }
+
+  /* Select arrow */
+  .onboarding-form select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='rgba(255,255,255,0.8)' stroke-width='1.8' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 36px;
+    cursor: pointer;
+  }
+
+  .onboarding-form select option {
+    background: #6B4FB8;
+    color: #fff;
+  }
+
+  /* ============================================================
+     FORM ERRORS
+  ============================================================ */
+  .form-error {
+    font-size: 0.8rem;
+    color: #FFD6DE;
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 600;
+  }
+
+  .form-error::before {
+    content: '!';
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: rgba(255,100,120,0.40);
+    font-size: 0.68rem;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  /* ============================================================
+     DIVIDER
+  ============================================================ */
+  .form-group-divider {
+    height: 1px;
+    background: rgba(255,255,255,0.18);
+    margin: 24px 0;
+    border: none;
+  }
+
+  /* ============================================================
+     ACTION BUTTONS
+  ============================================================ */
+  .form-actions {
+    margin-top: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  /* Primary — white pill, purple text */
+  .btn-primary {
+    width: 100%;
+    padding: 16px 24px;
+    background: rgba(255,255,255,0.95);
+    color: #6E4FC0;
+    border: none;
+    border-radius: 14px;
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+    box-shadow: 0 4px 20px rgba(80,60,160,0.25), 0 1px 0 rgba(255,255,255,0.6) inset;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .btn-primary::after {
+    content: '✓';
+    font-size: 1.05em;
+    transition: transform 0.2s;
+  }
+
+  .btn-primary:hover {
+    background: #fff;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 28px rgba(80,60,160,0.32);
+  }
+
+  .btn-primary:active {
+    transform: translateY(0);
+  }
+
+  /* Secondary — ghost / outline style */
+  .btn-secondary {
+    width: 100%;
+    padding: 14px 24px;
+    background: transparent;
+    color: #fff;
+    border: 1.5px solid rgba(255,255,255,0.45);
+    border-radius: 14px;
+    font-family: inherit;
+    font-size: 0.95rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s, transform 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+
+  .btn-secondary:hover {
+    background: rgba(255,255,255,0.12);
+    border-color: rgba(255,255,255,0.70);
+    transform: translateY(-1px);
+  }
+
+  .btn-secondary:active {
+    transform: translateY(0);
+  }
+
+  /* ============================================================
+     RESPONSIVE
+  ============================================================ */
+  @media (min-width: 520px) {
+    .onboarding-card { padding: 44px 40px 48px; }
+  }
+
+  @media (max-width: 400px) {
+    .onboarding-card { padding: 28px 18px 32px; border-radius: 20px; }
+    .form-row-two-col { grid-template-columns: 1fr; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .onboarding-card { animation: none; }
+    .btn-primary, .btn-secondary,
+    .pet-avatar-circle,
+    .onboarding-form input,
+    .onboarding-form select,
+    .onboarding-form textarea { transition: none; }
+  }
+</style>
+
+<!-- ============================================================
+     PAGE
+============================================================ -->
+<div class="onboarding-page">
   <div class="onboarding-card">
 
     <!-- Header -->
@@ -37,18 +502,36 @@
     <form method="post" enctype="multipart/form-data" class="onboarding-form">
       {% csrf_token %}
 
-      <!-- Pet photo -->
-      <div class="form-section">
-        <label class="form-label">
-          Pet Photo <span class="optional-tag">(optional)</span>
+      <!-- ── Pet photo upload ── -->
+      <div class="pet-photo-section">
+        <label for="{{ pet_form.photo.id_for_label }}">
+          <div class="pet-avatar-circle">
+            <!-- Paw icon SVG -->
+            <svg width="54" height="54" viewBox="0 0 54 54" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <!-- Main paw pad -->
+              <ellipse cx="27" cy="34" rx="11" ry="9" fill="rgba(255,255,255,0.75)"/>
+              <!-- Four toe pads -->
+              <ellipse cx="14" cy="26" rx="5"  ry="6.5" fill="rgba(255,255,255,0.75)" transform="rotate(-15 14 26)"/>
+              <ellipse cx="21" cy="20" rx="4.5" ry="6"  fill="rgba(255,255,255,0.75)" transform="rotate(-5 21 20)"/>
+              <ellipse cx="33" cy="20" rx="4.5" ry="6"  fill="rgba(255,255,255,0.75)" transform="rotate(5 33 20)"/>
+              <ellipse cx="40" cy="26" rx="5"  ry="6.5" fill="rgba(255,255,255,0.75)" transform="rotate(15 40 26)"/>
+            </svg>
+          </div>
         </label>
-        {{ pet_form.photo }}
+        <p class="pet-avatar-hint">Tap to upload a photo</p>
+        <p class="pet-avatar-label-text">Pet Photo <span class="optional-tag">(optional)</span></p>
+        <!-- Django file input — hidden but accessible -->
+        <div style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;clip:rect(0,0,0,0);">
+          {{ pet_form.photo }}
+        </div>
         {% if pet_form.photo.errors %}
           <p class="form-error">{{ pet_form.photo.errors.0 }}</p>
         {% endif %}
       </div>
 
-      <!-- Pet name -->
+      <hr class="form-group-divider">
+
+      <!-- ── Pet name ── -->
       <div class="form-section">
         <label class="form-label" for="{{ pet_form.name.id_for_label }}">
           Pet Name <span class="required-tag">*</span>
@@ -59,14 +542,13 @@
         {% endif %}
       </div>
 
-      <!-- Species and breed row -->
+      <!-- ── Species and Breed ── -->
       <div class="form-row-two-col">
-
         <div class="form-section">
           <label class="form-label" for="{{ pet_form.species.id_for_label }}">
             Species <span class="required-tag">*</span>
           </label>
-          {{pet_form.species }}
+          {{ pet_form.species }}
           {% if pet_form.species.errors %}
             <p class="form-error">{{ pet_form.species.errors.0 }}</p>
           {% endif %}
@@ -84,12 +566,10 @@
                Species + breed will be upgraded to a cascading HTMX dropdown in Phase 7.
                Keep as plain text inputs for now. -->
         </div>
-
       </div>
 
-      <!-- Gender and date of birth row -->
+      <!-- ── Gender and Date of Birth ── -->
       <div class="form-row-two-col">
-
         <div class="form-section">
           <label class="form-label" for="{{ pet_form.gender.id_for_label }}">
             Gender <span class="required-tag">*</span>
@@ -109,12 +589,10 @@
             <p class="form-error">{{ pet_form.date_of_birth.errors.0 }}</p>
           {% endif %}
         </div>
-
       </div>
 
-      <!-- Color and weight row -->
+      <!-- ── Color and Weight ── -->
       <div class="form-row-two-col">
-
         <div class="form-section">
           <label class="form-label" for="{{ pet_form.color.id_for_label }}">
             Color <span class="optional-tag">(optional)</span>
@@ -134,10 +612,9 @@
             <p class="form-error">{{ pet_form.weight.errors.0 }}</p>
           {% endif %}
         </div>
-
       </div>
 
-      <!-- Registration number -->
+      <!-- ── Registration Number ── -->
       <div class="form-section">
         <label class="form-label" for="{{ pet_form.registration_number.id_for_label }}">
           Registration Number <span class="optional-tag">(optional)</span>
@@ -148,10 +625,15 @@
         {% endif %}
       </div>
 
-      <!-- Actions — Save pet or Skip -->
+      <!-- ── Actions ── -->
       <div class="form-actions">
 
-        <!-- Skip button — posts action=skip, no pet is created -->
+        <!-- Primary: Save Pet & Finish -->
+        <button type="submit" class="btn-primary">
+          Save Pet &amp; Finish
+        </button>
+
+        <!-- Secondary: Skip for now — posts action=skip -->
         <button
           type="submit"
           name="action"
@@ -161,15 +643,9 @@
           Skip for now
         </button>
 
-        <!-- Save button — normal form submit -->
-        <button type="submit" class="btn-primary">
-          Save Pet & Finish
-        </button>
-
       </div>
 
     </form>
-
   </div>
 </div>
 

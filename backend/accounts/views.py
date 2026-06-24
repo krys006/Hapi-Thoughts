@@ -75,7 +75,7 @@ def owner_login(request):
             return render(request, "owner/login.html", {"email": email})
 
         login(request, user)
-        
+
         # Remember Me
         if request.POST.get("remember_me"):
             # Stay logged in for 30 days
@@ -231,27 +231,6 @@ def user_logout(request):
     logout(request)
     messages.success(request, "You have been logged out.")
     return redirect("owner_login")
-
-
-# ─── Placeholder Dashboards ───────────────────────────────────────────────────
-
-
-@login_required
-def admin_dashboard(request):
-    """Placeholder admin dashboard."""
-    if request.user.role != "admin":
-        return redirect("owner_dashboard")
-    return render(request, "admin/dashboard/index.html")
-
-
-@login_required
-def owner_dashboard(request):
-    """Placeholder pet owner dashboard."""
-    if request.user.role != "pet_owner":
-        return redirect("admin_dashboard")
-    if not request.user.is_onboarded:
-        return redirect("owner_onboarding")
-    return render(request, "owner/dashboard/index.html")
 
 
 @login_required

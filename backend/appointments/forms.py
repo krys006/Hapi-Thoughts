@@ -47,6 +47,9 @@ class ClinicSettingsForm(forms.ModelForm):
             "contact_number",
             "email",
             "logo",
+            "veterinarian_name",
+            "veterinarian_license_number",
+            "veterinarian_bio",
             "opening_time",
             "closing_time",
             "slot_duration_minutes",
@@ -60,6 +63,7 @@ class ClinicSettingsForm(forms.ModelForm):
             "closing_time": forms.TimeInput(attrs={"type": "time"}),
             "same_day_cutoff_time": forms.TimeInput(attrs={"type": "time"}),
             "address": forms.Textarea(attrs={"rows": 3}),
+            "veterinarian_bio": forms.Textarea(attrs={"rows": 4}),
         }
 
     def clean(self):
@@ -69,9 +73,7 @@ class ClinicSettingsForm(forms.ModelForm):
         cutoff = cleaned_data.get("same_day_cutoff_time")
 
         if opening and closing and closing <= opening:
-            raise forms.ValidationError(
-                "Closing time must be after opening time."
-            )
+            raise forms.ValidationError("Closing time must be after opening time.")
 
         if opening and closing and cutoff:
             if not (opening <= cutoff <= closing):
@@ -174,13 +176,10 @@ class AppointmentBookingForm(forms.Form):
             slots = get_available_slots(submitted_date)
             if slots:
                 self.fields["time"].choices = [("", "Select a time")] + [
-                    (s.strftime("%H:%M:%S"), s.strftime("%I:%M %p"))
-                    for s in slots
+                    (s.strftime("%H:%M:%S"), s.strftime("%I:%M %p")) for s in slots
                 ]
             else:
-                self.fields["time"].choices = [
-                    ("", "No slots available for this date")
-                ]
+                self.fields["time"].choices = [("", "No slots available for this date")]
 
     def clean(self):
         cleaned_data = super().clean()
@@ -264,13 +263,10 @@ class AppointmentRescheduleForm(forms.Form):
             slots = get_available_slots(submitted_date)
             if slots:
                 self.fields["time"].choices = [("", "Select a time")] + [
-                    (s.strftime("%H:%M:%S"), s.strftime("%I:%M %p"))
-                    for s in slots
+                    (s.strftime("%H:%M:%S"), s.strftime("%I:%M %p")) for s in slots
                 ]
             else:
-                self.fields["time"].choices = [
-                    ("", "No slots available for this date")
-                ]
+                self.fields["time"].choices = [("", "No slots available for this date")]
 
     def clean(self):
         cleaned_data = super().clean()
@@ -286,7 +282,9 @@ class AppointmentRescheduleForm(forms.Form):
             raise forms.ValidationError("Invalid time slot selected.")
 
         # Exclude the current appointment from conflict check
-        if not is_slot_available(date, time, exclude_appointment_pk=self.appointment.pk):
+        if not is_slot_available(
+            date, time, exclude_appointment_pk=self.appointment.pk
+        ):
             raise forms.ValidationError(
                 "This slot is no longer available. Please select another."
             )
@@ -336,17 +334,16 @@ class AppointmentCancellationForm(forms.Form):
         detail = cleaned_data.get("cancellation_detail")
 
         if reason == Appointment.OTHER and not detail:
-            raise forms.ValidationError(
-                "Please provide details when selecting Other."
-            )
+            raise forms.ValidationError("Please provide details when selecting Other.")
 
         return cleaned_data
-    
+
 
 class AdminAppointmentNotesForm(forms.Form):
     """
     Admin form — add or edit notes on an appointment.
     """
+
     notes = forms.CharField(
         widget=forms.Textarea(attrs={"rows": 3}),
         required=False,
@@ -358,6 +355,7 @@ class AdminAppointmentCancelForm(forms.Form):
     """
     Admin form — cancel an appointment on behalf of the pet owner.
     """
+
     cancellation_reason = forms.ChoiceField(
         choices=Appointment.CANCEL_CHOICES,
     )
@@ -372,9 +370,7 @@ class AdminAppointmentCancelForm(forms.Form):
         reason = cleaned_data.get("cancellation_reason")
         detail = cleaned_data.get("cancellation_detail")
         if reason == Appointment.OTHER and not detail:
-            raise forms.ValidationError(
-                "Please provide details when selecting Other."
-            )
+            raise forms.ValidationError("Please provide details when selecting Other.")
         return cleaned_data
 
 
@@ -382,6 +378,7 @@ class AdminAppointmentRescheduleForm(forms.Form):
     """
     Admin form — reschedule an appointment on behalf of the pet owner.
     """
+
     date = forms.DateField(
         widget=forms.DateInput(attrs={"type": "date"}),
     )
@@ -410,13 +407,10 @@ class AdminAppointmentRescheduleForm(forms.Form):
             slots = get_available_slots(submitted_date)
             if slots:
                 self.fields["time"].choices = [("", "Select a time")] + [
-                    (s.strftime("%H:%M:%S"), s.strftime("%I:%M %p"))
-                    for s in slots
+                    (s.strftime("%H:%M:%S"), s.strftime("%I:%M %p")) for s in slots
                 ]
             else:
-                self.fields["time"].choices = [
-                    ("", "No slots available for this date")
-                ]
+                self.fields["time"].choices = [("", "No slots available for this date")]
 
     def clean(self):
         cleaned_data = super().clean()
@@ -456,6 +450,7 @@ class AdminWalkInAppointmentForm(forms.Form):
     Admin form — create a walk-in appointment directly as CONFIRMED.
     Owner and pet are selected from existing records.
     """
+
     owner = forms.ModelChoiceField(
         queryset=None,  # Set in __init__
         empty_label="Select a pet owner",
@@ -491,9 +486,9 @@ class AdminWalkInAppointmentForm(forms.Form):
         ).order_by("last_name", "first_name")
 
         # Start with all non-archived pets — filtered by owner via HTMX
-        self.fields["pet"].queryset = Pet.objects.filter(
-            is_archived=False
-        ).order_by("name")
+        self.fields["pet"].queryset = Pet.objects.filter(is_archived=False).order_by(
+            "name"
+        )
 
         self.fields["service"].queryset = Service.objects.filter(
             status__in=[Service.ACTIVE, Service.UNLISTED]
@@ -512,13 +507,10 @@ class AdminWalkInAppointmentForm(forms.Form):
             slots = get_available_slots(submitted_date)
             if slots:
                 self.fields["time"].choices = [("", "Select a time")] + [
-                    (s.strftime("%H:%M:%S"), s.strftime("%I:%M %p"))
-                    for s in slots
+                    (s.strftime("%H:%M:%S"), s.strftime("%I:%M %p")) for s in slots
                 ]
             else:
-                self.fields["time"].choices = [
-                    ("", "No slots available for this date")
-                ]
+                self.fields["time"].choices = [("", "No slots available for this date")]
 
     def clean(self):
         cleaned_data = super().clean()
@@ -543,10 +535,15 @@ class AdminWalkInAppointmentForm(forms.Form):
 
         # Walk-ins bypass same-day cutoff but still check slot conflicts
         from .models import Appointment
-        conflict = Appointment.objects.filter(
-            date=date,
-            time=time,
-        ).exclude(status=Appointment.CANCELLED).exists()
+
+        conflict = (
+            Appointment.objects.filter(
+                date=date,
+                time=time,
+            )
+            .exclude(status=Appointment.CANCELLED)
+            .exists()
+        )
 
         if conflict:
             raise forms.ValidationError(

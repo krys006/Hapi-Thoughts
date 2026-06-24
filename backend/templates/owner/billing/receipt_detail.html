@@ -1,4 +1,4 @@
-{% extends 'base.html' %}
+{% extends 'base_dashboard.html' %}
 
 {% block title %}{{ receipt.receipt_number }} — Hapi Vet{% endblock %}
 
@@ -8,6 +8,9 @@
 
   <div class="owner-page-header">
     <h1 class="owner-page-title">{{ receipt.receipt_number }}</h1>
+    <button type="button" class="btn-secondary no-print" onclick="window.print()">
+      Print / Save as PDF
+    </button>
     <a href="{% url 'owner_billing_list' %}" class="btn-link">
       Back to Billing
     </a>
@@ -109,5 +112,7 @@
   </div>
 
 </div>
+
+{% include "shared/billing/_receipt_print.html" %}
 
 {% endblock %}
