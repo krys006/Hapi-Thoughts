@@ -536,6 +536,7 @@ Stores all in-app notifications for both Admin and Pet Owner.
 | `id` | AutoField | PK | Auto |
 | `recipient` | ForeignKey | User, on_delete=CASCADE | — |
 | `notification_type` | CharField | max_length=50, choices=TYPE_CHOICES | See types below |
+| `related_notification` | ForeignKey | 'self', null=True, blank=True, on_delete=SET_NULL, related_name='failure_alerts' | Set only on EMAIL_FAILED alerts — points to the notification whose email failed |
 | `title` | CharField | max_length=100 | Short notification title |
 | `message` | TextField | — | Full notification message |
 | `is_read` | BooleanField | default=False | — |

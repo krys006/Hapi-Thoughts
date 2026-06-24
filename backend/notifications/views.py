@@ -4,11 +4,11 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, redirect, render
 from django.http import HttpResponse
 from django.utils import timezone
+from django.core.mail import send_mail
+from django.conf import settings
 
 from .models import Notification
-
 from .forms import NotificationPreferenceForm
-
 from django.contrib import messages
 
 
@@ -53,7 +53,6 @@ def notification_mark_read(request, pk):
         "shared/notifications/_notification_row.html",
         {"notification": notification},
     )
-
 
 @login_required
 def notification_mark_all_read(request):
@@ -201,4 +200,54 @@ def owner_notification_preferences(request):
         request,
         "owner/profile/notification_preferences.html",
         {"form": form},
+    )
+
+
+@login_required
+def notification_resend_email(request, pk):
+    """
+    Admin action — retries sending the email for a notification that
+    previously failed. pk refers to the EMAIL_FAILED alert notification,
+    not the original — the original is reached via related_notification.
+    Returns the alert's row partial, re-rendered with updated state.
+    """
+    if request.method != "POST":
+        return HttpResponse(status=405)
+
+    if not request.user.is_admin:
+        return HttpResponse(status=403)
+
+    alert = get_object_or_404(
+        Notification,
+        pk=pk,
+        recipient=request.user,
+        notification_type=Notification.EMAIL_FAILED,
+    )
+    original = alert.related_notification
+
+    if original and original.email_failed and original.recipient.email:
+        try:
+            send_mail(
+                subject=original.title,
+                message=original.message,
+                from_email=settings.EMAIL_HOST_USER,
+                recipient_list=[original.recipient.email],
+                fail_silently=False,
+            )
+            original.email_sent = True
+            original.email_failed = False
+            original.email_error = ""
+            original.save(
+                update_fields=["email_sent", "email_failed", "email_error"]
+            )
+            messages.success(request, "Email resent successfully.")
+        except Exception as e:
+            original.email_error = str(e)
+            original.save(update_fields=["email_error"])
+            messages.error(request, "Resend failed again.")
+
+    return render(
+        request,
+        "shared/notifications/_notification_row.html",
+        {"notification": alert},
     )

@@ -54,6 +54,16 @@ class Notification(models.Model):
         blank=True,
     )
 
+    # Set only on EMAIL_FAILED alert notifications — points back to the
+    # original notification whose email failed, so the admin can resend it.
+    related_notification = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="failure_alerts",
+    )
+
     # --- Core fields ---
     notification_type = models.CharField(
         max_length=50,

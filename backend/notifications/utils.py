@@ -1,5 +1,6 @@
 # notifications/utils.py
 
+from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.conf import settings
 from notifications.models import Notification, NotificationPreference
@@ -86,8 +87,34 @@ def notify(
         notification.email_failed = True
         notification.email_error = str(e)
         notification.save(update_fields=["email_failed", "email_error"])
+        _create_email_failure_alert(notification)
 
     return notification
+
+def _create_email_failure_alert(original_notification):
+    """
+    Creates an in-app-only alert for the admin when an email fails to
+    send. Deliberately does NOT go through notify() itself — this avoids
+    a recursive failure loop if email sending is broken entirely, and
+    the alert is meant to be in-app only, never emailed.
+    """
+    User = get_user_model()
+    admin_user = User.objects.filter(role="admin").first()
+
+    if not admin_user:
+        return
+
+    Notification.objects.create(
+        recipient=admin_user,
+        notification_type=Notification.EMAIL_FAILED,
+        title=f"Email Failed: {original_notification.title}",
+        message=(
+            f"An email failed to send to {original_notification.recipient.email} "
+            f'for notification "{original_notification.title}". '
+            f"Error: {original_notification.email_error}"
+        ),
+        related_notification=original_notification,
+    )
 
 
 def _should_send_email(recipient, notification_type):

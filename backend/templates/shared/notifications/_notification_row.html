@@ -1,4 +1,37 @@
-<!-- Single notification row — clicking marks as read and navigates to detail -->
+<!-- Single notification row — clicking marks as read and navigates to detail. -->
+<!-- EMAIL_FAILED alerts are a special case: no useful destination to -->
+<!-- navigate to, so they render as a non-clickable row with a Resend -->
+<!-- Email action instead. -->
+{% if notification.notification_type == 'email_failed' %}
+<div
+  id="notification-{{ notification.pk }}"
+  class="notification-row notification-row-email-failed {% if not notification.is_read %}notification-row-unread{% endif %}">
+
+  {% if not notification.is_read %}
+  <span class="notification-unread-dot"></span>
+  {% endif %}
+
+  <div class="notification-content">
+    <p class="notification-title">{{ notification.title }}</p>
+    <p class="notification-message">{{ notification.message }}</p>
+    <p class="notification-time">{{ notification.created_at|timesince }} ago</p>
+
+    {% if notification.related_notification.email_failed %}
+    <button
+      type="button"
+      class="btn-secondary notification-resend-button"
+      hx-post="{% url 'notification_resend_email' notification.pk %}"
+      hx-target="#notification-{{ notification.pk }}"
+      hx-swap="outerHTML">
+      Resend Email
+    </button>
+    {% elif notification.related_notification.email_sent %}
+    <p class="notification-resend-success">Email sent successfully.</p>
+    {% endif %}
+  </div>
+
+</div>
+{% else %}
 <a href="{% url 'notification_open' notification.pk %}"
   id="notification-{{ notification.pk }}"
   class="notification-row {% if not notification.is_read %}notification-row-unread{% endif %}">
@@ -16,3 +49,4 @@
   </div>
 
 </a>
+{% endif %}
