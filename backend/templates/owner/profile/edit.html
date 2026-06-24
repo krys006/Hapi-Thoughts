@@ -4,6 +4,296 @@
 
 {% block content %}
 
+<style>
+
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+
+.profile-edit-page{
+    max-width:420px;
+    margin:0 auto;
+    padding:20px;
+    font-family:'Poppins',sans-serif;
+}
+
+.profile-edit-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:25px;
+}
+
+.profile-edit-title{
+    color:white;
+    font-size:2rem;
+    font-weight:700;
+}
+
+.profile-edit-form{
+    display:flex;
+    flex-direction:column;
+    gap:20px;
+}
+
+.profile-edit-section{
+
+    background:rgba(255,255,255,.15);
+
+    backdrop-filter:blur(15px);
+
+    border:1px solid rgba(255,255,255,.2);
+
+    border-radius:24px;
+
+    padding:20px;
+}
+
+.profile-edit-section-title{
+
+    color:white;
+
+    font-size:1.15rem;
+
+    font-weight:700;
+
+    margin-bottom:15px;
+}
+
+.current-photo-wrapper{
+
+    display:flex;
+
+    flex-direction:column;
+
+    align-items:center;
+
+    margin-bottom:18px;
+}
+
+.current-photo-preview{
+
+    width:120px;
+
+    height:120px;
+
+    object-fit:cover;
+
+    border-radius:50%;
+
+    border:4px solid rgba(255,255,255,.3);
+
+    margin-bottom:10px;
+}
+
+.current-photo-label{
+
+    color:white;
+
+    font-size:.9rem;
+
+    opacity:.85;
+}
+
+.form-section{
+    margin-bottom:16px;
+}
+
+.form-row-two-col{
+
+    display:grid;
+
+    grid-template-columns:1fr 1fr;
+
+    gap:15px;
+}
+
+.form-label{
+
+    display:block;
+
+    color:white;
+
+    margin-bottom:8px;
+
+    font-weight:600;
+}
+
+.required-tag{
+    color:#ffd166;
+}
+
+.optional-tag{
+    opacity:.75;
+    font-size:.85rem;
+}
+
+.form-hint{
+
+    color:white;
+
+    opacity:.75;
+
+    margin-bottom:15px;
+
+    font-size:.9rem;
+}
+
+/* Inputs */
+
+input,
+select,
+textarea{
+
+    width:100%;
+
+    padding:14px;
+
+    border:none;
+
+    border-radius:14px;
+
+    background:rgba(255,255,255,.20);
+
+    color:white;
+
+    font-size:15px;
+
+    outline:none;
+
+    box-sizing:border-box;
+}
+
+input::placeholder,
+textarea::placeholder{
+    color:rgba(255,255,255,.7);
+}
+
+select option{
+    background:#6d5cff;
+    color:white;
+}
+
+/* File Input */
+
+input[type="file"]{
+
+    padding:12px;
+
+    cursor:pointer;
+}
+
+/* Contact Links */
+
+.contact-links-list{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:12px;
+}
+
+.contact-link-row{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:10px;
+
+    background:rgba(255,255,255,.08);
+
+    padding:14px;
+
+    border-radius:16px;
+}
+
+.form-error{
+
+    color:#ffd7d7;
+
+    margin-top:6px;
+
+    font-size:.85rem;
+}
+
+/* Buttons */
+
+.form-actions{
+
+    display:flex;
+
+    gap:12px;
+
+    margin-top:10px;
+}
+
+.btn-primary{
+
+    flex:1;
+
+    border:none;
+
+    border-radius:16px;
+
+    padding:14px;
+
+    background:
+    linear-gradient(
+        90deg,
+        #7c5cff,
+        #4fc3ff
+    );
+
+    color:white;
+
+    font-weight:700;
+
+    cursor:pointer;
+
+    text-align:center;
+}
+
+.btn-secondary{
+
+    flex:1;
+
+    text-decoration:none;
+
+    text-align:center;
+
+    padding:14px;
+
+    border-radius:16px;
+
+    background:rgba(255,255,255,.15);
+
+    color:white;
+}
+
+/* Mobile */
+
+@media(max-width:480px){
+
+    .profile-edit-page{
+        padding:15px;
+    }
+
+    .profile-edit-title{
+        font-size:1.6rem;
+    }
+
+    .form-row-two-col{
+        grid-template-columns:1fr;
+    }
+
+    .form-actions{
+        flex-direction:column;
+    }
+
+}
+
+</style>
+
 <div class="profile-edit-page">
 
   <!-- Page header -->
@@ -143,12 +433,19 @@
         {% for link_form in link_formset %}
           <div class="contact-link-row">
 
-            <div class="contact-link-platform">
-              {{ link_form.platform }}
-              {% if link_form.platform.errors %}
-                <p class="form-error">{{ link_form.platform.errors.0 }}</p>
-              {% endif %}
-            </div>
+<div class="form-section">
+    <label class="form-label">
+        Platform
+    </label>
+    {{ link_form.platform }}
+</div>
+
+<div class="form-section">
+    <label class="form-label">
+        URL / Handle
+    </label>
+    {{ link_form.url_or_handle }}
+</div>
 
             <div class="contact-link-handle">
               {{ link_form.url_or_handle }}

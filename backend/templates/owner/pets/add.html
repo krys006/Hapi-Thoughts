@@ -5,12 +5,219 @@
 
 {% block content %}
 
+
+<style>
+  
+<style>
+
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+
+.pet-form-page{
+    max-width:430px;
+    margin:0 auto;
+    padding:20px;
+    font-family:'Poppins',sans-serif;
+}
+
+.pet-form-header{
+    margin-bottom:25px;
+}
+
+.pet-form-title{
+    color:white;
+    font-size:2rem;
+    font-weight:800;
+    margin-bottom:5px;
+}
+
+.page-subtitle{
+    color:rgba(255,255,255,.85);
+}
+
+.pet-form{
+    background:rgba(255,255,255,.15);
+    backdrop-filter:blur(18px);
+    border:1px solid rgba(255,255,255,.2);
+    border-radius:28px;
+    padding:24px;
+    box-shadow:0 10px 30px rgba(0,0,0,.12);
+}
+
+/* PHOTO */
+
+.photo-upload-card{
+    background:rgba(255,255,255,.10);
+    border:2px dashed rgba(255,255,255,.25);
+    border-radius:22px;
+    padding:25px;
+    text-align:center;
+    margin-bottom:25px;
+}
+
+.photo-upload-icon{
+    font-size:3rem;
+    color:white;
+    margin-bottom:10px;
+}
+
+.photo-upload-text{
+    color:white;
+    font-weight:600;
+    margin-bottom:15px;
+}
+
+.photo-upload-card input[type=file]{
+    width:100%;
+    color:white;
+}
+
+/* FORM */
+
+.form-section{
+    margin-bottom:18px;
+}
+
+.form-row-two-col{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:14px;
+}
+
+.form-label{
+    display:block;
+    color:white;
+    font-weight:600;
+    margin-bottom:8px;
+}
+
+.required-tag{
+    color:#ffd966;
+}
+
+.optional-tag{
+    color:rgba(255,255,255,.7);
+    font-size:.85rem;
+}
+
+/* INPUTS */
+
+.pet-form input,
+.pet-form select,
+.pet-form textarea{
+    width:100%;
+    padding:14px;
+    border:none;
+    border-radius:16px;
+    background:rgba(255,255,255,.18);
+    color:white;
+    font-size:15px;
+    outline:none;
+}
+
+.pet-form input::placeholder{
+    color:rgba(255,255,255,.65);
+}
+
+.pet-form select option{
+    color:black;
+}
+
+/* ERRORS */
+
+.form-error{
+    color:#ffd6d6;
+    margin-top:6px;
+    font-size:.85rem;
+}
+
+/* BUTTONS */
+
+.form-actions{
+    display:flex;
+    gap:12px;
+    margin-top:25px;
+}
+
+.btn-primary{
+    flex:1;
+    border:none;
+    border-radius:18px;
+    padding:15px;
+
+    background:linear-gradient(
+        135deg,
+        #7c5cff,
+        #00c6ff
+    );
+
+    color:white;
+    font-weight:700;
+    font-size:15px;
+    cursor:pointer;
+    text-decoration:none;
+    text-align:center;
+}
+
+.btn-secondary{
+    flex:1;
+
+    background:rgba(255,255,255,.15);
+
+    border:1px solid rgba(255,255,255,.2);
+
+    color:white;
+
+    text-decoration:none;
+
+    border-radius:18px;
+
+    padding:15px;
+
+    text-align:center;
+}
+
+.btn-primary:hover,
+.btn-secondary:hover{
+    transform:translateY(-2px);
+}
+
+/* MOBILE */
+
+@media(max-width:480px){
+
+    .form-row-two-col{
+        grid-template-columns:1fr;
+    }
+
+    .form-actions{
+        flex-direction:column;
+    }
+
+    .pet-form-title{
+        font-size:1.7rem;
+    }
+
+}
+
+</style>
+
 <div class="pet-form-page">
 
-  <div class="pet-form-header">
-    <h1 class="pet-form-title">Add a Pet</h1>
-    <a href="{% url 'owner_pet_list' %}" class="btn-secondary">Cancel</a>
-  </div>
+<div class="pet-form-header">
+
+    <div>
+
+        <h1 class="pet-form-title">
+            Add Pet
+        </h1>
+
+        <p class="page-subtitle">
+            Create your pet profile
+        </p>
+
+    </div>
+
+</div>
 
   <form method="post" enctype="multipart/form-data" class="pet-form">
     {% csrf_token %}
@@ -143,7 +350,9 @@
 
     <div class="form-actions">
       <a href="{% url 'owner_pet_list' %}" class="btn-secondary">Cancel</a>
-      <button type="submit" class="btn-primary">Add Pet</button>
+   <button type="submit" class="btn-primary">
+    🐾 Add Pet
+</button>
     </div>
 
   </form>
