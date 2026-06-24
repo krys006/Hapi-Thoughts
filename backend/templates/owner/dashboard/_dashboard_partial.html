@@ -1,121 +1,117 @@
-<!-- Owner dashboard widgets block — polls itself every 30s via HTMX. -->
-<div id="owner-dashboard-content"
-  hx-get="{% url 'owner_dashboard_refresh' %}"
-  hx-trigger="every 30s"
-  hx-swap="outerHTML">
+{% comment %}
+  owner/dashboard/_dashboard_partial.html
+  Included by owner/dashboard/index.html, and returned standalone by
+  owner_dashboard_partial() for the 30s auto-poll.
 
-  <div class="owner-dashboard-widgets">
+  Context expected (from _get_owner_dashboard_context, see
+  VIEWS_CHANGES.txt for the calendar_month / calendar_days addition):
+    - today
+    - upcoming_appointments: queryset (pet, service, date, time, status)
+    - my_pets: queryset (name, species, photo)
+    - recent_notifications
+    - calendar_month: e.g. "March"
+    - calendar_days: list of dicts {day, in_month, is_today, weekday, markers}
+{% endcomment %}
+{% load static %}
 
-    <!-- ── Upcoming Appointments ──────────────────────────────────────── -->
-    <div class="dashboard-widget">
-      <div class="dashboard-widget-header">
-        <h2 class="dashboard-widget-title">Upcoming Appointments</h2>
-        <a href="{% url 'owner_appointments' %}" class="dashboard-widget-action">View all</a>
-      </div>
+<section class="calendar-section">
+  <h2 class="section-title">Calendar</h2>
 
-      {% if upcoming_appointments %}
-      <ul class="widget-appointment-list">
-        {% for appointment in upcoming_appointments %}
-        <li class="widget-appointment-row">
-          <div class="widget-appointment-info">
-            <span class="status-badge status-badge-{{ appointment.status }}">{{ appointment.get_status_display }}</span>
-            <p class="widget-appointment-pet">{{ appointment.pet.name }}</p>
-            <p class="widget-appointment-datetime">{{ appointment.date|date:"M j, Y" }} at {{ appointment.time|time:"g:i A" }}</p>
-          </div>
-          <a href="{% url 'owner_appointment_detail' appointment.pk %}" class="widget-table-link">View</a>
-        </li>
-        {% endfor %}
-      </ul>
-      {% else %}
-      <div class="widget-empty">
-        <p class="widget-empty-text">No upcoming appointments.</p>
-        <a href="{% url 'owner_book_appointment' %}" class="btn-primary">Book one now</a>
-      </div>
-      {% endif %}
+  <div class="calendar-card">
+    <div class="calendar-nav">
+      <button class="calendar-arrow" id="calPrev" aria-label="Previous month">&lsaquo;</button>
+      <h3 class="calendar-month">{{ calendar_month }}</h3>
+      <button class="calendar-arrow" id="calNext" aria-label="Next month">&rsaquo;</button>
     </div>
 
-    <!-- ── My Pets ────────────────────────────────────────────────────── -->
-    <div class="dashboard-widget">
-      <div class="dashboard-widget-header">
-        <h2 class="dashboard-widget-title">My Pets</h2>
-        <a href="{% url 'owner_pet_list' %}" class="dashboard-widget-action">View all</a>
-      </div>
+    <div class="calendar-grid calendar-weekdays">
+      <span class="weekday weekday-sun">Su</span>
+      <span class="weekday">Mo</span>
+      <span class="weekday">Tu</span>
+      <span class="weekday">We</span>
+      <span class="weekday">Th</span>
+      <span class="weekday">Fr</span>
+      <span class="weekday">Sa</span>
+    </div>
 
-      {% if my_pets %}
-      <div class="widget-pet-grid">
-        {% for pet in my_pets %}
-        <a href="{% url 'owner_pet_detail' pet.pk %}" class="widget-pet-card">
-          {% if pet.photo %}
-          <img src="{{ pet.photo.url }}" alt="{{ pet.name }}" class="widget-pet-photo" />
-          {% else %}
-          <div class="widget-pet-photo-placeholder">{{ pet.name|slice:":1" }}</div>
+    <div class="calendar-grid calendar-days">
+      {% for day in calendar_days %}
+        <div class="calendar-day-cell">
+          <span
+            class="calendar-day-number
+              {% if not day.in_month %}day-muted{% endif %}
+              {% if day.is_today %}day-today{% endif %}
+              {% if day.weekday == 0 %}day-sunday{% endif %}"
+          >{{ day.day }}</span>
+          {% if day.markers %}
+            <span class="day-markers">
+              {% for color in day.markers %}
+                <span class="marker-dot marker-{{ color }}"></span>
+              {% endfor %}
+            </span>
           {% endif %}
-          <p class="widget-pet-name">{{ pet.name }}</p>
-          <p class="widget-pet-species">{{ pet.species }}</p>
-        </a>
-        {% endfor %}
-      </div>
-      {% else %}
-      <div class="widget-empty">
-        <p class="widget-empty-text">No pets registered yet.</p>
-        <a href="{% url 'owner_pet_add' %}" class="btn-primary">Add a pet</a>
-      </div>
-      {% endif %}
+        </div>
+      {% endfor %}
     </div>
-
-    <!-- ── Recent Notifications ───────────────────────────────────────── -->
-    <div class="dashboard-widget">
-      <div class="dashboard-widget-header">
-        <h2 class="dashboard-widget-title">Recent Notifications</h2>
-        <button
-          hx-get="{% url 'notifications_panel' %}"
-          hx-target="#notification-panel-container"
-          hx-swap="innerHTML"
-          class="dashboard-widget-action">View all</button>
-      </div>
-
-      {% if recent_notifications %}
-      <ul class="widget-notification-list">
-        {% for notification in recent_notifications %}
-        <li class="widget-notification-row {% if not notification.is_read %}widget-notification-unread{% endif %}">
-          <div class="widget-notification-content">
-            <p class="widget-notification-title">{{ notification.title }}</p>
-            <p class="widget-notification-time">{{ notification.created_at|timesince }} ago</p>
-          </div>
-          <a href="{% url 'notification_open' notification.pk %}" class="widget-notification-link">View</a>
-        </li>
-        {% endfor %}
-      </ul>
-      {% else %}
-      <div class="widget-empty">
-        <p class="widget-empty-text">No notifications yet.</p>
-      </div>
-      {% endif %}
-    </div>
-
-    <!-- ── Clinic Info quick access ───────────────────────────────────── -->
-    <div class="dashboard-widget dashboard-widget-compact">
-      <div class="dashboard-widget-header">
-        <h2 class="dashboard-widget-title">Clinic Info</h2>
-      </div>
-      <p class="widget-empty-text">View clinic hours, location, and your veterinarian's profile.</p>
-      <a href="{% url 'clinic_info' %}" class="dashboard-widget-action">View Clinic Info</a>
-    </div>
-
-    <!-- ── Health Library ──────────────────────────────────────────────── -->
-    <div class="dashboard-widget dashboard-widget-compact">
-      <div class="dashboard-widget-header">
-        <h2 class="dashboard-widget-title">Health Library</h2>
-      </div>
-      <p class="widget-empty-text">Browse pet health articles and care guides.</p>
-      <a href="{% url 'owner_health_article_list' %}" class="dashboard-widget-action">Browse Articles</a>
-    </div>
-
-
-
-
   </div>
-  <!-- end owner-dashboard-widgets -->
+</section>
 
-</div>
-<!-- end owner-dashboard-content -->
+<section class="pets-section">
+  <h2 class="section-title">Pets</h2>
+
+  {% for pet in my_pets %}
+    <a href="{% url 'owner_pet_detail' pet.id %}" class="pet-card">
+      <img
+        src="{% if pet.photo %}{{ pet.photo.url }}{% else %}{% static 'img/default-pet.png' %}{% endif %}"
+        alt="{{ pet.name }}"
+        class="pet-photo"
+      >
+      <div class="pet-info">
+        <span class="pet-name">{{ pet.name }}</span>
+        <span class="pet-species">{{ pet.species }}</span>
+      </div>
+    </a>
+  {% empty %}
+    <a href="{% url 'owner_add_pet' %}" class="pet-card pet-card-empty">
+      <span class="pet-info">No pets yet — add your first pet</span>
+    </a>
+  {% endfor %}
+</section>
+
+<section class="services-section">
+  <h2 class="section-title">Services</h2>
+
+  {% comment %}
+    No Service model is queried in views.py, so this is a static list
+    matching the reference image. Swap for a real loop if/when you add
+    a Service model — e.g. {% for service in services %}.
+  {% endcomment %}
+  <div class="services-grid">
+    <a href="{% url 'owner_book_appointment' %}?service=consultation" class="service-card">
+      <img src="{% static 'img/icons/consultation.svg' %}" alt="Consultation" class="service-icon">
+      <span class="service-label">Consultation</span>
+    </a>
+    <a href="{% url 'owner_book_appointment' %}?service=surgery" class="service-card">
+      <img src="{% static 'img/icons/surgery.svg' %}" alt="Surgery" class="service-icon">
+      <span class="service-label">Surgery</span>
+    </a>
+    <a href="{% url 'owner_book_appointment' %}?service=vaccination" class="service-card">
+      <img src="{% static 'img/icons/vaccination.svg' %}" alt="Vaccination" class="service-icon">
+      <span class="service-label">Vaccination</span>
+    </a>
+  </div>
+</section>
+
+{% if upcoming_appointments %}
+<section class="upcoming-section">
+  <h2 class="section-title">Upcoming Appointments</h2>
+  {% for appt in upcoming_appointments %}
+    <div class="pet-card">
+      <div class="pet-info">
+        <span class="pet-name">{{ appt.pet.name }} — {{ appt.service }}</span>
+        <span class="pet-species">{{ appt.date|date:"M j" }} at {{ appt.time|time:"g:i A" }}</span>
+      </div>
+    </div>
+  {% endfor %}
+</section>
+{% endif %}
