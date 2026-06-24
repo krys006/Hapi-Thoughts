@@ -34,6 +34,44 @@
     </div>
   {% endif %}
 
+
+  <!-- Active services and pricing — viewable before booking -->
+  {% if active_services %}
+  <div class="service-price-list">
+    <h2 class="service-price-list-title">Our Services & Pricing</h2>
+    <table class="service-price-table">
+      <thead>
+        <tr>
+          <th class="service-price-table-head">Service</th>
+          <th class="service-price-table-head">Category</th>
+          <th class="service-price-table-head">Price</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for service in active_services %}
+        <tr class="service-price-row">
+          <td class="service-price-cell">
+            {{ service.service_name }}
+            {% if service.description %}
+            <p class="service-price-description">{{ service.description }}</p>
+            {% endif %}
+          </td>
+          <td class="service-price-cell">{{ service.category|default:"—" }}</td>
+          <td class="service-price-cell">
+            {% if service.pricing_type == 'fixed' %}
+              ₱{{ service.base_price|floatformat:2 }}
+            {% else %}
+              ₱{{ service.min_price|floatformat:2 }} – ₱{{ service.max_price|floatformat:2 }}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="service-price-note">Final billed amount is set by the clinic at your visit.</p>
+  </div>
+  {% endif %}
+
   <form method="post" class="booking-form">
     {% csrf_token %}
 

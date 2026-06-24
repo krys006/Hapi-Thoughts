@@ -260,6 +260,12 @@ def owner_book_appointment(request):
         form = AppointmentBookingForm(owner)
 
     clinic = ClinicSettings.objects.first()
+    
+    from billing.models import Service
+
+    active_services = Service.objects.filter(status=Service.ACTIVE).order_by(
+        "category", "service_name"
+    )
 
     return render(
         request,
@@ -267,6 +273,7 @@ def owner_book_appointment(request):
         {
             "form": form,
             "clinic": clinic,
+            "active_services": active_services,
         },
     )
 
