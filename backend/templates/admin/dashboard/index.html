@@ -9,6 +9,8 @@
   <div class="admin-page-header flex flex-col gap-1">
     <h1 class="admin-page-title text-2xl font-bold text-slate-800">Dashboard</h1>
     <p class="admin-page-subtitle text-sm text-slate-500">{{ today|date:"l, F j, Y" }}</p>
+    <p>Logged in as: {{ request.user.email }}</p>
+  <a href="{% url 'logout' %}">Logout</a>
   </div>
 
   <!-- Stats + widgets — self-polling block, see _dashboard_partial.html -->

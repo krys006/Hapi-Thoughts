@@ -41,10 +41,12 @@
     <div class="admin-detail-actions">
       <a href="{% url 'admin_owner_edit' owner.pk %}" class="btn-primary">Edit</a>
       {% if not owner.is_archived %}
-        <form method="post" action="{% url 'admin_owner_archive' owner.pk %}">
-          {% csrf_token %}
-          <button type="submit" class="btn-danger-outline">Archive Account</button>
-        </form>
+        <button
+          type="button"
+          class="btn-danger-outline"
+          onclick="openConfirmModal('{% url 'admin_owner_archive' owner.pk %}', 'Archive Account', 'Archive {{ owner.full_name|escapejs }}\'s account? They will no longer be able to log in. This can be reversed later from this page.')">
+          Archive Account
+        </button>
       {% endif %}
     </div>
 

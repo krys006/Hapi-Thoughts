@@ -170,14 +170,12 @@
                   <td>{{ item.duration|default:"—" }}</td>
                   <td>{{ item.notes|default:"—" }}</td>
                   <td>
-                    <form method="post"
-                      action="{% url 'admin_prescription_item_delete' item.pk %}">
-                      {% csrf_token %}
-                      <button type="submit" class="btn-danger-sm"
-                        onclick="return confirm('Remove this item?')">
-                        Remove
-                      </button>
-                    </form>
+                    <button
+                      type="button"
+                      class="btn-danger-sm"
+                      onclick="openConfirmModal('{% url 'admin_prescription_item_delete' item.pk %}', 'Remove Prescription Item', 'Permanently remove {{ item.medicine_name|escapejs }} from this prescription? This cannot be undone.')">
+                      Remove
+                    </button>
                   </td>
                 </tr>
               {% endfor %}
@@ -224,6 +222,8 @@
 
         {% if test_files %}
           <ul class="file-list">
+
+
             {% for f in test_files %}
               <li class="file-item">
                 <a href="{{ f.file.url }}" target="_blank" class="file-link">
@@ -232,14 +232,12 @@
                 <span class="file-date">
                   {{ f.uploaded_at|date:"M j, Y" }}
                 </span>
-                <form method="post"
-                  action="{% url 'admin_test_result_file_archive' f.pk %}">
-                  {% csrf_token %}
-                  <button type="submit" class="btn-danger-sm"
-                    onclick="return confirm('Remove this file?')">
-                    Remove
-                  </button>
-                </form>
+                <button
+                  type="button"
+                  class="btn-danger-sm"
+                  onclick="openConfirmModal('{% url 'admin_test_result_file_archive' f.pk %}', 'Remove File', 'Remove &quot;{{ f.description|default:f.file.name|escapejs }}&quot; from this record? This is reversible by an admin if needed.')">
+                  Remove
+                </button>
               </li>
             {% endfor %}
           </ul>
