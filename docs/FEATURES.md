@@ -104,10 +104,10 @@ Phase 7 — Dashboards & Polish
 | Edit contact links (Facebook, other socials) | `complete` |
 | Profile photo upload (optional) | `complete` |
 | Auto-generated initials avatar if no photo uploaded | `complete` |
-| Notification preferences settings | `planned` |
-| Appointment reminder timing preference | `planned` |
-| Vaccination reminder timing preference (days in advance) | `planned` |
-| Per-type email notification toggles (on/off) | `planned` |
+| Notification preferences settings | `complete` |
+| Appointment reminder timing preference | `complete` |
+| Vaccination reminder timing preference (days in advance) | `complete` |
+| Per-type email notification toggles (on/off) | `complete` |
 
 ### 2.3 Pet Management (Pet Owner)
 | Feature | Status |
@@ -120,8 +120,8 @@ Phase 7 — Dashboards & Polish
 | Predefined deletion reasons (passed away, rehomed, duplicate, other) | `complete` |
 | Deletion request goes to Admin for approval | `complete` |
 | View pet profile | `complete` |
-| View pet vaccination history | `planned` |
-| View pet medical history (read-only, public notes only) | `planned` |
+| View pet vaccination history | `complete` |
+| View pet medical history (read-only, public notes only) | `complete` |
 
 ### Pet Profile Fields
 | Field | Required | Notes |
@@ -154,7 +154,7 @@ Phase 7 — Dashboards & Polish
 | Add a pet manually | `complete` |
 | Edit pet details | `complete` |
 | Approve pet deletion request | `complete` |
-| Reject pet deletion request | `complete.` |
+| Reject pet deletion request | `complete` |
 
 ### 2.5 Walk-in Client Flow
 | Feature | Status |
@@ -197,8 +197,8 @@ Phase 7 — Dashboards & Polish
 | Feature | Status |
 |---|---|
 | View all appointments (calendar and list view) | `planned` |
-| Calendar monthly and weekly view toggle | `planned` |
-| Colored dot indicators on calendar days with appointments | `planned` |
+| Calendar monthly and weekly view toggle | `complete` |
+| Colored dot indicators on calendar days with appointments | `complete` |
 | Click day to view appointment details in side panel | `planned` |
 | Approve appointment request (PENDING → CONFIRMED) | `complete` |
 | Reject appointment request (PENDING → CANCELLED) | `complete` |
@@ -429,42 +429,42 @@ PENDING → CONFIRMED → COMPLETED
 ### 7.1 Admin Dashboard
 | Feature | Status |
 |---|---|
-| Summary stats: total appointments today | `planned` |
-| Summary stats: pending appointment approvals | `planned` |
-| Summary stats: total registered pet owners | `planned` |
-| Summary stats: total registered pets | `planned` |
-| Summary stats: unpaid bills | `planned` |
-| Summary stats: upcoming vaccinations due this week | `planned` |
-| Summary stats: upcoming follow-ups due this week | `planned` |
-| Calendar view — monthly and weekly toggle | `planned` |
-| Calendar dot indicators color-coded by appointment status | `planned` |
+| Summary stats: total appointments today | `complete` |
+| Summary stats: pending appointment approvals | `complete` |
+| Summary stats: total registered pet owners | `complete` |
+| Summary stats: total registered pets | `complete` |
+| Summary stats: unpaid bills | `complete` |
+| Summary stats: upcoming vaccinations due this week | `complete` |
+| Summary stats: upcoming follow-ups due this week | `complete` |
+| Calendar view — monthly and weekly toggle | `complete` |
+| Calendar dot indicators color-coded by appointment status | `complete` |
 | Click calendar day to view appointment details in side panel | `planned` |
-| Pending appointment approvals widget | `planned` |
-| Recent notifications widget | `planned` |
-| HTMX polling for live data updates (10–30 sec) | `planned` |
-| Global search across pet owners, pets, appointments, medical records | `planned` |
-| Search results grouped by type | `planned` |
+| Pending appointment approvals widget | `complete` |
+| Recent notifications widget | `complete` |
+| HTMX polling for live data updates (10–30 sec) | `complete` |
+| Global search across pet owners, pets, appointments, medical records | `complete` |
+| Search results grouped by type | `complete` |
 
 ### 7.2 Pet Owner Dashboard
 | Feature | Status |
 |---|---|
-| Upcoming appointments section | `planned` |
-| My pets summary | `planned` |
-| Recent notifications | `planned` |
-| Quick book appointment button | `planned` |
-| Health Library quick access card | `planned` |
-| Clinic info quick access | `planned` |
-| Scoped search (own data only) | `planned` |
+| Upcoming appointments section | `complete` |
+| My pets summary | `complete` |
+| Recent notifications | `complete` |
+| Quick book appointment button | `complete` |
+| Health Library quick access card | `complete` |
+| Clinic info quick access | `complete` |
+| Scoped search (own data only) | `complete` |
 
 ### 7.3 Clinic Info & About Page
 | Feature | Status |
 |---|---|
-| Dr. Edgar about page (name, license number, bio) | `planned` |
-| Clinic name, address, contact numbers | `planned` |
-| Clinic operating hours | `planned` |
-| Google Maps embed of clinic location | `planned` |
-| Book an appointment button on clinic info page | `planned` |
-| Visible to both Admin and Pet Owner | `planned` |
+| Dr. Edgar about page (name, license number, bio) | `complete` |
+| Clinic name, address, contact numbers | `complete` |
+| Clinic operating hours | `complete` |
+| Google Maps embed of clinic location | `complete` |
+| Book an appointment button on clinic info page | `complete` |
+| Visible to both Admin and Pet Owner | `complete` |
 
 ### 7.4 Clinic Settings (Admin)
 | Feature | Status |
@@ -480,26 +480,26 @@ PENDING → CONFIRMED → COMPLETED
 ### 7.5 Health Library
 | Feature | Status |
 |---|---|
-| Admin can create health articles | `planned` |
-| Admin can edit and delete health articles | `planned` |
-| Each article: condition name, description, causes, symptoms, general care | `planned` |
-| Pet Owner can browse and read articles (read-only) | `planned` |
-| Search articles by condition name | `planned` |
-| Visible to both Admin and Pet Owner (login required) | `planned` |
-| Health Library accessible from Pet Owner dashboard | `planned` |
+| Admin can create health articles | `complete` |
+| Admin can edit and delete health articles | `complete` |
+| Each article: condition name, description, causes, symptoms, general care | `complete` |
+| Pet Owner can browse and read articles (read-only) | `complete` |
+| Search articles by condition name | `complete` |
+| Visible to both Admin and Pet Owner (login required) | `complete` |
+| Health Library accessible from Pet Owner dashboard | `complete` |
 
 ### 7.6 General UI/UX
 | Feature | Status |
 |---|---|
-| Sidebar-based dashboard layout (Admin and Pet Owner) | `planned` |
-| Modal-based forms and confirmations | `planned` |
+| Sidebar-based dashboard layout (Admin and Pet Owner) | `complete` |
+| Modal-based forms and confirmations | `complete` |
 | Mobile responsive — Pet Owner views prioritized | `planned` |
-| Confirmation dialogs for destructive actions | `planned` |
-| Success / error flash messages | `planned` |
-| Simple empty states with text and action button | `planned` |
-| Loading states for HTMX requests | `planned` |
-| Cascading species/breed dropdown with custom input option | `planned` |
-| Color-coded appointment status badges | `planned` |
+| Confirmation dialogs for destructive actions | `complete` |
+| Success / error flash messages | `complete` |
+| Simple empty states with text and action button | `complete` |
+| Loading states for HTMX requests | `complete` |
+| Cascading species/breed dropdown with custom input option | `complete` |
+| Color-coded appointment status badges | `complete` |
 
 ---
 

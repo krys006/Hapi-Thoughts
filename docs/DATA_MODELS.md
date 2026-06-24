@@ -309,7 +309,7 @@ Immutable — no deletion allowed.
 |---|---|---|---|
 | `id` | AutoField | PK | Auto |
 | `pet` | ForeignKey | Pet, on_delete=CASCADE | — |
-| `appointment` | ForeignKey | Appointment, null=True, blank=True, on_delete=SET_NULL | Null for standalone records |
+| `appointment` | OneToOneField | Appointment, null=True, blank=True, on_delete=SET_NULL | Null for standalone records. OneToOne enforces one record per appointment at the database level. |
 | `record_date` | DateField | — | Date of record |
 | `diagnosis` | TextField | blank=True | — |
 | `symptoms` | TextField | blank=True | — |
@@ -327,6 +327,7 @@ Immutable — no deletion allowed.
 - No deletion allowed — enforce at view level
 - Pet owners see all fields EXCEPT `private_notes`
 - One record per appointment (enforced at view level)
+- `appointment` is a OneToOneField, not a ForeignKey — this enforces "one medical record per appointment" at the database level, not just in view logic. Attempting to create a second record for the same appointment redirects to the existing one instead.
 
 ---
 
