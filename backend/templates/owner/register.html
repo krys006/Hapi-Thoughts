@@ -1,69 +1,164 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block title %}Create Account — Hapi Vet{% endblock %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/owner/auth.css' %}">
+{% endblock %}
+
 {% block content %}
-<!-- Pet owner registration page -->
-<div class="register-page">
+<div class="auth-page">
 
-  <div class="register-card">
+    <img
+        src="{% static 'images/clinic/auth-bg.jpeg' %}"
+        alt="Background"
+        class="auth-bg"
+    >
 
-    <div class="register-header">
-      <h1 class="clinic-name">Hapi Vet</h1>
-      <p class="register-subtitle">Create your account</p>
+    <div class="auth-bg-overlay"></div>
+
+    <div class="auth-container">
+        <div class="auth-card">
+
+            <div class="auth-logo-wrap">
+                <img
+                    src="{% static 'images/clinic/logo.png' %}"
+                    alt="Hapi Vet Logo"
+                    class="auth-logo"
+                >
+            </div>
+
+            <div class="auth-header">
+                <h1 class="auth-title">Create Account</h1>
+                <p class="auth-subtitle">Join Hapi Vet and manage your pet’s care</p>
+            </div>
+
+            {% if messages %}
+                <div class="auth-messages">
+                    {% for message in messages %}
+                        <div class="auth-message
+                            {% if message.tags == 'error' %}
+                                auth-message-error
+                            {% elif message.tags == 'success' %}
+                                auth-message-success
+                            {% endif %}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            <form method="POST" action="{% url 'owner_register' %}" class="auth-form">
+                {% csrf_token %}
+
+                <div>
+                    <label for="email" class="sr-only">Email Address</label>
+
+                    <div class="auth-field">
+                        <span class="auth-field-icon" aria-hidden="true">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8m-18 8h18a2 2 0 002-2V6a2 2 0 00-2-2H3a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                        </span>
+
+                        <input
+                            type="email"
+                            id="email"
+                            name="email"
+                            value="{{ email|default:'' }}"
+                            placeholder="Email Address"
+                            required
+                            autofocus
+                            class="auth-input"
+                        >
+                    </div>
+                </div>
+
+                <div>
+                    <label for="password" class="sr-only">Password</label>
+
+                    <div class="auth-field">
+                        <span class="auth-field-icon" aria-hidden="true">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11c1.104 0 2-.896 2-2V7a2 2 0 10-4 0v2c0 1.104.896 2 2 2z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 11h14v9H5z" />
+                            </svg>
+                        </span>
+
+                        <input
+                            type="password"
+                            id="password"
+                            name="password"
+                            placeholder="Password"
+                            required
+                            class="auth-input"
+                        >
+
+                        <button
+                            type="button"
+                            data-password-toggle="password"
+                            class="auth-password-toggle"
+                            aria-label="Show password"
+                        ></button>
+                    </div>
+                </div>
+
+                <div>
+                    <label for="confirm_password" class="sr-only">Confirm Password</label>
+
+                    <div class="auth-field">
+                        <span class="auth-field-icon" aria-hidden="true">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11c1.104 0 2-.896 2-2V7a2 2 0 10-4 0v2c0 1.104.896 2 2 2z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 11h14v9H5z" />
+                            </svg>
+                        </span>
+
+                        <input
+                            type="password"
+                            id="confirm_password"
+                            name="confirm_password"
+                            placeholder="Confirm Password"
+                            required
+                            class="auth-input"
+                        >
+
+                        <button
+                            type="button"
+                            data-password-toggle="confirm_password"
+                            class="auth-password-toggle"
+                            aria-label="Show password"
+                        ></button>
+                    </div>
+                </div>
+
+                <p class="auth-subtitle text-center">
+                    By continuing, you agree to our Terms and Privacy Policy.
+                </p>
+
+                <button type="submit" class="auth-button">
+                    Create Account
+                </button>
+            </form>
+
+            <div class="auth-footer-text">
+                Already have an account?
+                <a href="{% url 'owner_login' %}" class="font-semibold underline">
+                    Sign in
+                </a>
+            </div>
+
+            <div class="auth-footer">
+                <a href="#">Terms</a>
+                <a href="#">Privacy</a>
+            </div>
+
+        </div>
     </div>
-
-    <!-- Form errors -->
-    {% if form.non_field_errors %}
-      <div class="alert alert-error">
-        {% for error in form.non_field_errors %}
-          <p>{{ error }}</p>
-        {% endfor %}
-      </div>
-    {% endif %}
-
-    <form method="POST" action="{% url 'owner_register' %}">
-      {% csrf_token %}
-
-      <!-- Email -->
-      <div class="form-group">
-        <label for="id_email">Email Address</label>
-        {{ form.email }}
-        {% if form.email.errors %}
-          <p class="field-error">{{ form.email.errors.0 }}</p>
-        {% endif %}
-      </div>
-
-      <!-- Password -->
-      <div class="form-group">
-        <label for="id_password1">Password</label>
-        {{ form.password1 }}
-        {% if form.password1.errors %}
-          <p class="field-error">{{ form.password1.errors.0 }}</p>
-        {% endif %}
-      </div>
-
-      <!-- Confirm Password -->
-      <div class="form-group">
-        <label for="id_password2">Confirm Password</label>
-        {{ form.password2 }}
-        {% if form.password2.errors %}
-          <p class="field-error">{{ form.password2.errors.0 }}</p>
-        {% endif %}
-      </div>
-
-      <button type="submit" class="btn-primary">
-        Create Account
-      </button>
-
-    </form>
-
-    <div class="login-links">
-      Already have an account?
-      <a href="{% url 'owner_login' %}">Sign in</a>
-    </div>
-
-  </div>
-
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/owner/auth.js' %}"></script>
 {% endblock %}

@@ -13,10 +13,12 @@
 <div class="auth-page">
 
     <img
-        src="{% static 'images/clinic/auth-bg.jpeg' %}"
+        src="{% static 'images/clinic/auth-bg.png' %}"
         alt="Background"
         class="auth-bg"
     >
+
+    <div class="auth-bg-overlay"></div>
 
     <div class="auth-container">
         <div class="auth-card">
@@ -53,30 +55,46 @@
                 {% csrf_token %}
 
                 <div>
-                    <label for="email" class="auth-label">Email Address</label>
-                    <input
-                        type="email"
-                        id="email"
-                        name="email"
-                        value="{{ email|default:'' }}"
-                        placeholder="you@email.com"
-                        required
-                        autofocus
-                        class="auth-input"
-                    >
+                    <label for="email" class="sr-only">Email Address</label>
+
+                    <div class="auth-field">
+                        <span class="auth-field-icon" aria-hidden="true">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8m-18 8h18a2 2 0 002-2V6a2 2 0 00-2-2H3a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                        </span>
+
+                        <input
+                            type="email"
+                            id="email"
+                            name="email"
+                            value="{{ email|default:'' }}"
+                            placeholder="Email Address"
+                            required
+                            autofocus
+                            class="auth-input"
+                        >
+                    </div>
                 </div>
 
                 <div>
-                    <label for="password" class="auth-label">Password</label>
+                    <label for="password" class="sr-only">Password</label>
 
-                    <div class="auth-password-wrap">
+                    <div class="auth-field">
+                        <span class="auth-field-icon" aria-hidden="true">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11c1.104 0 2-.896 2-2V7a2 2 0 10-4 0v2c0 1.104.896 2 2 2z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 11h14v9H5z" />
+                            </svg>
+                        </span>
+
                         <input
                             type="password"
                             id="password"
                             name="password"
-                            placeholder="Enter your password"
+                            placeholder="Password"
                             required
-                            class="auth-input auth-input-with-toggle"
+                            class="auth-input"
                         >
 
                         <button
@@ -85,7 +103,10 @@
                             class="auth-password-toggle"
                             aria-label="Show password"
                         >
-                            👁
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
                         </button>
                     </div>
                 </div>
@@ -96,12 +117,13 @@
                             type="checkbox"
                             name="remember_me"
                             id="remember_me"
+                            class="auth-checkbox"
                         >
-                        Remember Me
+                        Remember me
                     </label>
 
                     <a href="{% url 'forgot_password' %}" class="auth-link">
-                        Forgot Password?
+                        Forgot password?
                     </a>
                 </div>
 
@@ -112,7 +134,7 @@
 
             <div class="auth-divider">
                 <div class="auth-divider-line"></div>
-                <span class="auth-divider-text">or</span>
+                <span class="auth-divider-text">or sign in with</span>
                 <div class="auth-divider-line"></div>
             </div>
 
