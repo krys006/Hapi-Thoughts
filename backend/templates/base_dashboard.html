@@ -7,13 +7,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}Hapi Vet{% endblock %}</title>
 
-  <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- HTMX CDN -->
   <script src="https://unpkg.com/htmx.org@latest"></script>
 
-  <!-- CSRF token for HTMX POST requests -->
+  {% if not request.user.is_admin %}
+  <link rel="stylesheet" href="{% static 'css/owner/dashboard.css' %}">
+  {% endif %}
+
   <script>
     document.addEventListener("DOMContentLoaded", function () {
       document.body.addEventListener("htmx:configRequest", function (e) {
@@ -22,8 +22,6 @@
     });
   </script>
 
-  <!-- JS-toggled state hooks: utility classes can't react to a class toggled -->
-  <!-- on the same element, so these two states are defined as plain CSS. -->
   <style>
     .sidebar-open { transform: translateX(0); }
     .sidebar-backdrop-visible { display: block; }
@@ -32,18 +30,13 @@
   {% block extra_css %}{% endblock %}
 </head>
 
-<body class="min-h-screen bg-slate-100 font-sans text-slate-800 antialiased">
+<body class="min-h-screen bg-slate-100 font-sans text-slate-800 antialiased {% if not request.user.is_admin %}owner-mobile-shell{% endif %}">
 
-  <!-- ─── Top Header Bar ─────────────────────────────────────────────── -->
-  <!-- Placeholder header — frontend teammate replaces with final design -->
   <header class="dashboard-header sticky top-0 z-30 flex items-center gap-4 w-full h-16 px-4 sm:px-6 text-white bg-gradient-to-r from-teal-500 via-cyan-600 to-indigo-600 shadow-md">
 
-    <!-- Left: sidebar toggle (mobile only) + clinic name / logo placeholder -->
     <div class="dashboard-header-brand flex items-center gap-3">
-
-      <!-- Sidebar toggle — mobile only, frontend wires visibility via Tailwind -->
       <button id="sidebar-toggle-button" onclick="toggleSidebar()" class="sidebar-toggle-button flex items-center justify-center lg:hidden w-10 h-10 text-white rounded-md hover:bg-white/10" aria-label="Toggle navigation menu">
-        <svg class="sidebar-toggle-icon w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="24" height="24">
+        <svg class="sidebar-toggle-icon w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" />
         </svg>
       </button>
@@ -51,12 +44,10 @@
       {% if request.user.is_admin %}
       <a href="{% url 'admin_dashboard' %}" class="dashboard-brand-name text-xl font-bold tracking-tight text-white">Hapi Vet</a>
       {% else %}
-      <a href="{% url 'owner_dashboard' %}" class="dashboard-brand-name text-xl font-bold tracking-tight text-white">Hapi Vet</a>
+      <a href="{% url 'owner_dashboard' %}" class="dashboard-brand-name owner-brand-name text-xl font-bold tracking-tight text-white">Hapi Tutz</a>
       {% endif %}
     </div>
 
-
-    <!-- Middle: global search — role-conditional endpoint and placeholder -->
     {% if request.user.is_admin %}
     <div class="dashboard-header-search relative hidden md:block flex-1 max-w-md" id="global-search-container">
       <input
@@ -74,54 +65,41 @@
       <div id="global-search-results" class="global-search-results-container"></div>
     </div>
     {% else %}
-    <div class="dashboard-header-search" id="global-search-container">
+    <div class="dashboard-header-search owner-header-search" id="global-search-container">
       <input
         type="text"
         name="q"
-        placeholder="Search my pets, appointments, billing..."
-        class="global-search-input"
+        placeholder="Search..."
+        class="global-search-input owner-search-input"
         autocomplete="off"
         hx-get="{% url 'owner_global_search' %}"
         hx-trigger="keyup changed delay:300ms, search"
         hx-target="#global-search-results"
         hx-swap="innerHTML" />
-      <div id="global-search-results" class="global-search-results-container"></div>
+      <div id="global-search-results" class="global-search-results-container owner-search-results"></div>
     </div>
     {% endif %}
 
-
-
-    <!-- Right: bell icon + notification panel container -->
     <div class="dashboard-header-actions relative flex items-center gap-3 ml-auto">
-
-      <!-- Bell button — triggers HTMX load of notification panel -->
       <button id="bell-button"
         hx-get="{% url 'notifications_panel' %}"
         hx-target="#notification-panel-container"
         hx-swap="innerHTML"
         class="bell-button relative flex items-center justify-center w-10 h-10 text-white rounded-full hover:bg-white/10">
 
-        <!-- Bell icon (inline SVG — no extra dependency) -->
-        <svg class="bell-icon w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="24" height="24">
+        <svg class="bell-icon w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
         </svg>
 
-        <!-- Unread badge — hidden when count is zero -->
         {% if unread_count > 0 %}
         <span class="bell-badge absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-5 h-5 px-1 text-xs font-bold text-white bg-red-600 rounded-full">{{ unread_count }}</span>
         {% endif %}
-
       </button>
 
-      <!-- Notification panel mounts here -->
-      <!-- On mobile: full-screen overlay -->
-      <!-- On desktop: absolute dropdown anchored to bell button -->
       <div id="notification-panel-container" class="notification-panel-container absolute right-0 top-12 z-40"></div>
-
     </div>
   </header>
 
-  <!-- ─── Flash Messages ─────────────────────────────────────────────── -->
   {% if messages %}
   <div class="flash-messages flex flex-col gap-2 w-full max-w-3xl mx-auto px-4 mt-4">
     {% for message in messages %}
@@ -132,10 +110,8 @@
   </div>
   {% endif %}
 
-  <!-- ─── Sidebar + Main Content Layout ─────────────────────────────── -->
   <div class="dashboard-layout relative flex w-full">
 
-    <!-- Sidebar — role-based nav, collapsible on mobile -->
     <aside id="dashboard-sidebar" class="dashboard-sidebar fixed inset-y-0 left-0 z-40 flex flex-col w-64 px-4 py-6 bg-gradient-to-b from-violet-100 to-violet-200 border-r border-violet-200 -translate-x-full transition-transform duration-200 lg:static lg:translate-x-0 lg:min-h-screen">
       {% if request.user.is_admin %}
         {% include 'shared/sidebar_admin.html' %}
@@ -144,17 +120,14 @@
       {% endif %}
     </aside>
 
-    <!-- Backdrop — mobile only, closes sidebar on tap outside -->
     <div id="sidebar-backdrop" class="sidebar-backdrop fixed inset-0 z-30 hidden bg-slate-900/50 lg:hidden" onclick="closeSidebar()"></div>
 
-    <!-- Main page content -->
     <main class="dashboard-main flex-1 min-w-0 min-h-screen p-4 sm:p-6 bg-gradient-to-br from-violet-200 via-indigo-200 to-blue-200">
       {% block content %}{% endblock %}
     </main>
 
   </div>
 
-  <!-- Sidebar toggle script — mobile open/close only, no server round-trip -->
   <script>
     function toggleSidebar() {
       document.getElementById('dashboard-sidebar').classList.toggle('sidebar-open');
@@ -166,8 +139,6 @@
     }
   </script>
 
-
-  <!-- Global search — click outside the search box clears the dropdown -->
   <script>
     document.addEventListener('click', function (e) {
       var searchContainer = document.getElementById('global-search-container');
@@ -178,8 +149,11 @@
     });
   </script>
 
-  <!-- Reusable confirmation modal — shared by any destructive action -->
   {% include 'shared/modals.html' %}
+
+  {% if not request.user.is_admin %}
+  <script src="{% static 'js/owner/dashboard.js' %}"></script>
+  {% endif %}
 
   {% block extra_js %}{% endblock %}
 </body>

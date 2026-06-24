@@ -1,4 +1,3 @@
-<!-- Owner dashboard widgets block — polls itself every 30s via HTMX. -->
 <div id="owner-dashboard-content"
   hx-get="{% url 'owner_dashboard_refresh' %}"
   hx-trigger="every 30s"
@@ -6,10 +5,12 @@
 
   <div class="owner-dashboard-widgets">
 
-    <!-- ── Upcoming Appointments ──────────────────────────────────────── -->
-    <div class="dashboard-widget">
+    <section class="dashboard-widget appointment-widget">
       <div class="dashboard-widget-header">
-        <h2 class="dashboard-widget-title">Upcoming Appointments</h2>
+        <div>
+          <p class="dashboard-widget-eyebrow">Schedule</p>
+          <h2 class="dashboard-widget-title">Upcoming Appointments</h2>
+        </div>
         <a href="{% url 'owner_appointments' %}" class="dashboard-widget-action">View all</a>
       </div>
 
@@ -17,27 +18,36 @@
       <ul class="widget-appointment-list">
         {% for appointment in upcoming_appointments %}
         <li class="widget-appointment-row">
+          <div class="widget-appointment-date">
+            <span>{{ appointment.date|date:"M" }}</span>
+            <strong>{{ appointment.date|date:"j" }}</strong>
+          </div>
+
           <div class="widget-appointment-info">
             <span class="status-badge status-badge-{{ appointment.status }}">{{ appointment.get_status_display }}</span>
             <p class="widget-appointment-pet">{{ appointment.pet.name }}</p>
-            <p class="widget-appointment-datetime">{{ appointment.date|date:"M j, Y" }} at {{ appointment.time|time:"g:i A" }}</p>
+            <p class="widget-appointment-datetime">{{ appointment.time|time:"g:i A" }}</p>
           </div>
+
           <a href="{% url 'owner_appointment_detail' appointment.pk %}" class="widget-table-link">View</a>
         </li>
         {% endfor %}
       </ul>
       {% else %}
       <div class="widget-empty">
-        <p class="widget-empty-text">No upcoming appointments.</p>
+        <p class="widget-empty-title">No upcoming appointments</p>
+        <p class="widget-empty-text">Book a visit for your pet anytime.</p>
         <a href="{% url 'owner_book_appointment' %}" class="btn-primary">Book one now</a>
       </div>
       {% endif %}
-    </div>
+    </section>
 
-    <!-- ── My Pets ────────────────────────────────────────────────────── -->
-    <div class="dashboard-widget">
+    <section class="dashboard-widget">
       <div class="dashboard-widget-header">
-        <h2 class="dashboard-widget-title">My Pets</h2>
+        <div>
+          <p class="dashboard-widget-eyebrow">Family</p>
+          <h2 class="dashboard-widget-title">My Pets</h2>
+        </div>
         <a href="{% url 'owner_pet_list' %}" class="dashboard-widget-action">View all</a>
       </div>
 
@@ -50,23 +60,28 @@
           {% else %}
           <div class="widget-pet-photo-placeholder">{{ pet.name|slice:":1" }}</div>
           {% endif %}
-          <p class="widget-pet-name">{{ pet.name }}</p>
-          <p class="widget-pet-species">{{ pet.species }}</p>
+          <div>
+            <p class="widget-pet-name">{{ pet.name }}</p>
+            <p class="widget-pet-species">{{ pet.species }}</p>
+          </div>
         </a>
         {% endfor %}
       </div>
       {% else %}
       <div class="widget-empty">
-        <p class="widget-empty-text">No pets registered yet.</p>
+        <p class="widget-empty-title">No pets registered yet</p>
+        <p class="widget-empty-text">Add your first pet profile.</p>
         <a href="{% url 'owner_pet_add' %}" class="btn-primary">Add a pet</a>
       </div>
       {% endif %}
-    </div>
+    </section>
 
-    <!-- ── Recent Notifications ───────────────────────────────────────── -->
-    <div class="dashboard-widget">
+    <section class="dashboard-widget">
       <div class="dashboard-widget-header">
-        <h2 class="dashboard-widget-title">Recent Notifications</h2>
+        <div>
+          <p class="dashboard-widget-eyebrow">Updates</p>
+          <h2 class="dashboard-widget-title">Recent Notifications</h2>
+        </div>
         <button
           hx-get="{% url 'notifications_panel' %}"
           hx-target="#notification-panel-container"
@@ -78,6 +93,7 @@
       <ul class="widget-notification-list">
         {% for notification in recent_notifications %}
         <li class="widget-notification-row {% if not notification.is_read %}widget-notification-unread{% endif %}">
+          <div class="widget-notification-dot"></div>
           <div class="widget-notification-content">
             <p class="widget-notification-title">{{ notification.title }}</p>
             <p class="widget-notification-time">{{ notification.created_at|timesince }} ago</p>
@@ -91,31 +107,21 @@
         <p class="widget-empty-text">No notifications yet.</p>
       </div>
       {% endif %}
-    </div>
+    </section>
 
-    <!-- ── Clinic Info quick access ───────────────────────────────────── -->
-    <div class="dashboard-widget dashboard-widget-compact">
-      <div class="dashboard-widget-header">
-        <h2 class="dashboard-widget-title">Clinic Info</h2>
-      </div>
-      <p class="widget-empty-text">View clinic hours, location, and your veterinarian's profile.</p>
-      <a href="{% url 'clinic_info' %}" class="dashboard-widget-action">View Clinic Info</a>
-    </div>
+    <section class="owner-mini-card-grid">
+      <a href="{% url 'clinic_info' %}" class="owner-mini-card">
+        <span class="owner-mini-card-icon">🏥</span>
+        <strong>Clinic Info</strong>
+        <small>Hours, location, veterinarian profile</small>
+      </a>
 
-    <!-- ── Health Library ──────────────────────────────────────────────── -->
-    <div class="dashboard-widget dashboard-widget-compact">
-      <div class="dashboard-widget-header">
-        <h2 class="dashboard-widget-title">Health Library</h2>
-      </div>
-      <p class="widget-empty-text">Browse pet health articles and care guides.</p>
-      <a href="{% url 'owner_health_article_list' %}" class="dashboard-widget-action">Browse Articles</a>
-    </div>
-
-
-
+      <a href="{% url 'owner_health_article_list' %}" class="owner-mini-card">
+        <span class="owner-mini-card-icon">📚</span>
+        <strong>Health Library</strong>
+        <small>Pet care articles and guides</small>
+      </a>
+    </section>
 
   </div>
-  <!-- end owner-dashboard-widgets -->
-
 </div>
-<!-- end owner-dashboard-content -->

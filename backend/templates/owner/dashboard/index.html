@@ -6,21 +6,64 @@
 
 <div class="owner-page">
 
-  <div class="owner-page-header">
+  <section class="owner-hero-card">
     <div>
+      <p class="owner-greeting">Welcome back</p>
       <h1 class="owner-page-title">My Dashboard</h1>
       <p class="owner-page-subtitle">{{ today|date:"l, F j, Y" }}</p>
     </div>
-    <a href="{% url 'logout' %}" class="btn-link">Logout</a>
-  </div>
 
-  <!-- Quick book button -->
-  <div class="owner-quick-actions">
-    <a href="{% url 'owner_book_appointment' %}" class="btn-primary">Book an Appointment</a>
-  </div>
+    <a href="{% url 'owner_profile' %}" class="owner-profile-button" aria-label="View profile">
+      {{ request.user.email|slice:":1"|upper }}
+    </a>
+  </section>
 
-  <!-- Widgets — self-polling block, see _dashboard_partial.html -->
+  <section class="owner-quick-actions">
+    <a href="{% url 'owner_book_appointment' %}" class="owner-action-card owner-action-card-primary">
+      <span class="owner-action-icon">＋</span>
+      <span>Book</span>
+    </a>
+
+    <a href="{% url 'owner_pet_add' %}" class="owner-action-card">
+      <span class="owner-action-icon">🐾</span>
+      <span>Add Pet</span>
+    </a>
+
+    <a href="{% url 'owner_appointments' %}" class="owner-action-card">
+      <span class="owner-action-icon">📅</span>
+      <span>Visits</span>
+    </a>
+
+    <a href="{% url 'owner_billing_list' %}" class="owner-action-card">
+      <span class="owner-action-icon">₱</span>
+      <span>Billing</span>
+    </a>
+  </section>
+
   {% include 'owner/dashboard/_dashboard_partial.html' %}
+
+  <nav class="owner-bottom-nav" aria-label="Pet owner mobile navigation">
+    <a href="{% url 'owner_dashboard' %}" class="owner-bottom-nav-link owner-bottom-nav-active">
+      <span>⌂</span>
+      <small>Home</small>
+    </a>
+    <a href="{% url 'owner_pet_list' %}" class="owner-bottom-nav-link">
+      <span>🐾</span>
+      <small>Pets</small>
+    </a>
+    <a href="{% url 'owner_book_appointment' %}" class="owner-bottom-nav-link owner-bottom-nav-main">
+      <span>＋</span>
+      <small>Book</small>
+    </a>
+    <a href="{% url 'owner_billing_list' %}" class="owner-bottom-nav-link">
+      <span>₱</span>
+      <small>Bills</small>
+    </a>
+    <a href="{% url 'owner_profile' %}" class="owner-bottom-nav-link">
+      <span>☻</span>
+      <small>Profile</small>
+    </a>
+  </nav>
 
 </div>
 

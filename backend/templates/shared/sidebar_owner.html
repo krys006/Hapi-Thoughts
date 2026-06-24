@@ -1,5 +1,14 @@
-<!-- Pet owner sidebar navigation -->
-<nav class="sidebar-nav">
+<nav class="sidebar-nav owner-sidebar-nav">
+
+  <div class="owner-sidebar-profile">
+    <div class="owner-sidebar-avatar">
+      {{ request.user.email|slice:":1"|upper }}
+    </div>
+    <div>
+      <p class="owner-sidebar-name">Pet Owner</p>
+      <p class="owner-sidebar-email">{{ request.user.email }}</p>
+    </div>
+  </div>
 
   <div class="sidebar-nav-group">
     <p class="sidebar-nav-group-label">Overview</p>
@@ -19,6 +28,10 @@
     <p class="sidebar-nav-group-label">Profile</p>
     <a href="{% url 'owner_profile' %}" class="sidebar-link {% if request.resolver_match.url_name == 'owner_profile' %}sidebar-link-active{% endif %}">Profile</a>
     <a href="{% url 'owner_notification_preferences' %}" class="sidebar-link {% if request.resolver_match.url_name == 'owner_notification_preferences' %}sidebar-link-active{% endif %}">Notification Settings</a>
+  </div>
+
+  <div class="owner-sidebar-footer">
+    <a href="{% url 'logout' %}" class="owner-sidebar-logout">Logout</a>
   </div>
 
 </nav>
