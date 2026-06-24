@@ -4,149 +4,434 @@
 
 {% block content %}
 
+<style>
+
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+
+.pet-detail-page{
+    max-width:900px;
+    margin:0 auto;
+    padding:20px;
+    font-family:'Poppins',sans-serif;
+}
+
+.back-link{
+    display:inline-block;
+    margin-bottom:20px;
+    text-decoration:none;
+    color:white;
+    font-weight:600;
+}
+
+/* Warning */
+
+.deletion-warning{
+    background:rgba(255,94,94,.18);
+    backdrop-filter:blur(15px);
+    border-left:5px solid #ff5e5e;
+    border-radius:22px;
+    padding:18px;
+    margin-bottom:25px;
+    color:white;
+}
+
+.deletion-warning-text{
+    margin-bottom:12px;
+    line-height:1.6;
+}
+
+/* Layout */
+
+.pet-detail-content{
+    display:grid;
+    grid-template-columns:320px 1fr;
+    gap:25px;
+}
+
+/* Sidebar */
+
+.pet-detail-sidebar{
+    background:rgba(255,255,255,.15);
+    backdrop-filter:blur(18px);
+    border:1px solid rgba(255,255,255,.18);
+    border-radius:28px;
+    padding:25px;
+    text-align:center;
+    color:white;
+}
+
+.pet-avatar-wrapper{
+    margin-bottom:20px;
+}
+
+.pet-avatar-photo{
+    width:170px;
+    height:170px;
+    object-fit:cover;
+    border-radius:50%;
+    border:4px solid rgba(255,255,255,.3);
+}
+
+.pet-avatar-initials{
+    width:170px;
+    height:170px;
+    border-radius:50%;
+    background:linear-gradient(135deg,#7c5cff,#66d7ff);
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    margin:auto;
+    font-size:4rem;
+    font-weight:800;
+    color:white;
+}
+
+.pet-detail-name{
+    font-size:2rem;
+    font-weight:800;
+    margin-bottom:8px;
+}
+
+.pet-detail-species{
+    opacity:.85;
+    margin-bottom:25px;
+}
+
+.pet-detail-actions{
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+}
+
+/* Buttons */
+
+.btn-primary{
+    text-decoration:none;
+    background:linear-gradient(
+        135deg,
+        #7c5cff,
+        #66d7ff
+    );
+    color:white;
+    padding:14px;
+    border-radius:16px;
+    font-weight:700;
+    text-align:center;
+}
+
+.btn-danger-outline{
+    background:transparent;
+    color:#ff6b6b;
+    border:2px solid #ff6b6b;
+    border-radius:16px;
+    padding:14px;
+    cursor:pointer;
+    font-weight:700;
+    text-decoration:none;
+}
+
+.btn-danger-outline:hover{
+    background:#ff6b6b;
+    color:white;
+}
+
+/* Info Area */
+
+.pet-detail-info{
+    display:flex;
+    flex-direction:column;
+    gap:20px;
+}
+
+.pet-detail-section{
+    background:rgba(255,255,255,.15);
+    backdrop-filter:blur(18px);
+    border:1px solid rgba(255,255,255,.18);
+    border-radius:28px;
+    padding:25px;
+    color:white;
+}
+
+.pet-detail-section-title{
+    font-size:1.2rem;
+    font-weight:700;
+    margin-bottom:18px;
+}
+
+/* Fields */
+
+.pet-detail-field{
+    display:flex;
+    justify-content:space-between;
+    gap:20px;
+    padding:12px 0;
+    border-bottom:1px solid rgba(255,255,255,.12);
+}
+
+.pet-detail-field:last-child{
+    border-bottom:none;
+}
+
+.pet-detail-label{
+    font-weight:600;
+    opacity:.85;
+}
+
+.pet-detail-value{
+    text-align:right;
+    font-weight:500;
+}
+
+/* Summary Lists */
+
+.pet-summary-list{
+    list-style:none;
+    padding:0;
+    margin:0;
+}
+
+.pet-summary-item{
+    padding:12px 0;
+    border-bottom:1px solid rgba(255,255,255,.12);
+}
+
+.pet-summary-item:last-child{
+    border-bottom:none;
+}
+
+.pet-summary-view-link{
+    display:inline-block;
+    margin-top:15px;
+    text-decoration:none;
+    color:#fff;
+    font-weight:700;
+}
+
+.pet-summary-view-link:hover{
+    opacity:.8;
+}
+
+.pet-detail-empty{
+    opacity:.8;
+}
+
+/* Mobile */
+
+@media(max-width:768px){
+
+    .pet-detail-content{
+        grid-template-columns:1fr;
+    }
+
+    .pet-detail-name{
+        font-size:1.7rem;
+    }
+
+    .pet-detail-field{
+        flex-direction:column;
+        gap:6px;
+    }
+
+    .pet-detail-value{
+        text-align:left;
+    }
+
+}
+
+</style>
+
 <div class="pet-detail-page">
 
-  <!-- Back link -->
-  <a href="{% url 'owner_pet_list' %}" class="back-link">← Back to My Pets</a>
+    <a href="{% url 'owner_pet_list' %}" class="back-link">
+        ← Back to My Pets
+    </a>
 
-  <!-- Pending deletion warning -->
-  {% if pending_deletion %}
+    {% if pending_deletion %}
     <div class="deletion-warning">
-      <p class="deletion-warning-text">
-        A deletion request for {{ pet.name }} is currently pending review by the clinic.
-      </p>
-      <!-- Cancel deletion request -->
-      <form method="post" action="{% url 'owner_pet_cancel_delete_request' pet.pk %}">
-        {% csrf_token %}
-        <button type="submit" class="btn-danger-outline">
-          Cancel Deletion Request
-        </button>
-      </form>
-    </div>
-  {% endif %}
 
-  <div class="pet-detail-content">
+        <p class="deletion-warning-text">
+            A deletion request for <strong>{{ pet.name }}</strong>
+            is currently pending review by the clinic.
+        </p>
 
-    <!-- Left column — photo + actions -->
-    <div class="pet-detail-sidebar">
+        <form method="post"
+              action="{% url 'owner_pet_cancel_delete_request' pet.pk %}">
 
-      <!-- Pet photo or initials avatar -->
-      <div class="pet-avatar-wrapper">
-        {% if pet.photo %}
-          <img
-            src="{{ pet.photo.url }}"
-            alt="{{ pet.name }}"
-            class="pet-avatar-photo"
-          />
-        {% else %}
-          <div class="pet-avatar-initials">
-            <span>{{ pet.name|first|upper }}</span>
-          </div>
-        {% endif %}
-      </div>
+            {% csrf_token %}
 
-      <h1 class="pet-detail-name">{{ pet.name }}</h1>
-      <p class="pet-detail-species">{{ pet.species }}{% if pet.breed %} · {{ pet.breed }}{% endif %}</p>
+            <button type="submit" class="btn-danger-outline">
+                Cancel Deletion Request
+            </button>
 
-      <!-- Action buttons — hidden while deletion is pending -->
-      {% if not pending_deletion %}
-        <div class="pet-detail-actions">
-          <a href="{% url 'owner_pet_edit' pet.pk %}" class="btn-primary">
-            Edit Pet
-          </a>
-          <a href="{% url 'owner_pet_delete_request' pet.pk %}" class="btn-danger-outline">
-            Request Deletion
-          </a>
-        </div>
-      {% endif %}
+        </form>
 
     </div>
+    {% endif %}
 
-    <!-- Right column — details -->
-    <div class="pet-detail-info">
+    <div class="pet-detail-content">
 
-      <div class="pet-detail-section">
-        <h3 class="pet-detail-section-title">Pet Information</h3>
+        <!-- SIDEBAR -->
 
-        <div class="pet-detail-field">
-          <span class="pet-detail-label">Gender</span>
-          <span class="pet-detail-value">{{ pet.get_gender_display }}</span>
-        </div>
+        <div class="pet-detail-sidebar">
 
-        <div class="pet-detail-field">
-          <span class="pet-detail-label">Date of Birth</span>
-          <span class="pet-detail-value">
-            {% if pet.date_of_birth %}
-              {{ pet.date_of_birth|date:"F d, Y" }} ({{ pet.age }})
-            {% else %}
-              Unknown
+            <div class="pet-avatar-wrapper">
+
+                {% if pet.photo %}
+                    <img src="{{ pet.photo.url }}"
+                         alt="{{ pet.name }}"
+                         class="pet-avatar-photo">
+                {% else %}
+                    <div class="pet-avatar-initials">
+                        {{ pet.name|first|upper }}
+                    </div>
+                {% endif %}
+
+            </div>
+
+            <h1 class="pet-detail-name">
+                {{ pet.name }}
+            </h1>
+
+            <p class="pet-detail-species">
+                {{ pet.species }}
+                {% if pet.breed %}
+                    • {{ pet.breed }}
+                {% endif %}
+            </p>
+
+            {% if not pending_deletion %}
+            <div class="pet-detail-actions">
+
+                <a href="{% url 'owner_pet_edit' pet.pk %}"
+                   class="btn-primary">
+                    Edit Pet
+                </a>
+
+                <a href="{% url 'owner_pet_delete_request' pet.pk %}"
+                   class="btn-danger-outline">
+                    Request Deletion
+                </a>
+
+            </div>
             {% endif %}
-          </span>
+
         </div>
 
-        <div class="pet-detail-field">
-          <span class="pet-detail-label">Color</span>
-          <span class="pet-detail-value">
-            {{ pet.color|default:"Not specified" }}
-          </span>
+        <!-- INFORMATION -->
+
+        <div class="pet-detail-info">
+
+            <div class="pet-detail-section">
+
+                <h3 class="pet-detail-section-title">
+                    Pet Information
+                </h3>
+
+                <div class="pet-detail-field">
+                    <span class="pet-detail-label">Gender</span>
+                    <span class="pet-detail-value">
+                        {{ pet.get_gender_display }}
+                    </span>
+                </div>
+
+                <div class="pet-detail-field">
+                    <span class="pet-detail-label">Date of Birth</span>
+                    <span class="pet-detail-value">
+                        {% if pet.date_of_birth %}
+                            {{ pet.date_of_birth|date:"F d, Y" }}
+                            ({{ pet.age }})
+                        {% else %}
+                            Unknown
+                        {% endif %}
+                    </span>
+                </div>
+
+                <div class="pet-detail-field">
+                    <span class="pet-detail-label">Color</span>
+                    <span class="pet-detail-value">
+                        {{ pet.color|default:"Not specified" }}
+                    </span>
+                </div>
+
+                <div class="pet-detail-field">
+                    <span class="pet-detail-label">Weight</span>
+                    <span class="pet-detail-value">
+                        {% if pet.weight %}
+                            {{ pet.weight }} kg
+                        {% else %}
+                            Not specified
+                        {% endif %}
+                    </span>
+                </div>
+
+                <div class="pet-detail-field">
+                    <span class="pet-detail-label">Registration No.</span>
+                    <span class="pet-detail-value">
+                        {{ pet.registration_number|default:"Not provided" }}
+                    </span>
+                </div>
+
+            </div>
+
+            <div class="pet-detail-section">
+
+                <h3 class="pet-detail-section-title">
+                    Medical History
+                </h3>
+
+                {% if medical_records %}
+                    <ul class="pet-summary-list">
+                        {% for record in medical_records %}
+                            <li class="pet-summary-item">
+                                {{ record.record_date|date:"F d, Y" }}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="pet-detail-empty">
+                        No medical records yet.
+                    </p>
+                {% endif %}
+
+                <a href="{% url 'owner_pet_medical_history' pet.pk %}"
+                   class="pet-summary-view-link">
+                    View Medical History →
+                </a>
+
+            </div>
+
+            <div class="pet-detail-section">
+
+                <h3 class="pet-detail-section-title">
+                    Vaccination History
+                </h3>
+
+                {% if vaccinations %}
+                    <ul class="pet-summary-list">
+                        {% for vaccination in vaccinations %}
+                            <li class="pet-summary-item">
+                                {{ vaccination.display_vaccine_name }}
+                                —
+                                {{ vaccination.date_administered|date:"F d, Y" }}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="pet-detail-empty">
+                        No vaccination records yet.
+                    </p>
+                {% endif %}
+
+                <a href="{% url 'owner_vaccination_history' pet.pk %}"
+                   class="pet-summary-view-link">
+                    View Vaccination History →
+                </a>
+
+            </div>
+
         </div>
-
-        <div class="pet-detail-field">
-          <span class="pet-detail-label">Weight</span>
-          <span class="pet-detail-value">
-            {% if pet.weight %}{{ pet.weight }} kg{% else %}Not specified{% endif %}
-          </span>
-        </div>
-
-        <div class="pet-detail-field">
-          <span class="pet-detail-label">Registration No.</span>
-          <span class="pet-detail-value">
-            {{ pet.registration_number|default:"Not provided" }}
-          </span>
-        </div>
-
-      </div>
-
-      <!-- Medical history — compressed summary -->
-      <div class="pet-detail-section">
-        <h3 class="pet-detail-section-title">Medical History</h3>
-
-        {% if medical_records %}
-          <ul class="pet-summary-list">
-            {% for record in medical_records %}
-            <li class="pet-summary-item">{{ record.record_date|date:"F d, Y" }}</li>
-            {% endfor %}
-          </ul>
-        {% else %}
-          <p class="pet-detail-empty">No medical records yet.</p>
-        {% endif %}
-
-        <a href="{% url 'owner_pet_medical_history' pet.pk %}" class="pet-summary-view-link">View Medical History →</a>
-
-      </div>
-
-
-      <!-- Vaccination history — compressed summary -->
-      <div class="pet-detail-section">
-        <h3 class="pet-detail-section-title">Vaccination History</h3>
-
-        {% if vaccinations %}
-          <ul class="pet-summary-list">
-            {% for vaccination in vaccinations %}
-            <li class="pet-summary-item">{{ vaccination.display_vaccine_name }} — {{ vaccination.date_administered|date:"F d, Y" }}</li>
-            {% endfor %}
-          </ul>
-        {% else %}
-          <p class="pet-detail-empty">No vaccination records yet.</p>
-        {% endif %}
-
-        <a href="{% url 'owner_vaccination_history' pet.pk %}" class="pet-summary-view-link">View Vaccination History →</a>
-
-      </div>
 
     </div>
-
-  </div>
 
 </div>
 

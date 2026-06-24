@@ -4,6 +4,243 @@
 
 {% block content %}
 
+<style>
+
+.owner-page{
+    max-width:420px;
+    margin:0 auto;
+    padding:20px;
+}
+
+.owner-page-header{
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+    margin-bottom:25px;
+}
+
+.owner-page-title{
+    color:white;
+    font-size:2rem;
+    font-weight:700;
+}
+
+.btn-primary{
+
+    display:block;
+
+    text-align:center;
+
+    text-decoration:none;
+
+    padding:15px;
+
+    border-radius:18px;
+
+    background:
+    linear-gradient(
+        90deg,
+        #7c5cff,
+        #35c8ff
+    );
+
+    color:white;
+
+    font-weight:700;
+}
+
+.flash-message{
+
+    background:rgba(255,255,255,.15);
+
+    backdrop-filter:blur(10px);
+
+    border-radius:14px;
+
+    padding:12px;
+
+    color:white;
+
+    margin-bottom:12px;
+}
+
+.appointments-section{
+    margin-bottom:30px;
+}
+
+.section-title{
+
+    color:white;
+
+    font-size:1.2rem;
+
+    font-weight:700;
+
+    margin-bottom:15px;
+}
+
+.appointment-list{
+
+    list-style:none;
+
+    padding:0;
+
+    margin:0;
+}
+
+.appointment-card{
+
+    background:rgba(255,255,255,.15);
+
+    backdrop-filter:blur(15px);
+
+    border:1px solid rgba(255,255,255,.2);
+
+    border-radius:22px;
+
+    padding:18px;
+
+    margin-bottom:14px;
+
+    color:white;
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:center;
+
+    gap:15px;
+}
+
+.appointment-card--past{
+    opacity:.85;
+}
+
+.appointment-card--cancelled{
+    border:1px solid rgba(255,90,90,.5);
+}
+
+.appointment-card-main{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:6px;
+}
+
+.pet-name{
+
+    font-size:1.05rem;
+
+    font-weight:700;
+}
+
+.appointment-date{
+    font-size:.9rem;
+    opacity:.9;
+}
+
+.appointment-service{
+    font-size:.85rem;
+    opacity:.8;
+}
+
+.appointment-card-meta{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:10px;
+
+    align-items:flex-end;
+}
+
+.status-badge{
+
+    padding:7px 12px;
+
+    border-radius:999px;
+
+    font-size:.8rem;
+
+    font-weight:600;
+}
+
+.status-pending{
+    background:#f59e0b;
+    color:white;
+}
+
+.status-confirmed{
+    background:#10b981;
+    color:white;
+}
+
+.status-completed{
+    background:#3b82f6;
+    color:white;
+}
+
+.status-cancelled{
+    background:#ef4444;
+    color:white;
+}
+
+.btn-link{
+
+    color:white;
+
+    text-decoration:none;
+
+    font-size:.85rem;
+
+    font-weight:600;
+}
+
+.btn-link:hover{
+    text-decoration:underline;
+}
+
+.empty-state-text{
+
+    color:white;
+
+    opacity:.75;
+
+    padding:15px;
+
+    background:rgba(255,255,255,.1);
+
+    border-radius:15px;
+}
+
+@media(max-width:480px){
+
+    .appointment-card{
+
+        flex-direction:column;
+
+        align-items:flex-start;
+    }
+
+    .appointment-card-meta{
+
+        width:100%;
+
+        flex-direction:row;
+
+        justify-content:space-between;
+
+        align-items:center;
+    }
+
+}
+
+</style>
+
 <div class="owner-page">
 
   <div class="owner-page-header">

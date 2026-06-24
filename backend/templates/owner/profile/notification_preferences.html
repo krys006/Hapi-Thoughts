@@ -4,6 +4,263 @@
 
 {% block content %}
 
+<style>
+
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+
+.preferences-page{
+    max-width:420px;
+    margin:0 auto;
+    padding:20px;
+    font-family:'Poppins',sans-serif;
+}
+
+.preferences-header{
+    margin-bottom:24px;
+}
+
+.preferences-title{
+    font-size:2rem;
+    font-weight:700;
+    color:white;
+    margin-bottom:6px;
+}
+
+.preferences-subtitle{
+    color:white;
+    opacity:.85;
+    font-size:.95rem;
+}
+
+.preferences-form{
+    display:flex;
+    flex-direction:column;
+    gap:20px;
+}
+
+.preferences-section{
+
+    background:rgba(255,255,255,.15);
+
+    backdrop-filter:blur(15px);
+
+    border-radius:24px;
+
+    border:1px solid rgba(255,255,255,.2);
+
+    padding:20px;
+}
+
+.preferences-section-title{
+
+    color:white;
+
+    font-size:1.1rem;
+
+    font-weight:700;
+
+    margin-bottom:6px;
+}
+
+.preferences-section-desc{
+
+    color:white;
+
+    opacity:.75;
+
+    font-size:.9rem;
+
+    margin-bottom:20px;
+}
+
+.preferences-toggle-row{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:center;
+
+    gap:15px;
+
+    padding:14px 0;
+
+    border-bottom:1px solid rgba(255,255,255,.08);
+}
+
+.preferences-toggle-row:last-child{
+    border-bottom:none;
+}
+
+.preferences-toggle-info{
+    flex:1;
+}
+
+.preferences-toggle-label{
+
+    display:block;
+
+    color:white;
+
+    font-weight:600;
+
+    margin-bottom:4px;
+}
+
+.preferences-toggle-desc{
+
+    color:white;
+
+    opacity:.75;
+
+    font-size:.85rem;
+}
+
+/* Checkbox Styling */
+
+.preferences-toggle-row input[type="checkbox"]{
+
+    width:22px;
+
+    height:22px;
+
+    accent-color:#7c5cff;
+
+    cursor:pointer;
+}
+
+/* Reminder Timing */
+
+.preferences-timing-row{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:8px;
+
+    margin-bottom:18px;
+}
+
+.preferences-timing-label{
+
+    color:white;
+
+    font-weight:600;
+}
+
+.preferences-timing-row input,
+.preferences-timing-row select{
+
+    width:100%;
+
+    padding:14px;
+
+    border:none;
+
+    outline:none;
+
+    border-radius:14px;
+
+    background:rgba(255,255,255,.20);
+
+    color:white;
+
+    font-size:15px;
+}
+
+.preferences-timing-row select option{
+    background:#6d5cff;
+    color:white;
+}
+
+.preferences-timing-unit{
+
+    color:white;
+
+    opacity:.8;
+
+    font-size:.9rem;
+}
+
+.preferences-field-error{
+
+    color:#ffd7d7;
+
+    font-size:.85rem;
+}
+
+/* Buttons */
+
+.preferences-actions{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:12px;
+
+    margin-top:10px;
+}
+
+.btn-primary{
+
+    border:none;
+
+    padding:15px;
+
+    border-radius:16px;
+
+    background:linear-gradient(
+        90deg,
+        #7c5cff,
+        #4fc3ff
+    );
+
+    color:white;
+
+    font-size:15px;
+
+    font-weight:700;
+
+    cursor:pointer;
+}
+
+.btn-secondary{
+
+    text-align:center;
+
+    text-decoration:none;
+
+    padding:15px;
+
+    border-radius:16px;
+
+    background:rgba(255,255,255,.15);
+
+    color:white;
+}
+
+/* Mobile */
+
+@media(max-width:480px){
+
+    .preferences-page{
+        padding:15px;
+    }
+
+    .preferences-title{
+        font-size:1.7rem;
+    }
+
+    .preferences-toggle-row{
+        align-items:flex-start;
+    }
+
+}
+
+</style>
+
 <div class="preferences-page">
 
   <div class="preferences-header">

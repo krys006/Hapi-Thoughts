@@ -4,40 +4,279 @@
 
 {% block content %}
 
+<style>
+
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+
+.owner-page{
+    max-width:430px;
+    margin:0 auto;
+    padding:20px;
+    font-family:'Poppins',sans-serif;
+}
+
+/* HEADER */
+
+.owner-page-header{
+    margin-bottom:25px;
+}
+
+.owner-page-title{
+    color:#fff;
+    font-size:2rem;
+    font-weight:800;
+    margin:0;
+}
+
+/* RECEIPT LIST */
+
+.receipt-list{
+    list-style:none;
+    padding:0;
+    margin:0;
+}
+
+.receipt-card{
+
+    background:rgba(255,255,255,.15);
+
+    backdrop-filter:blur(18px);
+
+    border:1px solid rgba(255,255,255,.2);
+
+    border-radius:24px;
+
+    padding:18px;
+
+    margin-bottom:18px;
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:center;
+
+    gap:15px;
+
+    box-shadow:
+    0 10px 30px rgba(0,0,0,.12);
+}
+
+/* LEFT SIDE */
+
+.receipt-card-main{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+}
+
+.receipt-number{
+    color:#fff;
+    font-size:1rem;
+    font-weight:700;
+}
+
+.receipt-date{
+    color:rgba(255,255,255,.85);
+    font-size:.85rem;
+}
+
+.receipt-pet{
+    color:white;
+    font-size:.9rem;
+    font-weight:500;
+}
+
+.receipt-total{
+    color:white;
+    font-size:1.2rem;
+    font-weight:800;
+}
+
+/* RIGHT SIDE */
+
+.receipt-card-meta{
+    display:flex;
+    flex-direction:column;
+    align-items:flex-end;
+    gap:10px;
+}
+
+/* STATUS BADGES */
+
+.status-badge{
+    padding:7px 12px;
+    border-radius:20px;
+    font-size:.75rem;
+    font-weight:700;
+    text-transform:uppercase;
+}
+
+.status-paid{
+    background:#34d399;
+    color:white;
+}
+
+.status-pending{
+    background:#fbbf24;
+    color:#222;
+}
+
+.status-overdue{
+    background:#ef4444;
+    color:white;
+}
+
+/* VIEW BUTTON */
+
+.btn-link{
+
+    text-decoration:none;
+
+    color:white;
+
+    font-size:.85rem;
+
+    padding:8px 14px;
+
+    border-radius:14px;
+
+    background:rgba(255,255,255,.15);
+
+    border:1px solid rgba(255,255,255,.15);
+
+    transition:.3s;
+}
+
+.btn-link:hover{
+    background:rgba(255,255,255,.25);
+}
+
+/* EMPTY STATE */
+
+.empty-state{
+
+    text-align:center;
+
+    padding:40px 25px;
+
+    background:rgba(255,255,255,.15);
+
+    backdrop-filter:blur(18px);
+
+    border-radius:24px;
+
+    color:white;
+}
+
+.empty-icon{
+    font-size:3rem;
+    margin-bottom:10px;
+}
+
+.empty-state-text{
+    color:white;
+    font-size:1rem;
+}
+
+/* MOBILE */
+
+@media(max-width:480px){
+
+    .owner-page-title{
+        font-size:1.7rem;
+    }
+
+    .receipt-card{
+        flex-direction:column;
+        align-items:flex-start;
+    }
+
+    .receipt-card-meta{
+        width:100%;
+        flex-direction:row;
+        justify-content:space-between;
+        align-items:center;
+    }
+
+}
+
+</style>
+
 <div class="owner-page">
 
-  <div class="owner-page-header">
-    <h1 class="owner-page-title">My Billing</h1>
-  </div>
+    <div class="owner-page-header">
 
-  {% if receipts %}
-    <ul class="receipt-list">
-      {% for receipt in receipts %}
-        <li class="receipt-card">
-          <div class="receipt-card-main">
-            <span class="receipt-number">{{ receipt.receipt_number }}</span>
-            <span class="receipt-date">
-              {{ receipt.billing_date|date:"F j, Y" }}
-            </span>
-            {% if receipt.pet %}
-              <span class="receipt-pet">{{ receipt.pet.name }}</span>
-            {% endif %}
-            <span class="receipt-total">
-              ₱{{ receipt.total_amount|floatformat:2 }}
-            </span>
-          </div>
-          <div class="receipt-card-meta">
-            <span class="status-badge status-{{ receipt.payment_status }}">
-              {{ receipt.get_payment_status_display }}
-            </span>
-            <a href="{% url 'owner_receipt_detail' receipt.pk %}" class="btn-link">View</a>
-          </div>
-        </li>
-      {% endfor %}
-    </ul>
-  {% else %}
-    <p class="empty-state-text">No billing records found.</p>
-  {% endif %}
+        <h1 class="owner-page-title">
+            My Billing
+        </h1>
+
+    </div>
+
+    {% if receipts %}
+
+        <ul class="receipt-list">
+
+            {% for receipt in receipts %}
+
+            <li class="receipt-card">
+
+                <div class="receipt-card-main">
+
+                    <span class="receipt-number">
+                        {{ receipt.receipt_number }}
+                    </span>
+
+                    <span class="receipt-date">
+                        {{ receipt.billing_date|date:"F j, Y" }}
+                    </span>
+
+                    {% if receipt.pet %}
+                    <span class="receipt-pet">
+                        🐾 {{ receipt.pet.name }}
+                    </span>
+                    {% endif %}
+
+                    <span class="receipt-total">
+                        ₱{{ receipt.total_amount|floatformat:2 }}
+                    </span>
+
+                </div>
+
+                <div class="receipt-card-meta">
+
+                    <span class="status-badge status-{{ receipt.payment_status }}">
+                        {{ receipt.get_payment_status_display }}
+                    </span>
+
+                    <a href="{% url 'owner_receipt_detail' receipt.pk %}"
+                       class="btn-link">
+                        View
+                    </a>
+
+                </div>
+
+            </li>
+
+            {% endfor %}
+
+        </ul>
+
+    {% else %}
+
+        <div class="empty-state">
+
+            <div class="empty-icon">
+                💳
+            </div>
+
+            <p class="empty-state-text">
+                No billing records found.
+            </p>
+
+        </div>
+
+    {% endif %}
 
 </div>
 

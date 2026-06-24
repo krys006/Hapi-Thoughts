@@ -4,132 +4,374 @@
 
 {% block content %}
 
+<style>
+
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+
+.owner-page{
+    max-width:420px;
+    margin:0 auto;
+    padding:20px;
+    font-family:'Poppins',sans-serif;
+}
+
+.owner-page-header{
+    margin-bottom:20px;
+}
+
+.owner-page-title{
+    font-size:2rem;
+    font-weight:700;
+    color:#ffffff;
+    margin-bottom:6px;
+}
+
+.back-link{
+    color:#ffffff;
+    text-decoration:none;
+    font-size:.9rem;
+    opacity:.9;
+}
+
+.clinic-info-banner{
+    background:rgba(255,255,255,.15);
+    backdrop-filter:blur(12px);
+    border-radius:20px;
+    padding:16px;
+    margin-bottom:20px;
+    color:white;
+    border:1px solid rgba(255,255,255,.2);
+}
+
+.clinic-hours{
+    font-weight:600;
+    margin-bottom:5px;
+}
+
+.clinic-booking-note{
+    font-size:.9rem;
+    opacity:.9;
+}
+
+.booking-form{
+    background:rgba(255,255,255,.15);
+    backdrop-filter:blur(15px);
+    border-radius:24px;
+    padding:24px;
+    border:1px solid rgba(255,255,255,.2);
+}
+
+.form-group{
+    margin-bottom:18px;
+}
+
+.form-label{
+    display:block;
+    color:white;
+    font-weight:600;
+    margin-bottom:8px;
+}
+
+.form-optional{
+    font-size:.8rem;
+    opacity:.8;
+}
+
+/* ALL INPUTS */
+
+.booking-form input,
+.booking-form select,
+.booking-form textarea{
+    width:100%;
+    padding:14px;
+    border:none;
+    border-radius:14px;
+    background:rgba(255,255,255,.20);
+    color:white;
+    font-size:15px;
+    box-sizing:border-box;
+    outline:none;
+}
+
+/* Placeholder */
+
+.booking-form input::placeholder,
+.booking-form textarea::placeholder{
+    color:rgba(255,255,255,.7);
+}
+
+/* Dropdown */
+
+.booking-form select option{
+    background:#6d5cff;
+    color:white;
+}
+
+/* Date Icon */
+
+input[type="date"]::-webkit-calendar-picker-indicator{
+    filter:invert(1);
+    cursor:pointer;
+}
+
+/* Reason */
+
+.booking-form textarea{
+    min-height:120px;
+    resize:vertical;
+}
+
+/* Errors */
+
+.form-error{
+    color:#ffd7d7;
+    font-size:.85rem;
+    margin-top:6px;
+}
+
+/* Messages */
+
+.flash-message{
+    background:rgba(255,255,255,.15);
+    color:white;
+    padding:12px;
+    border-radius:12px;
+    margin-bottom:12px;
+}
+
+/* Buttons */
+
+.form-actions{
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+    margin-top:25px;
+}
+
+.btn-primary{
+    width:100%;
+    border:none;
+    border-radius:16px;
+    padding:15px;
+    background:linear-gradient(
+        90deg,
+        #7c5cff,
+        #4fc3ff
+    );
+    color:white;
+    font-size:15px;
+    font-weight:700;
+    cursor:pointer;
+}
+
+.btn-primary:hover{
+    opacity:.95;
+}
+
+.btn-secondary{
+    text-align:center;
+    text-decoration:none;
+    color:white;
+    padding:14px;
+    border-radius:16px;
+    background:rgba(255,255,255,.15);
+}
+
+/* Mobile */
+
+@media(max-width:480px){
+
+    .owner-page{
+        padding:15px;
+    }
+
+    .owner-page-title{
+        font-size:1.7rem;
+    }
+
+}
+
+</style>
+
 <div class="owner-page">
 
-  <div class="owner-page-header">
-    <h1 class="owner-page-title">Book an Appointment</h1>
-    <a href="{% url 'owner_appointments' %}" class="btn-link">
-      Back to Appointments
-    </a>
-  </div>
+    <div class="owner-page-header">
 
-  {% if messages %}
-    <div class="flash-messages">
-      {% for message in messages %}
-        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
-      {% endfor %}
-    </div>
-  {% endif %}
+        <h1 class="owner-page-title">
+            Book Appointment
+        </h1>
 
-  {% if clinic %}
-    <div class="clinic-info-banner">
-      <p class="clinic-hours">
-        Open {{ clinic.opening_time|time:"g:i A" }} —
-        {{ clinic.closing_time|time:"g:i A" }},
-        {{ clinic.get_working_day_names|join:", " }}
-      </p>
-      <p class="clinic-booking-note">
-        Appointments can be booked up to {{ clinic.booking_limit_days }} days in advance.
-      </p>
-    </div>
-  {% endif %}
+        <a href="{% url 'owner_appointments' %}" class="back-link">
+            ← Back to Appointments
+        </a>
 
-  <form method="post" class="booking-form">
-    {% csrf_token %}
-
-    <!-- Pet selection -->
-    <div class="form-group">
-      <label for="{{ form.pet.id_for_label }}" class="form-label">
-        Pet
-      </label>
-      {{ form.pet }}
-      {% if form.pet.errors %}
-        <p class="form-error">{{ form.pet.errors.0 }}</p>
-      {% endif %}
     </div>
 
-    <!-- Service selection -->
-    <div class="form-group">
-      <label for="{{ form.service.id_for_label }}" class="form-label">
-        Service <span class="form-optional">(optional)</span>
-      </label>
-      {{ form.service }}
-      {% if form.service.errors %}
-        <p class="form-error">{{ form.service.errors.0 }}</p>
-      {% endif %}
-    </div>
-
-    <!-- Date selection — triggers HTMX slot load -->
-    <div class="form-group">
-      <label for="{{ form.date.id_for_label }}" class="form-label">
-        Date
-      </label>
-      <input
-        type="date"
-        name="date"
-        id="{{ form.date.id_for_label }}"
-        value="{{ form.date.value|default:'' }}"
-        hx-get="{% url 'owner_get_slots' %}"
-        hx-target="#id_time"
-        hx-swap="innerHTML"
-        hx-trigger="change"
-        hx-include="[name='date']"
-      />
-      {% if form.date.errors %}
-        <p class="form-error">{{ form.date.errors.0 }}</p>
-      {% endif %}
-    </div>
-
-    <!-- Time slot selection — populated by HTMX -->
-    <div class="form-group">
-    <label for="id_time" class="form-label">
-        Time Slot
-    </label>
-    <select
-        name="time"
-        id="id_time"
-        hx-get="{% url 'owner_get_slots' %}"
-        hx-target="#id_time"
-        hx-swap="innerHTML"
-        hx-trigger="none"
-    >
-        <option value="">Select a date first</option>
-    </select>
-    {% if form.time.errors %}
-        <p class="form-error">{{ form.time.errors.0 }}</p>
-    {% endif %}
-    </div>
-
-    <!-- Reason for visit -->
-    <div class="form-group">
-      <label for="{{ form.reason.id_for_label }}" class="form-label">
-        Reason for Visit <span class="form-optional">(optional)</span>
-      </label>
-      {{ form.reason }}
-      {% if form.reason.errors %}
-        <p class="form-error">{{ form.reason.errors.0 }}</p>
-      {% endif %}
-    </div>
-
-    <!-- Non-field errors -->
-    {% if form.non_field_errors %}
-      <div class="form-error-block">
-        {% for error in form.non_field_errors %}
-          <p class="form-error">{{ error }}</p>
+    {% if messages %}
+        {% for message in messages %}
+            <div class="flash-message">
+                {{ message }}
+            </div>
         {% endfor %}
-      </div>
     {% endif %}
 
-    <div class="form-actions">
-      <button type="submit" class="btn-primary">
-        Submit Appointment Request
-      </button>
-      <a href="{% url 'owner_appointments' %}" class="btn-secondary">
-        Cancel
-      </a>
-    </div>
+    {% if clinic %}
+        <div class="clinic-info-banner">
 
-  </form>
+            <p class="clinic-hours">
+                Open
+                {{ clinic.opening_time|time:"g:i A" }}
+                —
+                {{ clinic.closing_time|time:"g:i A" }}
+            </p>
+
+            <p class="clinic-booking-note">
+                Appointments can be booked up to
+                {{ clinic.booking_limit_days }}
+                days in advance.
+            </p>
+
+        </div>
+    {% endif %}
+
+    <form method="post" class="booking-form">
+
+        {% csrf_token %}
+
+        <!-- PET -->
+
+        <div class="form-group">
+
+            <label class="form-label">
+                Pet
+            </label>
+
+            {{ form.pet }}
+
+            {% if form.pet.errors %}
+                <p class="form-error">
+                    {{ form.pet.errors.0 }}
+                </p>
+            {% endif %}
+
+        </div>
+
+        <!-- SERVICE -->
+
+        <div class="form-group">
+
+            <label class="form-label">
+                Service
+                <span class="form-optional">(optional)</span>
+            </label>
+
+            {{ form.service }}
+
+            {% if form.service.errors %}
+                <p class="form-error">
+                    {{ form.service.errors.0 }}
+                </p>
+            {% endif %}
+
+        </div>
+
+        <!-- DATE -->
+
+        <div class="form-group">
+
+            <label class="form-label">
+                Date
+            </label>
+
+<input
+    type="date"
+    name="date"
+    id="{{ form.date.id_for_label }}"
+    value="{{ form.date.value|default:'' }}"
+    hx-get="{% url 'owner_get_slots' %}"
+    hx-target="#id_time"
+    hx-swap="innerHTML"
+    hx-trigger="change"
+    hx-include="[name='date']"
+
+            >
+
+            {% if form.date.errors %}
+                <p class="form-error">
+                    {{ form.date.errors.0 }}
+                </p>
+            {% endif %}
+
+        </div>
+
+        <!-- TIME SLOT -->
+
+        <div class="form-group">
+
+            <label class="form-label">
+                Time Slot
+            </label>
+
+<select
+    name="time"
+    id="id_time"
+>
+    <option value="">
+        Select a date first
+    </option>
+</select>
+
+            {% if form.time.errors %}
+                <p class="form-error">
+                    {{ form.time.errors.0 }}
+                </p>
+            {% endif %}
+
+        </div>
+
+        <!-- REASON -->
+
+        <div class="form-group">
+
+            <label class="form-label">
+                Reason for Visit
+                <span class="form-optional">(optional)</span>
+            </label>
+
+            {{ form.reason }}
+
+            {% if form.reason.errors %}
+                <p class="form-error">
+                    {{ form.reason.errors.0 }}
+                </p>
+            {% endif %}
+
+        </div>
+
+        <!-- NON FIELD ERRORS -->
+
+        {% if form.non_field_errors %}
+            {% for error in form.non_field_errors %}
+                <p class="form-error">
+                    {{ error }}
+                </p>
+            {% endfor %}
+        {% endif %}
+
+        <div class="form-actions">
+
+            <button type="submit" class="btn-primary">
+                Submit Appointment Request
+            </button>
+
+            <a href="{% url 'owner_appointments' %}"
+               class="btn-secondary">
+                Cancel
+            </a>
+
+        </div>
+
+    </form>
 
 </div>
 

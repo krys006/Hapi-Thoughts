@@ -4,6 +4,160 @@
 
 {% block content %}
 
+<style>
+
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+
+.owner-page{
+    max-width:420px;
+    margin:0 auto;
+    padding:20px;
+    font-family:'Poppins',sans-serif;
+}
+
+/* HEADER */
+
+.owner-page-header{
+    margin-bottom:20px;
+}
+
+.owner-page-title{
+    color:white;
+    font-size:2rem;
+    font-weight:700;
+}
+
+/* SEARCH */
+
+.health-search-form{
+    display:flex;
+    gap:10px;
+    margin-bottom:24px;
+}
+
+.health-search-input{
+    flex:1;
+    border:none;
+    outline:none;
+    padding:14px 16px;
+    border-radius:16px;
+    background:rgba(255,255,255,.15);
+    backdrop-filter:blur(12px);
+    color:white;
+    font-size:14px;
+}
+
+.health-search-input::placeholder{
+    color:rgba(255,255,255,.7);
+}
+
+.btn-secondary{
+    border:none;
+    border-radius:16px;
+    padding:14px 18px;
+    background:rgba(255,255,255,.15);
+    color:white;
+    font-weight:600;
+    cursor:pointer;
+    backdrop-filter:blur(12px);
+}
+
+/* ARTICLE GRID */
+
+.health-article-grid{
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+}
+
+/* ARTICLE CARD */
+
+.health-article-card{
+
+    display:block;
+
+    text-decoration:none;
+
+    background:rgba(255,255,255,.15);
+
+    backdrop-filter:blur(15px);
+
+    border-radius:22px;
+
+    border:1px solid rgba(255,255,255,.2);
+
+    padding:18px;
+
+    transition:.25s ease;
+}
+
+.health-article-card:hover{
+    transform:translateY(-3px);
+}
+
+.health-article-card-title{
+
+    color:white;
+
+    font-size:1.05rem;
+
+    font-weight:700;
+
+    margin-bottom:10px;
+}
+
+.health-article-card-excerpt{
+
+    color:white;
+
+    opacity:.85;
+
+    line-height:1.6;
+
+    font-size:.92rem;
+}
+
+/* EMPTY STATE */
+
+.widget-empty{
+
+    background:rgba(255,255,255,.15);
+
+    backdrop-filter:blur(15px);
+
+    border-radius:22px;
+
+    border:1px solid rgba(255,255,255,.2);
+
+    padding:24px;
+
+    text-align:center;
+}
+
+.widget-empty-text{
+
+    color:white;
+
+    opacity:.9;
+}
+
+/* MOBILE */
+
+@media(max-width:480px){
+
+    .owner-page{
+        padding:15px;
+    }
+
+    .owner-page-title{
+        font-size:1.7rem;
+    }
+
+}
+
+</style>
+
+
 <div class="owner-page">
 
   <div class="owner-page-header">
