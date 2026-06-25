@@ -241,10 +241,26 @@
 .auth-footer {
   display: flex;
   justify-content: center;
-  gap: 1rem;
+  align-items: center;
+  gap: 0.5rem;
   margin-top: 1.5rem;
   font-size: 0.75rem;
   color: rgb(255 255 255 / 75%);
+}
+
+.auth-footer-link {
+  color: rgb(255 255 255 / 78%);
+  text-decoration: none;
+  transition: color 150ms ease;
+}
+
+.auth-footer-link:hover {
+  color: white;
+  text-decoration: underline;
+}
+
+.auth-footer-dot {
+  color: rgb(255 255 255 / 45%);
 }
 
 .auth-icon {
