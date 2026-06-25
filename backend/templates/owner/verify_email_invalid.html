@@ -1,17 +1,73 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block title %}Invalid Link — Hapi Vet{% endblock %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/owner/auth.css' %}">
+{% endblock %}
+
 {% block content %}
-<!-- Shown when verification link is invalid or expired -->
-<div class="register-page">
-  <div class="register-card">
-    <h1>Invalid or expired link</h1>
-    <p>
-      This verification link is no longer valid.
-      Please register again or contact the clinic.
-    </p>
-    <a href="{% url 'owner_register' %}">Register again</a>
-  </div>
+<div class="auth-page">
+
+    <img
+        src="{% static 'images/clinic/auth-bg.png' %}"
+        alt="Background"
+        class="auth-bg"
+    >
+
+    <div class="auth-bg-overlay"></div>
+
+    <div class="auth-container">
+        <div class="auth-card">
+
+            <div class="auth-logo-wrap">
+                <img
+                    src="{% static 'images/clinic/logo.png' %}"
+                    alt="Hapi Vet Logo"
+                    class="auth-logo"
+                >
+            </div>
+
+            <div class="auth-icon">
+                ⚠️
+            </div>
+
+            <div class="auth-header">
+                <h1 class="auth-title">
+                    Invalid Verification Link
+                </h1>
+
+                <p class="auth-subtitle">
+                    This verification link is no longer valid.
+                </p>
+            </div>
+
+            <div class="auth-info-box">
+                The link may have:
+                <ul class="auth-info-list">
+                    <li>Already been used</li>
+                    <li>Expired</li>
+                    <li>Been copied incorrectly</li>
+                </ul>
+            </div>
+
+            <div class="mt-6">
+                <a
+                    href="{% url 'owner_register' %}"
+                    class="auth-button block text-center"
+                >
+                    Register Again
+                </a>
+            </div>
+
+            <div class="auth-footer-text">
+                If you continue experiencing issues,
+                please contact the clinic.
+            </div>
+
+        </div>
+    </div>
+
 </div>
 {% endblock %}

@@ -23,6 +23,7 @@ document.addEventListener("DOMContentLoaded", function () {
     </svg>
   `;
 
+  // Password toggle functionality
   toggleButtons.forEach(function (button) {
     const targetId = button.getAttribute("data-password-toggle");
     const passwordInput = document.getElementById(targetId);
@@ -39,7 +40,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
       button.setAttribute(
         "aria-label",
-        isHidden ? "Hide password" : "Show password"
+        isHidden ? "Hide password" : "Show password",
       );
     });
   });

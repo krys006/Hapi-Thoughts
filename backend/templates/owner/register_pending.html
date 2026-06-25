@@ -1,44 +1,73 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block title %}Check Your Email — Hapi Vet{% endblock %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/owner/auth.css' %}">
+{% endblock %}
+
 {% block content %}
-<!-- Shown after registration — waiting for email verification -->
-<div class="register-page">
-  <div class="register-card">
+<div class="auth-page">
 
-    <div class="verify-icon">✉️</div>
+    <img
+        src="{% static 'images/clinic/auth-bg.png' %}"
+        alt="Background"
+        class="auth-bg"
+    >
 
-    <h1 class="register-title">Check your email</h1>
+    <div class="auth-bg-overlay"></div>
 
-    <p class="register-subtitle">
-      We sent a verification link to your email address.
-      Click the link in that email to activate your account.
-    </p>
+    <div class="auth-container">
+        <div class="auth-card">
 
-    <div class="verify-instructions">
-      <p>After clicking the link:</p>
-      <ul>
-        <li>You'll be taken to the login page automatically</li>
-        <li>Log in with your email and password</li>
-      </ul>
+            <div class="auth-logo-wrap">
+                <img
+                    src="{% static 'images/clinic/logo.png' %}"
+                    alt="Hapi Vet Logo"
+                    class="auth-logo"
+                >
+            </div>
+
+            <div class="auth-icon">
+                📧
+            </div>
+
+            <div class="auth-header">
+                <h1 class="auth-title">Check Your Email</h1>
+
+                <p class="auth-subtitle">
+                    We've sent a verification link to your email address.
+                </p>
+            </div>
+
+            <div class="auth-info-box">
+                <p>
+                    Click the verification link in the email to activate your account.
+                </p>
+
+                <ul class="auth-info-list">
+                    <li>Your account will be activated after verification.</li>
+                    <li>You can then sign in normally.</li>
+                </ul>
+            </div>
+
+            <div class="mt-6">
+                <a
+                    href="{% url 'owner_login' %}"
+                    class="auth-button block text-center"
+                >
+                    Go to Login
+                </a>
+            </div>
+
+            <div class="auth-footer-text">
+                Didn't receive the email?<br>
+                Check your spam folder or try registering again.
+            </div>
+
+        </div>
     </div>
 
-    <div class="verify-actions">
-      <a href="{% url 'owner_login' %}" class="btn-primary">
-        Go to Login
-      </a>
-    </div>
-
-    <p class="verify-hint">
-      Didn't receive the email? Check your spam folder.
-      If it's still not there after a few minutes,
-      <a href="{% url 'owner_register' %}" class="verify-resend-link">
-        register again
-      </a>
-      with the same email address.
-    </p>
-
-  </div>
 </div>
 {% endblock %}
