@@ -4,6 +4,148 @@
 
 {% block content %}
 
+<style>
+
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+
+.owner-page{
+    max-width:420px;
+    margin:0 auto;
+    padding:20px;
+    font-family:'Poppins',sans-serif;
+}
+
+/* Header */
+
+.owner-page-header{
+    margin-bottom:20px;
+}
+
+.owner-page-title{
+
+    color:white;
+
+    font-size:2rem;
+
+    font-weight:700;
+
+    line-height:1.2;
+
+    margin-bottom:10px;
+}
+
+.btn-link{
+
+    color:white;
+
+    text-decoration:none;
+
+    opacity:.85;
+
+    font-size:.95rem;
+}
+
+/* Article Container */
+
+.health-article-detail{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:18px;
+}
+
+/* Section Cards */
+
+.health-article-section{
+
+    background:rgba(255,255,255,.15);
+
+    backdrop-filter:blur(15px);
+
+    border-radius:24px;
+
+    border:1px solid rgba(255,255,255,.2);
+
+    padding:22px;
+}
+
+/* Section Titles */
+
+.health-article-section-title{
+
+    color:white;
+
+    font-size:1.2rem;
+
+    font-weight:700;
+
+    margin-bottom:14px;
+
+    display:flex;
+
+    align-items:center;
+
+    gap:8px;
+}
+
+/* Content */
+
+.health-article-text{
+
+    color:white;
+
+    line-height:1.8;
+
+    font-size:.96rem;
+
+    opacity:.95;
+}
+
+.health-article-text p{
+    margin-bottom:12px;
+}
+
+.health-article-text ul,
+.health-article-text ol{
+    margin-left:20px;
+    margin-top:10px;
+}
+
+.health-article-text li{
+    margin-bottom:8px;
+}
+
+/* Reading Card Effect */
+
+.health-article-section:hover{
+
+    transform:translateY(-2px);
+
+    transition:.25s ease;
+}
+
+/* Mobile */
+
+@media(max-width:480px){
+
+    .owner-page{
+        padding:15px;
+    }
+
+    .owner-page-title{
+        font-size:1.6rem;
+    }
+
+    .health-article-section{
+        padding:18px;
+    }
+
+}
+
+</style>
+
 <div class="owner-page">
 
   <div class="owner-page-header">

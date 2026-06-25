@@ -112,7 +112,7 @@
 
   <div class="dashboard-layout relative flex w-full">
 
-    <aside id="dashboard-sidebar" class="dashboard-sidebar fixed inset-y-0 left-0 z-40 flex flex-col w-64 px-4 py-6 bg-gradient-to-b from-violet-100 to-violet-200 border-r border-violet-200 -translate-x-full transition-transform duration-200 lg:static lg:translate-x-0 lg:min-h-screen">
+    <aside id="dashboard-sidebar" class="dashboard-sidebar fixed inset-y-0 left-0 z-40 flex flex-col w-72 px-4 py-6 bg-gradient-to-b from-violet-100 to-violet-200 border-r border-violet-200 -translate-x-full transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 lg:w-64 lg:min-h-screen">
       {% if request.user.is_admin %}
         {% include 'shared/sidebar_admin.html' %}
       {% else %}
@@ -120,24 +120,35 @@
       {% endif %}
     </aside>
 
-    <div id="sidebar-backdrop" class="sidebar-backdrop fixed inset-0 z-30 hidden bg-slate-900/50 lg:hidden" onclick="closeSidebar()"></div>
+    <div id="sidebar-backdrop" class="sidebar-backdrop fixed inset-0 z-30 hidden bg-slate-900/50 backdrop-blur-sm lg:hidden" onclick="closeSidebar()"></div>
 
-    <main class="dashboard-main flex-1 min-w-0 min-h-screen p-4 sm:p-6 bg-gradient-to-br from-violet-200 via-indigo-200 to-blue-200">
+    <main class="dashboard-main flex-1 min-w-0 min-h-screen px-3 py-4 sm:p-6 bg-gradient-to-br from-violet-200 via-indigo-200 to-blue-200">
       {% block content %}{% endblock %}
     </main>
 
   </div>
 
-  <script>
-    function toggleSidebar() {
-      document.getElementById('dashboard-sidebar').classList.toggle('sidebar-open');
-      document.getElementById('sidebar-backdrop').classList.toggle('sidebar-backdrop-visible');
-    }
-    function closeSidebar() {
-      document.getElementById('dashboard-sidebar').classList.remove('sidebar-open');
-      document.getElementById('sidebar-backdrop').classList.remove('sidebar-backdrop-visible');
-    }
-  </script>
+<script>
+  function toggleSidebar() {
+    const sidebar = document.getElementById('dashboard-sidebar');
+    const backdrop = document.getElementById('sidebar-backdrop');
+
+    sidebar.classList.toggle('-translate-x-full');
+    sidebar.classList.toggle('translate-x-0');
+
+    backdrop.classList.toggle('hidden');
+  }
+
+  function closeSidebar() {
+    const sidebar = document.getElementById('dashboard-sidebar');
+    const backdrop = document.getElementById('sidebar-backdrop');
+
+    sidebar.classList.add('-translate-x-full');
+    sidebar.classList.remove('translate-x-0');
+
+    backdrop.classList.add('hidden');
+  }
+</script>
 
   <script>
     document.addEventListener('click', function (e) {

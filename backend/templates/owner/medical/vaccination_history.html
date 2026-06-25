@@ -4,6 +4,188 @@
 
 {% block content %}
 
+<style>
+
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+
+.owner-page{
+    max-width:420px;
+    margin:0 auto;
+    padding:20px;
+    font-family:'Poppins',sans-serif;
+}
+
+/* HEADER */
+
+.owner-page-header{
+    margin-bottom:24px;
+}
+
+.owner-page-title{
+    color:white;
+    font-size:1.8rem;
+    font-weight:800;
+    margin-bottom:14px;
+}
+
+.btn-link{
+
+    display:inline-block;
+
+    text-decoration:none;
+
+    color:white;
+
+    padding:10px 14px;
+
+    margin-right:8px;
+
+    margin-bottom:8px;
+
+    border-radius:14px;
+
+    background:rgba(255,255,255,.15);
+
+    backdrop-filter:blur(12px);
+
+    border:1px solid rgba(255,255,255,.2);
+}
+
+/* LIST */
+
+.vaccination-list{
+    display:flex;
+    flex-direction:column;
+    gap:18px;
+}
+
+/* CARD */
+
+.vaccination-card{
+
+    background:rgba(255,255,255,.15);
+
+    backdrop-filter:blur(15px);
+
+    border-radius:24px;
+
+    border:1px solid rgba(255,255,255,.2);
+
+    padding:20px;
+
+    color:white;
+
+    box-shadow:
+    0 8px 25px rgba(0,0,0,.12);
+}
+
+/* TOP */
+
+.vaccination-header{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:flex-start;
+
+    gap:10px;
+
+    margin-bottom:18px;
+}
+
+.vaccine-name{
+
+    font-size:1.1rem;
+
+    font-weight:700;
+}
+
+.vaccination-date{
+
+    font-size:.85rem;
+
+    opacity:.85;
+}
+
+/* DETAILS */
+
+.detail-row{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    gap:15px;
+
+    margin-bottom:12px;
+}
+
+.detail-label{
+
+    font-weight:600;
+
+    opacity:.9;
+}
+
+.detail-value{
+
+    text-align:right;
+}
+
+/* EMPTY STATE */
+
+.empty-state{
+
+    text-align:center;
+
+    padding:35px;
+
+    background:rgba(255,255,255,.15);
+
+    backdrop-filter:blur(15px);
+
+    border-radius:24px;
+
+    border:1px solid rgba(255,255,255,.2);
+
+    color:white;
+}
+
+.empty-icon{
+    font-size:3rem;
+    margin-bottom:12px;
+}
+
+.empty-title{
+    margin-bottom:8px;
+}
+
+.empty-state-text{
+    opacity:.85;
+}
+
+/* MOBILE */
+
+@media(max-width:480px){
+
+    .owner-page{
+        padding:15px;
+    }
+
+    .owner-page-title{
+        font-size:1.6rem;
+    }
+
+    .vaccination-header{
+        flex-direction:column;
+    }
+
+}
+
+</style>
+
+
 <div class="owner-page">
 
   <div class="owner-page-header">
@@ -16,53 +198,102 @@
     </a>
   </div>
 
-  {% if vaccinations %}
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>Vaccine</th>
-          <th>Date</th>
-          <th>Next Due</th>
-          <th>Weight</th>
-          <th>Administered By</th>
-          <th>Batch No.</th>
-          <th>Manufacturer</th>
-          <th>Site</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for v in vaccinations %}
-          <tr>
-            <td>{{ v.display_vaccine_name }}</td>
-            <td>{{ v.date_administered|date:"M j, Y" }}</td>
-            <td>
-              {% if v.next_due_date %}
-                {{ v.next_due_date|date:"M j, Y" }}
-              {% else %}
-                <span class="text-muted">—</span>
-              {% endif %}
-            </td>
-            <td>
-              {% if v.weight_at_vaccination %}
-                {{ v.weight_at_vaccination }} kg
-              {% else %}
-                <span class="text-muted">—</span>
-              {% endif %}
-            </td>
-            <td>{{ v.administered_by|default:"—" }}</td>
-            <td>{{ v.batch_number|default:"—" }}</td>
-            <td>{{ v.manufacturer|default:"—" }}</td>
-            <td>{{ v.site_of_injection|default:"—" }}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <p class="empty-state-text">
-      No vaccination records found for {{ pet.name }}.
-    </p>
-  {% endif %}
+{% if vaccinations %}
+
+<div class="vaccination-list">
+
+    {% for v in vaccinations %}
+
+    <div class="vaccination-card">
+
+        <div class="vaccination-header">
+
+            <h3 class="vaccine-name">
+                💉 {{ v.display_vaccine_name }}
+            </h3>
+
+            <span class="vaccination-date">
+                {{ v.date_administered|date:"M j, Y" }}
+            </span>
+
+        </div>
+
+        <div class="vaccination-details">
+
+            <div class="detail-row">
+                <span class="detail-label">Next Due</span>
+                <span class="detail-value">
+                    {% if v.next_due_date %}
+                        {{ v.next_due_date|date:"M j, Y" }}
+                    {% else %}
+                        —
+                    {% endif %}
+                </span>
+            </div>
+
+            <div class="detail-row">
+                <span class="detail-label">Weight</span>
+                <span class="detail-value">
+                    {% if v.weight_at_vaccination %}
+                        {{ v.weight_at_vaccination }} kg
+                    {% else %}
+                        —
+                    {% endif %}
+                </span>
+            </div>
+
+            <div class="detail-row">
+                <span class="detail-label">Administered By</span>
+                <span class="detail-value">
+                    {{ v.administered_by|default:"—" }}
+                </span>
+            </div>
+
+            <div class="detail-row">
+                <span class="detail-label">Batch No.</span>
+                <span class="detail-value">
+                    {{ v.batch_number|default:"—" }}
+                </span>
+            </div>
+
+            <div class="detail-row">
+                <span class="detail-label">Manufacturer</span>
+                <span class="detail-value">
+                    {{ v.manufacturer|default:"—" }}
+                </span>
+            </div>
+
+            <div class="detail-row">
+                <span class="detail-label">Injection Site</span>
+                <span class="detail-value">
+                    {{ v.site_of_injection|default:"—" }}
+                </span>
+            </div>
+
+        </div>
+
+    </div>
+
+    {% endfor %}
 
 </div>
 
-{% endblock %}
+{% else %}
+
+<div class="empty-state">
+
+    <div class="empty-icon">
+        💉
+    </div>
+
+    <h3 class="empty-title">
+        No Vaccination Records
+    </h3>
+
+    <p class="empty-state-text">
+        No vaccination records found for {{ pet.name }}.
+    </p>
+
+</div>
+
+{% endif %}

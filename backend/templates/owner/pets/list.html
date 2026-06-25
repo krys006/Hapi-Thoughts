@@ -4,72 +4,111 @@
 
 {% block content %}
 
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+
 <div class="pets-page">
 
-  <!-- Page header -->
-  <div class="pets-header">
-    <h1 class="pets-title">My Pets</h1>
-    <a href="{% url 'owner_pet_add' %}" class="btn-primary">
-      + Add a Pet
-    </a>
-  </div>
+    <div class="pets-header">
 
-  {% if pets %}
+        <h1 class="pets-title">
+            My Pets
+        </h1>
 
-    <!-- Pet grid -->
-    <div class="pets-grid">
-      {% for pet in pets %}
+        <a href="{% url 'owner_pet_add' %}"
+           class="btn-primary">
 
-        <div class="pet-card">
+            + Add a Pet
 
-          <!-- Pending deletion badge -->
-          {% if pet.pk in pending_deletion_pks %}
-            <div class="pet-deletion-badge">Pending Deletion</div>
-          {% endif %}
+        </a>
 
-          <!-- Pet photo or initials avatar -->
-          <div class="pet-avatar-wrapper">
-            {% if pet.photo %}
-              <img
-                src="{{ pet.photo.url }}"
-                alt="{{ pet.name }}"
-                class="pet-avatar-photo"
-              />
-            {% else %}
-              <div class="pet-avatar-initials">
-                <span>{{ pet.name|first|upper }}</span>
-              </div>
-            {% endif %}
-          </div>
+    </div>
 
-          <!-- Pet info -->
-          <div class="pet-card-info">
-            <h2 class="pet-card-name">{{ pet.name }}</h2>
-            <p class="pet-card-species">{{ pet.species }}{% if pet.breed %} · {{ pet.breed }}{% endif %}</p>
-            <p class="pet-card-age">{{ pet.age }}</p>
-          </div>
+    {% if pets %}
 
-          <!-- View button -->
-          <a href="{% url 'owner_pet_detail' pet.pk %}" class="pet-card-link">
-            View Profile
-          </a>
+        <div class="pets-grid">
+
+            {% for pet in pets %}
+
+                <div class="pet-card">
+
+                    {% if pet.pk in pending_deletion_pks %}
+                        <div class="pet-deletion-badge">
+                            Pending Deletion
+                        </div>
+                    {% endif %}
+
+                    <div class="pet-avatar-wrapper">
+
+                        {% if pet.photo %}
+
+                            <img
+                                src="{{ pet.photo.url }}"
+                                alt="{{ pet.name }}"
+                                class="pet-avatar-photo"
+                            >
+
+                        {% else %}
+
+                            <div class="pet-avatar-initials">
+                                <span>
+                                    {{ pet.name|first|upper }}
+                                </span>
+                            </div>
+
+                        {% endif %}
+
+                    </div>
+
+                    <div class="pet-card-info">
+
+                        <h2 class="pet-card-name">
+                            {{ pet.name }}
+                        </h2>
+
+                        <p class="pet-card-species">
+                            {{ pet.species }}
+                            {% if pet.breed %}
+                                · {{ pet.breed }}
+                            {% endif %}
+                        </p>
+
+                        <p class="pet-card-age">
+                            {{ pet.age }}
+                        </p>
+
+                    </div>
+
+                    <a href="{% url 'owner_pet_detail' pet.pk %}"
+                       class="pet-card-link">
+
+                        View Profile
+
+                    </a>
+
+                </div>
+
+            {% endfor %}
 
         </div>
 
-      {% endfor %}
-    </div>
+    {% else %}
 
-  {% else %}
+        <div class="pets-empty">
 
-    <!-- Empty state -->
-    <div class="pets-empty">
-      <p class="pets-empty-message">You haven't added any pets yet.</p>
-      <a href="{% url 'owner_pet_add' %}" class="btn-primary">
-        Add Your First Pet
-      </a>
-    </div>
+            <p class="pets-empty-message">
+                You haven't added any pets yet.
+            </p>
 
-  {% endif %}
+            <a href="{% url 'owner_pet_add' %}"
+               class="btn-primary">
+
+                Add Your First Pet
+
+            </a>
+
+        </div>
+
+    {% endif %}
 
 </div>
 

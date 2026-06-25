@@ -4,59 +4,289 @@
 
 {% block content %}
 
+<style>
+
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+
+.delete-request-page{
+    max-width:700px;
+    margin:0 auto;
+    padding:20px;
+    font-family:'Poppins',sans-serif;
+}
+
+.delete-request-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:15px;
+    margin-bottom:25px;
+    flex-wrap:wrap;
+}
+
+.delete-request-title{
+    color:#fff;
+    font-size:2rem;
+    font-weight:800;
+    margin:0;
+}
+
+/* Warning Card */
+
+.delete-request-warning{
+    background:rgba(255, 94, 94, 0.18);
+    backdrop-filter:blur(18px);
+    border:1px solid rgba(255,255,255,.15);
+    border-left:5px solid #ff5e5e;
+    border-radius:24px;
+    padding:18px;
+    color:white;
+    margin-bottom:25px;
+    line-height:1.7;
+}
+
+/* Form Card */
+
+.delete-request-form{
+    background:rgba(255,255,255,.15);
+    backdrop-filter:blur(18px);
+    border:1px solid rgba(255,255,255,.18);
+    border-radius:28px;
+    padding:25px;
+    box-shadow:0 10px 30px rgba(0,0,0,.12);
+}
+
+/* Sections */
+
+.form-section{
+    margin-bottom:22px;
+}
+
+.form-label{
+    display:block;
+    color:white;
+    font-weight:600;
+    margin-bottom:8px;
+}
+
+/* Inputs */
+
+.delete-request-form select,
+.delete-request-form textarea,
+.delete-request-form input{
+    width:100%;
+    padding:14px 16px;
+    border:none;
+    outline:none;
+    border-radius:16px;
+    background:rgba(255,255,255,.18);
+    color:rgba(25,35,60,.95);
+    font-size:15px;
+    box-sizing:border-box;
+}
+
+.delete-request-form textarea{
+    min-height:130px;
+    resize:vertical;
+}
+
+.delete-request-form input::placeholder,
+.delete-request-form textarea::placeholder{
+    color:rgba(40,55,85,.55);
+}
+
+.delete-request-form select option{
+    background:#6d5cff;
+    color:rgba(25,35,60,.95);
+}
+
+.delete-request-subtitle{
+    color:rgba(255,255,255,.85);
+    margin-top:6px;
+}
+
+/* Tags */
+
+.required-tag{
+    color:#ffd2d2;
+    font-weight:700;
+}
+
+.optional-tag{
+    opacity:.8;
+    font-size:.85rem;
+}
+
+/* Errors */
+
+.form-error{
+    color:#ffd2d2;
+    margin-top:8px;
+    font-size:.9rem;
+}
+
+/* Buttons */
+
+.form-actions{
+    display:flex;
+    justify-content:flex-end;
+    gap:12px;
+    margin-top:30px;
+    flex-wrap:wrap;
+}
+
+.btn-secondary{
+    text-decoration:none;
+    padding:14px 22px;
+    border-radius:16px;
+    background:rgba(255,255,255,.15);
+    color:rgba(25,35,60,.95);
+    font-weight:600;
+    border:1px solid rgba(255,255,255,.18);
+    transition:.3s;
+}
+
+.btn-secondary:hover{
+    background:rgba(255,255,255,.25);
+}
+
+.btn-danger{
+    border:none;
+    padding:14px 22px;
+    border-radius:16px;
+    background:linear-gradient(
+        135deg,
+        #ff4d6d,
+        #ff6b6b
+    );
+    color:rgba(25,35,60,.95);
+    font-weight:700;
+    cursor:pointer;
+    transition:.3s;
+}
+
+.btn-danger:hover{
+    transform:translateY(-2px);
+    box-shadow:0 10px 20px rgba(255,77,109,.25);
+}
+
+/* Mobile */
+
+@media(max-width:768px){
+
+    .delete-request-header{
+        flex-direction:column;
+        align-items:flex-start;
+    }
+
+    .delete-request-title{
+        font-size:1.7rem;
+    }
+
+    .form-actions{
+        flex-direction:column;
+    }
+
+    .btn-secondary,
+    .btn-danger{
+        width:100%;
+        text-align:center;
+    }
+}
+
+</style>
+
 <div class="delete-request-page">
 
-  <div class="delete-request-header">
-    <h1 class="delete-request-title">Request Deletion of {{ pet.name }}</h1>
-    <a href="{% url 'owner_pet_detail' pet.pk %}" class="btn-secondary">Cancel</a>
-  </div>
+    <div class="delete-request-header">
 
-  <!-- Warning message -->
-  <div class="delete-request-warning">
-    <p>
-      This will send a deletion request to the clinic for review.
-      {{ pet.name }} will remain visible in your account until the request is approved.
-      You can cancel this request at any time while it is still pending.
-    </p>
-  </div>
+<h1 class="delete-request-title">
+    ⚠️ Request Deletion
+</h1>
 
-  <form method="post" class="delete-request-form">
-    {% csrf_token %}
+<p class="delete-request-subtitle">
+    Submit a request to remove <strong>{{ pet.name }}</strong> from your account.
+</p>
 
-    <div class="form-section">
-      <label class="form-label" for="{{ form.reason.id_for_label }}">
-        Reason <span class="required-tag">*</span>
-      </label>
-      {{ form.reason }}
-      {% if form.reason.errors %}
-        <p class="form-error">{{ form.reason.errors.0 }}</p>
-      {% endif %}
+        <a href="{% url 'owner_pet_detail' pet.pk %}" class="btn-secondary">
+            Cancel
+        </a>
+
     </div>
 
-    <div class="form-section">
-      <label class="form-label" for="{{ form.reason_detail.id_for_label }}">
-        Additional Details
-        <span class="optional-tag">(required if Other is selected)</span>
-      </label>
-      {{ form.reason_detail }}
-      {% if form.reason_detail.errors %}
-        <p class="form-error">{{ form.reason_detail.errors.0 }}</p>
-      {% endif %}
-      {% if form.non_field_errors %}
-        <p class="form-error">{{ form.non_field_errors.0 }}</p>
-      {% endif %}
+    <!-- Warning -->
+
+    <div class="delete-request-warning">
+
+        <p>
+            This request will be submitted to the clinic for review.
+            <strong>{{ pet.name }}</strong> will remain visible in your account
+            until the request has been approved.
+            You may cancel the request anytime while it is still pending.
+        </p>
+
     </div>
 
-    <div class="form-actions">
-      <a href="{% url 'owner_pet_detail' pet.pk %}" class="btn-secondary">
-        Cancel
-      </a>
-      <button type="submit" class="btn-danger">
-        Submit Deletion Request
-      </button>
-    </div>
+    <form method="post" class="delete-request-form">
 
-  </form>
+        {% csrf_token %}
+
+        <div class="form-section">
+
+            <label class="form-label" for="{{ form.reason.id_for_label }}">
+                Reason
+                <span class="required-tag">*</span>
+            </label>
+
+            {{ form.reason }}
+
+            {% if form.reason.errors %}
+                <p class="form-error">
+                    {{ form.reason.errors.0 }}
+                </p>
+            {% endif %}
+
+        </div>
+
+        <div class="form-section">
+
+            <label class="form-label" for="{{ form.reason_detail.id_for_label }}">
+                Additional Details
+                <span class="optional-tag">
+                    (required if "Other" is selected)
+                </span>
+            </label>
+
+            {{ form.reason_detail }}
+
+            {% if form.reason_detail.errors %}
+                <p class="form-error">
+                    {{ form.reason_detail.errors.0 }}
+                </p>
+            {% endif %}
+
+            {% if form.non_field_errors %}
+                <p class="form-error">
+                    {{ form.non_field_errors.0 }}
+                </p>
+            {% endif %}
+
+        </div>
+
+        <div class="form-actions">
+
+            <a href="{% url 'owner_pet_detail' pet.pk %}"
+               class="btn-secondary">
+                Cancel
+            </a>
+
+            <button type="submit" class="btn-danger">
+                Submit Deletion Request
+            </button>
+
+        </div>
+
+    </form>
 
 </div>
 
