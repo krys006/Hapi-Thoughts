@@ -188,7 +188,7 @@ if env.bool("USE_S3", default=False):
     AWS_S3_FILE_OVERWRITE = False
     AWS_DEFAULT_ACL = "public-read"
     AWS_QUERYSTRING_AUTH = False
-    AWS_S3_CUSTOM_DOMAIN = env("AWS_S3_CUSTOM_DOMAIN")
+    AWS_S3_CUSTOM_DOMAIN = env("AWS_S3_CUSTOM_DOMAIN", default="")
     AWS_LOCATION = ""
     
     MEDIA_URL = env("MEDIA_URL")
