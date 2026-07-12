@@ -232,7 +232,15 @@ def owner_book_appointment(request):
             # Notify admin of new appointment request
             User = get_user_model()
             admin_user = User.objects.filter(role="admin").first()
+            clinic = ClinicSettings.objects.first()
+
             if admin_user:
+                admin_notification_email = (
+                    clinic.notification_email
+                    if clinic and clinic.notification_email
+                    else admin_user.email
+                )
+
                 notify(
                     recipient=admin_user,
                     notification_type="appointment_requested",
@@ -246,6 +254,7 @@ def owner_book_appointment(request):
                     related_appointment=appointment,
                     related_pet=appointment.pet,
                     email_subject="New Appointment Request — Hapi Vet",
+                    recipient_email=admin_notification_email,
                 )
 
             messages.success(

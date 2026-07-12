@@ -26,6 +26,7 @@ def notify(
     related_billing=None,
     email_subject=None,
     email_body=None,
+    recipient_email=None,
 ):
     """
     Central notification function for Hapi Vet.
@@ -65,29 +66,56 @@ def notify(
     # --- 3. Determine email content ---
     subject = email_subject or title
     body = email_body or message
-    recipient_email = recipient.email
+    recipient_email = recipient_email or recipient.email
 
     if not recipient_email:
         return notification
 
     # --- 4. Attempt to send email ---
     try:
-        send_mail(
+        sent_count = send_mail(
             subject=subject,
             message=body,
-            from_email=settings.EMAIL_HOST_USER,
+            from_email=None,
             recipient_list=[recipient_email],
             fail_silently=False,
         )
-        notification.email_sent = True
-        notification.save(update_fields=["email_sent"])
 
-    except Exception as e:
+        if sent_count == 1:
+            notification.email_sent = True
+            notification.email_failed = False
+            notification.email_error = ""
+            notification.save(
+                update_fields=[
+                    "email_sent",
+                    "email_failed",
+                    "email_error",
+                ]
+            )
+        else:
+            notification.email_sent = False
+            notification.email_failed = True
+            notification.email_error = "Email provider returned no successful sends."
+            notification.save(
+                update_fields=[
+                    "email_sent",
+                    "email_failed",
+                    "email_error",
+                ]
+            )
+
+    except Exception as exc:
+        notification.email_sent = False
         notification.email_failed = True
-        notification.email_error = str(e)
-        notification.save(update_fields=["email_failed", "email_error"])
+        notification.email_error = str(exc)
+        notification.save(
+            update_fields=[
+                "email_sent",
+                "email_failed",
+                "email_error",
+            ]
+        )
 
-    return notification
 
 
 def _should_send_email(recipient, notification_type):
