@@ -10,7 +10,7 @@ from django.contrib.auth import (
 )
 
 from django.contrib.auth import views as auth_views
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.tokens import default_token_generator
@@ -203,8 +203,17 @@ def _send_verification_email(request, user):
     token = default_token_generator.make_token(user)
     uid = urlsafe_base64_encode(force_bytes(user.pk))
 
-    # Build the full verification URL
-    verification_url = request.build_absolute_uri(f"/verify-email/{uid}/{token}/")
+    # Build the verification path from its named URL
+    verification_path = reverse(
+        "owner_verify_email",
+        kwargs={
+            "uidb64": uid,
+            "token": token,
+        },
+    )
+
+    # Add the current domain and protocol
+    verification_url = request.build_absolute_uri(verification_path)
 
     subject = "Verify your Hapi Vet account"
     message = (

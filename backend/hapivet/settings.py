@@ -138,6 +138,8 @@ LOGIN_URL = "/login/"
 ACCOUNT_EMAIL_CONFIRMATION_ANONYMOUS_REDIRECT_URL = "/login/"
 ACCOUNT_EMAIL_CONFIRMATION_AUTHENTICATED_REDIRECT_URL = "/login/"
 ACCOUNT_SIGNUP_REDIRECT_URL = "/owner/onboarding/"
+# Email verification and password reset token lifetime (3 days)
+PASSWORD_RESET_TIMEOUT = 60 * 60 * 24 * 3
 
 
 # ─── Google OAuth ─────────────────────────────────────────────────────────────

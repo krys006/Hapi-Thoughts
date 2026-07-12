@@ -31,23 +31,23 @@ class PetOwnerRegistrationForm(forms.ModelForm):
         if User.objects.filter(email=email).exists():
             raise forms.ValidationError("An account with this email already exists.")
         return email
-
+  
     def clean(self):
         cleaned_data = super().clean()
         password1 = cleaned_data.get("password1")
         password2 = cleaned_data.get("password2")
 
-        if password1 and password2:
-            if password1 != password2:
-                raise forms.ValidationError("Passwords do not match.")
+        if password1 and password2 and password1 != password2:
+            self.add_error("password2", "Passwords do not match.")
 
+        if password1:
             # Run Django's built-in password validators
             from django.contrib.auth.password_validation import validate_password
 
             try:
                 validate_password(password1)
-            except forms.ValidationError as e:
-                self.add_error("password1", e)
+            except forms.ValidationError as error:
+                self.add_error("password1", error)
 
         return cleaned_data
 
