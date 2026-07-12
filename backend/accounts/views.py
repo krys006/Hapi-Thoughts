@@ -8,6 +8,10 @@ from django.contrib.auth import (
     login,
     logout,
 )
+
+from django.contrib.auth import views as auth_views
+from django.urls import reverse_lazy
+
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
@@ -242,6 +246,33 @@ def owner_onboarding(request):
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
     return redirect("owner_onboarding_step1")
+
+
+
+
+
+class HapiVetPasswordResetView(auth_views.PasswordResetView):
+    template_name = "owner/forgot_password.html"
+    email_template_name = "owner/emails/password_reset_email.txt"
+    subject_template_name = "owner/emails/password_reset_subject.txt"
+    success_url = reverse_lazy("password_reset_done")
+
+    def form_valid(self, form):
+        form.save(
+            use_https=self.request.is_secure(),
+            token_generator=self.token_generator,
+            from_email=self.from_email,
+            email_template_name=self.email_template_name,
+            subject_template_name=self.subject_template_name,
+            request=self.request,
+            html_email_template_name=self.html_email_template_name,
+            extra_email_context=self.extra_email_context,
+            domain_override=self.request.get_host(),
+        )
+
+        return redirect(self.get_success_url())
+    
+
 
 
 # ---------------------------------------------------------------------------

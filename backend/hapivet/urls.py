@@ -7,6 +7,8 @@ from django.conf.urls.static import static
 
 from django.views.generic import RedirectView
 
+from accounts import views as account_views
+
 urlpatterns = [
     path("", include("health.urls")),
     # notifications (bell panel, mark read, clear)
@@ -27,17 +29,15 @@ urlpatterns = [
     path("", include("billing.urls")),
     # allauth (Google OAuth, email verification, etc.)
     path("accounts/", include("allauth.urls")),
+
+
     # ─── Password Reset (Django built-in views) ───────────────────────────
     path(
         "forgot-password/",
-        auth_views.PasswordResetView.as_view(
-            template_name="owner/forgot_password.html",
-            email_template_name="owner/emails/password_reset_email.txt",
-            subject_template_name="owner/emails/password_reset_subject.txt",
-            success_url="/forgot-password/sent/",
-        ),
+        account_views.HapiVetPasswordResetView.as_view(),
         name="forgot_password",
     ),
+
     path(
         "forgot-password/sent/",
         auth_views.PasswordResetDoneView.as_view(
@@ -60,7 +60,12 @@ urlpatterns = [
         ),
         name="password_reset_complete",
     ),
+
+
+    
 ]
+
+
 
 # Serve media files in development only
 if settings.DEBUG:
