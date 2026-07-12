@@ -38,13 +38,17 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+
     # Required by django-allauth
     "django.contrib.sites",
+
     # Third party
     "allauth",
     "allauth.account",
     "allauth.socialaccount",
     "allauth.socialaccount.providers.google",
+    "anymail",
+
     # Project apps
     "accounts",
     "pets",
@@ -54,8 +58,10 @@ INSTALLED_APPS = [
     "notifications",
     "health",
     "dashboard",
+
     # Optional utilities
     "django_extensions",
+
     # Cloud storage for media files (supabase)
     "storages",
 ]
@@ -157,19 +163,30 @@ SOCIALACCOUNT_ADAPTER = "accounts.adapters.CustomSocialAccountAdapter"
 
 
 # ─── Email ────────────────────────────────────────────────────────────────────
-if DEBUG:
-    # Development — print emails to terminal instead of sending
-    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
-    DEFAULT_FROM_EMAIL = "hapitutzvet@gmail.com"
+USE_BREVO_EMAIL = env.bool(
+    "USE_BREVO_EMAIL",
+    default=not DEBUG,
+)
+
+DEFAULT_FROM_EMAIL = env(
+    "DEFAULT_FROM_EMAIL",
+    default="Hapi Tutz <hapitutzvet@gmail.com>",
+)
+
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
+
+if USE_BREVO_EMAIL:
+    # Development email testing and production:
+    # send through Brevo's HTTPS API using Anymail.
+    EMAIL_BACKEND = "anymail.backends.brevo.EmailBackend"
+
+    ANYMAIL = {
+        "BREVO_API_KEY": env("BREVO_API_KEY"),
+    }
 else:
-    # Production — send real emails via Gmail SMTP
-    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-    EMAIL_HOST = "smtp.gmail.com"
-    EMAIL_PORT = 587
-    EMAIL_USE_TLS = True
-    EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
-    EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
-    DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+    # Normal local development:
+    # print emails to the terminal without consuming Brevo quota.
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
 # ─── Static & Media Files ─────────────────────────────────────────────────────
 STATIC_URL = "/static/"
