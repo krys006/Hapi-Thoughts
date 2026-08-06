@@ -1,5 +1,11 @@
 {% extends 'base_dashboard.html' %}
 
+{% load static %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'css/admin/service_form.css' %}">
+  <link rel="stylesheet" href="{% static 'css/admin/service_list.css' %}">
+{% endblock %}
+
 {% block title %}Services — Hapi Vet Admin{% endblock %}
 
 {% block content %}
@@ -66,5 +72,9 @@
   {% endif %}
 
 </div>
+
+{% block extra_js %}
+  <script src="{% static 'js/admin/service_list.js' %}"></script>
+{% endblock %}
 
 {% endblock %}

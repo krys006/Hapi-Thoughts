@@ -1,0 +1,80 @@
+/* ============================================================
+   header.css
+   For: backend/templates/base_dashboard.html
+   Styles the brand logo + search box in the shared header.
+   ============================================================ */
+
+/* ---- Brand logo ---- */
+.dashboard-brand-logo {
+  width: 50px;
+  height: 50px;
+  object-fit: contain;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 3px;
+  flex-shrink: 0;
+}
+
+/* ---- Search box ---- */
+.dashboard-header-search {
+  position: relative;
+}
+
+.global-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 16px 10px 40px;
+  font-size: 1rem;
+  color: #1F2937;
+  background-color: rgba(255, 255, 255, 0.95);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239CA3AF' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 14px center;
+  background-size: 16px 16px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  transition: box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.global-search-input::placeholder {
+  color: #9CA3AF;
+}
+
+.global-search-input:focus {
+  outline: none;
+  background-color: #FFFFFF;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.4);
+}
+
+/* Owner search container has no max-width constraint in the source
+   HTML — give it a sensible one so it doesn't stretch unreasonably
+   wide on large screens. */
+#global-search-container {
+  max-width: 420px;
+  width: 100%;
+}
+
+.global-search-results-container {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+}
+
+.global-search-results-container:not(:empty) {
+  background: #FFFFFF;
+  color: #1F2937;
+  border: 1px solid #E5E7EB;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+@media (max-width: 767px) {
+  .dashboard-header-search {
+    display: none;
+  }
+}

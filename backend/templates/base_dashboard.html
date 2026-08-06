@@ -29,6 +29,9 @@
     .sidebar-backdrop-visible { display: block; }
   </style>
 
+  <link rel="stylesheet" href="{% static 'css/shared/header.css' %}">
+  <link rel="stylesheet" href="{% static 'css/shared/header_notifications.css' %}">
+
   {% block extra_css %}{% endblock %}
 </head>
 
@@ -47,6 +50,10 @@
           <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" />
         </svg>
       </button>
+
+      {% if clinic.logo %}
+      <img src="{{ clinic.logo.url }}" alt="{{ clinic.clinic_name }} logo" class="dashboard-brand-logo">
+      {% endif %}
 
       {% if request.user.is_admin %}
       <a href="{% url 'admin_dashboard' %}" class="dashboard-brand-name text-xl font-bold tracking-tight text-white">Hapi Vet</a>
@@ -180,6 +187,8 @@
 
   <!-- Reusable confirmation modal — shared by any destructive action -->
   {% include 'shared/modals.html' %}
+
+  <script src="{% static 'js/shared/header_notifications.js' %}"></script>
 
   {% block extra_js %}{% endblock %}
 </body>

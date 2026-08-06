@@ -1,5 +1,10 @@
 {% extends 'base_dashboard.html' %}
 
+{% load static %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'css/admin/owner_detail.css' %}">
+{% endblock %}
+
 {% block title %}{{ owner.full_name }} — Hapi Vet Admin{% endblock %}
 
 {% block content %}

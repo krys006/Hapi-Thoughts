@@ -1,0 +1,288 @@
+/* ---- Design tokens (kept consistent across the whole project) ---- */
+:root {
+  --gray-50:  #F9FAFB;
+  --gray-100: #F3F4F6;
+  --gray-200: #E5E7EB;
+  --gray-300: #D1D5DB;
+  --gray-400: #9CA3AF;
+  --gray-500: #6B7280;
+  --gray-600: #4B5563;
+  --gray-700: #374151;
+  --gray-800: #1F2937;
+  --gray-900: #111827;
+
+  --blue-100: #DBEAFE;
+  --blue-600: #2563EB;
+  --blue-700: #1D4ED8;
+
+  --red-600: #DC2626;
+
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* ---- Fix for base_dashboard.html forcing outer page scroll ----
+   See appointments_list.css for the full explanation. */
+.dashboard-layout {
+  align-items: flex-start;
+}
+
+.dashboard-main,
+#dashboard-sidebar {
+  min-height: calc(100vh - 64px) !important;
+  height: calc(100vh - 64px);
+  box-sizing: border-box;
+}
+
+.dashboard-main {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+#dashboard-sidebar {
+  overflow-y: auto;
+}
+
+/* ---- Page shell ----
+   .dashboard-main is now the scrolling region (flush to the true
+   screen edge), so this box just holds the centered content. */
+.admin-page {
+  padding: 32px 24px 64px;
+  box-sizing: border-box;
+}
+
+/* ---- Header ---- */
+.admin-form-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.admin-form-title {
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin: 0;
+}
+
+/* Header's own Cancel link hidden — the form already has one in
+   .form-actions at the bottom, no need for two. */
+.admin-form-header a.btn-secondary {
+  display: none;
+}
+
+/* ---- Buttons ---- */
+.btn-primary,
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  padding: 12px 22px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.btn-primary {
+  background: var(--blue-600);
+  color: #FFFFFF;
+}
+
+.btn-primary:hover {
+  background: var(--blue-700);
+}
+
+.btn-secondary {
+  background: #FFFFFF;
+  color: var(--gray-700);
+  border-color: var(--gray-300);
+}
+
+.btn-secondary:hover {
+  background: var(--gray-50);
+  border-color: var(--gray-400);
+}
+
+/* ---- Form card ---- */
+.admin-form {
+  display: block;
+  background: #FFFFFF;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 28px 32px;
+}
+
+.admin-form-section {
+  margin-bottom: 28px;
+}
+
+.admin-form-section:last-of-type {
+  margin-bottom: 0;
+}
+
+.admin-form-section-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin: 0 0 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+/* ---- Fields ---- */
+.form-row-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.form-section {
+  margin-bottom: 16px;
+}
+
+.form-row-two-col .form-section {
+  margin-bottom: 0;
+}
+
+.admin-form-section > .form-section:last-child {
+  margin-bottom: 0;
+}
+
+.form-label {
+  display: block;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--gray-700);
+  margin-bottom: 8px;
+}
+
+.required-tag {
+  color: var(--red-600);
+}
+
+.optional-tag {
+  font-weight: 400;
+  color: var(--gray-400);
+}
+
+.form-error {
+  font-size: 0.9375rem;
+  color: var(--red-600);
+  margin: 8px 0 0;
+}
+
+.form-hint {
+  font-size: 0.9375rem;
+  color: var(--blue-700);
+  margin: 8px 0 0;
+}
+
+.admin-form input[type="text"],
+.admin-form input[type="email"],
+.admin-form input[type="tel"],
+.admin-form input[type="file"],
+.admin-form select,
+.admin-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  font-size: 1.0625rem;
+  color: var(--gray-800);
+  background: #FFFFFF;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.admin-form input[type="file"] {
+  padding: 9px;
+  font-size: 1rem;
+  border-style: dashed;
+}
+
+.admin-form input:focus,
+.admin-form select:focus,
+.admin-form textarea:focus {
+  outline: none;
+  border-color: var(--blue-600);
+  box-shadow: 0 0 0 3px var(--blue-100);
+}
+
+/* ---- Current photo preview ---- */
+.current-photo-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.current-photo-preview {
+  width: 64px;
+  height: 64px;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 1px solid var(--gray-200);
+}
+
+.current-photo-label {
+  font-size: 0.9375rem;
+  color: var(--gray-500);
+  margin: 0;
+}
+
+/* ---- Actions ---- */
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--gray-200);
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 900px) {
+  .dashboard-main,
+  #dashboard-sidebar {
+    height: auto;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 560px) {
+  .admin-page {
+    padding: 20px 16px 48px;
+  }
+
+  .admin-form {
+    padding: 20px;
+  }
+
+  .admin-form-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .form-row-two-col {
+    grid-template-columns: 1fr;
+  }
+
+  .form-actions {
+    flex-direction: column-reverse;
+  }
+
+  .form-actions .btn-primary,
+  .form-actions .btn-secondary {
+    width: 100%;
+    text-align: center;
+  }
+}

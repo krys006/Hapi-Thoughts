@@ -1,0 +1,251 @@
+/* ============================================================
+   vaccination_history.css
+   Styles for: backend/templates/admin/medical/vaccination_history.html
+   This content gets fetched and injected into
+   .vaccination-detail-panel by vaccination_list.js, so it needs to
+   also be loaded on vaccination_list.html. Self-contained for
+   standalone viewing too.
+   ============================================================ */
+
+/* ---- Design tokens ---- */
+:root {
+  --gray-50:  #F9FAFB;
+  --gray-100: #F3F4F6;
+  --gray-200: #E5E7EB;
+  --gray-300: #D1D5DB;
+  --gray-400: #9CA3AF;
+  --gray-500: #6B7280;
+  --gray-600: #4B5563;
+  --gray-700: #374151;
+  --gray-800: #1F2937;
+  --gray-900: #111827;
+
+  --blue-100: #DBEAFE;
+  --blue-600: #2563EB;
+  --blue-700: #1D4ED8;
+
+  --red-100: #FEE2E2;
+  --red-600: #DC2626;
+  --red-700: #B91C1C;
+
+  --purple-100: #EDE9FE;
+  --purple-700: #6D28D9;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* ---- Fix for base_dashboard.html forcing outer page scroll (standalone) ----
+   No !important here — vaccination_list.css's !important always wins
+   when both load together, correctly disabling this for the list page. */
+.dashboard-layout {
+  align-items: flex-start;
+}
+
+.dashboard-main,
+#dashboard-sidebar {
+  min-height: calc(100vh - 64px) !important;
+  height: calc(100vh - 64px);
+  box-sizing: border-box;
+}
+
+.dashboard-main {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+#dashboard-sidebar {
+  overflow-y: auto;
+}
+
+/* ---- Page shell (standalone viewing only) ----
+   Deliberately no max-width/margin — vaccination_list.css also defines
+   .admin-page (full-width, for the list page); avoiding that conflict
+   the same way it was fixed on the Pets/Medical Records pages. */
+.admin-page {
+  padding: 32px 24px 64px;
+  box-sizing: border-box;
+}
+
+.admin-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.admin-page-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin: 0;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* ---- Buttons ---- */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  padding: 10px 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: var(--blue-600);
+  color: #FFFFFF;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-primary:hover {
+  background: var(--blue-700);
+}
+
+.btn-link {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--blue-600);
+  text-decoration: none;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}
+
+.btn-secondary-sm {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--gray-700);
+  background: #FFFFFF;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.btn-secondary-sm:hover {
+  background: var(--gray-50);
+  border-color: var(--gray-400);
+}
+
+/* ---- Last reminder sent note ---- */
+.reminder-last-sent {
+  font-size: 0.875rem;
+  color: var(--gray-500);
+  margin: 0 0 16px;
+}
+
+/* ---- Flash messages ---- */
+.flash-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.flash-message {
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+
+.flash-success { background: #DCFCE7; color: #15803D; border-color: #15803D; }
+.flash-error   { background: var(--red-100); color: var(--red-700); border-color: var(--red-600); }
+.flash-warning { background: #FEF9C3; color: #A16207; border-color: #A16207; }
+.flash-info,
+.flash-debug   { background: var(--blue-100); color: var(--blue-700); border-color: var(--blue-600); }
+
+/* ---- Table ----
+   Genuinely wide (11 columns) — this doesn't try to force it to fit,
+   it relies on the panel's own overflow:auto (horizontal scroll) as
+   the fallback, same as the standalone page relies on the browser's
+   natural horizontal scroll if content is too wide. */
+.data-table {
+  width: 100%;
+  min-width: 900px;
+  border-collapse: collapse;
+}
+
+.data-table thead th {
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--gray-500);
+  background: var(--gray-50);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--gray-200);
+  white-space: nowrap;
+}
+
+.data-table tbody td {
+  font-size: 0.9375rem;
+  color: var(--gray-800);
+  padding: 12px;
+  border-bottom: 1px solid var(--gray-100);
+  white-space: nowrap;
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table tbody tr.row--corrected {
+  background: var(--purple-100);
+}
+
+.text-muted {
+  color: var(--gray-400);
+}
+
+.corrected-badge {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--purple-700);
+  background: #FFFFFF;
+  border: 1px solid var(--purple-700);
+  border-radius: 999px;
+  padding: 2px 9px;
+  cursor: help;
+}
+
+/* ---- Empty state ---- */
+.empty-state-text {
+  font-size: 0.9375rem;
+  color: var(--gray-400);
+  text-align: center;
+  padding: 32px 0;
+  margin: 0;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 900px) {
+  .dashboard-main,
+  #dashboard-sidebar {
+    height: auto;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 560px) {
+  .admin-page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

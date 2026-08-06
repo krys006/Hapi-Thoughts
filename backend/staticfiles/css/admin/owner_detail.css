@@ -1,0 +1,459 @@
+/* ---- Design tokens (kept consistent across the whole project) ---- */
+:root {
+  --gray-50:  #F9FAFB;
+  --gray-100: #F3F4F6;
+  --gray-200: #E5E7EB;
+  --gray-300: #D1D5DB;
+  --gray-400: #9CA3AF;
+  --gray-500: #6B7280;
+  --gray-600: #4B5563;
+  --gray-700: #374151;
+  --gray-800: #1F2937;
+  --gray-900: #111827;
+
+  --blue-100: #DBEAFE;
+  --blue-600: #2563EB;
+  --blue-700: #1D4ED8;
+
+  --red-100: #FEE2E2;
+  --red-600: #DC2626;
+  --red-700: #B91C1C;
+
+  --green-100: #DCFCE7;
+  --green-600: #16A34A;
+  --green-700: #15803D;
+
+  --yellow-100: #FEF9C3;
+  --yellow-700: #A16207;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* ---- Fix for base_dashboard.html forcing outer page scroll ----
+   .dashboard-main and the sidebar both carry Tailwind's min-h-screen
+   and are flex siblings that stretch to match each other by default —
+   so main ends up at least 100vh tall on its own, THEN the 64px header
+   sits above that, always pushing the page past one viewport. See
+   appointments_list.css for the full explanation. */
+.dashboard-layout {
+  align-items: flex-start;
+}
+
+.dashboard-main,
+#dashboard-sidebar {
+  min-height: calc(100vh - 64px) !important;
+  height: calc(100vh - 64px);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+#dashboard-sidebar {
+  overflow-y: auto;
+}
+
+/* ---- Page shell (for standalone viewing, e.g. clicking "View" directly
+   or opening the URL on its own) — fills exactly the corrected main
+   height and scrolls internally, so the outer page never scrolls. ---- */
+.admin-page {
+  padding: 32px 24px 64px;
+  box-sizing: border-box;
+}
+
+/* ---- Buttons (self-contained so this file works standalone) ---- */
+.btn-primary,
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  padding: 11px 20px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.btn-primary {
+  background: var(--blue-600);
+  color: #FFFFFF;
+}
+
+.btn-primary:hover {
+  background: var(--blue-700);
+}
+
+.btn-secondary {
+  background: #FFFFFF;
+  color: var(--gray-700);
+  border-color: var(--gray-300);
+}
+
+.btn-secondary:hover {
+  background: var(--gray-50);
+  border-color: var(--gray-400);
+}
+
+/* ---- Back link ---- */
+.back-link {
+  display: inline-block;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--blue-600);
+  text-decoration: none;
+  margin-bottom: 16px;
+}
+
+.back-link:hover {
+  text-decoration: underline;
+}
+
+/* ---- Archived warning banner ---- */
+.archived-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--yellow-100);
+  border: 1px solid var(--yellow-700);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  margin-bottom: 20px;
+}
+
+.archived-banner-text {
+  font-size: 1.0625rem;
+  font-weight: 500;
+  color: var(--yellow-700);
+  margin: 0;
+}
+
+/* ---- Owner header: avatar, name, actions ---- */
+.admin-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--gray-200);
+  flex-wrap: wrap;
+}
+
+.admin-avatar-large-wrapper {
+  flex-shrink: 0;
+}
+
+.admin-avatar-large {
+  width: 88px;
+  height: 88px;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.admin-avatar-initials-large {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 88px;
+  height: 88px;
+  border-radius: 999px;
+  background: var(--blue-100);
+  color: var(--blue-700);
+  font-size: 1.75rem;
+  font-weight: 700;
+}
+
+.admin-detail-header-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.admin-detail-name {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin: 0 0 2px;
+}
+
+.admin-detail-email {
+  font-size: 1.0625rem;
+  color: var(--gray-500);
+  margin: 0 0 2px;
+}
+
+.admin-detail-since {
+  font-size: 0.9375rem;
+  color: var(--gray-400);
+  margin: 0;
+}
+
+.admin-detail-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.btn-danger-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  padding: 11px 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--red-100);
+  background: #FFFFFF;
+  color: var(--red-600);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.btn-danger-outline:hover {
+  background: var(--red-100);
+  border-color: var(--red-600);
+}
+
+/* ---- Two-column detail content ----
+   Real side-by-side grid for standalone full-page viewing. When this
+   content is instead injected into the narrow side panel, owners_list.css
+   overrides this to stack into a single column. */
+.admin-detail-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+}
+
+.admin-detail-left,
+.admin-detail-right {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.admin-detail-section {
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+}
+
+.admin-detail-section-title {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--gray-500);
+  margin: 0 0 12px;
+}
+
+.admin-detail-field {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--gray-100);
+}
+
+.admin-detail-field:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.admin-detail-label {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--gray-500);
+  flex-shrink: 0;
+}
+
+.admin-detail-value {
+  font-size: 1.0625rem;
+  font-weight: 500;
+  color: var(--gray-900);
+  text-align: right;
+  margin: 0;
+}
+
+.admin-detail-empty {
+  font-size: 1.0625rem;
+  color: var(--gray-400);
+  margin: 0;
+}
+
+/* ---- Social / contact links ---- */
+.admin-links-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-link-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 1.0625rem;
+}
+
+.admin-link-platform {
+  font-weight: 600;
+  color: var(--gray-700);
+}
+
+.admin-link-handle {
+  color: var(--gray-500);
+}
+
+/* ---- Pending deletion requests ---- */
+.admin-deletion-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-deletion-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--red-100);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+  font-size: 1rem;
+}
+
+.admin-deletion-pet {
+  font-weight: 600;
+  color: var(--red-700);
+}
+
+.admin-deletion-reason {
+  color: var(--red-600);
+  flex: 1;
+}
+
+/* ---- Pets section ---- */
+.admin-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.admin-section-header .admin-detail-section-title {
+  margin: 0;
+}
+
+.admin-section-header-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.admin-pets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.admin-pet-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-md);
+  padding: 14px 10px;
+}
+
+.pet-avatar-wrapper {
+  margin-bottom: 4px;
+}
+
+.pet-avatar-photo {
+  width: 60px;
+  height: 60px;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.pet-avatar-initials {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  border-radius: 999px;
+  background: var(--blue-100);
+  color: var(--blue-700);
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.admin-pet-card-name {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--gray-900);
+  margin: 0;
+}
+
+.admin-pet-card-species {
+  font-size: 0.9375rem;
+  color: var(--gray-500);
+  margin: 0 0 4px;
+}
+
+/* ---- Archived pets list ---- */
+.admin-archived-pets-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.admin-archived-pet-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.0625rem;
+  padding: 6px 0;
+}
+
+.admin-archived-pet-item > span:first-child {
+  font-weight: 600;
+  color: var(--gray-700);
+}
+
+/* ---- Responsive ----
+   Below this width, drop the fixed-viewport treatment and let the page
+   scroll normally, and stack the two-column content into one column. */
+@media (max-width: 900px) {
+  .dashboard-main,
+  #dashboard-sidebar {
+    height: auto;
+    overflow: visible;
+  }
+
+  .admin-page {
+    height: auto;
+    overflow: visible;
+  }
+
+  .admin-detail-content {
+    display: flex;
+    flex-direction: column;
+  }
+}

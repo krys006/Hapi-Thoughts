@@ -1,5 +1,10 @@
 {% extends 'base_dashboard.html' %}
 
+{% load static %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'css/shared/clinic_info.css' %}">
+{% endblock %}
+
 {% block title %}Clinic Info — Hapi Vet{% endblock %}
 
 {% block content %}
@@ -81,5 +86,9 @@
   <!-- end clinic-info-layout -->
 
 </div>
+
+{% block extra_js %}
+  <script src="{% static 'js/shared/clinic_info.js' %}"></script>
+{% endblock %}
 
 {% endblock %}

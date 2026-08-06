@@ -1,5 +1,11 @@
 {% extends 'base_dashboard.html' %}
 
+{% load static %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'css/admin/pet_detail.css' %}">
+  <link rel="stylesheet" href="{% static 'css/admin/pets_list.css' %}">
+{% endblock %}
+
 {% block title %}Pets — Hapi Vet Admin{% endblock %}
 
 {% block content %}
@@ -117,5 +123,9 @@
   {% endif %}
 
 </div>
+
+{% block extra_js %}
+  <script src="{% static 'js/admin/pets_list.js' %}"></script>
+{% endblock %}
 
 {% endblock %}

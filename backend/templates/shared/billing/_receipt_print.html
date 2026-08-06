@@ -7,6 +7,10 @@
   }
 
   @media print {
+    html, body {
+      height: auto !important;
+      overflow: visible !important;
+    }
     body * {
       visibility: hidden;
     }
@@ -16,14 +20,164 @@
     }
     .receipt-print-wrapper {
       display: block;
-      position: absolute;
+      position: fixed;
       top: 0;
       left: 0;
       width: 100%;
     }
+    /* The rest of the page (dashboard header, sidebar, tables, etc.)
+       is only visibility:hidden, which still reserves its normal
+       layout space — since that content is much taller than one
+       receipt, the browser paginates for that full invisible height,
+       producing a near-blank second page. This collapses everything
+       except the print wrapper down to zero height, so pagination is
+       based only on the receipt's actual content height instead. */
+    body > *:not(.receipt-print-wrapper) {
+      max-height: 0;
+      overflow: hidden;
+    }
+    .receipt-print-wrapper {
+      max-height: none;
+    }
     .no-print {
       display: none !important;
     }
+  }
+
+  /* ---- Receipt content styling ---- */
+  .receipt-print-wrapper {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 32px 24px;
+    font-family: 'Courier New', Courier, monospace;
+    color: #111827;
+  }
+
+  /* Clinic header */
+  .receipt-print-header {
+    text-align: center;
+    padding-bottom: 16px;
+    margin-bottom: 16px;
+    border-bottom: 2px dashed #111827;
+  }
+
+  .receipt-print-logo {
+    display: block;
+    width: 56px;
+    height: 56px;
+    object-fit: contain;
+    margin: 0 auto 10px;
+  }
+
+  .receipt-print-clinic-name {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin: 0 0 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .receipt-print-clinic-address,
+  .receipt-print-clinic-line {
+    font-size: 0.8rem;
+    margin: 2px 0;
+    color: #374151;
+  }
+
+  /* Sections (Receipt info, Billed To) */
+  .receipt-print-section {
+    padding-bottom: 14px;
+    margin-bottom: 14px;
+    border-bottom: 1px dashed #9CA3AF;
+  }
+
+  .receipt-print-section-title {
+    font-size: 0.875rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    margin: 0 0 10px;
+  }
+
+  .receipt-print-field {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 0.8125rem;
+    margin-bottom: 5px;
+  }
+
+  .receipt-print-field span:first-child {
+    color: #4B5563;
+  }
+
+  .receipt-print-field span:last-child {
+    font-weight: 600;
+    text-align: right;
+  }
+
+  /* Services & items table */
+  .receipt-print-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+  }
+
+  .receipt-print-table thead th {
+    text-align: left;
+    font-weight: 700;
+    padding: 4px 6px;
+    border-bottom: 1px solid #111827;
+  }
+
+  .receipt-print-table thead th:not(:first-child) {
+    text-align: right;
+  }
+
+  .receipt-print-table tbody td {
+    padding: 5px 6px;
+    border-bottom: 1px dotted #D1D5DB;
+  }
+
+  .receipt-print-table tbody td:not(:first-child) {
+    text-align: right;
+  }
+
+  .receipt-print-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  /* Totals */
+  .receipt-print-totals {
+    padding-top: 10px;
+    border-top: 2px solid #111827;
+  }
+
+  .receipt-print-total-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.875rem;
+    padding: 4px 0;
+  }
+
+  .receipt-print-total-row--grand {
+    font-size: 1.0625rem;
+    font-weight: 700;
+    border-top: 1px solid #111827;
+    margin-top: 6px;
+    padding-top: 10px;
+  }
+
+  /* Footer */
+  .receipt-print-footer {
+    text-align: center;
+    margin-top: 28px;
+    font-size: 0.8125rem;
+    font-style: italic;
+    color: #4B5563;
+  }
+
+  .receipt-print-footer p {
+    margin: 2px 0;
   }
 </style>
 
