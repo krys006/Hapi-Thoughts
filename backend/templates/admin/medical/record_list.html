@@ -1,5 +1,11 @@
 {% extends 'base_dashboard.html' %}
 
+{% load static %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'css/admin/record_detail.css' %}">
+  <link rel="stylesheet" href="{% static 'css/admin/record_list.css' %}">
+{% endblock %}
+
 {% block title %}Medical Records — Hapi Vet Admin{% endblock %}
 
 {% block content %}
@@ -91,5 +97,9 @@
   {% endif %}
 
 </div>
+
+{% block extra_js %}
+  <script src="{% static 'js/admin/record_list.js' %}"></script>
+{% endblock %}
 
 {% endblock %}

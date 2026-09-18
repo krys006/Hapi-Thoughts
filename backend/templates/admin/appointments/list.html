@@ -1,5 +1,11 @@
 {% extends 'base_dashboard.html' %}
 
+{% load static %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'css/admin/appointment_detail.css' %}">
+  <link rel="stylesheet" href="{% static 'css/admin/appointments_list.css' %}">
+{% endblock %}
+
 {% block title %}Appointments — Hapi Vet Admin{% endblock %}
 
 {% block content %}
@@ -35,5 +41,9 @@
   {% include 'admin/appointments/_appointment_list_partial.html' %}
 
 </div>
+
+{% block extra_js %}
+  <script src="{% static 'js/admin/appointments_list.js' %}"></script>
+{% endblock %}
 
 {% endblock %}

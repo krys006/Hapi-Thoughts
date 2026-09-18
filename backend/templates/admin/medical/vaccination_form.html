@@ -1,5 +1,10 @@
 {% extends 'base_dashboard.html' %}
 
+{% load static %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'css/admin/vaccination_form.css' %}">
+{% endblock %}
+
 {% block title %}Add Vaccination — {{ pet.name }} — Hapi Vet Admin{% endblock %}
 
 {% block content %}

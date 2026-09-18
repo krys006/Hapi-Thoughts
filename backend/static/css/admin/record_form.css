@@ -1,0 +1,276 @@
+/* ============================================================
+   record_form.css
+   Styles for: backend/templates/admin/medical/record_form.html
+   Self-contained standalone page, in case it's ever reached
+   directly instead of through the modal on pets_list.html.
+   ============================================================ */
+
+/* ---- Design tokens ---- */
+:root {
+  --gray-50:  #F9FAFB;
+  --gray-100: #F3F4F6;
+  --gray-200: #E5E7EB;
+  --gray-300: #D1D5DB;
+  --gray-400: #9CA3AF;
+  --gray-500: #6B7280;
+  --gray-600: #4B5563;
+  --gray-700: #374151;
+  --gray-800: #1F2937;
+  --gray-900: #111827;
+
+  --blue-100: #DBEAFE;
+  --blue-600: #2563EB;
+  --blue-700: #1D4ED8;
+
+  --red-100: #FEE2E2;
+  --red-600: #DC2626;
+  --red-700: #B91C1C;
+
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* ---- Fix for base_dashboard.html forcing outer page scroll ----
+   Scroll sits at the true screen edge (.dashboard-main), matching the
+   other standalone form pages (owner_form.css, pet_form.css, etc). */
+.dashboard-layout {
+  align-items: flex-start;
+}
+
+.dashboard-main,
+#dashboard-sidebar {
+  min-height: calc(100vh - 64px) !important;
+  height: calc(100vh - 64px);
+  box-sizing: border-box;
+}
+
+.dashboard-main {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+#dashboard-sidebar {
+  overflow-y: auto;
+}
+
+/* ---- Page shell ---- */
+.admin-page {
+  padding: 32px 24px 64px;
+  box-sizing: border-box;
+}
+
+.admin-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.admin-page-title {
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin: 0;
+}
+
+.btn-link {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--blue-600);
+  text-decoration: none;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}
+
+/* ---- Flash messages ---- */
+.flash-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.flash-message {
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+
+.flash-success { background: #DCFCE7; color: #15803D; border-color: #15803D; }
+.flash-error   { background: var(--red-100); color: var(--red-700); border-color: var(--red-600); }
+.flash-warning { background: #FEF9C3; color: #A16207; border-color: #A16207; }
+.flash-info,
+.flash-debug   { background: var(--blue-100); color: var(--blue-700); border-color: var(--blue-600); }
+
+/* ---- Pet/appointment context line ---- */
+.record-context {
+  background: var(--gray-50);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  margin-bottom: 20px;
+}
+
+.record-context-pet,
+.record-context-appointment {
+  font-size: 1.0625rem;
+  color: var(--gray-700);
+  margin: 0;
+}
+
+.record-context-appointment {
+  margin-top: 6px;
+}
+
+/* ---- Form card ---- */
+.medical-form {
+  display: block;
+  background: #FFFFFF;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 28px 32px;
+}
+
+.medical-form .form-group {
+  margin-bottom: 18px;
+}
+
+.medical-form .form-group:last-of-type {
+  margin-bottom: 0;
+}
+
+.form-label {
+  display: block;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--gray-700);
+  margin-bottom: 8px;
+}
+
+.form-help-inline {
+  font-weight: 400;
+  font-size: 0.9375rem;
+  color: var(--gray-400);
+  margin-left: 8px;
+}
+
+.form-error {
+  font-size: 0.9375rem;
+  color: var(--red-600);
+  margin: 8px 0 0;
+}
+
+.form-error-block {
+  background: var(--red-100);
+  border: 1px solid var(--red-600);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  margin-top: 16px;
+}
+
+.form-error-block .form-error {
+  margin: 0;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.0625rem;
+  color: var(--gray-700);
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--blue-600);
+  cursor: pointer;
+}
+
+.medical-form input[type="text"],
+.medical-form input[type="date"],
+.medical-form select,
+.medical-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  font-size: 1.0625rem;
+  color: var(--gray-800);
+  background: #FFFFFF;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.medical-form textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+.medical-form input:focus,
+.medical-form select:focus,
+.medical-form textarea:focus {
+  outline: none;
+  border-color: var(--blue-600);
+  box-shadow: 0 0 0 3px var(--blue-100);
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--gray-200);
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  padding: 12px 22px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: var(--blue-600);
+  color: #FFFFFF;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.btn-primary:hover {
+  background: var(--blue-700);
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 900px) {
+  .dashboard-main,
+  #dashboard-sidebar {
+    height: auto;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 560px) {
+  .admin-page {
+    padding: 20px 16px 48px;
+  }
+
+  .medical-form {
+    padding: 20px;
+  }
+
+  .admin-page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

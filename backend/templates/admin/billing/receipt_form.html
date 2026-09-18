@@ -1,5 +1,10 @@
 {% extends 'base_dashboard.html' %}
 
+{% load static %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'css/admin/receipt_form.css' %}">
+{% endblock %}
+
 {% block title %}
   {% if is_edit %}Edit Receipt — {{ receipt.receipt_number }}{% else %}New Receipt{% endif %}
   — Hapi Vet Admin
