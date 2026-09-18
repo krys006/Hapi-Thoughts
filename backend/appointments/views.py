@@ -21,6 +21,8 @@ from .utils import get_available_slots, get_admin_calendar_context
 from notifications.utils import notify
 from django.contrib.auth import get_user_model
 
+import datetime
+
 
 # ── Admin — Clinic Settings ───────────────────────────────────────────────────
 @login_required
