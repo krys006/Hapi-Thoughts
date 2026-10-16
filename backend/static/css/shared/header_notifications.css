@@ -1,0 +1,104 @@
+/* ============================================================
+   header_notifications.css
+   For: backend/templates/base_dashboard.html
+   Styles the bell button and the outer panel container/positioning
+   only — the actual dropdown CONTENT comes from a separate fetched
+   template (notifications_panel.html) not covered here.
+   ============================================================ */
+
+.bell-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  color: #FFFFFF;
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.bell-button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.bell-button--active {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.bell-icon {
+  width: 22px;
+  height: 22px;
+}
+
+.bell-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #FFFFFF;
+  background: #DC2626;
+  border: 2px solid #0F172A;
+  border-radius: 999px;
+  box-sizing: border-box;
+}
+
+/* ---- Panel container ----
+   position: fixed (not absolute) — sidesteps clipping from the sticky
+   header, a known browser quirk where absolutely-positioned children
+   of a position:sticky ancestor can get clipped to that ancestor's own
+   box. Fixed positioning anchors to the viewport instead, bypassing
+   that entirely. Values below match the header's own dimensions
+   (h-16 = 64px tall, px-4/px-6 side padding). */
+.notification-panel-container {
+  position: fixed;
+  top: 68px;
+  right: 16px;
+  z-index: 50;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+}
+
+@media (min-width: 640px) {
+  .notification-panel-container {
+    right: 24px;
+  }
+}
+
+.notification-panel-container:not(:empty) {
+  color: #1F2937;
+  background: #FFFFFF;
+  border: 1px solid #E5E7EB;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+  animation: notification-panel-in 0.15s ease;
+}
+
+@keyframes notification-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 480px) {
+  .notification-panel-container {
+    right: 12px;
+    width: calc(100vw - 24px);
+  }
+}

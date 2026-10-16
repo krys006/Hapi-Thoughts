@@ -1,5 +1,11 @@
 {% extends 'base_dashboard.html' %}
 
+{% load static %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'css/admin/receipt_detail.css' %}">
+  <link rel="stylesheet" href="{% static 'css/admin/receipt_list.css' %}">
+{% endblock %}
+
 {% block title %}Billing — Hapi Vet Admin{% endblock %}
 
 {% block content %}
@@ -67,5 +73,12 @@
   {% endif %}
 
 </div>
+
+{% block extra_js %}
+<script>
+  const SERVICE_DETAILS_URL = "{% url 'admin_get_service_details' %}";
+</script>
+<script src="{% static 'js/admin/receipt_list.js' %}"></script>
+{% endblock %}
 
 {% endblock %}

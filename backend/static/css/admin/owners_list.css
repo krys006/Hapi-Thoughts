@@ -1,0 +1,788 @@
+/* ---- Design tokens (kept consistent across the whole project) ---- */
+:root {
+  --gray-50:  #F9FAFB;
+  --gray-100: #F3F4F6;
+  --gray-200: #E5E7EB;
+  --gray-300: #D1D5DB;
+  --gray-400: #9CA3AF;
+  --gray-500: #6B7280;
+  --gray-600: #4B5563;
+  --gray-700: #374151;
+  --gray-800: #1F2937;
+  --gray-900: #111827;
+
+  --blue-100: #DBEAFE;
+  --blue-600: #2563EB;
+  --blue-700: #1D4ED8;
+
+  --red-100: #FEE2E2;
+  --red-600: #DC2626;
+  --red-700: #B91C1C;
+
+  --green-100: #DCFCE7;
+  --green-600: #16A34A;
+  --green-700: #15803D;
+
+  --yellow-100: #FEF9C3;
+  --yellow-500: #EAB308;
+  --yellow-700: #A16207;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* ---- Fix for base_dashboard.html forcing outer page scroll ----
+   See appointments_list.css for the full explanation: .dashboard-main
+   and the sidebar both carry Tailwind's min-h-screen and stretch to
+   match each other by default, pushing the page past one viewport. */
+.dashboard-layout {
+  align-items: flex-start;
+}
+
+.dashboard-main,
+#dashboard-sidebar {
+  min-height: calc(100vh - 64px) !important;
+  height: calc(100vh - 64px);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+#dashboard-sidebar {
+  overflow-y: auto;
+}
+
+/* ---- Page shell ---- */
+.admin-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 24px 32px;
+  box-sizing: border-box;
+}
+
+.admin-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-shrink: 0;
+}
+
+.admin-page-title {
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin: 0;
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  padding: 12px 22px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: var(--blue-600);
+  color: #FFFFFF;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-primary:hover {
+  background: var(--blue-700);
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--gray-700);
+  background: #FFFFFF;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  padding: 11px 18px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.btn-secondary:hover {
+  background: var(--gray-50);
+  border-color: var(--gray-400);
+}
+
+/* ---- Search / filter bar ---- */
+.admin-filter-bar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+  flex-shrink: 0;
+}
+
+.admin-search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 14px;
+  font-size: 1rem;
+  color: var(--gray-800);
+  background: #FFFFFF;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.admin-search-input:focus {
+  outline: none;
+  border-color: var(--blue-600);
+  box-shadow: 0 0 0 3px var(--blue-100);
+}
+
+.admin-filter-select {
+  padding: 11px 14px;
+  font-size: 1rem;
+  color: var(--gray-800);
+  background: #FFFFFF;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.admin-filter-select:focus {
+  outline: none;
+  border-color: var(--blue-600);
+  box-shadow: 0 0 0 3px var(--blue-100);
+}
+
+/* ---- Results count ---- */
+.admin-results-count {
+  font-size: 0.9375rem;
+  color: var(--gray-500);
+  margin: 0 0 16px;
+  flex-shrink: 0;
+}
+
+/* ---- Two-column layout: list + detail panel (built by JS) ---- */
+.owners-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 28px;
+  flex: 1;
+  min-height: 0;
+}
+
+.owners-list-column {
+  height: 100%;
+}
+
+.admin-table-wrapper {
+  background: #FFFFFF;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+
+/* ---- Table ---- */
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+/* Registered column removed per request — 5th column in Name, Email,
+   Contact, Pets, Registered, Status, Actions. Hidden via position since
+   both th and td share generic classes with no column-specific hook. */
+.admin-table thead th:nth-child(5),
+.admin-table-cell:nth-child(5) {
+  display: none;
+}
+
+/* "Actions" header label hidden — column itself (the View links) stays */
+.admin-table thead th:last-child {
+  color: transparent;
+}
+
+.admin-table thead th {
+  text-align: left;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--gray-500);
+  background: var(--gray-50);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--gray-200);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.admin-table-cell {
+  font-size: 1rem;
+  color: var(--gray-800);
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--gray-100);
+}
+
+.admin-table-row {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.admin-table-row:hover {
+  background: var(--gray-50);
+}
+
+.admin-table-row--selected {
+  background: var(--blue-100);
+}
+
+.admin-table-row--selected:hover {
+  background: var(--blue-100);
+}
+
+.admin-table-row:last-child .admin-table-cell {
+  border-bottom: none;
+}
+
+/* Name cell with avatar */
+.admin-owner-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.admin-avatar-small {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.admin-avatar-initials-small {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: var(--blue-100);
+  color: var(--blue-700);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* ---- Status badges ---- */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 999px;
+  text-transform: capitalize;
+}
+
+.status-active   { color: var(--green-700); background: var(--green-100); }
+.status-archived { color: var(--gray-600);  background: var(--gray-100); }
+
+/* ---- Table link ---- */
+.admin-table-link {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--blue-600);
+  text-decoration: none;
+}
+
+.admin-table-link:hover {
+  text-decoration: underline;
+}
+
+/* ---- Empty state ---- */
+.admin-empty {
+  background: #FFFFFF;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.admin-empty-message {
+  font-size: 1.0625rem;
+  color: var(--gray-400);
+  margin: 0;
+}
+
+/* ---- Detail panel (shell — content styling is in owner_detail.css) ---- */
+.owner-detail-panel {
+  background: #FFFFFF;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 28px;
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.owner-detail-title {
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin: 0 0 12px;
+}
+
+.owner-detail-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  text-align: center;
+}
+
+.owner-detail-empty-text {
+  font-size: 1.125rem;
+  color: var(--gray-400);
+  margin: 0;
+  padding: 0 8px;
+}
+
+.owner-detail-loading {
+  font-size: 1.0625rem;
+  color: var(--gray-400);
+  text-align: center;
+  padding: 48px 8px;
+}
+
+/* ---- Overrides for owner_detail.html content injected into the panel ----
+   owner_detail.css defines .admin-detail-content as a two-column grid
+   meant for a full page; forced to a single stacked column here since
+   the panel itself is already the narrow column. */
+.owner-detail-panel .admin-detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* "← Back to Pet Owners" is redundant inside the panel — you're already
+   on the owners list. Only hide it here; the standalone full page
+   (owner_detail.css) keeps it visible for direct/unlinked visits. */
+.owner-detail-panel .back-link {
+  display: none;
+}
+
+/* ---- Walk-in client modal ---- */
+body.modal-open {
+  overflow: hidden;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 100;
+}
+
+.modal-box {
+  background: #FFFFFF;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  width: 100%;
+  max-width: 600px;
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--gray-200);
+  flex-shrink: 0;
+}
+
+.modal-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin: 0;
+}
+
+.modal-subtitle {
+  font-size: 0.875rem;
+  color: var(--gray-500);
+  margin: 4px 0 0;
+}
+
+.modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--gray-400);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.modal-close:hover {
+  background: var(--gray-100);
+  color: var(--gray-700);
+}
+
+.modal-body {
+  padding: 24px;
+  overflow-y: auto;
+}
+
+/* Fields inside the injected .walkin-form (real template: walkin_create.html) */
+.form-section {
+  margin-bottom: 24px;
+}
+
+.form-section:last-of-type {
+  margin-bottom: 0;
+}
+
+.form-section-title {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin: 0 0 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.section-optional-label {
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--gray-400);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.form-row:last-child {
+  margin-bottom: 0;
+}
+
+.form-row .form-group {
+  flex: 1;
+  min-width: 140px;
+}
+
+.walkin-form > .form-group {
+  margin-bottom: 14px;
+}
+
+.walkin-form > .form-group:last-of-type {
+  margin-bottom: 0;
+}
+
+.form-label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--gray-700);
+  margin-bottom: 6px;
+}
+
+.required-star {
+  color: var(--red-600);
+}
+
+.field-error {
+  font-size: 0.8125rem;
+  color: var(--red-600);
+  margin: 6px 0 0;
+}
+
+.field-hint {
+  font-size: 0.8125rem;
+  color: var(--blue-700);
+  margin: 6px 0 0;
+}
+
+.walkin-form input[type="text"],
+.walkin-form input[type="email"],
+.walkin-form input[type="tel"],
+.walkin-form input[type="number"],
+.walkin-form input[type="date"],
+.walkin-form select,
+.walkin-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  font-size: 1rem;
+  color: var(--gray-800);
+  background: #FFFFFF;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.walkin-form input:focus,
+.walkin-form select:focus,
+.walkin-form textarea:focus {
+  outline: none;
+  border-color: var(--blue-600);
+  box-shadow: 0 0 0 3px var(--blue-100);
+}
+
+.walkin-form .form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.btn-cancel {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--gray-700);
+  background: #FFFFFF;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  padding: 11px 18px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.btn-cancel:hover {
+  background: var(--gray-50);
+  border-color: var(--gray-400);
+}
+
+.walkin-form .form-actions .btn-primary {
+  flex: 1;
+  text-align: center;
+}
+
+/* ---- .admin-form fields (owner_form.html and pet_form.html both use
+   this class — shared styling, injected into the modal on click) ---- */
+.admin-form-section {
+  margin-bottom: 24px;
+}
+
+.admin-form-section:last-of-type {
+  margin-bottom: 0;
+}
+
+.admin-form-section-title {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin: 0 0 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.form-row-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.admin-form .form-section {
+  margin-bottom: 14px;
+}
+
+.form-row-two-col .form-section {
+  margin-bottom: 0;
+}
+
+.admin-form-section > .form-section:last-child {
+  margin-bottom: 0;
+}
+
+.required-tag {
+  color: var(--red-600);
+}
+
+.optional-tag {
+  font-weight: 400;
+  color: var(--gray-400);
+}
+
+.admin-form .form-error {
+  font-size: 0.8125rem;
+  color: var(--red-600);
+  margin: 6px 0 0;
+}
+
+.admin-form input[type="text"],
+.admin-form input[type="email"],
+.admin-form input[type="tel"],
+.admin-form input[type="number"],
+.admin-form input[type="date"],
+.admin-form input[type="file"],
+.admin-form select,
+.admin-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  font-size: 1rem;
+  color: var(--gray-800);
+  background: #FFFFFF;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.admin-form input[type="file"] {
+  padding: 6px;
+  font-size: 0.875rem;
+  border-style: dashed;
+}
+
+.admin-form input:focus,
+.admin-form select:focus,
+.admin-form textarea:focus {
+  outline: none;
+  border-color: var(--blue-600);
+  box-shadow: 0 0 0 3px var(--blue-100);
+}
+
+.admin-form .form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.admin-form .form-actions .btn-primary,
+.admin-form .form-actions .btn-secondary {
+  flex: 1;
+  text-align: center;
+}
+
+/* Current photo preview (edit-mode only, sits above the form) */
+.current-photo-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.current-photo-preview {
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 1px solid var(--gray-200);
+}
+
+.current-photo-label {
+  font-size: 0.8125rem;
+  color: var(--gray-500);
+  margin: 0;
+}
+
+/* ---- Species / breed cascading dropdowns (pet_form.html) ---- */
+.species-select,
+.breed-select {
+  cursor: pointer;
+}
+
+.hidden-field {
+  display: none;
+}
+
+.custom-input-wrapper {
+  margin-top: 8px;
+}
+   /*Below this width, drop the fixed-viewport layout and let the page
+   scroll normally — columns stack, which doesn't suit a no-scroll layout. */
+@media (max-width: 960px) {
+  .dashboard-main,
+  #dashboard-sidebar {
+    height: auto;
+    overflow: visible;
+  }
+
+  .admin-page {
+    height: auto;
+    overflow: visible;
+  }
+
+  .owners-layout {
+    display: block;
+    flex: none;
+  }
+
+  .admin-table-wrapper {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    margin-bottom: 20px;
+  }
+
+  .owner-detail-panel {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .admin-table {
+    display: block;
+    overflow-x: auto;
+  }
+
+  .admin-filter-bar {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 560px) {
+  .admin-page {
+    padding: 20px 16px;
+  }
+
+  .admin-page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

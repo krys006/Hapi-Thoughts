@@ -1,0 +1,646 @@
+/* ---- Design tokens (kept consistent across the whole project) ---- */
+:root {
+  --gray-50:  #F9FAFB;
+  --gray-100: #F3F4F6;
+  --gray-200: #E5E7EB;
+  --gray-300: #D1D5DB;
+  --gray-400: #9CA3AF;
+  --gray-500: #6B7280;
+  --gray-600: #4B5563;
+  --gray-700: #374151;
+  --gray-800: #1F2937;
+  --gray-900: #111827;
+
+  --blue-100: #DBEAFE;
+  --blue-600: #2563EB;
+  --blue-700: #1D4ED8;
+
+  --red-100: #FEE2E2;
+  --red-600: #DC2626;
+  --red-700: #B91C1C;
+
+  --green-100: #DCFCE7;
+  --green-600: #16A34A;
+  --green-700: #15803D;
+
+  --yellow-100: #FEF9C3;
+  --yellow-500: #EAB308;
+  --yellow-700: #A16207;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* ---- Fix for base_dashboard.html forcing outer page scroll ----
+   .dashboard-main and the sidebar both carry Tailwind's min-h-screen
+   (min-height: 100vh) and are flex siblings that stretch to match each
+   other by default — so main ends up at least 100vh tall on its own,
+   THEN the 64px header sits above that, always pushing the page past
+   one viewport. Overriding here fixes it without touching the HTML. */
+.dashboard-layout {
+  align-items: flex-start;
+}
+
+.dashboard-main,
+#dashboard-sidebar {
+  min-height: calc(100vh - 64px) !important;
+  height: calc(100vh - 64px);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+#dashboard-sidebar {
+  overflow-y: auto;
+}
+
+/* ---- Page shell ----
+   Now that .dashboard-main is correctly sized, this fills exactly the
+   space left inside it after main's own padding (p-4 sm:p-6 = 24px top/
+   bottom on desktop) — the page itself never scrolls, only the list and
+   panel scroll internally. */
+.admin-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 24px 32px;
+  box-sizing: border-box;
+}
+
+.admin-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-shrink: 0;
+}
+
+.admin-page-title {
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin: 0;
+}
+
+/* ---- Flash messages ---- */
+.flash-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+  flex-shrink: 0;
+}
+
+.flash-message {
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+
+.flash-success { background: var(--green-100); color: var(--green-700); border-color: var(--green-600); }
+.flash-error   { background: var(--red-100);   color: var(--red-700);   border-color: var(--red-600); }
+.flash-warning { background: var(--yellow-100); color: var(--yellow-700); border-color: var(--yellow-500); }
+.flash-info,
+.flash-debug   { background: var(--blue-100);  color: var(--blue-700);  border-color: var(--blue-600); }
+
+/* ---- Primary button (walk-in appointment link) ---- */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  padding: 12px 22px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: var(--blue-600);
+  color: #FFFFFF;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-primary:hover {
+  background: var(--blue-700);
+}
+
+/* ---- Filter tabs → stat boxes ----
+   All 6 tabs sit in a full-width row: box 1 aligns with the list column's
+   left edge, box 6's right edge aligns with the panel's right edge below,
+   since both this row and .appointments-layout span the same full width
+   of .admin-page. Colors are assigned by position (nth-child), matching
+   the fixed order All / Pending / Confirmed / Completed / Cancelled /
+   No Show from list.html — since none of the tabs carry a status-specific
+   class of their own to target directly. */
+.filter-tabs {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 14px;
+  margin-bottom: 24px;
+  flex-shrink: 0;
+}
+
+.filter-tab {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: #FFFFFF;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 18px 10px;
+  text-align: center;
+  text-decoration: none;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--gray-700);
+  transition: box-shadow 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.filter-tab:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.filter-tab--active {
+  border-color: currentColor;
+  box-shadow: var(--shadow-md);
+}
+
+.filter-count {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+  color: inherit;
+}
+
+/* Colors by position: All, Pending, Confirmed, Completed, Cancelled, No Show */
+.filter-tabs .filter-tab:nth-child(1) { color: var(--gray-900); }
+.filter-tabs .filter-tab:nth-child(2) { color: var(--yellow-700); }
+.filter-tabs .filter-tab:nth-child(3) { color: var(--blue-700); }
+.filter-tabs .filter-tab:nth-child(4) { color: var(--green-700); }
+.filter-tabs .filter-tab:nth-child(5) { color: var(--red-700); }
+.filter-tabs .filter-tab:nth-child(6) { color: var(--gray-500); }
+
+/* ---- Two-column layout: list + detail panel (built by JS) ---- */
+.appointments-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 28px;
+  flex: 1;
+  min-height: 0;
+}
+
+.appointments-list-column {
+  background: #FFFFFF;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+
+/* ---- Table ---- */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table thead th {
+  text-align: left;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--gray-500);
+  background: var(--gray-50);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--gray-200);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.data-table-row td {
+  text-align: left;
+  font-size: 1rem;
+  color: var(--gray-800);
+  padding: 15px 16px;
+  border-bottom: 1px solid var(--gray-100);
+}
+
+/* Merged date/time cell (built by appointments_list.js) */
+.appt-date-main {
+  display: block;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.appt-time-sub {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--gray-500);
+  margin-top: 2px;
+}
+
+.data-table-row {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.data-table-row:hover {
+  background: var(--gray-50);
+}
+
+.data-table-row--today td:first-child {
+  box-shadow: inset 3px 0 0 var(--blue-600);
+}
+
+.data-table-row--selected {
+  background: var(--blue-100);
+}
+
+.data-table-row--selected:hover {
+  background: var(--blue-100);
+}
+
+.data-table-row:last-child td {
+  border-bottom: none;
+}
+
+.text-muted {
+  color: var(--gray-400);
+}
+
+/* ---- Status badges ---- */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 999px;
+  text-transform: capitalize;
+}
+
+.status-pending   { color: var(--yellow-700); background: var(--yellow-100); }
+.status-confirmed { color: var(--blue-700);   background: var(--blue-100); }
+.status-completed { color: var(--green-700);  background: var(--green-100); }
+.status-cancelled { color: var(--red-700);    background: var(--red-100); }
+.status-no_show   { color: var(--gray-600);   background: var(--gray-100); }
+
+/* ---- Walk-in badge ---- */
+.walk-in-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--gray-700);
+  background: var(--gray-100);
+  border-radius: 999px;
+  padding: 5px 12px;
+}
+
+/* ---- View link ---- */
+.btn-link {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--blue-600);
+  text-decoration: none;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}
+
+/* ---- Empty state (no appointments at all) ---- */
+.empty-state-text {
+  font-size: 1.125rem;
+  color: var(--gray-400);
+  text-align: center;
+  padding: 48px 0;
+  margin: 0;
+}
+
+/* ---- Detail panel ---- */
+.appointment-detail-panel {
+  background: #FFFFFF;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 28px;
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.appointment-detail-title {
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin: 0 0 12px;
+}
+
+.appointment-detail-list {
+  margin: 18px 0 0;
+}
+
+.appointment-detail-row {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--gray-100);
+}
+
+.appointment-detail-row:last-child {
+  border-bottom: none;
+}
+
+.appointment-detail-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--gray-500);
+  margin: 0 0 3px;
+}
+
+.appointment-detail-value {
+  font-size: 1.125rem;
+  font-weight: 500;
+  color: var(--gray-900);
+  margin: 0;
+}
+
+.appointment-detail-link {
+  display: block;
+  width: 100%;
+  text-align: center;
+  margin-top: 20px;
+  box-sizing: border-box;
+}
+
+.btn-secondary {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--gray-700);
+  background: #FFFFFF;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  padding: 12px 18px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.btn-secondary:hover {
+  background: var(--gray-50);
+  border-color: var(--gray-400);
+}
+
+/* ---- Detail panel empty state ---- */
+.appointment-detail-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  text-align: center;
+}
+
+.appointment-detail-empty-text {
+  font-size: 1.125rem;
+  color: var(--gray-400);
+  margin: 0;
+  padding: 0 8px;
+}
+
+.appointment-detail-loading {
+  font-size: 1.0625rem;
+  color: var(--gray-400);
+  text-align: center;
+  padding: 48px 8px;
+}
+
+/* ---- Overrides for detail.html content injected into the panel ----
+   appointment_detail.css defines .detail-layout as a two-column grid
+   meant for a full page; forced to a single stacked column here since
+   the panel itself is already the narrow column. */
+.appointment-detail-panel .detail-layout {
+  display: block;
+}
+
+.appointment-detail-panel .detail-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.appointment-detail-panel .detail-sidebar {
+  position: static;
+}
+
+.appointment-detail-panel .detail-card,
+.appointment-detail-panel .action-card {
+  padding: 22px 26px;
+  box-shadow: none;
+  border-color: var(--gray-200);
+}
+
+/* ---- Walk-in appointment modal ---- */
+body.modal-open {
+  overflow: hidden;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 100;
+}
+
+.modal-box {
+  background: #FFFFFF;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  width: 100%;
+  max-width: 560px;
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--gray-200);
+  flex-shrink: 0;
+}
+
+.modal-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin: 0;
+}
+
+.modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--gray-400);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.modal-close:hover {
+  background: var(--gray-100);
+  color: var(--gray-700);
+}
+
+.modal-body {
+  padding: 24px;
+  overflow-y: auto;
+}
+
+/* Notice banner ("New client? Create a walk-in account first") */
+.notice-banner {
+  background: var(--blue-100);
+  border: 1px solid var(--blue-600);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  font-size: 0.9375rem;
+  color: var(--blue-700);
+}
+
+.notice-banner p {
+  margin: 0;
+}
+
+/* Fields inside the injected .booking-form aren't wrapped in .action-card
+   or .detail-card (which is where appointment_detail.css's input styling
+   is scoped), so they need their own rules here. */
+.booking-form .form-group {
+  margin-bottom: 16px;
+}
+
+.booking-form .form-group:last-of-type {
+  margin-bottom: 0;
+}
+
+.booking-form input[type="date"],
+.booking-form select,
+.booking-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  font-size: 1rem;
+  color: var(--gray-800);
+  background: #FFFFFF;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.booking-form textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.booking-form input:focus,
+.booking-form select:focus,
+.booking-form textarea:focus {
+  outline: none;
+  border-color: var(--blue-600);
+  box-shadow: 0 0 0 3px var(--blue-100);
+}
+
+.booking-form .form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.booking-form .form-actions .btn-primary,
+.booking-form .form-actions .btn-secondary {
+  flex: 1;
+  text-align: center;
+}
+
+/* ---- Responsive ----
+   Below this width, drop the fixed-viewport layout entirely and let the
+   page scroll normally — a no-scroll two-column layout doesn't translate
+   well to small screens where columns stack. */
+@media (max-width: 960px) {
+  .dashboard-main,
+  #dashboard-sidebar {
+    height: auto;
+    overflow: visible;
+  }
+
+  .admin-page {
+    height: auto;
+    overflow: visible;
+  }
+
+  .appointments-layout {
+    display: block;
+    flex: none;
+  }
+
+  .appointments-list-column {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    margin-bottom: 20px;
+  }
+
+  .appointment-detail-panel {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .data-table {
+    display: block;
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .admin-page {
+    padding: 20px 16px;
+  }
+
+  .admin-page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

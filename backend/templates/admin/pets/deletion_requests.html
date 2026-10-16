@@ -1,5 +1,11 @@
 {% extends 'base_dashboard.html' %}
 
+{% load static %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'css/admin/pet_detail.css' %}">
+  <link rel="stylesheet" href="{% static 'css/admin/deletion_requests.css' %}">
+{% endblock %}
+
 {% block title %}Deletion Requests — Hapi Vet Admin{% endblock %}
 
 {% block content %}
@@ -37,11 +43,21 @@
               <tr class="admin-table-row">
 
                 <td class="admin-table-cell">
-                  <a href="{% url 'admin_pet_detail' req.pet.pk %}" class="admin-table-link">{{ req.pet.name }}</a>
+                  
+                    href="{% url 'admin_pet_detail' req.pet.pk %}"
+                    class="admin-table-link"
+                  >
+                    {{ req.pet.name }}
+                  </a>
                 </td>
 
                 <td class="admin-table-cell">
-                  <a href="{% url 'admin_owner_detail' req.pet.owner.pk %}" class="admin-table-link">{{ req.pet.owner.full_name }}</a>
+                  
+                    href="{% url 'admin_owner_detail' req.pet.owner.pk %}"
+                    class="admin-table-link"
+                  >
+                    {{ req.pet.owner.full_name }}
+                  </a>
                 </td>
 
                 <td class="admin-table-cell">
@@ -59,16 +75,17 @@
                 <td class="admin-table-cell">
                   <div class="admin-action-buttons">
 
-                    <!-- Approve — permanently archives the pet, no restore -->
-                    <!-- path currently exists. Confirmed via shared modal. -->
-                    <button
-                      type="button"
-                      class="btn-danger"
-                      onclick="openConfirmModal('{% url 'admin_approve_deletion' req.pk %}', 'Approve Deletion Request', 'Archive {{ req.pet.name|escapejs }}, owned by {{ req.pet.owner.full_name|escapejs }}? There is currently no way to restore an archived pet. Reason given: {{ req.get_reason_display|escapejs }}.')">
-                      Approve
-                    </button>
+                    <form
+                      method="post"
+                      action="{% url 'admin_approve_deletion' req.pk %}"
+                      style="display:inline;"
+                    >
+                      {% csrf_token %}
+                      <button type="submit" class="btn-danger">
+                        Approve
+                      </button>
+                    </form>
 
-                    <!-- Reject — not destructive, pet stays active, no modal needed -->
                     <form
                       method="post"
                       action="{% url 'admin_reject_deletion' req.pk %}"
@@ -155,5 +172,9 @@
   </div>
 
 </div>
+
+{% block extra_js %}
+  <script src="{% static 'js/admin/deletion_requests.js' %}"></script>
+{% endblock %}
 
 {% endblock %}

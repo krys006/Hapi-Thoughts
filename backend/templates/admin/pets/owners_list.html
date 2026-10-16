@@ -1,5 +1,11 @@
 {% extends 'base_dashboard.html' %}
 
+{% load static %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'css/admin/owner_detail.css' %}">
+  <link rel="stylesheet" href="{% static 'css/admin/owners_list.css' %}">
+{% endblock %}
+
 {% block title %}Pet Owners — Hapi Vet Admin{% endblock %}
 
 {% block content %}
@@ -135,5 +141,10 @@
   {% endif %}
 
 </div>
+
+{% block extra_js %}
+  <script src="{% static 'js/shared/pet_species_breed.js' %}"></script>
+  <script src="{% static 'js/admin/owners_list.js' %}"></script>
+{% endblock %}
 
 {% endblock %}
