@@ -6,7 +6,7 @@
 <section id="notification-panel" class="absolute right-0 z-50 mt-2 w-[min(32rem,calc(100vw-2rem))] rounded-xl border border-gray-200 bg-white shadow-lg" aria-label="Notifications">
   <header class="flex items-center justify-between gap-3 border-b border-gray-200 px-5 py-4">
     <h2 class="text-lg font-semibold text-gray-900">Notifications</h2>
-    <button type="button" class="btn btn-secondary" hx-get="{% url 'notification_close' %}" hx-target="#notification-panel-container" hx-swap="innerHTML">
+    <button type="button" class="btn btn-outline" hx-get="{% url 'notification_close' %}" hx-target="#notification-panel-container" hx-swap="innerHTML">
       {% include "components/icon.html" with name="x" %}
       Close
     </button>
@@ -15,10 +15,10 @@
   {% if notifications %}
     <div class="flex flex-wrap gap-2 border-b border-gray-100 px-5 py-3">
       {% if shell.unread_count %}
-        <button type="button" class="btn btn-secondary" hx-post="{% url 'notification_mark_all_read' %}" hx-target="#notification-panel-container" hx-swap="innerHTML">Mark all as read</button>
+        <button type="button" class="btn btn-outline" hx-post="{% url 'notification_mark_all_read' %}" hx-target="#notification-panel-container" hx-swap="innerHTML">Mark all as read</button>
       {% endif %}
-      <button type="button" class="btn btn-secondary" hx-post="{% url 'notification_clear' %}?mode=read" hx-target="#notification-panel-container" hx-swap="innerHTML" hx-confirm="Remove the notifications you have already read?">Remove read</button>
-      <button type="button" class="btn btn-secondary text-red-700" hx-post="{% url 'notification_clear' %}?mode=all" hx-target="#notification-panel-container" hx-swap="innerHTML" hx-confirm="Remove ALL notifications? This can't be undone.">Remove all</button>
+      <button type="button" class="btn btn-outline" hx-post="{% url 'notification_clear' %}?mode=read" hx-target="#notification-panel-container" hx-swap="innerHTML" hx-confirm="Remove the notifications you have already read?">Remove read</button>
+      <button type="button" class="btn btn-outline text-red-700" hx-post="{% url 'notification_clear' %}?mode=all" hx-target="#notification-panel-container" hx-swap="innerHTML" hx-confirm="Remove ALL notifications? This can't be undone.">Remove all</button>
     </div>
     <ul class="max-h-[60vh] divide-y divide-gray-100 overflow-y-auto">
       {% for notification in notifications %}

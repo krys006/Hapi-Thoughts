@@ -10,11 +10,24 @@
 */
 
 /* source(none): don't auto-scan the whole repo (venv, staticfiles, media) */
+/* Layer order: old page CSS ("legacy", see layouts/admin.html) sits above
+   Tailwind's reset but below our components and utilities, so it can still
+   style old page content but can never restyle the new frame. */
+@layer theme, base, legacy, components, utilities;
 @import "tailwindcss" source(none);
 
 /* Paths are relative to this file */
 @source "../../templates";
 @source "../../static/js";
+
+/* Radius values inlined into the utilities, so the :root --radius-*
+   variables in old page CSS can't change the frame's rounded corners. */
+@theme inline {
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+}
 
 @theme {
   /* System fonts: no font files to load, familiar on Windows */
@@ -52,7 +65,7 @@
   .btn-primary {
     @apply bg-violet-600 text-white hover:bg-violet-700;
   }
-  .btn-secondary {
+  .btn-outline {
     @apply border border-gray-300 bg-white text-gray-800 hover:bg-gray-50;
   }
   .btn-danger {
@@ -85,5 +98,17 @@
   /* Status pill: colour comes from components/status_badge.html */
   .badge {
     @apply inline-flex items-center rounded-full px-2.5 py-1 text-sm font-medium whitespace-nowrap;
+  }
+}
+
+/* TEMPORARY (Slice 1.5): old pages wrap their content in .admin-page with
+   its own padding, but <main> already pads the content area. Drop the old
+   padding so content isn't double-padded. Same layer as the old page CSS;
+   the #main-content selector makes this rule win. clinic_info.html uses
+   .clinic-info-page; owners are unaffected because base_dashboard.html has no
+   #main-content. Remove after Slice 7. */
+@layer legacy {
+  #main-content > :is(.admin-page, .clinic-info-page) {
+    padding: 0;
   }
 }

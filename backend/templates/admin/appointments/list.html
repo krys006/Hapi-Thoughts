@@ -1,12 +1,16 @@
-{% extends 'base_dashboard.html' %}
+{% extends "layouts/admin.html" %}
 
 {% load static %}
-{% block extra_css %}
-  <link rel="stylesheet" href="{% static 'css/admin/appointment_detail.css' %}">
-  <link rel="stylesheet" href="{% static 'css/admin/appointments_list.css' %}">
+{% block legacy_css %}
+<style>
+  @import url("{% static 'css/admin/appointment_detail.css' %}") layer(legacy);
+  @import url("{% static 'css/admin/appointments_list.css' %}") layer(legacy);
+</style>
 {% endblock %}
 
 {% block title %}Appointments — Hapi Vet Admin{% endblock %}
+
+{% block page_header %}{% endblock %}
 
 {% block content %}
 
@@ -18,14 +22,6 @@
       + Walk-in Appointment
     </a>
   </div>
-
-  {% if messages %}
-    <div class="flash-messages">
-      {% for message in messages %}
-        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
-      {% endfor %}
-    </div>
-  {% endif %}
 
 <!-- Status filter tabs -->
 <div class="filter-tabs">
@@ -42,8 +38,8 @@
 
 </div>
 
-{% block extra_js %}
-  <script src="{% static 'js/admin/appointments_list.js' %}"></script>
 {% endblock %}
 
+{% block extra_js %}
+  <script src="{% static 'js/admin/appointments_list.js' %}"></script>
 {% endblock %}

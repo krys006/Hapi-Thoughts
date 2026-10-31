@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime, time, timedelta
 from datetime import timezone as dt_timezone
 from unittest import mock
@@ -181,6 +182,70 @@ class LogoutRedirectTests(ShellTestBase):
         self.assertRedirects(
             response, reverse("owner_login"), fetch_redirect_response=False
         )
+
+
+class ClinicInfoFrameTests(ShellTestBase):
+    """The shared clinic info page picks its frame by role."""
+
+    def test_admin_gets_admin_layout(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("clinic_info"))
+        self.assertTemplateUsed(response, "layouts/admin.html")
+
+    def test_owner_gets_owner_dashboard(self):
+        self.client.force_login(self.owner.user)
+        response = self.client.get(reverse("clinic_info"))
+        self.assertTemplateUsed(response, "base_dashboard.html")
+
+
+class SidebarTests(ShellTestBase):
+    """Nine sidebar links in three groups; tab-only pages light up their parent."""
+
+    LABELS = (
+        "Dashboard",
+        "Appointments",
+        "Pet owners",
+        "Pets",
+        "Medical records",
+        "Vaccinations",
+        "Health library",
+        "Billing",
+        "Clinic settings",
+    )
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.admin)
+
+    def _sidebar(self, response):
+        """Just the <nav aria-label="Admin"> markup."""
+        html = response.content.decode()
+        start = html.rindex("<nav", 0, html.index('aria-label="Admin"'))
+        return html[start : html.index("</nav>", start)]
+
+    def _link(self, nav, url_name):
+        """The opening <a> tag of one sidebar link."""
+        match = re.search(rf'<a href="{re.escape(reverse(url_name))}"[^>]*>', nav)
+        self.assertIsNotNone(match, f"No sidebar link to {url_name}")
+        return match.group(0)
+
+    def test_nine_links_and_no_tab_pages(self):
+        nav = self._sidebar(self.client.get(reverse("admin_dashboard")))
+        for label in self.LABELS:
+            with self.subTest(label=label):
+                self.assertIn(f'<span class="flex-1">{label}</span>', nav)
+        self.assertEqual(nav.count("<a "), 9)
+        for name in ("admin_deletion_requests", "admin_service_list", "clinic_info"):
+            with self.subTest(name=name):
+                self.assertNotIn(f'href="{reverse(name)}"', nav)
+
+    def test_deletion_requests_highlights_pets(self):
+        nav = self._sidebar(self.client.get(reverse("admin_deletion_requests")))
+        self.assertIn('aria-current="page"', self._link(nav, "admin_pet_list"))
+
+    def test_services_highlights_billing(self):
+        nav = self._sidebar(self.client.get(reverse("admin_service_list")))
+        self.assertIn('aria-current="page"', self._link(nav, "admin_receipt_list"))
 
 
 class GreetingTests(SimpleTestCase):

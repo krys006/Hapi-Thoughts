@@ -1,0 +1,8 @@
+{% comment %}
+  Tabs between the Pets list and Deletion requests (deletion requests have
+  no sidebar item of their own). Param: active = "pets" or "deletions".
+{% endcomment %}
+<nav class="mb-6 flex gap-1 border-b border-gray-200" aria-label="Pets sections">
+  <a href="{% url 'admin_pet_list' %}" class="-mb-px inline-flex min-h-11 items-center border-b-2 px-4 text-base {% if active == 'pets' %}border-violet-600 font-semibold text-violet-800{% else %}border-transparent text-gray-700 hover:text-gray-900{% endif %}"{% if active == 'pets' %} aria-current="page"{% endif %}>All pets</a>
+  <a href="{% url 'admin_deletion_requests' %}" class="-mb-px inline-flex min-h-11 items-center gap-2 border-b-2 px-4 text-base {% if active == 'deletions' %}border-violet-600 font-semibold text-violet-800{% else %}border-transparent text-gray-700 hover:text-gray-900{% endif %}"{% if active == 'deletions' %} aria-current="page"{% endif %}>Deletion requests{% if shell.pending_deletions %}<span class="rounded-full bg-violet-600 px-2 text-sm font-semibold text-white">{{ shell.pending_deletions }}<span class="sr-only"> waiting</span></span>{% endif %}</a>
+</nav>

@@ -157,6 +157,9 @@ def clinic_info(request):
         {
             "clinic": clinic,
             "maps_embed_url": maps_embed_url,
+            "base_template": (
+                "layouts/admin.html" if request.user.is_admin else "base_dashboard.html"
+            ),
         },
     )
 

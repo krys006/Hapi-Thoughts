@@ -1,12 +1,16 @@
-{% extends 'base_dashboard.html' %}
+{% extends "layouts/admin.html" %}
 
 {% load static %}
-{% block extra_css %}
-  <link rel="stylesheet" href="{% static 'css/admin/receipt_detail.css' %}">
-  <link rel="stylesheet" href="{% static 'css/admin/receipt_list.css' %}">
+{% block legacy_css %}
+<style>
+  @import url("{% static 'css/admin/receipt_detail.css' %}") layer(legacy);
+  @import url("{% static 'css/admin/receipt_list.css' %}") layer(legacy);
+</style>
 {% endblock %}
 
 {% block title %}Billing — Hapi Vet Admin{% endblock %}
+
+{% block page_header %}{% endblock %}
 
 {% block content %}
 
@@ -19,13 +23,7 @@
     </a>
   </div>
 
-  {% if messages %}
-    <div class="flash-messages">
-      {% for message in messages %}
-        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
-      {% endfor %}
-    </div>
-  {% endif %}
+  {% include "admin/billing/_billing_tabs.html" with active="receipts" %}
 
   <!-- Status filter tabs -->
   <div class="filter-tabs">
@@ -74,11 +72,11 @@
 
 </div>
 
+{% endblock %}
+
 {% block extra_js %}
 <script>
   const SERVICE_DETAILS_URL = "{% url 'admin_get_service_details' %}";
 </script>
 <script src="{% static 'js/admin/receipt_list.js' %}"></script>
-{% endblock %}
-
 {% endblock %}

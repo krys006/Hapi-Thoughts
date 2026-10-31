@@ -11,7 +11,7 @@
     <p class="truncate text-base font-semibold text-gray-900">{{ shell.clinic.clinic_name|default:"Hapi Vet" }}</p>
     <p class="text-sm text-gray-700">Admin</p>
   </div>
-  <button type="button" class="btn btn-secondary px-3 lg:hidden" data-sidebar-close>
+  <button type="button" class="btn btn-outline px-3 lg:hidden" data-sidebar-close>
     {% include "components/icon.html" with name="x" %}
     <span class="sr-only">Close menu</span>
   </button>
@@ -19,27 +19,20 @@
 
 {# Links: only this part scrolls if the screen is short #}
 <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-2" aria-label="Admin">
-  <p class="px-3 pb-1 pt-4 text-sm font-semibold text-violet-800">Overview</p>
+  <p class="px-3 pb-1 pt-1 text-sm font-semibold text-violet-800">Daily work</p>
   {% include "layouts/admin_nav_link.html" with url_name="admin_dashboard" label="Dashboard" icon="house" match="admin_dashboard" %}
-  {% include "layouts/admin_nav_link.html" with url_name="clinic_info" label="Clinic info" icon="building-2" match="clinic_info" %}
-
-  <p class="px-3 pb-1 pt-5 text-sm font-semibold text-violet-800">Clinic operations</p>
   {% include "layouts/admin_nav_link.html" with url_name="admin_appointments" label="Appointments" icon="calendar" match="admin_appointment" also="admin_walkin_appointment" count=shell.pending_appointments %}
   {% include "layouts/admin_nav_link.html" with url_name="admin_owner_list" label="Pet owners" icon="users" match="admin_owner" also="admin_walkin_create" %}
-  {% include "layouts/admin_nav_link.html" with url_name="admin_pet_list" label="Pets" icon="paw-print" match="admin_pet" %}
-  {% include "layouts/admin_nav_link.html" with url_name="admin_deletion_requests" label="Deletion requests" icon="trash-2" match="admin_deletion" count=shell.pending_deletions %}
+  {% include "layouts/admin_nav_link.html" with url_name="admin_pet_list" label="Pets" icon="paw-print" match="admin_pet" also="admin_deletion" count=shell.pending_deletions %}
 
   <p class="px-3 pb-1 pt-5 text-sm font-semibold text-violet-800">Records</p>
   {% include "layouts/admin_nav_link.html" with url_name="admin_medical_record_list" label="Medical records" icon="file-text" match="admin_medical" %}
   {% include "layouts/admin_nav_link.html" with url_name="admin_vaccination_list" label="Vaccinations" icon="syringe" match="admin_vaccination" %}
   {% include "layouts/admin_nav_link.html" with url_name="admin_health_article_list" label="Health library" icon="book-open" match="admin_health" %}
 
-  <p class="px-3 pb-1 pt-5 text-sm font-semibold text-violet-800">Billing</p>
-  {% include "layouts/admin_nav_link.html" with url_name="admin_receipt_list" label="Billing" icon="receipt" match="admin_receipt" %}
-  {% include "layouts/admin_nav_link.html" with url_name="admin_service_list" label="Services" icon="list" match="admin_service" %}
-
-  <p class="px-3 pb-1 pt-5 text-sm font-semibold text-violet-800">Configuration</p>
-  {% include "layouts/admin_nav_link.html" with url_name="admin_clinic_settings" label="Clinic settings" icon="settings" match="admin_clinic_settings" %}
+  <p class="px-3 pb-1 pt-5 text-sm font-semibold text-violet-800">Clinic</p>
+  {% include "layouts/admin_nav_link.html" with url_name="admin_receipt_list" label="Billing" icon="receipt" match="admin_receipt" also="admin_service" %}
+  {% include "layouts/admin_nav_link.html" with url_name="admin_clinic_settings" label="Clinic settings" icon="settings" match="admin_clinic_settings" also="clinic_info" %}
 </nav>
 
 {# Log out stays at the bottom #}

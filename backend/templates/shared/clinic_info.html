@@ -1,11 +1,20 @@
-{% extends 'base_dashboard.html' %}
+{% extends base_template %}
+{# base_template comes from the view: layouts/admin.html for admins, base_dashboard.html for owners #}
 
 {% load static %}
+{# Owners: base_dashboard.html uses extra_css. Admins: layouts/admin.html uses legacy_css. Each base ignores the other block. #}
 {% block extra_css %}
   <link rel="stylesheet" href="{% static 'css/shared/clinic_info.css' %}">
 {% endblock %}
+{% block legacy_css %}
+<style>
+  @import url("{% static 'css/shared/clinic_info.css' %}") layer(legacy);
+</style>
+{% endblock %}
 
 {% block title %}Clinic Info — Hapi Vet{% endblock %}
+
+{% block page_header %}{% endblock %}
 
 {% block content %}
 
@@ -87,8 +96,8 @@
 
 </div>
 
-{% block extra_js %}
-  <script src="{% static 'js/shared/clinic_info.js' %}"></script>
 {% endblock %}
 
+{% block extra_js %}
+  <script src="{% static 'js/shared/clinic_info.js' %}"></script>
 {% endblock %}

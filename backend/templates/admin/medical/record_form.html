@@ -1,14 +1,18 @@
-{% extends 'base_dashboard.html' %}
+{% extends "layouts/admin.html" %}
 
 {% load static %}
-{% block extra_css %}
-  <link rel="stylesheet" href="{% static 'css/admin/record_form.css' %}">
+{% block legacy_css %}
+<style>
+  @import url("{% static 'css/admin/record_form.css' %}") layer(legacy);
+</style>
 {% endblock %}
 
 {% block title %}
   {% if is_edit %}Edit Medical Record{% else %}New Medical Record{% endif %}
   — Hapi Vet Admin
 {% endblock %}
+
+{% block page_header %}{% endblock %}
 
 {% block content %}
 
@@ -28,14 +32,6 @@
       </a>
     {% endif %}
   </div>
-
-  {% if messages %}
-    <div class="flash-messages">
-      {% for message in messages %}
-        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
-      {% endfor %}
-    </div>
-  {% endif %}
 
   <!-- Context info -->
   <div class="record-context">

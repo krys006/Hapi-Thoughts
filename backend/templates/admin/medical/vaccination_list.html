@@ -1,12 +1,16 @@
-{% extends 'base_dashboard.html' %}
+{% extends "layouts/admin.html" %}
 
 {% load static %}
-{% block extra_css %}
-  <link rel="stylesheet" href="{% static 'css/admin/vaccination_history.css' %}">
-  <link rel="stylesheet" href="{% static 'css/admin/vaccination_list.css' %}">
+{% block legacy_css %}
+<style>
+  @import url("{% static 'css/admin/vaccination_history.css' %}") layer(legacy);
+  @import url("{% static 'css/admin/vaccination_list.css' %}") layer(legacy);
+</style>
 {% endblock %}
 
 {% block title %}Vaccinations — Hapi Vet Admin{% endblock %}
+
+{% block page_header %}{% endblock %}
 
 {% block content %}
 
@@ -103,8 +107,8 @@
 
 </div>
 
-{% block extra_js %}
-  <script src="{% static 'js/admin/vaccination_list.js' %}"></script>
 {% endblock %}
 
+{% block extra_js %}
+  <script src="{% static 'js/admin/vaccination_list.js' %}"></script>
 {% endblock %}

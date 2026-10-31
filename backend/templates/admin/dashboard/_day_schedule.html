@@ -11,7 +11,7 @@
     </div>
     <div class="flex flex-wrap items-center gap-3">
       {% if not is_today %}
-        <button type="button" class="btn btn-secondary" hx-get="{% url 'admin_dashboard_day' %}" hx-target="#day-schedule" hx-swap="outerHTML">Back to today</button>
+        <button type="button" class="btn btn-outline" hx-get="{% url 'admin_dashboard_day' %}" hx-target="#day-schedule" hx-swap="outerHTML">Back to today</button>
       {% endif %}
       <a href="{% url 'admin_appointments' %}" class="text-base font-medium text-blue-600 hover:underline">All appointments</a>
     </div>
