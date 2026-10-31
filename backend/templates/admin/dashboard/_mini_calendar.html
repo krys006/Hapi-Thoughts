@@ -1,0 +1,49 @@
+{% comment %}
+  Dashboard mini calendar. The arrows reload this partial; clicking a date
+  loads that day's appointments into the schedule card (#day-schedule).
+  Dots: violet = booked, yellow = has requests waiting for approval.
+{% endcomment %}
+<section id="mini-calendar" class="card p-5" aria-label="Calendar">
+  <div class="mb-3 flex items-center justify-between gap-2">
+    <h2 class="text-lg font-semibold text-gray-900">{{ calendar_period_label }}</h2>
+    <div class="flex gap-1">
+      <button type="button" class="btn btn-secondary px-3" hx-get="{% url 'admin_dashboard_calendar' %}?date={{ calendar_prev_date|date:'Y-m-d' }}" hx-target="#mini-calendar" hx-swap="outerHTML">
+        {% include "components/icon.html" with name="chevron-left" %}
+        <span class="sr-only">Previous month</span>
+      </button>
+      <button type="button" class="btn btn-secondary px-3" hx-get="{% url 'admin_dashboard_calendar' %}?date={{ calendar_next_date|date:'Y-m-d' }}" hx-target="#mini-calendar" hx-swap="outerHTML">
+        {% include "components/icon.html" with name="chevron-right" %}
+        <span class="sr-only">Next month</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-7 text-center text-sm font-medium text-gray-600" aria-hidden="true">
+    <span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span>
+  </div>
+
+  <div class="mt-1 grid grid-cols-7 gap-1 text-center">
+    {% for week in calendar_weeks %}
+      {% for day in week %}
+        {% if day.is_current_period %}
+          <button type="button" class="relative grid h-11 place-content-center rounded-lg text-base {% if day.is_today %}bg-violet-600 font-semibold text-white{% elif day.is_blocked or not day.is_working_day %}text-gray-500 hover:bg-gray-100{% else %}text-gray-800 hover:bg-violet-50{% endif %}" hx-get="{% url 'admin_dashboard_day' %}?date={{ day.date|date:'Y-m-d' }}" hx-target="#day-schedule" hx-swap="outerHTML" aria-label="{{ day.date|date:'l, F j' }}{% if day.statuses %}, has appointments{% endif %}{% if day.has_pending %}, requests waiting{% endif %}">
+            {{ day.date.day }}
+            {% if day.statuses %}
+              <span class="absolute bottom-1 left-1/2 size-1.5 -translate-x-1/2 rounded-full {% if day.has_pending %}bg-yellow-500{% elif day.is_today %}bg-white{% else %}bg-violet-500{% endif %}"></span>
+            {% endif %}
+          </button>
+        {% else %}
+          <span class="h-11"></span>
+        {% endif %}
+      {% endfor %}
+    {% endfor %}
+  </div>
+
+  <div class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-3 text-sm text-gray-700">
+    <span class="flex items-center gap-4">
+      <span class="flex items-center gap-1.5"><span class="size-2.5 rounded-full bg-violet-500"></span>Booked</span>
+      <span class="flex items-center gap-1.5"><span class="size-2.5 rounded-full bg-yellow-500"></span>Waiting for approval</span>
+    </span>
+    <a href="{% url 'admin_appointments' %}" class="text-base font-medium text-blue-600 hover:underline">Open appointments</a>
+  </div>
+</section>

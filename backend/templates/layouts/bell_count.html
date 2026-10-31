@@ -1,0 +1,6 @@
+{% comment %}
+  Unread-notification count on the Notifications button.
+  The notifications panel re-renders it with oob=True so the number
+  updates after "Mark all as read" or "Remove".
+{% endcomment %}
+<span id="bell-count"{% if oob %} hx-swap-oob="true"{% endif %} class="{% if not shell.unread_count %}hidden {% endif %}rounded-full bg-red-600 px-2 text-sm font-semibold text-white">{{ shell.unread_count }}<span class="sr-only"> unread</span></span>

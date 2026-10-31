@@ -27,6 +27,16 @@
     @apply bg-gray-50 text-base text-gray-900 antialiased;
   }
 
+  /* HTMX loading indicators stay hidden until a request is running.
+     (HTMX adds the same rule, but only after its script loads.) */
+  .htmx-indicator {
+    opacity: 0;
+  }
+  .htmx-request .htmx-indicator,
+  .htmx-request.htmx-indicator {
+    opacity: 1;
+  }
+
   /* Clear keyboard focus ring everywhere */
   :focus-visible {
     @apply outline-2 outline-offset-2 outline-violet-600;

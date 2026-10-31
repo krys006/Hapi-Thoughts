@@ -12,6 +12,17 @@ from .forms import NotificationPreferenceForm
 from django.contrib import messages
 
 
+def _panel_template(request):
+    """New-layout admin pages get the new panel; everyone else keeps the shared one.
+
+    Admin pages still on base_dashboard.html don't send X-Admin-Layout, so
+    they keep the old panel until their slice is migrated.
+    """
+    if request.user.is_admin and request.headers.get("X-Admin-Layout") == "1":
+        return "admin/notifications/_panel.html"
+    return "shared/notifications/_panel.html"
+
+
 @login_required
 def notification_panel(request):
     """
@@ -26,7 +37,7 @@ def notification_panel(request):
 
     return render(
         request,
-        "shared/notifications/_panel.html",
+        _panel_template(request),
         {"notifications": notifications},
     )
 
@@ -79,7 +90,7 @@ def notification_mark_all_read(request):
 
     return render(
         request,
-        "shared/notifications/_panel.html",
+        _panel_template(request),
         {"notifications": notifications},
     )
 
@@ -118,7 +129,7 @@ def notification_clear(request):
 
     return render(
         request,
-        "shared/notifications/_panel.html",
+        _panel_template(request),
         {"notifications": notifications},
     )
 

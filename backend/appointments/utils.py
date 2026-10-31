@@ -170,7 +170,7 @@ def get_admin_calendar_context(view, date_str):
     """
     import calendar
 
-    today = timezone.now().date()
+    today = timezone.localdate()
 
     try:
         anchor_date = datetime.date.fromisoformat(date_str) if date_str else today

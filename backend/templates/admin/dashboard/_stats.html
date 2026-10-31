@@ -1,0 +1,18 @@
+{% comment %}
+  "Today at a glance" stat cards. admin_dashboard_refresh re-renders this
+  partial every 60 seconds, only while the browser tab is visible.
+  Each card is one big link (easy to click).
+{% endcomment %}
+<section id="dashboard-stats" hx-get="{% url 'admin_dashboard_refresh' %}" hx-trigger="every 60s [document.visibilityState === 'visible']" hx-swap="outerHTML" aria-label="Today at a glance">
+  <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <a href="{% url 'admin_appointments' %}" class="card flex flex-col gap-2 p-5 transition-colors hover:border-violet-300 hover:bg-violet-50"><span class="flex items-start justify-between gap-3"><span class="min-h-12 text-base font-medium text-gray-700">Today's appointments</span><span class="rounded-lg bg-violet-50 p-2 text-violet-700">{% include "components/icon.html" with name="calendar" %}</span></span><span class="mt-auto text-4xl font-bold text-gray-900">{{ todays_appointments }}</span><span class="text-base font-medium text-blue-600">Open appointments →</span></a>
+    <a href="{% url 'admin_appointments' %}?status=pending" class="card flex flex-col gap-2 p-5 transition-colors hover:border-violet-300 hover:bg-violet-50{% if pending_approvals %} border-yellow-300{% endif %}"><span class="flex items-start justify-between gap-3"><span class="min-h-12 text-base font-medium text-gray-700">Waiting for approval</span><span class="rounded-lg bg-yellow-50 p-2 text-yellow-700">{% include "components/icon.html" with name="clock" %}</span></span><span class="mt-auto text-4xl font-bold text-gray-900">{{ pending_approvals }}</span><span class="text-base font-medium text-blue-600">Review requests →</span></a>
+    <a href="{% url 'admin_receipt_list' %}" class="card flex flex-col gap-2 p-5 transition-colors hover:border-violet-300 hover:bg-violet-50"><span class="flex items-start justify-between gap-3"><span class="min-h-12 text-base font-medium text-gray-700">Unpaid bills</span><span class="rounded-lg bg-red-50 p-2 text-red-700">{% include "components/icon.html" with name="receipt" %}</span></span><span class="mt-auto text-4xl font-bold text-gray-900">{{ unpaid_bills }}</span><span class="text-base font-medium text-blue-600">Open billing →</span></a>
+    <a href="{% url 'admin_vaccination_list' %}" class="card flex flex-col gap-2 p-5 transition-colors hover:border-violet-300 hover:bg-violet-50"><span class="flex items-start justify-between gap-3"><span class="min-h-12 text-base font-medium text-gray-700">Vaccinations due this week</span><span class="rounded-lg bg-green-50 p-2 text-green-700">{% include "components/icon.html" with name="syringe" %}</span></span><span class="mt-auto text-4xl font-bold text-gray-900">{{ vaccinations_due }}</span><span class="text-base font-medium text-blue-600">Open vaccinations →</span></a>
+  </div>
+  <p class="mt-3 text-base text-gray-700">
+    <a href="{% url 'admin_owner_list' %}" class="hover:underline">{{ total_owners }} pet owner{{ total_owners|pluralize }}</a>
+    · <a href="{% url 'admin_pet_list' %}" class="hover:underline">{{ total_pets }} pet{{ total_pets|pluralize }}</a>
+    · <a href="{% url 'admin_medical_record_list' %}" class="hover:underline">{{ followups_due }} follow-up{{ followups_due|pluralize }} due this week</a>
+  </p>
+</section>

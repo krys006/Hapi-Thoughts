@@ -1,9 +1,14 @@
+from datetime import timedelta
+
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
+from django.http import HttpResponseForbidden
 from django.shortcuts import redirect, render
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 
-from appointments.models import Appointment
+from appointments.models import Appointment, ClinicSettings
+from appointments.utils import get_admin_calendar_context
 from billing.models import BillingReceipt
 from medical.models import MedicalRecord, Vaccination
 from notifications.models import Notification
@@ -16,8 +21,8 @@ def _get_admin_dashboard_context(request):
     Shared by the full-page view and the HTMX polling partial so
     both always stay in sync with the same query logic.
     """
-    today = timezone.now().date()
-    week_end = today + timezone.timedelta(days=7)
+    today = timezone.localdate()
+    week_end = today + timedelta(days=7)
 
     # ── Summary stats ──────────────────────────────────────────────────────
     todays_appointments = Appointment.objects.filter(
@@ -73,6 +78,57 @@ def _get_admin_dashboard_context(request):
         "pending_appointments": pending_appointments,
         "recent_notifications": recent_notifications,
     }
+
+
+def _greeting(now=None):
+    """'Good morning/afternoon/evening' by the hour in Manila."""
+    hour = timezone.localtime(now).hour
+    if hour < 12:
+        return "Good morning"
+    if hour < 18:
+        return "Good afternoon"
+    return "Good evening"
+
+
+def _admin_display_name(user, clinic):
+    """The vet's name from clinic settings, else the admin's own name."""
+    if clinic and clinic.veterinarian_name:
+        return clinic.veterinarian_name
+    return user.get_full_name()
+
+
+def _parse_day(value):
+    """ISO date from a GET param; today (Manila) if missing or invalid."""
+    try:
+        return parse_date(value or "") or timezone.localdate()
+    except ValueError:  # well-formed but impossible, e.g. 2026-02-30
+        return timezone.localdate()
+
+
+def _day_schedule_context(day):
+    """One day's appointments for the dashboard schedule card (no cancelled)."""
+    appointments = (
+        Appointment.objects.filter(date=day)
+        .exclude(status=Appointment.CANCELLED)
+        .select_related("pet", "owner", "service")
+        .order_by("time")
+    )
+    return {
+        "selected_date": day,
+        "is_today": day == timezone.localdate(),
+        "day_appointments": appointments,
+    }
+
+
+def _mini_calendar_context(date_str):
+    """Month calendar context plus a has_pending flag per day (yellow dot)."""
+    context = get_admin_calendar_context("month", date_str)
+    for week in context["calendar_weeks"]:
+        for cell in week:
+            cell["has_pending"] = any(
+                item["status"] == Appointment.PENDING for item in cell["statuses"]
+            )
+    return context
 
 
 def _run_global_search(query):
@@ -214,25 +270,47 @@ def admin_dashboard(request):
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    from appointments.utils import get_admin_calendar_context
-
     context = _get_admin_dashboard_context(request)
-    context.update(get_admin_calendar_context("month", None))
+    context.update(_mini_calendar_context(None))
+    context.update(_day_schedule_context(timezone.localdate()))
+    context["greeting"] = _greeting()
+    context["display_name"] = _admin_display_name(
+        request.user, ClinicSettings.objects.first()
+    )
 
     return render(request, "admin/dashboard/index.html", context)
 
 
 @login_required
 def admin_dashboard_partial(request):
-    """
-    Returns the stats + widgets block only.
-    Polled automatically every 30s by the block itself.
-    """
+    """Returns the stats cards only. Polled every 60s while the tab is visible."""
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
     context = _get_admin_dashboard_context(request)
-    return render(request, "admin/dashboard/_dashboard_partial.html", context)
+    return render(request, "admin/dashboard/_stats.html", context)
+
+
+@login_required
+def admin_dashboard_calendar(request):
+    """HTMX: the dashboard mini calendar for another month (arrow buttons)."""
+    if request.user.role != "admin":
+        return HttpResponseForbidden()
+
+    context = _mini_calendar_context(request.GET.get("date"))
+    return render(request, "admin/dashboard/_mini_calendar.html", context)
+
+
+@login_required
+def admin_dashboard_day(request):
+    """HTMX: one day's appointments for the dashboard schedule card."""
+    if request.user.role != "admin":
+        return HttpResponseForbidden()
+
+    day = _parse_day(request.GET.get("date"))
+    return render(
+        request, "admin/dashboard/_day_schedule.html", _day_schedule_context(day)
+    )
 
 
 @login_required

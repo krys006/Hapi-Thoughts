@@ -240,10 +240,12 @@ def _send_verification_email(request, user):
 
 @login_required
 def user_logout(request):
-    """Logs out any user and redirects to pet owner login."""
+    """Logs out any user; admins go to admin login, others to owner login."""
+    # Read the role first: logout() replaces request.user with AnonymousUser
+    was_admin = request.user.is_admin
     logout(request)
     messages.success(request, "You have been logged out.")
-    return redirect("owner_login")
+    return redirect("admin_login" if was_admin else "owner_login")
 
 
 @login_required
@@ -255,9 +257,6 @@ def owner_onboarding(request):
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
     return redirect("owner_onboarding_step1")
-
-
-
 
 
 class HapiVetPasswordResetView(auth_views.PasswordResetView):
@@ -280,8 +279,6 @@ class HapiVetPasswordResetView(auth_views.PasswordResetView):
         )
 
         return redirect(self.get_success_url())
-    
-
 
 
 # ---------------------------------------------------------------------------
