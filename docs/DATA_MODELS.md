@@ -499,7 +499,8 @@ FIXED = 'fixed'
 **Rules:**
 - Receipt number auto-generated on creation (format: HV-YYYY-XXXX)
 - Editable only while `payment_status` is PENDING
-- Locked (read-only) once marked as PAID
+- Locked (read-only) once PAID or CANCELLED (`is_locked`); views refuse every write to a locked receipt
+- `payment_status` / `payment_date` change only via the Mark as Paid / Cancel Receipt actions, never via the receipt form
 - `total_amount` calculated as: subtotal - discount
 
 ---

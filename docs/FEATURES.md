@@ -305,9 +305,9 @@ PENDING → CONFIRMED → COMPLETED
 | Apply discount per receipt (percentage or fixed amount) | `complete` |
 | Discount note field (e.g. "Loyal client discount") | `complete` |
 | Set payment method (cash, etc.) | `complete` |
-| Set payment status: Pending / Paid / Cancelled | `complete` |
+| Set payment status: Pending / Paid / Cancelled (via Mark as Paid / Cancel Receipt actions only) | `complete` |
 | Edit receipt while status is Pending | `complete` |
-| Receipt locked once marked as Paid | `complete` |
+| Receipt locked once marked as Paid or Cancelled | `complete` |
 | View all billing transactions | `complete` |
 | View receipt detail | `complete` |
 

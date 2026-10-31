@@ -10,6 +10,9 @@ from notifications.utils import notify
 
 from appointments.models import ClinicSettings
 
+# Shown whenever a write is refused because receipt.is_locked
+LOCKED_MESSAGE = "This receipt is locked and can't be changed."
+
 # ── Admin — Services ──────────────────────────────────────────────────────────
 
 
@@ -251,7 +254,7 @@ def admin_receipt_detail(request, pk):
 def admin_receipt_edit(request, pk):
     """
     Admin view — edit a billing receipt header.
-    Locked if payment status is PAID.
+    Locked if payment status is PAID or CANCELLED.
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
@@ -259,7 +262,7 @@ def admin_receipt_edit(request, pk):
     receipt = get_object_or_404(BillingReceipt, pk=pk)
 
     if receipt.is_locked:
-        messages.error(request, "This receipt is locked and cannot be edited.")
+        messages.error(request, LOCKED_MESSAGE)
         return redirect("admin_receipt_detail", pk=pk)
 
     if request.method == "POST":
@@ -303,7 +306,7 @@ def admin_billing_item_add(request, receipt_pk):
     receipt = get_object_or_404(BillingReceipt, pk=receipt_pk)
 
     if receipt.is_locked:
-        messages.error(request, "This receipt is locked and cannot be edited.")
+        messages.error(request, LOCKED_MESSAGE)
         return redirect("admin_receipt_detail", pk=receipt_pk)
 
     if request.method == "POST":
@@ -338,7 +341,7 @@ def admin_billing_item_delete(request, pk):
     receipt = item.receipt
 
     if receipt.is_locked:
-        messages.error(request, "This receipt is locked and cannot be edited.")
+        messages.error(request, LOCKED_MESSAGE)
         return redirect("admin_receipt_detail", pk=receipt.pk)
 
     if request.method == "POST":
@@ -358,8 +361,8 @@ def admin_receipt_mark_paid(request, pk):
     receipt = get_object_or_404(BillingReceipt, pk=pk)
 
     if request.method == "POST":
-        if receipt.payment_status == BillingReceipt.PAID:
-            messages.error(request, "Receipt is already marked as paid.")
+        if receipt.is_locked:
+            messages.error(request, LOCKED_MESSAGE)
         else:
             receipt.payment_status = BillingReceipt.PAID
             receipt.payment_date = timezone.now().date()
@@ -399,7 +402,7 @@ def admin_receipt_mark_cancelled(request, pk):
 
     if request.method == "POST":
         if receipt.is_locked:
-            messages.error(request, "Paid receipts cannot be cancelled.")
+            messages.error(request, LOCKED_MESSAGE)
         else:
             receipt.payment_status = BillingReceipt.CANCELLED
             receipt.save()
@@ -465,7 +468,6 @@ def admin_get_service_details(request):
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    import json
     from django.http import JsonResponse
 
     service_pk = request.GET.get("service", "")

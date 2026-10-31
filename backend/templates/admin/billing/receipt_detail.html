@@ -270,34 +270,31 @@
       <div class="action-card">
         <h2 class="action-card-title">Actions</h2>
 
+        <!-- Locked = PAID or CANCELLED; only PENDING receipts get actions -->
         {% if receipt.is_locked %}
           <p class="text-muted">
-            This receipt is locked — payment has been recorded.
+            {% if receipt.payment_status == 'cancelled' %}
+              This receipt has been cancelled.
+            {% else %}
+              Payment recorded — this receipt is locked.
+            {% endif %}
           </p>
         {% else %}
+          <!-- Mark as Paid — irreversible: locks the receipt for editing -->
+          <button
+            type="button"
+            class="btn-primary btn-block"
+            onclick="openConfirmModal('{% url 'admin_receipt_mark_paid' receipt.pk %}', 'Mark as Paid', 'Mark {{ receipt.receipt_number|escapejs }} as paid? This will lock the receipt and it can no longer be edited.')">
+            Mark as Paid
+          </button>
 
-          {% if receipt.payment_status == 'pending' %}
-            <!-- Mark as Paid — irreversible: locks the receipt for editing -->
-            <button
-              type="button"
-              class="btn-primary btn-block"
-              onclick="openConfirmModal('{% url 'admin_receipt_mark_paid' receipt.pk %}', 'Mark as Paid', 'Mark {{ receipt.receipt_number|escapejs }} as paid? This will lock the receipt and it can no longer be edited.')">
-              Mark as Paid
-            </button>
-
-            <!-- Cancel Receipt -->
-            <button
-              type="button"
-              class="btn-danger btn-block"
-              onclick="openConfirmModal('{% url 'admin_receipt_mark_cancelled' receipt.pk %}', 'Cancel Receipt', 'Cancel {{ receipt.receipt_number|escapejs }}? This action cannot be undone.')">
-              Cancel Receipt
-            </button>
-          {% endif %}
-
-          {% if receipt.payment_status == 'cancelled' %}
-            <p class="text-muted">This receipt has been cancelled.</p>
-          {% endif %}
-
+          <!-- Cancel Receipt — also locks the receipt -->
+          <button
+            type="button"
+            class="btn-danger btn-block"
+            onclick="openConfirmModal('{% url 'admin_receipt_mark_cancelled' receipt.pk %}', 'Cancel Receipt', 'Cancel {{ receipt.receipt_number|escapejs }}? This action cannot be undone.')">
+            Cancel Receipt
+          </button>
         {% endif %}
 
       </div>

@@ -191,6 +191,8 @@ does everything): [backend] = Python (models, views, settings),
 - Local dev database: local PostgreSQL 18 `hapivet_dev`, no longer shared with live (see §3) — Done 2026-10-31
 - Google sign-in hardening (adapters.py): auto-link only when Google's `email_verified` is true; admins never sign in with Google (linked or not); case-insensitive email match, refusing on multiple matches; inactive users refused; new signups with an unverified Google email refused; `SOCIALACCOUNT_LOGIN_ON_GET` and google `VERIFIED_EMAIL` removed; Google button is a POST form with CSRF — Done 2026-10-31 (see GOOGLE_AUTH_NOTES.md)
 - Dead role code removed: `accounts/signals.py` deleted, `ready()` removed from `accounts/apps.py`, adapter `save_user` override removed — Done 2026-10-31
+- Receipt lock: one `is_locked` (PAID or CANCELLED); every write view refuses locked receipts (incl. mark-paid on CANCELLED); `payment_status`/`payment_date` removed from `BillingReceiptForm`, so status changes only via the mark-paid/cancel actions — Done 2026-10-31
+- ClinicSettings duplicates removed: first `logo` and first `opening_time` (both identical to the kept definitions; migrations only ever had one of each, so no migration expected) — Done 2026-10-31
 
 ### DONE (2026-10-16)
 - Git tidy + backup branch `backup/pre-audit-2026-10-16` pushed
@@ -206,8 +208,6 @@ does everything): [backend] = Python (models, views, settings),
 ### SMALL FIXES (no schema change), one commit each
 - **SECURITY** — `accounts/management/commands/create_admin.py` has a hardcoded password committed to a public repo. Fix: prompt for the password with `getpass` instead of a literal. Must be fixed before production, and any admin created with this command must get a new password. [backend]
 - Normalize (lowercase) emails on save — the walk-in form doesn't (`accounts/forms.py` `WalkInOwnerForm.clean_email`) [backend]
-- Receipt lock must also cover CANCELLED; remove duplicate is_locked (billing/models.py) [backend] — verified: `is_locked` defined twice (`billing/models.py:170` and `:197`), both check PAID only
-- ClinicSettings.logo is defined twice (appointments/models.py:16 and :22); remove the first — check whether the duplicate is reflected in any migration before touching it [backend]
 - Flake8 cleanup [backend] — backend/.flake8 added in the docs commit; current count: 51.
 - Re-save requirements.txt as UTF-8 [backend] — verified: currently UTF-16 LE with CRLF
 - Logout always redirects to owner_login, even for admins [backend]

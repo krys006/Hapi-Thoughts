@@ -163,21 +163,6 @@
             {{ form.discount_note }}
           </div>
 
-          <div class="form-row">
-            <div class="form-group">
-              <label for="{{ form.payment_status.id_for_label }}" class="form-label">
-                Payment Status
-              </label>
-              {{ form.payment_status }}
-            </div>
-            <div class="form-group">
-              <label for="{{ form.payment_date.id_for_label }}" class="form-label">
-                Payment Date <span class="form-optional">(optional)</span>
-              </label>
-              {{ form.payment_date }}
-            </div>
-          </div>
-
           {% if form.non_field_errors %}
             <div class="form-error-block">
               {% for error in form.non_field_errors %}
@@ -218,7 +203,7 @@
                   <th>Qty</th>
                   <th>Unit Price</th>
                   <th>Subtotal</th>
-                  <th></th>
+                  {% if not receipt.is_locked %}<th></th>{% endif %}
                 </tr>
               </thead>
               <tbody>
@@ -228,16 +213,18 @@
                     <td>{{ item.quantity }}</td>
                     <td>₱{{ item.unit_price|floatformat:2 }}</td>
                     <td>₱{{ item.subtotal|floatformat:2 }}</td>
-                    <td>
-                      <form method="post"
-                        action="{% url 'admin_billing_item_delete' item.pk %}">
-                        {% csrf_token %}
-                        <button type="submit" class="btn-danger-sm"
-                          onclick="return confirm('Remove this item?')">
-                          Remove
-                        </button>
-                      </form>
-                    </td>
+                    {% if not receipt.is_locked %}
+                      <td>
+                        <form method="post"
+                          action="{% url 'admin_billing_item_delete' item.pk %}">
+                          {% csrf_token %}
+                          <button type="submit" class="btn-danger-sm"
+                            onclick="return confirm('Remove this item?')">
+                            Remove
+                          </button>
+                        </form>
+                      </td>
+                    {% endif %}
                   </tr>
                 {% endfor %}
               </tbody>
@@ -274,7 +261,8 @@
             </div>
           </div>
 
-          <!-- Add item form -->
+          <!-- Add item form — hidden if locked (the view also refuses) -->
+          {% if not receipt.is_locked %}
           <div class="add-item-form">
             <h3 class="form-section-title">Add Item</h3>
             <form method="post"
@@ -327,6 +315,7 @@
               <button type="submit" class="btn-secondary">Add Item</button>
             </form>
           </div>
+          {% endif %}
 
         </div>
 
@@ -340,7 +329,8 @@
         <div class="action-card">
           <h2 class="action-card-title">Actions</h2>
 
-          {% if receipt.payment_status == 'pending' %}
+          <!-- Only PENDING (unlocked) receipts get status actions -->
+          {% if not receipt.is_locked %}
             <form method="post"
               action="{% url 'admin_receipt_mark_paid' receipt.pk %}">
               {% csrf_token %}
@@ -358,10 +348,6 @@
                 Cancel Receipt
               </button>
             </form>
-          {% endif %}
-
-          {% if receipt.payment_status == 'cancelled' %}
-            <p class="text-muted">This receipt has been cancelled.</p>
           {% endif %}
 
           <hr class="action-divider" />
