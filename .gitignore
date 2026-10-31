@@ -27,3 +27,8 @@ backend/.env
 Thumbs.db
 
 staticfiles/
+
+# Tailwind standalone CLI (about 110 MB, downloaded per machine, never committed)
+backend/bin/
+tailwindcss*.exe
+node_modules/
