@@ -171,7 +171,7 @@ updates. Wait for approval before editing anything.
 | Django version | 5.1.7 in SYSTEM_INSTRUCTIONS.md and the claude.ai Project instructions (Project instructions: unverified) | 5.2.12 (`requirements.txt:11`; STACK.md already correct) | Batch 3 (FEATURES/STACK/.env.example, plus SYSTEM_INSTRUCTIONS.md and the claude.ai Project instructions) |
 | Media storage | Cloudinary (STACK.md) | Supabase Storage via django-storages S3 backend | Batch 3 |
 | Email | Gmail SMTP (STACK, FEATURES, BRIEF, SYSTEM_INSTRUCTIONS, `.env.example`) | Brevo + django-anymail (`settings.py:168-191`) | CONVENTIONS §14: fixed in this batch. STACK, FEATURES, BRIEF, SYSTEM_INSTRUCTIONS, `.env.example`: batch 3 |
-| Role assignment | Signal | `accounts/adapters.py:30-34` (`save_user`). The receiver in `accounts/signals.py` is dead code (backlog). No current doc still claims a signal for roles; GOOGLE_AUTH_NOTES.md is already correct. | Nothing left to fix in docs |
+| Role assignment | Signal / adapter `save_user` | Model default: `User.role` defaults to `pet_owner` (`accounts/models.py:19-23`). The adapter no longer sets the role, and `accounts/signals.py` was deleted (2026-10-31). | GOOGLE_AUTH_NOTES.md updated 2026-10-31 |
 | `MedicalRecord.appointment` | ForeignKey | OneToOneField (`medical/models.py:18`). DATA_MODELS.md:312 and :330 already say OneToOne. | Already correct; re-check in batch 2 (DATA_MODELS) |
 | PDF receipts | server-side PDF (FEATURES.md:319, SYSTEM_INSTRUCTIONS) | browser print + `@media print` CSS (`shared/billing/_receipt_print.html`) | Batch 3 |
 | Deploy branch | `main` (STACK.md; CONVENTIONS §13) | `rebuild` | CONVENTIONS §13: fixed in this batch. STACK.md: batch 3 |
@@ -189,6 +189,8 @@ does everything): [backend] = Python (models, views, settings),
 
 ### DONE (2026-10-31)
 - Local dev database: local PostgreSQL 18 `hapivet_dev`, no longer shared with live (see §3) — Done 2026-10-31
+- Google sign-in hardening (adapters.py): auto-link only when Google's `email_verified` is true; admins never sign in with Google (linked or not); case-insensitive email match, refusing on multiple matches; inactive users refused; new signups with an unverified Google email refused; `SOCIALACCOUNT_LOGIN_ON_GET` and google `VERIFIED_EMAIL` removed; Google button is a POST form with CSRF — Done 2026-10-31 (see GOOGLE_AUTH_NOTES.md)
+- Dead role code removed: `accounts/signals.py` deleted, `ready()` removed from `accounts/apps.py`, adapter `save_user` override removed — Done 2026-10-31
 
 ### DONE (2026-10-16)
 - Git tidy + backup branch `backup/pre-audit-2026-10-16` pushed
@@ -203,8 +205,7 @@ does everything): [backend] = Python (models, views, settings),
 
 ### SMALL FIXES (no schema change), one commit each
 - **SECURITY** — `accounts/management/commands/create_admin.py` has a hardcoded password committed to a public repo. Fix: prompt for the password with `getpass` instead of a literal. Must be fixed before production, and any admin created with this command must get a new password. [backend]
-- Google sign-in (adapters.py) — **security — do first**: only auto-link when extra_data email_verified is true; never auto-link admin accounts; case-insensitive email match handling multiple matches; remove SOCIALACCOUNT_LOGIN_ON_GET and make the Google button a POST form [both] — verified: `email_verified` is not checked in adapters.py; `SOCIALACCOUNT_LOGIN_ON_GET = True` at `settings.py:161`
-- Remove dead role code (signals.py receiver + apps.py ready import; `if not user.role` in adapter save_user) — touches the same files as the Google sign-in fix [backend]
+- Normalize (lowercase) emails on save — the walk-in form doesn't (`accounts/forms.py` `WalkInOwnerForm.clean_email`) [backend]
 - Receipt lock must also cover CANCELLED; remove duplicate is_locked (billing/models.py) [backend] — verified: `is_locked` defined twice (`billing/models.py:170` and `:197`), both check PAID only
 - ClinicSettings.logo is defined twice (appointments/models.py:16 and :22); remove the first — check whether the duplicate is reflected in any migration before touching it [backend]
 - Flake8 cleanup [backend] — backend/.flake8 added in the docs commit; current count: 51.
@@ -225,6 +226,7 @@ does everything): [backend] = Python (models, views, settings),
 - Double-booking: form-only check, no DB constraint or locking — decide constraint vs transaction/row lock [backend] — verified: no `UniqueConstraint`, `unique_together`, `select_for_update` or `atomic` in `appointments/`
 - PetDeletionRequest: cancelling deletes the row; should become a CANCELLED status (choices change = new migration) [backend] — verified: `pets/views.py:518`
 - Upload filename sanitization (Supabase rejects non-ASCII names); callable upload_to = new migration [backend] — verified: all `upload_to` values are plain strings
+- Walk-ins without email are saved with `email=""` (`accounts/views.py:340,348`), which collides on the unique email constraint for the second one — decide nullable email vs. another approach [backend]
 - Resend failed emails: review b6e0ad3's logic (written for Gmail SMTP before the Brevo switch in 8548613; must catch anymail errors). Model/migration already synced. [both]
 
 ### POLISH

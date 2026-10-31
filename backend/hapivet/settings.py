@@ -38,17 +38,14 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-
     # Required by django-allauth
     "django.contrib.sites",
-
     # Third party
     "allauth",
     "allauth.account",
     "allauth.socialaccount",
     "allauth.socialaccount.providers.google",
     "anymail",
-
     # Project apps
     "accounts",
     "pets",
@@ -58,10 +55,8 @@ INSTALLED_APPS = [
     "notifications",
     "health",
     "dashboard",
-
     # Optional utilities
     "django_extensions",
-
     # Cloud storage for media files (supabase)
     "storages",
 ]
@@ -147,7 +142,6 @@ SOCIALACCOUNT_PROVIDERS = {
     "google": {
         "SCOPE": ["profile", "email"],
         "AUTH_PARAMS": {"access_type": "online"},
-        "VERIFIED_EMAIL": True,  # tell allauth Google emails are pre-verified
         "APP": {
             "client_id": env("GOOGLE_CLIENT_ID", default=""),
             "secret": env("GOOGLE_CLIENT_SECRET", default=""),
@@ -158,7 +152,6 @@ SOCIALACCOUNT_PROVIDERS = {
 
 SOCIALACCOUNT_AUTO_SIGNUP = True
 SOCIALACCOUNT_EMAIL_VERIFICATION = "none"  # Google already verified the email
-SOCIALACCOUNT_LOGIN_ON_GET = True  # skip the allauth confirmation page
 SOCIALACCOUNT_EMAIL_REQUIRED = True
 
 SOCIALACCOUNT_ADAPTER = "accounts.adapters.CustomSocialAccountAdapter"
@@ -194,7 +187,7 @@ else:
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"  # collectstatic output for production
-#STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+# STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 
 # ─── Static & Media Files (Cloud Storage) ────────────────────────────────────
@@ -209,7 +202,7 @@ if env.bool("USE_S3", default=False):
     AWS_QUERYSTRING_AUTH = False
     AWS_S3_CUSTOM_DOMAIN = env("AWS_S3_CUSTOM_DOMAIN", default="")
     AWS_LOCATION = ""
-    
+
     MEDIA_URL = env("MEDIA_URL")
 
     STORAGES = {

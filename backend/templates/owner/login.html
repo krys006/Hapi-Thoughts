@@ -138,8 +138,10 @@
                 <div class="auth-divider-line"></div>
             </div>
 
-            <a href="{% provider_login_url 'google' %}" class="block w-full">
-                <button type="button" class="gsi-material-button w-full">
+            {# POST + CSRF: Google sign-in must not start from a plain link (SOCIALACCOUNT_LOGIN_ON_GET is off) #}
+            <form method="post" action="{% provider_login_url 'google' %}" class="block w-full">
+                {% csrf_token %}
+                <button type="submit" class="gsi-material-button w-full">
                     <div class="gsi-material-button-state"></div>
                     <div class="gsi-material-button-content-wrapper">
                         <div class="gsi-material-button-icon">
@@ -155,7 +157,7 @@
                         <span style="display: none;">Sign in with Google</span>
                     </div>
                 </button>
-            </a>
+            </form>
 
             <div class="auth-footer-text">
                 Don't have an account?
