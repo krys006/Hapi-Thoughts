@@ -111,6 +111,8 @@ Never use per-app template folders.
   (header, bell, sidebar, flash messages).
 - `layouts/admin.html` is the base for admin pages migrated to the new UI
   (see §10).
+- `layouts/auth.html` is the base for the admin login: a standalone card
+  with no sidebar (see §10).
 - `base.html` is the base for standalone auth pages (login, register,
   password reset, email verification, onboarding).
 - HTMX partials are prefixed with `_` and never extend a base template.
@@ -129,10 +131,11 @@ templates/
 │   ├── status_badge.html
 │   ├── flash_messages.html
 │   └── empty_state.html
-├── layouts/                          ← New admin base (§10, §11)
+├── layouts/                          ← New bases (§10, §11)
 │   ├── admin.html
 │   ├── admin_sidebar.html
 │   ├── admin_nav_link.html
+│   ├── auth.html
 │   └── bell_count.html
 ├── shared/                           ← Used by both roles
 │   ├── clinic_info.html
@@ -556,12 +559,13 @@ class AppointmentBookingForm(forms.ModelForm):
 
 ## 10. Template Conventions
 
-### Three base templates
+### Four base templates
 | Base | Used by | What it provides |
 |---|---|---|
 | `layouts/admin.html` | Admin pages migrated to the new UI (e.g. `admin/dashboard/index.html`) | Sidebar with count badges and logout, top bar with search and Notifications, flash messages, compiled `app.css`, vendored HTMX, CSRF + `X-Admin-Layout` via `hx-headers`, confirm modal |
+| `layouts/auth.html` | `admin/login.html` | Admin login: standalone card on a violet background, `app.css`, no HTMX |
 | `base_dashboard.html` | Logged-in pages not migrated yet, admin and owner (e.g. `admin/billing/receipt_detail.html`, `owner/pets/list.html`, `shared/clinic_info.html`) | Header with search and bell, role-based sidebar, flash messages, Tailwind + HTMX, CSRF header for HTMX, confirm modal |
-| `base.html` | Standalone auth pages (e.g. `owner/login.html`, `owner/register.html`, `admin/login.html`, password reset, `owner/onboarding/step1.html`) | Bare page with Tailwind + HTMX, no header or sidebar |
+| `base.html` | Standalone auth pages (e.g. `owner/login.html`, `owner/register.html`, password reset, `owner/onboarding/step1.html`) | Bare page with Tailwind + HTMX, no header or sidebar |
 
 Migrated pages never loop over `messages` (the layout includes
 `components/flash_messages.html`) and load no `static/css/admin/` file.
@@ -580,6 +584,11 @@ Migrated pages never loop over `messages` (the layout includes
 {% block extra_js %}{% endblock %}    ← page JS, end of <body>; the receipt
                                          print partial goes here (it must be
                                          a direct child of <body>)
+
+<!-- layouts/auth.html -->
+{% block title %}Hapi Vet{% endblock %}
+{% block content %}{% endblock %}     ← the card, centred inside <main>
+{% block extra_js %}{% endblock %}    ← page JS, end of <body>
 
 <!-- base_dashboard.html -->
 {% block title %}Hapi Vet{% endblock %}
@@ -653,7 +662,7 @@ return render(request, 'template.html', {
 ### Two setups during the admin UI overhaul
 | Pages | Tailwind | Loaded by |
 |---|---|---|
-| Admin pages migrated to the new layout (from Slice 1) | Compiled `static/css/app.css` (Tailwind v4.3.3, standalone CLI) | `layouts/admin.html` |
+| Admin pages migrated to the new layout (from Slice 1) and the admin login | Compiled `static/css/app.css` (Tailwind v4.3.3, standalone CLI) | `layouts/admin.html`, `layouts/auth.html` |
 | Everything else (owner pages, auth pages, admin pages not migrated yet) | Play CDN `https://cdn.tailwindcss.com` | `base.html`, `base_dashboard.html` |
 
 - Never load the CDN script in the new layout, and never load `app.css` from the old bases.
@@ -712,7 +721,7 @@ The main admin user is an elderly vet. Every migrated admin page follows these:
 ### Components (`templates/components/`)
 | Component | Usage |
 |---|---|
-| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Lucide 1.66.0 (ISC), 29 icons. To add one, copy its shapes from the Lucide SVG file. |
+| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Lucide 1.66.0 (ISC), 30 icons. To add one, copy its shapes from the Lucide SVG file. |
 | `form_field.html` | `{% include "components/form_field.html" with field=form.email %}`. Label, control, help text, errors. Needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple field uses it. |
 | `status_badge.html` | `{% include "components/status_badge.html" with status=obj.status label=obj.get_status_display %}` |
 | `flash_messages.html` | Rendered once by the admin layout; pages must not loop over `messages`. |

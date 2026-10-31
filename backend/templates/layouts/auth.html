@@ -1,0 +1,17 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Hapi Vet{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+{# Standalone page (no sidebar) on a soft violet background, card centred #}
+<body class="min-h-screen bg-gradient-to-b from-violet-100 to-violet-50">
+  <main class="flex min-h-screen items-center justify-center px-4 py-10">
+    {% block content %}{% endblock %}
+  </main>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

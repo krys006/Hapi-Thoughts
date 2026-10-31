@@ -1,6 +1,6 @@
 # HANDOFF.md — Hapi Vet Project State
 
-> Last updated: 2026-11-01, after Slice 1 of the admin UI overhaul
+> Last updated: 2026-11-01, after Slice 2 of the admin UI overhaul
 > (post-break audit: 2026-10-16).
 > §3–§5 describe the verified state as of those dates. Anything marked
 > "(unverified)" could not be confirmed from the code.
@@ -218,9 +218,9 @@ modals in `static/js/admin/*.js` are not ported. Approved mockups: dashboard
 to needs-approval) and the appointments list.
 - Slice 0 foundations: Tailwind build, pinned HTMX 2.0.11 in `static/vendor/`, components — Done 2026-10-31
 - Slice 1 shell + dashboard: new `layouts/admin.html` with sidebar badges and logout; top bar search and Notifications; admin notification panel; redesigned dashboard with day schedule and mini calendar; shell context processor; Manila dates; 403/HX-Redirect for HTMX — Done 2026-11-01
-- Slice 1.5 — new frame on all admin pages (legacy CSS layer); sidebar trimmed to 9 items in 3 groups: Deletion requests is a tab on Pets, Services a tab on Billing, Clinic info a button in Clinic settings — in progress
-- Slice 2 admin login (next): logo bug, debug text, `base.html` messages inside a comment
-- Slice 3 appointments (list, detail, walk-in, calendar page)
+- Slice 1.5 — new frame on all admin pages (legacy CSS layer); sidebar trimmed to 9 items in 3 groups: Deletion requests is a tab on Pets, Services a tab on Billing, Clinic info a button in Clinic settings — Done 2026-11-01
+- Slice 2 admin login: new `layouts/auth.html`; redesigned admin login (clinic logo/name, large fields, Show password, Caps Lock warning, one generic error); `login.css` retired — Done 2026-11-01
+- Slice 3 appointments (list, detail, walk-in, calendar page) — next
 - Slice 4 pets and owners (incl. the broken `<a>` tags in deletion_requests)
 - Slice 5 medical
 - Slice 6 billing (receipt print must stay a direct child of `<body>`, with no transform/filter on any ancestor)
@@ -248,6 +248,10 @@ to needs-approval) and the appointments list.
 - `vaccinations_due` counts corrected vaccinations; `followups_due` includes archived pets [backend]
 - DATA_MODELS and HANDOFF §6 say MedicalRecord has `is_corrected`; only Vaccination does — fix the docs [backend]
 - owner_login and admin_login ignore ?next=, so after logging in users always land on their dashboard instead of the page they were on [backend]
+- `base.html`'s "commented-out" messages loop still runs (Django tags run inside HTML comments), silently using up messages on owner pages that have no loop of their own. Fix on the owner side: delete the block, don't un-comment it. [frontend]
+- Admin password reset: the reset flow is owner-branded and ends on the owner login; build an admin version if needed. [both]
+- Admin login has no rate limiting or lockout. [backend]
+- Password reset email hard-codes `http://` (ignores the protocol). [backend]
 
 ### FRONTEND BRANCH REVIEW
 - B3: review the `frontend/hannah-user` branch (owner templates) and decide, piece by piece, what to bring in and what to discard. It is no longer under active development. Check form field names and template tags against the current views; base_dashboard.html will conflict. [frontend]
