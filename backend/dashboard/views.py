@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
 from django.shortcuts import redirect, render
@@ -16,8 +18,8 @@ def _get_admin_dashboard_context(request):
     Shared by the full-page view and the HTMX polling partial so
     both always stay in sync with the same query logic.
     """
-    today = timezone.now().date()
-    week_end = today + timezone.timedelta(days=7)
+    today = timezone.localdate()
+    week_end = today + timedelta(days=7)
 
     # ── Summary stats ──────────────────────────────────────────────────────
     todays_appointments = Appointment.objects.filter(
