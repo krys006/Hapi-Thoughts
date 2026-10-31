@@ -256,7 +256,7 @@ Records all appointment bookings.
 | `time` | TimeField | — | Appointment time slot |
 | `status` | CharField | max_length=20, choices=STATUS_CHOICES | See flow below |
 | `reason` | TextField | blank=True | Reason for visit |
-| `notes` | TextField | blank=True | Admin notes |
+| `notes` | TextField | blank=True | Internal admin notes — never shown to owners |
 | `is_walk_in` | BooleanField | default=False | True for walk-in appointments |
 | `cancellation_reason` | CharField | max_length=50, blank=True, choices=CANCEL_CHOICES | — |
 | `cancellation_detail` | TextField | blank=True | Used when reason is 'other' |
@@ -279,8 +279,15 @@ NO_SHOW = 'no_show'
 ```
 PENDING → CONFIRMED → COMPLETED
                     → NO_SHOW
-       → CANCELLED
+PENDING or CONFIRMED → CANCELLED
 ```
+- Admin reject: PENDING → CANCELLED.
+- Cancel (admin or owner): PENDING or CONFIRMED → CANCELLED.
+- Admin reschedule (PENDING or CONFIRMED): the original becomes CANCELLED and
+  a new appointment is created as CONFIRMED with `rescheduled_from` = the
+  original (the clinic chose the slot). An owner reschedule creates it as PENDING.
+- COMPLETED / NO_SHOW: only from CONFIRMED, on or after the appointment date.
+- Walk-ins are created as CONFIRMED.
 
 **Cancellation reason choices:**
 ```python

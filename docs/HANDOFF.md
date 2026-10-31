@@ -242,8 +242,10 @@ to needs-approval) and the appointments list.
 - Admin sidebar has no logout link [frontend] → UI overhaul Slice 1 — Done 2026-11-01
 - Logout accepts GET; convert to POST form (low priority) [both]
 - Pricing on booking page: bring over commit 8b45d23 from backend-dev (no migration) [both]
-- UTC dates: remaining `timezone.now().date()` in booking/slot logic and other views — `appointments/utils.py` `get_available_slots`, `is_slot_available`, `get_available_dates`; `appointments/views.py:177`, `:501`; `dashboard/views.py` `_get_owner_dashboard_context`; `billing/views.py:203`, `:368`; `medical/views.py:87`, `:318`; plus `appointments/forms.py`, `pets/forms.py`, both `models.py` files and `send_reminders.py` → use `timezone.localdate()`, with tests for the same-day cutoff [backend]
+- UTC dates: remaining `timezone.now().date()` in booking/slot logic and other views — `appointments/utils.py` `get_available_slots`, `is_slot_available`, `get_available_dates`; `appointments/views.py` `owner_appointment_list`, `admin_appointment_list`; `dashboard/views.py` `_get_owner_dashboard_context`; `billing/views.py:203`, `:368`; `medical/views.py:87`, `:318`; plus `appointments/forms.py` (`AdminAppointmentRescheduleForm.clean_date` done 2026-11-01), `pets/forms.py`, both `models.py` files and `send_reminders.py` → use `timezone.localdate()`, with tests for the same-day cutoff [backend]
 - ClinicSettings is fetched two ways: `get_or_create(pk=1)` on the settings page vs `.first()` everywhere else — add one helper [backend]
+- Admin reschedule uses owner booking limits (30-day window, same-day cutoff); same-day slots aren't filtered by the current time [backend]
+- Reschedule notification uses type `appointment_approved` (follows the owner's status-email preference) [backend]
 - `notification_mark_read` view is unused (dead code) [backend]
 - `vaccinations_due` counts corrected vaccinations; `followups_due` includes archived pets [backend]
 - DATA_MODELS and HANDOFF §6 say MedicalRecord has `is_corrected`; only Vaccination does — fix the docs [backend]
@@ -303,7 +305,11 @@ built-in auth views, the `HapiVetPasswordResetView` subclass, and the root
 `RedirectView` in `hapivet/urls.py`) are the only allowed class-based views.
 
 **Business rules:** one owner per pet. Appointments go PENDING → CONFIRMED
-(walk-ins are created as CONFIRMED). Only Admin writes medical records.
+(walk-ins are created as CONFIRMED). Admin can cancel PENDING or CONFIRMED
+appointments. An admin reschedule cancels the original and creates a new
+CONFIRMED appointment linked by `rescheduled_from` (the clinic chose the
+slot). Appointment notes are internal (never shown to owners). Only Admin
+writes medical records.
 Medical records and vaccinations are never deleted (corrections use
 `is_corrected` + `correction_note`). Private notes are never visible to
 owners. Receipts lock when PAID or CANCELLED. No double-booking. Archives are soft

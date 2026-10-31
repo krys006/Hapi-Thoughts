@@ -187,8 +187,9 @@ class Appointment(models.Model):
     @property
     def is_cancellable_freely(self):
         """
-        Pet owner can cancel freely if more than 24 hours before appointment.
-        Within 24 hours requires Admin approval (handled at view level).
+        True if the appointment is more than 24 hours away. Only drives the
+        late-cancellation warning on the owner page; owners can still cancel
+        at any time (Admin approval for late cancellations isn't built).
         """
         from django.utils import timezone
         import datetime
