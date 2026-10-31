@@ -13,9 +13,9 @@
 | Language | Python | 3.10.11 |
 | Framework | Django | 5.2.12 |
 | Database | PostgreSQL | port 5432 |
-| Styling | Tailwind CSS | CDN (Phase 1) → django-tailwind (Phase 2) |
+| Styling | Tailwind CSS | v4.3.3 standalone CLI → compiled `static/css/app.css` for migrated admin pages; Play CDN on pages not migrated yet |
 | Template Engine | Django Templates | built-in |
-| Frontend Interactivity | HTMX | latest CDN |
+| Frontend Interactivity | HTMX | 2.0.11 vendored in `static/vendor/` for migrated admin pages; `@latest` CDN on old pages until migrated |
 | Version Control | Git + GitHub | — |
 | App Hosting | Render | free tier |
 | Database Hosting | Supabase | free tier, permanent |
@@ -40,31 +40,17 @@
 
 ---
 
-## 3. Tailwind CSS — Two Phase Plan
+## 3. Tailwind CSS
 
-### Phase 1 (Current) — CDN
-Tailwind is loaded via CDN in the base template. Used during backend
-development to apply basic styling to templates without a build step.
+Since the 2026-10-31 admin UI overhaul, Tailwind v4.3.3 runs through the
+standalone CLI (a single Windows .exe, no Node.js). It compiles
+`backend/assets/tailwind/input.css` into `backend/static/css/app.css`, which
+is committed, so Render serves it through WhiteNoise with no build step.
+Pages that haven't been migrated yet keep the Play CDN until their slice.
 
-```html
-<script src="https://cdn.tailwindcss.com"></script>
-```
-
-No Node.js required. No build process. Quick to use.
-
-**Limitation:** No custom config, no purging of unused CSS.
-Acceptable for development — not for production.
-
-### Phase 2 — django-tailwind (Frontend Integration)
-When the frontend teammate's Figma design is finalized, the project
-migrates to `django-tailwind` for:
-
-- Full `tailwind.config.js` customization
-- Custom color palette and spacing from Figma design system
-- CSS purging for production builds
-- Proper component class definitions
-
-**Trigger for Phase 2:** Frontend Figma design finalized + teammate ready to integrate.
+The earlier "Phase 2: django-tailwind" plan is dropped: the standalone CLI
+gives the same custom config and purged output without Node or an extra
+Django app. Build commands and rules: CONVENTIONS.md §11.
 
 ---
 
@@ -116,10 +102,15 @@ HTMX handles all dynamic UI updates without writing manual JavaScript.
 - Partial HTML responses returned from Django views
 - Only the relevant section of the page updates — not a full reload
 
-### Loading via CDN
+### Loading
+Migrated admin pages load the vendored, pinned file:
 ```html
-<script src="https://unpkg.com/htmx.org@latest"></script>
+<script src="{% static 'vendor/htmx-2.0.11.min.js' %}"></script>
 ```
+Old pages still use `https://unpkg.com/htmx.org@latest` until migrated.
+To upgrade: download the new `dist/htmx.min.js`, check it has no
+`sourceMappingURL` line (the manifest storage would fail on a missing .map),
+save it as `vendor/htmx-<version>.min.js`, and update the script tag.
 
 ---
 

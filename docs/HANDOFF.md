@@ -1,6 +1,6 @@
 # HANDOFF.md — Hapi Vet Project State
 
-> Last updated: 2026-10-31, after the local dev database switch
+> Last updated: 2026-10-31, after Slice 0 of the admin UI overhaul
 > (post-break audit: 2026-10-16).
 > §3–§5 describe the verified state as of those dates. Anything marked
 > "(unverified)" could not be confirmed from the code.
@@ -205,13 +205,36 @@ does everything): [backend] = Python (models, views, settings),
 - B1: test trial-run and PR into rebuild (deploys frontend merges, 0003 sync, receipt styles)
 - C: docs reconciliation (batches 2–3: DATA_MODELS; FEATURES/STACK/.env.example)
 
+### ADMIN UI OVERHAUL (in progress)
+Decisions (2026-10-31): Tailwind v4.3.3 standalone CLI with a compiled,
+committed `static/css/app.css`; `templates/components/` includes; a new
+`layouts/admin.html`, with admin pages migrated area by area (owner pages stay
+on `base_dashboard.html` for now). Violet primary, blue links, status colours
+unchanged. Light only, no dark mode. Desktop-first but usable on a phone.
+Senior-friendly rules in CONVENTIONS §11 (the main user is an elderly vet).
+List pages link to full detail pages; the DOM-scraping split panes and
+modals in `static/js/admin/*.js` are not ported. Approved mockups: dashboard
+(stat cards; today's schedule next to a mini calendar; recent activity next
+to needs-approval) and the appointments list.
+- Slice 0 foundations: Tailwind build, pinned HTMX 2.0.11 in `static/vendor/`, components — Done 2026-10-31
+- Slice 1 shell + dashboard (next): `layouts/admin.html`; sticky sidebar with icons, count badges and logout; page header with search and a labelled Notifications button; context processor (unread_count, clinic, sidebar counts); dashboard rebuild with mini calendar (HTMX day switch); fix the `_panel.html` listener build-up; poll only while the tab is visible; delete unused header.css / header_notifications.*
+- Slice 2 admin login (logo bug, debug text, `base.html` messages inside a comment)
+- Slice 3 appointments (list, detail, walk-in, calendar page)
+- Slice 4 pets and owners (incl. the broken `<a>` tags in deletion_requests)
+- Slice 5 medical
+- Slice 6 billing (receipt print must stay a direct child of `<body>`, with no transform/filter on any ancestor)
+- Slice 7 health + clinic settings (`escapejs` on article titles; server-rendered settings tabs)
+- Slice 8 admin mobile pass; then the owner side
+- Open: `form_field.html` needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple form is migrated.
+- Every slice: rebuild `app.css` before committing; test at 150% zoom; re-run collectstatic locally once a template references `app.css` or vendored HTMX (tests use the manifest).
+
 ### SMALL FIXES (no schema change), one commit each
 - **SECURITY** — `accounts/management/commands/create_admin.py` has a hardcoded password committed to a public repo. Fix: prompt for the password with `getpass` instead of a literal. Must be fixed before production, and any admin created with this command must get a new password. [backend]
 - Normalize (lowercase) emails on save — the walk-in form doesn't (`accounts/forms.py` `WalkInOwnerForm.clean_email`) [backend]
 - Flake8 cleanup [backend] — backend/.flake8 added in the docs commit; current count: 51.
 - Re-save requirements.txt as UTF-8 [backend] — verified: currently UTF-16 LE with CRLF
 - Logout always redirects to owner_login, even for admins [backend]
-- Admin sidebar has no logout link [frontend]
+- Admin sidebar has no logout link [frontend] → UI overhaul Slice 1
 - Logout accepts GET; convert to POST form (low priority) [both]
 - Pricing on booking page: bring over commit 8b45d23 from backend-dev (no migration) [both]
 
@@ -230,10 +253,10 @@ does everything): [backend] = Python (models, views, settings),
 - Resend failed emails: review b6e0ad3's logic (written for Gmail SMTP before the Brevo switch in 8548613; must catch anymail errors). Model/migration already synced. [both]
 
 ### POLISH
-- Bell & header: context processor providing unread_count + clinic (fixes red dot, header logo, admin login logo); then header.css / header_notifications.css / header_notifications.js fixes (Tailwind conflicts, overflow clipping, duplicate click-outside script in _panel.html, stuck active class) [both]
-- ~29 multi-line <a> tags in 19 templates [frontend] — verified: 29 in 19 files
+- Bell & header: context processor providing unread_count + clinic (fixes red dot, header logo, admin login logo); then header.css / header_notifications.css / header_notifications.js fixes (Tailwind conflicts, overflow clipping, duplicate click-outside script in _panel.html, stuck active class) [both] → UI overhaul Slice 1
+- Multi-line `<a>` tags [frontend] — 2026-10-31 audit: 53 in admin/shared templates across 20 files, plus 2 broken tags in `admin/pets/deletion_requests.html`. Fixed slice by slice as files are touched.
 - Views over 50 lines (admin_walkin_create = 111) [backend]
-- Mobile responsiveness [frontend]
+- Mobile responsiveness [frontend] → UI overhaul Slice 8
 
 ### HOUSEKEEPING
 - Consider moving the repo out of OneDrive
@@ -241,7 +264,7 @@ does everything): [backend] = Python (models, views, settings),
 - Local master is behind origin/master — verified: 7 commits behind
 - Hosting: Render free tier has uptime problems (cause unconfirmed). Candidates: Railway (Hobby, Asia region), Fly.io, VPS with Coolify/Appliku. On any host change update ALLOWED_HOSTS, CSRF_TRUSTED_ORIGINS, Google OAuth redirect URIs, the Django sites domain and all env vars.
 - Production DB: plan is a NEW Supabase project (Singapore) for the clinic handover, not wiping the current one; the current project becomes staging. At cutover: update DATABASE_URL, AWS_*, MEDIA_URL and AWS_S3_CUSTOM_DOMAIN on Render, migrate, and create the admin with the clinic's real email.
-- django-tailwind migration (STACK.md phase 2), not started. [frontend]
+- django-tailwind: no longer planned; replaced by the Tailwind standalone CLI (CONVENTIONS §11).
 - Project documentation report: needs screenshots, ERD (Mermaid ERD already generated) and source artifacts. Deadline: ___
 - Add .gitattributes (* text=auto) to stop LF/CRLF warnings — deferred until after B1 so line-ending churn doesn't mix with a deploy.
 
@@ -286,13 +309,16 @@ deletes.
 - After bulk imports with explicit PKs, reset sequences.
 
 **Templates and HTMX:**
-- Write every `<a>` tag on one line. About 29 existing violations are
-  tracked in the §5 backlog (POLISH).
+- Write every `<a>` tag on one line. 53 existing violations
+  (admin/shared) are tracked in the §5 backlog (POLISH).
 - HTMX swallows 500 errors silently, so check server logs.
 - Semantic HTML, no business logic in templates, HTMX partials prefixed
   with `_`, and short comments above complex template logic.
-- Styling uses Tailwind utility classes plus per-page CSS files in
-  `static/css/admin|owner|shared/`.
+- Styling: migrated admin pages use the compiled `static/css/app.css`
+  (Tailwind v4, CONVENTIONS §11) and `templates/components/`; all other
+  pages still use the Tailwind CDN plus per-page CSS files in
+  `static/css/admin|owner|shared/`. Rebuild `app.css` before every
+  frontend commit.
 - Keep views under about 50 lines and move shared logic to `utils.py`.
 
 **Git:**

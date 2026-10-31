@@ -30,6 +30,8 @@ Hapi-Thoughts/                  ← GitHub repo root
 │   ├── dashboard/              ← admin and pet owner dashboard views
 │   ├── templates/              ← all HTML templates (centralized)
 │   ├── static/                 ← all static files (centralized)
+│   ├── assets/tailwind/input.css ← Tailwind source for static/css/app.css (outside static/ on purpose)
+│   ├── bin/                    ← Tailwind CLI tailwindcss.exe (gitignored, never commit)
 │   ├── media/                  ← uploaded files (runtime, never commit)
 │   ├── venv/                   ← virtual environment (never commit)
 │   ├── .env                    ← environment variables (never commit)
@@ -110,12 +112,21 @@ Never use per-app template folders.
 - `base.html` is the base for standalone auth pages (login, register,
   password reset, email verification, onboarding).
 - HTMX partials are prefixed with `_` and never extend a base template.
+- `components/` holds include-only building blocks for the new admin UI
+  (see §11). They have no `_` prefix (that prefix means "HTMX partial")
+  and never extend a base template.
 - Owner emails are plain-text templates in `owner/emails/*.txt`.
 
 ```
 templates/
 ├── base.html                         ← Auth/standalone page base
 ├── base_dashboard.html               ← Dashboard base (admin + owner)
+├── components/                       ← Include-only UI building blocks (§11)
+│   ├── icon.html
+│   ├── form_field.html
+│   ├── status_badge.html
+│   ├── flash_messages.html
+│   └── empty_state.html
 ├── shared/                           ← Used by both roles
 │   ├── clinic_info.html
 │   ├── modals.html
@@ -231,6 +242,7 @@ Per-page CSS and JS files are named after the page they serve
 ```
 static/
 ├── css/
+│   ├── app.css             ← Compiled Tailwind for new admin pages (generated, committed, never edit by hand)
 │   ├── admin/              ← Admin page styles
 │   ├── owner/              ← Pet owner page styles
 │   └── shared/             ← Styles used by both roles (header, clinic info)
@@ -238,6 +250,8 @@ static/
 │   ├── admin/              ← Admin page scripts
 │   ├── owner/              ← Pet owner page scripts
 │   └── shared/             ← Scripts used by both roles
+├── vendor/
+│   └── htmx-2.0.11.min.js  ← Pinned HTMX for new admin pages
 └── images/
     ├── clinic/             ← Clinic logo and branding
     └── defaults/           ← Default avatars and placeholders
@@ -363,7 +377,7 @@ path("notifications/panel/", views.notification_panel, name="notifications_panel
 | Template variables | snake_case | `{{ pet_owner.first_name }}` |
 | Block names | snake_case | `{% block extra_css %}` |
 | Template tags | snake_case | `{% url 'owner_appointments' %}` |
-| CSS classes | Tailwind utility classes plus per-page CSS files in `static/css/admin\|owner\|shared/` | `class="flex items-center gap-4"` |
+| CSS classes | Tailwind utility classes. Migrated admin pages also use the shared classes in `assets/tailwind/input.css` (§11); other pages still use per-page CSS files in `static/css/admin\|owner\|shared/` | `class="btn btn-primary"`, `class="flex items-center gap-4"` |
 | Custom CSS classes | kebab-case | `class="appointment-card"` |
 | HTMX attributes | standard htmx attributes | `hx-get`, `hx-target`, `hx-trigger` |
 
@@ -607,12 +621,35 @@ return render(request, 'template.html', {
 
 ## 11. Tailwind CSS Conventions
 
-### Phase 1 (CDN) — current
-```html
-<script src="https://cdn.tailwindcss.com"></script>
+### Two setups during the admin UI overhaul
+| Pages | Tailwind | Loaded by |
+|---|---|---|
+| Admin pages migrated to the new layout (from Slice 1) | Compiled `static/css/app.css` (Tailwind v4.3.3, standalone CLI) | `layouts/admin.html` |
+| Everything else (owner pages, auth pages, admin pages not migrated yet) | Play CDN `https://cdn.tailwindcss.com` | `base.html`, `base_dashboard.html` |
+
+- Never load the CDN script in the new layout, and never load `app.css` from the old bases.
+- A migrated page loads no file from `static/css/admin/`.
+
+### Building app.css
+The source is `backend/assets/tailwind/input.css`. It lives outside `static/`
+on purpose: collectstatic's manifest storage would fail on its
+`@import "tailwindcss"`. The CLI binary is `backend/bin/tailwindcss.exe`
+(gitignored, about 110 MB): download `tailwindcss-windows-x64.exe` v4.3.3 from
+the Tailwind GitHub releases and rename it.
+
+```powershell
+# From the repo root. Run before every frontend commit:
+backend\bin\tailwindcss.exe -i backend\assets\tailwind\input.css -o backend\static\css\app.css --minify
+# While editing templates:
+backend\bin\tailwindcss.exe -i backend\assets\tailwind\input.css -o backend\static\css\app.css --watch
 ```
-Use standard Tailwind utility classes only.
-No custom config in Phase 1.
+
+- `app.css` is committed, so Render needs no Node or Tailwind build. Never edit it by hand.
+- The CLI scans only `backend/templates/` and `backend/static/js/`. Write class
+  names as whole strings there (no building names like `"bg-" + colour`).
+- Shared classes live in `input.css`: `.btn`, `.btn-primary`, `.btn-secondary`,
+  `.btn-danger`, `.input`, `.card`, `.badge`, `.form-field`. Everything else
+  uses utility classes in the template.
 
 ### Class ordering convention
 Follow this order for Tailwind classes:
@@ -622,48 +659,40 @@ Layout → Sizing → Spacing → Typography → Colors → Borders → Effects
 
 Example:
 ```html
-<div class="flex items-center w-full px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50">
+<div class="flex items-center w-full px-4 py-2 text-base font-medium text-gray-700 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50">
 ```
 
-### Color usage
-Default Tailwind colors for new UI, where no page CSS file sets its own:
-- Primary actions: `blue-600`
-- Danger/delete: `red-600`
-- Success: `green-600`
-- Warning: `yellow-500`
-- Neutral: `gray-*`
+### Colours
+- Primary actions, active navigation, brand accents: `violet-600` (hover `violet-700`); light tints `violet-50` / `violet-100`
+- Links: `blue-600`
+- Danger: `red-600`; success: `green-*`; warning: `yellow-*`
+- Neutral: `gray-*`. Never `gray-400` or lighter for text that carries information.
+- Pages not migrated yet keep their per-page colours.
 
-Page-specific brand colors (gradients, accents) live in the per-page CSS
-files in `static/css/admin|owner|shared/`.
+### Senior-friendly rules (admin)
+The main admin user is an elderly vet. Every migrated admin page follows these:
+- Content text 16px (`text-base`) minimum; secondary text 14px (`text-sm`) minimum; never `text-xs`.
+- Click targets at least 44px tall (`min-h-11`; `.btn` already does this).
+- Every icon has a visible text label (icons are `aria-hidden`).
+- Times read "Today, 3:58 PM" or "Mon, Nov 2", not "12 min ago".
+- Risky actions (cancel, decline, mark paid) ask for confirmation in plain words.
+- Flash messages stay until closed.
+- One primary (violet) button per page, top right.
+- Test every slice at 150% browser zoom.
+
+### Components (`templates/components/`)
+| Component | Usage |
+|---|---|
+| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Lucide 1.66.0 (ISC), 29 icons. To add one, copy its shapes from the Lucide SVG file. |
+| `form_field.html` | `{% include "components/form_field.html" with field=form.email %}`. Label, control, help text, errors. Needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple field uses it. |
+| `status_badge.html` | `{% include "components/status_badge.html" with status=obj.status label=obj.get_status_display %}` |
+| `flash_messages.html` | Rendered once by the admin layout; pages must not loop over `messages`. |
+| `empty_state.html` | `{% include "components/empty_state.html" with icon="calendar" title="No appointments on this day" text="Pick another date on the calendar." %}` |
 
 ### Status badge convention
-Appointment and billing statuses use consistent color badges:
-```html
-<!-- Pending -->
-<span class="px-2 py-1 text-xs font-medium text-yellow-700 bg-yellow-100 rounded-full">
-  Pending
-</span>
-
-<!-- Confirmed -->
-<span class="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded-full">
-  Confirmed
-</span>
-
-<!-- Completed -->
-<span class="px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded-full">
-  Completed
-</span>
-
-<!-- Cancelled -->
-<span class="px-2 py-1 text-xs font-medium text-red-700 bg-red-100 rounded-full">
-  Cancelled
-</span>
-
-<!-- No Show -->
-<span class="px-2 py-1 text-xs font-medium text-gray-700 bg-gray-100 rounded-full">
-  No Show
-</span>
-```
+Use `components/status_badge.html`. Colours: pending yellow, confirmed blue,
+completed and paid green, cancelled red, no show gray, as `bg-*-100 text-*-800`
+in `text-sm`. Pages not migrated yet may still show the older hand-written badges.
 
 ---
 
