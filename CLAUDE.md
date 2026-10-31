@@ -6,8 +6,12 @@ Read docs/HANDOFF.md before any task.
 - Keep these template habits: semantic HTML, no business logic in templates, HTMX partials prefixed with `_`, short comments above complex template logic.
 
 ## Database and secrets
-- Never run makemigrations, migrate, loaddata, flush, or any DB-writing command without asking me first. The Supabase DB is shared with the live Render app.
-- Never run migrate from a feature branch. The DB is shared with live.
+- Local dev uses the local PostgreSQL database hapivet_dev (localhost:5432). The live Render app uses Supabase. They are not shared.
+- Never run makemigrations, migrate, loaddata, flush, or any DB-writing command without asking me first.
+- Before any migrate, run the DB host check and stop if HOST is not localhost:
+  backend\venv\Scripts\python.exe backend\manage.py shell -c "from django.db import connection as c; s = c.settings_dict; print('DB HOST:', s['HOST'], '| NAME:', s['NAME'])"
+- Never run migrate from a feature branch against the live DB.
+- Never put the live DATABASE_URL in backend/.env.
 - Never read or print backend/.env.
 
 ## Commands

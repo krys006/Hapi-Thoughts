@@ -1,7 +1,8 @@
 # HANDOFF.md — Hapi Vet Project State
 
-> Last updated: 2026-10-16, after the post-break audit.
-> §3–§5 describe the verified state as of that date. Anything marked
+> Last updated: 2026-10-31, after the local dev database switch
+> (post-break audit: 2026-10-16).
+> §3–§5 describe the verified state as of those dates. Anything marked
 > "(unverified)" could not be confirmed from the code.
 > Where the code and this file disagree, the code wins. Report the
 > differences, then propose doc fixes.
@@ -22,8 +23,10 @@ Tailwind classes and template markup directly.
 Reference docs in `docs/`: BRIEF, STACK, FEATURES, DATA_MODELS, CONVENTIONS,
 GOOGLE_AUTH_NOTES, SUPABASE_MIGRATION_NOTES. Some are still out of date (see §4).
 
-Repo: `Hapi-Thoughts`. Django code lives in `backend/`, and all commands run
-from there.
+Repo: `Hapi-Thoughts`. Django code lives in `backend/`. Krys runs commands
+from `backend/` with `.\venv\Scripts\python.exe`; Claude Code runs from the
+repo root with `backend\venv\Scripts\python.exe` and `backend\` paths (see
+CLAUDE.md).
 
 ---
 
@@ -33,8 +36,8 @@ from there.
 
 **Rules while verifying**
 - Do NOT run `makemigrations`, `migrate`, `loaddata`, `flush` or any command
-  that writes to the database. The Supabase DB is shared by local dev and the
-  live deployment.
+  that writes to the database. Local dev uses the local `hapivet_dev` DB; the
+  live deployment uses Supabase. Run the DB host check (§3) first.
 - Do NOT edit any file during verification. Produce a report only.
 - Never print or commit values from `backend/.env`.
 - Run every `python`/`pip` command below with the venv
@@ -105,30 +108,52 @@ updates. Wait for approval before editing anything.
 
 ---
 
-## 3. Current State (verified 2026-10-16)
+## 3. Current State (verified 2026-10-16, updated 2026-10-31)
 
 **Deployment**
 - App on Render, auto-deploying from `rebuild` (confirmed in the Render
   dashboard).
 - Render build: `pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate`
   (unverified — not re-checked in the dashboard). Because the build runs
-  `migrate`, merging into `rebuild` applies migrations to the shared DB.
+  `migrate`, merging into `rebuild` applies migrations to the live Supabase DB.
 - Render start: `gunicorn hapivet.wsgi:application --bind 0.0.0.0:$PORT`
   (unverified)
 - Render keeps its own env vars (Brevo email on).
 
 **Database**
-- Supabase PostgreSQL via the **Session Pooler**, shared by local dev and
-  live (intentional). Verified: DB host is `*.pooler.supabase.com`, port 5432.
+- Local dev: a **local PostgreSQL 18** database named `hapivet_dev`
+  (`localhost:5432`).
+- Live (Render): Supabase PostgreSQL via the **Session Pooler**
+  (`*.pooler.supabase.com`, port 5432).
+- The two are no longer shared. The live `DATABASE_URL` is not kept in the
+  local `backend/.env`.
+- DB host check — run before EVERY `migrate`; for local work it must show
+  `localhost | hapivet_dev`:
+  ```
+  backend\venv\Scripts\python.exe backend\manage.py shell -c "from django.db import connection as c; s = c.settings_dict; print('DB HOST:', s['HOST'], '| NAME:', s['NAME'])"
+  ```
+  From backend/:
+  ```
+  .\venv\Scripts\python.exe manage.py shell -c "from django.db import connection as c; s = c.settings_dict; print('DB HOST:', s['HOST'], '| NAME:', s['NAME'])"
+  ```
 
 **Local dev**
 - `USE_BREVO_EMAIL=False` locally, so the console email backend is active
   (`settings.py:168-191`; `EMAIL_BACKEND` prints
   `django.core.mail.backends.console.EmailBackend`).
-- `USE_S3` stays on locally because the DB is shared (default storage is
-  `storages.backends.s3boto3.S3Boto3Storage`). **Avoid uploading files during
-  local testing** — they go to the live Supabase bucket.
 - Use `backend\venv\Scripts\python.exe` for all Python commands.
+
+**Local dev setup**
+- `.env` flags: `DEBUG=True`, `USE_BREVO_EMAIL=False` (emails print to the
+  runserver console), `USE_S3=False` (uploads go to `backend/media/`,
+  gitignored).
+- Admin account: `createsuperuser` gives `role=pet_owner` and cannot log in
+  at `/admin-login/`. Create the admin in `manage.py shell` instead, with
+  `User.objects.create_user(..., role=User.ADMIN, is_onboarded=True, is_staff=True)`
+  and `getpass()` for the password.
+- Google sign-in: credentials come from settings (`SOCIALACCOUNT_PROVIDERS`
+  `APP`), so a fresh DB needs no SocialApp row. Do not add one — it causes
+  `MultipleObjectsReturned`.
 
 **Branch model**
 - `master`: protected stable
@@ -162,6 +187,9 @@ Tags show which part of the code an item touches, not who does it (Krys
 does everything): [backend] = Python (models, views, settings),
 [frontend] = templates, Tailwind, CSS, JS, [both] = both.
 
+### DONE (2026-10-31)
+- Local dev database: local PostgreSQL 18 `hapivet_dev`, no longer shared with live (see §3) — Done 2026-10-31
+
 ### DONE (2026-10-16)
 - Git tidy + backup branch `backup/pre-audit-2026-10-16` pushed
 - Notifications 0003 sync: migration file + model field from b6e0ad3 brought into code; it was already applied to the DB in June from backend-dev (no SQL ran)
@@ -174,6 +202,7 @@ does everything): [backend] = Python (models, views, settings),
 - C: docs reconciliation (batches 2–3: DATA_MODELS; FEATURES/STACK/.env.example)
 
 ### SMALL FIXES (no schema change), one commit each
+- **SECURITY** — `accounts/management/commands/create_admin.py` has a hardcoded password committed to a public repo. Fix: prompt for the password with `getpass` instead of a literal. Must be fixed before production, and any admin created with this command must get a new password. [backend]
 - Google sign-in (adapters.py) — **security — do first**: only auto-link when extra_data email_verified is true; never auto-link admin accounts; case-insensitive email match handling multiple matches; remove SOCIALACCOUNT_LOGIN_ON_GET and make the Google button a POST form [both] — verified: `email_verified` is not checked in adapters.py; `SOCIALACCOUNT_LOGIN_ON_GET = True` at `settings.py:161`
 - Remove dead role code (signals.py receiver + apps.py ready import; `if not user.role` in adapter save_user) — touches the same files as the Google sign-in fix [backend]
 - Receipt lock must also cover CANCELLED; remove duplicate is_locked (billing/models.py) [backend] — verified: `is_locked` defined twice (`billing/models.py:170` and `:197`), both check PAID only
@@ -192,7 +221,7 @@ does everything): [backend] = Python (models, views, settings),
 - Admin calendar page Phase 1 (reuse dashboard grid + day panel on its own page, add status filter). Not started. Start on a fresh branch cut from trial-run. Phases 2 (day timeline) and pet owner calendar are not in FEATURES.md yet — add them there before building. [both]
 - Admin Google account linking (FEATURES 1.3), planned — build properly after the Google sign-in hardening: admin links Google from their own settings while logged in. [both]
 
-### SCHEMA CHANGES (each needs a written migration plan first; DB is shared with live)
+### SCHEMA CHANGES (each needs a written migration plan first; merging into rebuild migrates the live DB)
 - Double-booking: form-only check, no DB constraint or locking — decide constraint vs transaction/row lock [backend] — verified: no `UniqueConstraint`, `unique_together`, `select_for_update` or `atomic` in `appointments/`
 - PetDeletionRequest: cancelling deletes the row; should become a CANCELLED status (choices change = new migration) [backend] — verified: `pets/views.py:518`
 - Upload filename sanitization (Supabase rejects non-ASCII names); callable upload_to = new migration [backend] — verified: all `upload_to` values are plain strings
@@ -209,6 +238,7 @@ does everything): [backend] = Python (models, views, settings),
 - Duplicate remote branches review / review-admin / trial-front; old branch feature/admin-calendar-page has no unique work — delete later — verified: `git log origin/trial-run..feature/admin-calendar-page` is empty
 - Local master is behind origin/master — verified: 7 commits behind
 - Hosting: Render free tier has uptime problems (cause unconfirmed). Candidates: Railway (Hobby, Asia region), Fly.io, VPS with Coolify/Appliku. On any host change update ALLOWED_HOSTS, CSRF_TRUSTED_ORIGINS, Google OAuth redirect URIs, the Django sites domain and all env vars.
+- Production DB: plan is a NEW Supabase project (Singapore) for the clinic handover, not wiping the current one; the current project becomes staging. At cutover: update DATABASE_URL, AWS_*, MEDIA_URL and AWS_S3_CUSTOM_DOMAIN on Render, migrate, and create the admin with the clinic's real email.
 - django-tailwind migration (STACK.md phase 2), not started. [frontend]
 - Project documentation report: needs screenshots, ERD (Mermaid ERD already generated) and source artifacts. Deadline: ___
 - Add .gitattributes (* text=auto) to stop LF/CRLF warnings — deferred until after B1 so line-ending churn doesn't mix with a deploy.
@@ -242,11 +272,15 @@ deletes.
 **Database:**
 - Never run `makemigrations`, `migrate`, `loaddata`, `flush` or any other
   DB-writing command without Krys's explicit approval.
-- Never run migrate from a feature branch — the DB is shared with live
-  (this caused the notifications 0003 situation in June).
+- Never run migrate from a feature branch against the live DB (this caused
+  the notifications 0003 situation in June, when the DB was still shared).
+- Run the DB host check (§3) before every `migrate`; stop if the host is not
+  `localhost`.
+- Never put the live `DATABASE_URL` in `backend/.env`.
 - Never edit or delete existing migrations.
 - Update DATA_MODELS.md BEFORE changing models.
-- Use the Supabase **Session Pooler** string, not the Direct Connection.
+- For the live DB, use the Supabase **Session Pooler** string, not the Direct
+  Connection.
 - After bulk imports with explicit PKs, reset sequences.
 
 **Templates and HTMX:**
