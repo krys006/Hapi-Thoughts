@@ -1,4 +1,4 @@
-{% extends 'base.html' %}
+{% extends 'base_dashboard.html' %}
 
 {% block title %}Dashboard — Hapi Vet{% endblock %}
 
@@ -6,38 +6,64 @@
 
 <div class="owner-page">
 
-  <div class="owner-page-header">
-    <h1 class="owner-page-title">My Dashboard</h1>
-    <a href="{% url 'logout' %}" class="btn-link">Logout</a>
-  </div>
-
-  <div class="admin-nav-grid">
-
-    <div class="admin-nav-card">
-      <h3 class="admin-nav-card-title">My Appointments</h3>
-      <p class="admin-nav-card-desc">View, book, and manage your appointments.</p>
-      <a href="{% url 'owner_appointments' %}" class="btn-primary">Go to Appointments</a>
+  <section class="owner-hero-card">
+    <div>
+      <p class="owner-greeting">Welcome back</p>
+      <h1 class="owner-page-title">My Dashboard</h1>
+      <p class="owner-page-subtitle">{{ today|date:"l, F j, Y" }}</p>
     </div>
 
-    <div class="admin-nav-card">
-      <h3 class="admin-nav-card-title">My Pets</h3>
-      <p class="admin-nav-card-desc">View and manage your registered pets.</p>
-      <a href="{% url 'owner_pet_list' %}" class="btn-primary">Go to My Pets</a>
-    </div>
+    <a href="{% url 'owner_profile' %}" class="owner-profile-button" aria-label="View profile">
+      {{ request.user.email|slice:":1"|upper }}
+    </a>
+  </section>
 
-    <div class="admin-nav-card">
-      <h3 class="admin-nav-card-title">Billing</h3>
-      <p class="admin-nav-card-desc">View your billing history and receipts.</p>
-      <a href="{% url 'owner_billing_list' %}" class="btn-primary">Go to Billing</a>
-    </div>
+  <section class="owner-quick-actions">
+    <a href="{% url 'owner_book_appointment' %}" class="owner-action-card owner-action-card-primary">
+      <span class="owner-action-icon">＋</span>
+      <span>Book</span>
+    </a>
 
-    <div class="admin-nav-card">
-      <h3 class="admin-nav-card-title">My Profile</h3>
-      <p class="admin-nav-card-desc">View and update your profile information.</p>
-      <a href="{% url 'owner_profile' %}" class="btn-primary">Go to Profile</a>
-    </div>
+    <a href="{% url 'owner_pet_add' %}" class="owner-action-card">
+      <span class="owner-action-icon">🐾</span>
+      <span>Add Pet</span>
+    </a>
 
-  </div>
+    <a href="{% url 'owner_appointments' %}" class="owner-action-card">
+      <span class="owner-action-icon">📅</span>
+      <span>Visits</span>
+    </a>
+
+    <a href="{% url 'owner_billing_list' %}" class="owner-action-card">
+      <span class="owner-action-icon">₱</span>
+      <span>Billing</span>
+    </a>
+  </section>
+
+  {% include 'owner/dashboard/_dashboard_partial.html' %}
+
+  <nav class="owner-bottom-nav" aria-label="Pet owner mobile navigation">
+    <a href="{% url 'owner_dashboard' %}" class="owner-bottom-nav-link owner-bottom-nav-active">
+      <span>⌂</span>
+      <small>Home</small>
+    </a>
+    <a href="{% url 'owner_pet_list' %}" class="owner-bottom-nav-link">
+      <span>🐾</span>
+      <small>Pets</small>
+    </a>
+    <a href="{% url 'owner_book_appointment' %}" class="owner-bottom-nav-link owner-bottom-nav-main">
+      <span>＋</span>
+      <small>Book</small>
+    </a>
+    <a href="{% url 'owner_billing_list' %}" class="owner-bottom-nav-link">
+      <span>₱</span>
+      <small>Bills</small>
+    </a>
+    <a href="{% url 'owner_profile' %}" class="owner-bottom-nav-link">
+      <span>☻</span>
+      <small>Profile</small>
+    </a>
+  </nav>
 
 </div>
 

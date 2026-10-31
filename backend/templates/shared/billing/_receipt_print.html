@@ -1,0 +1,269 @@
+<!-- Printable receipt — follows the official FEATURES.md receipt format -->
+<!-- Hidden on screen, shown only when printing or saving as PDF -->
+
+<style>
+  .receipt-print-wrapper {
+    display: none;
+  }
+
+  @media print {
+    html, body {
+      height: auto !important;
+      overflow: visible !important;
+    }
+    body * {
+      visibility: hidden;
+    }
+    .receipt-print-wrapper,
+    .receipt-print-wrapper * {
+      visibility: visible;
+    }
+    .receipt-print-wrapper {
+      display: block;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      width: 100%;
+    }
+    /* The rest of the page (dashboard header, sidebar, tables, etc.)
+       is only visibility:hidden, which still reserves its normal
+       layout space — since that content is much taller than one
+       receipt, the browser paginates for that full invisible height,
+       producing a near-blank second page. This collapses everything
+       except the print wrapper down to zero height, so pagination is
+       based only on the receipt's actual content height instead. */
+    body > *:not(.receipt-print-wrapper) {
+      max-height: 0;
+      overflow: hidden;
+    }
+    .receipt-print-wrapper {
+      max-height: none;
+    }
+    .no-print {
+      display: none !important;
+    }
+  }
+
+  /* ---- Receipt content styling ---- */
+  .receipt-print-wrapper {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 32px 24px;
+    font-family: 'Courier New', Courier, monospace;
+    color: #111827;
+  }
+
+  /* Clinic header */
+  .receipt-print-header {
+    text-align: center;
+    padding-bottom: 16px;
+    margin-bottom: 16px;
+    border-bottom: 2px dashed #111827;
+  }
+
+  .receipt-print-logo {
+    display: block;
+    width: 56px;
+    height: 56px;
+    object-fit: contain;
+    margin: 0 auto 10px;
+  }
+
+  .receipt-print-clinic-name {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin: 0 0 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .receipt-print-clinic-address,
+  .receipt-print-clinic-line {
+    font-size: 0.8rem;
+    margin: 2px 0;
+    color: #374151;
+  }
+
+  /* Sections (Receipt info, Billed To) */
+  .receipt-print-section {
+    padding-bottom: 14px;
+    margin-bottom: 14px;
+    border-bottom: 1px dashed #9CA3AF;
+  }
+
+  .receipt-print-section-title {
+    font-size: 0.875rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    margin: 0 0 10px;
+  }
+
+  .receipt-print-field {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 0.8125rem;
+    margin-bottom: 5px;
+  }
+
+  .receipt-print-field span:first-child {
+    color: #4B5563;
+  }
+
+  .receipt-print-field span:last-child {
+    font-weight: 600;
+    text-align: right;
+  }
+
+  /* Services & items table */
+  .receipt-print-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+  }
+
+  .receipt-print-table thead th {
+    text-align: left;
+    font-weight: 700;
+    padding: 4px 6px;
+    border-bottom: 1px solid #111827;
+  }
+
+  .receipt-print-table thead th:not(:first-child) {
+    text-align: right;
+  }
+
+  .receipt-print-table tbody td {
+    padding: 5px 6px;
+    border-bottom: 1px dotted #D1D5DB;
+  }
+
+  .receipt-print-table tbody td:not(:first-child) {
+    text-align: right;
+  }
+
+  /* Description column stays left-aligned */
+  .receipt-print-table thead th:nth-child(2),
+  .receipt-print-table tbody td:nth-child(2) {
+    text-align: left;
+  }
+
+  .receipt-print-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  /* Totals */
+  .receipt-print-totals {
+    padding-top: 10px;
+    border-top: 2px solid #111827;
+  }
+
+  .receipt-print-total-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.875rem;
+    padding: 4px 0;
+  }
+
+  .receipt-print-total-row--grand {
+    font-size: 1.0625rem;
+    font-weight: 700;
+    border-top: 1px solid #111827;
+    margin-top: 6px;
+    padding-top: 10px;
+  }
+
+  /* Footer */
+  .receipt-print-footer {
+    text-align: center;
+    margin-top: 28px;
+    font-size: 0.8125rem;
+    font-style: italic;
+    color: #4B5563;
+  }
+
+  .receipt-print-footer p {
+    margin: 2px 0;
+  }
+</style>
+
+<div id="printable-receipt" class="receipt-print-wrapper">
+
+  <!-- Clinic header -->
+  <div class="receipt-print-header">
+    {% if clinic_settings.logo %}
+    <img src="{{ clinic_settings.logo.url }}" alt="{{ clinic_settings.clinic_name }}" class="receipt-print-logo" />
+    {% endif %}
+    <h2 class="receipt-print-clinic-name">{{ clinic_settings.clinic_name|default:"Hapi Tutz Vet. Supplies" }}</h2>
+    <p class="receipt-print-clinic-address">{{ clinic_settings.address|default:"Bognuyan, Gasan, Marinduque" }}</p>
+    {% if clinic_settings.contact_number %}
+    <p class="receipt-print-clinic-line">Contact: {{ clinic_settings.contact_number }}</p>
+    {% endif %}
+    {% if clinic_settings.email %}
+    <p class="receipt-print-clinic-line">Email: {{ clinic_settings.email }}</p>
+    {% endif %}
+  </div>
+
+  <!-- Receipt info -->
+  <div class="receipt-print-section">
+    <h3 class="receipt-print-section-title">RECEIPT</h3>
+    <div class="receipt-print-field"><span>Receipt #:</span><span>{{ receipt.receipt_number }}</span></div>
+    <div class="receipt-print-field"><span>Date:</span><span>{{ receipt.billing_date|date:"F j, Y" }}</span></div>
+    <div class="receipt-print-field"><span>Payment Status:</span><span>{{ receipt.get_payment_status_display }}</span></div>
+  </div>
+
+  <!-- Billed to -->
+  <div class="receipt-print-section">
+    <h3 class="receipt-print-section-title">BILLED TO</h3>
+    {% if receipt.owner %}
+    <div class="receipt-print-field"><span>Name:</span><span>{{ receipt.owner.full_name }}</span></div>
+    <div class="receipt-print-field"><span>Contact:</span><span>{{ receipt.owner.contact_number|default:"—" }}</span></div>
+    {% endif %}
+    {% if receipt.pet %}
+    <div class="receipt-print-field"><span>Pet:</span><span>{{ receipt.pet.name }}</span></div>
+    {% endif %}
+  </div>
+
+  <!-- Services & items -->
+  <div class="receipt-print-section">
+    <h3 class="receipt-print-section-title">SERVICES &amp; ITEMS</h3>
+    <table class="receipt-print-table">
+      <thead>
+        <tr>
+          <th>Qty</th>
+          <th>Description</th>
+          <th>Unit</th>
+          <th>Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td>{{ item.quantity }}</td>
+          <td>{{ item.description }}</td>
+          <td>₱{{ item.unit_price|floatformat:2 }}</td>
+          <td>₱{{ item.subtotal|floatformat:2 }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Totals -->
+  <div class="receipt-print-totals">
+    <div class="receipt-print-total-row"><span>Subtotal:</span><span>₱{{ receipt.subtotal|floatformat:2 }}</span></div>
+    {% if receipt.discount_value %}
+    <div class="receipt-print-total-row"><span>Discount:</span><span>-₱{{ receipt.discount_amount|floatformat:2 }}</span></div>
+    {% endif %}
+    <div class="receipt-print-total-row receipt-print-total-row--grand"><span>TOTAL:</span><span>₱{{ receipt.total_amount|floatformat:2 }}</span></div>
+  </div>
+
+  <!-- Footer -->
+  <div class="receipt-print-footer">
+    <p>Thank you for trusting</p>
+    <p>{{ clinic_settings.clinic_name|default:"Hapi Tutz Vet. Supplies" }}!</p>
+    <p>We care for your pets like our own.</p>
+  </div>
+
+</div>

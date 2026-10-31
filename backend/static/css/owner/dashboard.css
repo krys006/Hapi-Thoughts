@@ -1,0 +1,583 @@
+.owner-mobile-shell {
+  background:
+    radial-gradient(circle at 20% 10%, rgba(255, 255, 255, 0.22), transparent 28%),
+    linear-gradient(145deg, #7c3aed 0%, #60a5fa 50%, #67e8f9 100%);
+}
+
+.owner-mobile-shell .dashboard-header {
+  height: 5.25rem;
+  background:
+    linear-gradient(135deg, rgba(91, 33, 182, 0.92), rgba(14, 165, 233, 0.78)),
+    url("/static/images/clinic/logo.png");
+  background-repeat: no-repeat;
+  background-size: 4.5rem, 4.5rem;
+  background-position: center, 1rem center;
+  box-shadow: none;
+}
+
+.owner-mobile-shell .dashboard-main {
+  padding: 1rem;
+  padding-bottom: 6rem;
+  background:
+    radial-gradient(circle at 10% 20%, rgba(255, 255, 255, 0.18), transparent 22%),
+    linear-gradient(145deg, #8b5cf6 0%, #60a5fa 48%, #67e8f9 100%);
+}
+
+.owner-mobile-shell .dashboard-sidebar {
+  background: linear-gradient(180deg, rgba(245, 243, 255, 0.98), rgba(224, 242, 254, 0.98));
+  border-right: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.owner-brand-name {
+  margin-left: 0.25rem;
+  font-size: 1.35rem;
+}
+
+.owner-header-search {
+  display: none;
+}
+
+.owner-page {
+  width: 100%;
+  max-width: 72rem;
+  margin: 0 auto;
+}
+
+.owner-hero-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 1.25rem;
+  color: white;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 1.75rem;
+  box-shadow: 0 1.5rem 3rem rgba(49, 46, 129, 0.22);
+  backdrop-filter: blur(18px);
+}
+
+.owner-greeting {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.owner-page-title {
+  font-size: 1.85rem;
+  line-height: 1.1;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+}
+
+.owner-page-subtitle {
+  margin-top: 0.35rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.owner-profile-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 3.25rem;
+  height: 3.25rem;
+  color: white;
+  font-weight: 900;
+  background: linear-gradient(135deg, #a855f7, #2563eb);
+  border: 3px solid rgba(255, 255, 255, 0.42);
+  border-radius: 999px;
+  box-shadow: 0 1rem 2rem rgba(49, 46, 129, 0.25);
+}
+
+.owner-quick-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.owner-action-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 5rem;
+  padding: 0.75rem 0.5rem;
+  text-align: center;
+  color: white;
+  font-size: 0.8rem;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 1.25rem;
+  box-shadow: 0 1rem 2rem rgba(49, 46, 129, 0.18);
+  backdrop-filter: blur(16px);
+}
+
+.owner-action-card-primary {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.owner-action-icon {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.owner-dashboard-widgets {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+.dashboard-widget {
+  padding: 1rem;
+  color: white;
+  background: rgba(55, 65, 120, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 1.4rem;
+  box-shadow: 0 1.5rem 3rem rgba(49, 46, 129, 0.18);
+  backdrop-filter: blur(18px);
+}
+
+.dashboard-widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+
+.dashboard-widget-eyebrow {
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #67e8f9;
+}
+
+.dashboard-widget-title {
+  font-size: 1.15rem;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+}
+
+.dashboard-widget-action,
+.widget-table-link,
+.widget-notification-link {
+  font-size: 0.78rem;
+  font-weight: 900;
+  color: white;
+  text-decoration: none;
+}
+
+.widget-appointment-list,
+.widget-notification-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.widget-appointment-row,
+.widget-notification-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 1rem;
+}
+
+.widget-appointment-date {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 3.35rem;
+  height: 3.35rem;
+  color: white;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 1rem;
+}
+
+.widget-appointment-date span {
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.widget-appointment-date strong {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.widget-appointment-info,
+.widget-notification-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.widget-appointment-pet,
+.widget-notification-title {
+  font-size: 0.95rem;
+  font-weight: 900;
+}
+
+.widget-appointment-datetime,
+.widget-notification-time,
+.widget-pet-species,
+.owner-mini-card small {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.74);
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-bottom: 0.2rem;
+  padding: 0.18rem 0.5rem;
+  font-size: 0.65rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  border-radius: 999px;
+}
+
+.status-badge-pending {
+  color: #854d0e;
+  background: #fef3c7;
+}
+
+.status-badge-confirmed {
+  color: #1e3a8a;
+  background: #dbeafe;
+}
+
+.status-badge-completed {
+  color: #14532d;
+  background: #dcfce7;
+}
+
+.status-badge-cancelled {
+  color: #7f1d1d;
+  background: #fee2e2;
+}
+
+.status-badge-no_show {
+  color: #374151;
+  background: #e5e7eb;
+}
+
+.widget-pet-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+.widget-pet-card {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.9rem;
+  color: white;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 1.1rem;
+}
+
+.widget-pet-photo,
+.widget-pet-photo-placeholder {
+  flex: 0 0 auto;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 999px;
+}
+
+.widget-pet-photo {
+  object-fit: cover;
+}
+
+.widget-pet-photo-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  font-weight: 900;
+  color: white;
+  background: linear-gradient(135deg, #a855f7, #06b6d4);
+}
+
+.widget-pet-name {
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.widget-empty {
+  padding: 1rem;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 1rem;
+}
+
+.widget-empty-title {
+  font-weight: 900;
+}
+
+.widget-empty-text {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.76);
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0.85rem;
+  padding: 0.65rem 1rem;
+  color: white;
+  font-size: 0.85rem;
+  font-weight: 900;
+  background: linear-gradient(135deg, #7c3aed, #06b6d4);
+  border-radius: 999px;
+}
+
+.widget-notification-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+}
+
+.widget-notification-unread .widget-notification-dot {
+  background: #22c55e;
+}
+
+.owner-mini-card-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+.owner-mini-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1rem;
+  color: white;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 1.3rem;
+  box-shadow: 0 1rem 2rem rgba(49, 46, 129, 0.16);
+  backdrop-filter: blur(16px);
+}
+
+.owner-mini-card-icon {
+  font-size: 1.7rem;
+}
+
+.owner-mini-card strong {
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.owner-sidebar-profile {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+  background: rgba(255, 255, 255, 0.65);
+  border-radius: 1rem;
+}
+
+.owner-sidebar-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  color: white;
+  font-weight: 900;
+  background: linear-gradient(135deg, #7c3aed, #06b6d4);
+  border-radius: 999px;
+}
+
+.owner-sidebar-name {
+  font-weight: 900;
+  color: #1e293b;
+}
+
+.owner-sidebar-email {
+  max-width: 10rem;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-nav-group {
+  margin-bottom: 1.25rem;
+}
+
+.sidebar-nav-group-label {
+  margin-bottom: 0.45rem;
+  padding-left: 0.4rem;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sidebar-link {
+  display: block;
+  padding: 0.72rem 0.85rem;
+  color: #334155;
+  font-size: 0.92rem;
+  font-weight: 800;
+  border-radius: 0.85rem;
+}
+
+.sidebar-link:hover,
+.sidebar-link-active {
+  color: #4c1d95;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.owner-sidebar-footer {
+  margin-top: auto;
+}
+
+.owner-sidebar-logout {
+  display: block;
+  padding: 0.8rem;
+  color: #b91c1c;
+  font-weight: 900;
+  text-align: center;
+  background: rgba(254, 226, 226, 0.75);
+  border-radius: 0.9rem;
+}
+
+.owner-bottom-nav {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  left: 1rem;
+  z-index: 25;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.35rem;
+  padding: 0.55rem;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  border-radius: 1.4rem;
+  box-shadow: 0 1rem 2.5rem rgba(30, 41, 59, 0.22);
+  backdrop-filter: blur(18px);
+}
+
+.owner-bottom-nav-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  color: #64748b;
+  font-weight: 900;
+}
+
+.owner-bottom-nav-link span {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.owner-bottom-nav-link small {
+  font-size: 0.65rem;
+}
+
+.owner-bottom-nav-active {
+  color: #7c3aed;
+}
+
+.owner-bottom-nav-main {
+  color: white;
+  margin-top: -1.25rem;
+}
+
+.owner-bottom-nav-main span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.1rem;
+  height: 3.1rem;
+  background: linear-gradient(135deg, #7c3aed, #06b6d4);
+  border: 4px solid white;
+  border-radius: 999px;
+  box-shadow: 0 0.75rem 1.5rem rgba(79, 70, 229, 0.3);
+}
+
+.owner-bottom-nav-main small {
+  color: #7c3aed;
+}
+
+@media (min-width: 640px) {
+  .owner-quick-actions {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .widget-pet-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .owner-mini-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .owner-mobile-shell .dashboard-header {
+    height: 4rem;
+    background: linear-gradient(90deg, #14b8a6, #0891b2, #4f46e5);
+  }
+
+  .owner-mobile-shell .dashboard-main {
+    padding: 2rem;
+    padding-bottom: 2rem;
+  }
+
+  .owner-header-search {
+    display: block;
+    flex: 1;
+    max-width: 24rem;
+  }
+
+  .owner-search-input {
+    width: 100%;
+    padding: 0.65rem 1rem;
+    color: #0f172a;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 999px;
+    outline: none;
+  }
+
+  .owner-dashboard-widgets {
+    grid-template-columns: 1.25fr 1fr;
+  }
+
+  .appointment-widget {
+    grid-column: span 2;
+  }
+
+  .owner-bottom-nav {
+    display: none;
+  }
+}
+
+.owner-bottom-nav-hidden {
+  transform: translateY(130%);
+}

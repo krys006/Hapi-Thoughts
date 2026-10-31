@@ -1,8 +1,279 @@
-{% extends 'base.html' %}
+{% extends 'base_dashboard.html' %}
 
 {% block title %}My Profile — Hapi Vet{% endblock %}
 
 {% block content %}
+
+
+<style>
+
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+
+.profile-page{
+    max-width:420px;
+    margin:0 auto;
+    padding:20px;
+    font-family:'Poppins',sans-serif;
+}
+
+.profile-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:20px;
+}
+
+.profile-title{
+    font-size:2rem;
+    font-weight:700;
+    color:white;
+}
+
+.btn-primary{
+    text-decoration:none;
+    padding:12px 18px;
+    border-radius:14px;
+    background:linear-gradient(
+        90deg,
+        #7c5cff,
+        #4fc3ff
+    );
+    color:white;
+    font-weight:600;
+}
+
+/* Profile Card */
+
+.profile-sidebar{
+
+    background:rgba(255,255,255,.15);
+
+    backdrop-filter:blur(15px);
+
+    border-radius:25px;
+
+    border:1px solid rgba(255,255,255,.2);
+
+    padding:25px;
+
+    text-align:center;
+
+    margin-bottom:20px;
+}
+
+.profile-avatar-photo,
+.profile-avatar-initials{
+
+    width:120px;
+
+    height:120px;
+
+    border-radius:50%;
+
+    margin:0 auto 15px;
+}
+
+.profile-avatar-photo{
+    object-fit:cover;
+    border:4px solid rgba(255,255,255,.3);
+}
+
+.profile-avatar-initials{
+
+    background:linear-gradient(
+        135deg,
+        #7c5cff,
+        #4fc3ff
+    );
+
+    display:flex;
+
+    justify-content:center;
+
+    align-items:center;
+
+    color:white;
+
+    font-size:2rem;
+
+    font-weight:700;
+}
+
+.profile-full-name{
+
+    color:white;
+
+    font-size:1.3rem;
+
+    font-weight:700;
+
+    margin-bottom:5px;
+}
+
+.profile-email{
+    color:white;
+    opacity:.9;
+}
+
+.profile-since{
+    color:white;
+    opacity:.75;
+    font-size:.9rem;
+    margin-top:8px;
+}
+
+/* Sections */
+
+.profile-section{
+
+    background:rgba(255,255,255,.15);
+
+    backdrop-filter:blur(15px);
+
+    border-radius:22px;
+
+    border:1px solid rgba(255,255,255,.2);
+
+    padding:18px;
+
+    margin-bottom:18px;
+}
+
+.profile-section-title{
+
+    color:white;
+
+    font-size:1rem;
+
+    font-weight:700;
+
+    margin-bottom:15px;
+}
+
+.profile-field{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:center;
+
+    padding:10px 0;
+
+    border-bottom:1px solid rgba(255,255,255,.08);
+}
+
+.profile-field:last-child{
+    border-bottom:none;
+}
+
+.profile-field-label{
+    color:white;
+    opacity:.85;
+}
+
+.profile-field-value{
+    color:white;
+    font-weight:600;
+}
+
+.profile-address{
+    color:white;
+    line-height:1.6;
+}
+
+.profile-field-empty{
+    color:white;
+    opacity:.7;
+}
+
+/* Social Links */
+
+.profile-links-list{
+    list-style:none;
+    padding:0;
+}
+
+.profile-link-item{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    padding:10px 0;
+
+    border-bottom:1px solid rgba(255,255,255,.08);
+}
+
+.profile-link-item:last-child{
+    border-bottom:none;
+}
+
+.profile-link-platform{
+    color:white;
+    font-weight:600;
+}
+
+.profile-link-handle{
+    color:white;
+    opacity:.85;
+}
+
+/* Notification Button */
+
+.profile-notification-edit{
+    margin-top:15px;
+}
+
+.btn-secondary{
+
+    display:block;
+
+    text-align:center;
+
+    text-decoration:none;
+
+    padding:13px;
+
+    border-radius:14px;
+
+    background:rgba(255,255,255,.15);
+
+    color:white;
+}
+
+/* Mobile */
+
+@media(max-width:480px){
+
+    .profile-page{
+        padding:15px;
+    }
+
+    .profile-title{
+        font-size:1.7rem;
+    }
+
+    .profile-header{
+        flex-direction:column;
+        gap:12px;
+        align-items:flex-start;
+    }
+
+    .profile-field{
+        flex-direction:column;
+        align-items:flex-start;
+        gap:4px;
+    }
+
+    .profile-link-item{
+        flex-direction:column;
+        gap:4px;
+    }
+
+}
+
+</style>
 
 <div class="profile-page">
 
@@ -14,9 +285,8 @@
     </a>
   </div>
 
-  <div class="profile-content">
+ <div class="profile-content">
 
-    <!-- Left column — photo + name -->
     <div class="profile-sidebar">
 
       <!-- Profile photo or initials avatar -->
@@ -90,12 +360,49 @@
 
       </div>
 
-      <!-- Notification preferences stub — wired up in Phase 6 -->
+      <!-- Notification Preferences section -->
       <div class="profile-section">
         <h3 class="profile-section-title">Notification Preferences</h3>
-        <p class="profile-field-empty">
-          Notification settings will be available here soon.
-        </p>
+
+        <div class="profile-field">
+          <span class="profile-field-label">Appointment reminders</span>
+          <span class="profile-field-value">{% if preference.email_appointment_reminders %}On{% else %}Off{% endif %}</span>
+        </div>
+
+        <div class="profile-field">
+          <span class="profile-field-label">Appointment status updates</span>
+          <span class="profile-field-value">{% if preference.email_appointment_status %}On{% else %}Off{% endif %}</span>
+        </div>
+
+        <div class="profile-field">
+          <span class="profile-field-label">Billing notifications</span>
+          <span class="profile-field-value">{% if preference.email_billing %}On{% else %}Off{% endif %}</span>
+        </div>
+
+        <div class="profile-field">
+          <span class="profile-field-label">Vaccination reminders</span>
+          <span class="profile-field-value">{% if preference.email_vaccination %}On{% else %}Off{% endif %}</span>
+        </div>
+
+        <div class="profile-field">
+          <span class="profile-field-label">Follow-up reminders</span>
+          <span class="profile-field-value">{% if preference.email_followup %}On{% else %}Off{% endif %}</span>
+        </div>
+
+        <div class="profile-field">
+          <span class="profile-field-label">Appointment reminder timing</span>
+          <span class="profile-field-value">{{ preference.appointment_reminder_days }} day{{ preference.appointment_reminder_days|pluralize }} before</span>
+        </div>
+
+        <div class="profile-field">
+          <span class="profile-field-label">Vaccination reminder timing</span>
+          <span class="profile-field-value">{{ preference.vaccination_reminder_days }} day{{ preference.vaccination_reminder_days|pluralize }} before</span>
+        </div>
+
+        <div class="profile-notification-edit">
+          <a href="{% url 'owner_notification_preferences' %}" class="btn-secondary">Edit Notification Preferences</a>
+        </div>
+
       </div>
 
     </div>

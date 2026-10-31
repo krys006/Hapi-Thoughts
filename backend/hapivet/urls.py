@@ -7,40 +7,37 @@ from django.conf.urls.static import static
 
 from django.views.generic import RedirectView
 
-urlpatterns = [
+from accounts import views as account_views
 
+urlpatterns = [
+    path("", include("health.urls")),
+    # notifications (bell panel, mark read, clear)
+    path("", include("notifications.urls")),
     # Root URL — redirect to login
     path("", RedirectView.as_view(url="/login/"), name="home"),
-
+    # dashboard (admin and pet owner dashboard homes)
+    path("", include("dashboard.urls")),
     # accounts (login, register, verification, dashboards)
     path("", include("accounts.urls")),
-    
     # pets (onboarding, pet management)
     path("", include("pets.urls")),
-
     # appointments (booking, calendar, clinic settings)
-    path("", include("appointments.urls")),   
-    
+    path("", include("appointments.urls")),
     # medical records (clinical documentation, prescriptions, test results)
-    path("", include("medical.urls")),  
-    
+    path("", include("medical.urls")),
     # billing (services, receipts, payment status)
     path("", include("billing.urls")),
-
     # allauth (Google OAuth, email verification, etc.)
     path("accounts/", include("allauth.urls")),
+
 
     # ─── Password Reset (Django built-in views) ───────────────────────────
     path(
         "forgot-password/",
-        auth_views.PasswordResetView.as_view(
-            template_name="owner/forgot_password.html",
-            email_template_name="owner/emails/password_reset_email.txt",
-            subject_template_name="owner/emails/password_reset_subject.txt",
-            success_url="/forgot-password/sent/",
-        ),
+        account_views.HapiVetPasswordResetView.as_view(),
         name="forgot_password",
     ),
+
     path(
         "forgot-password/sent/",
         auth_views.PasswordResetDoneView.as_view(
@@ -63,7 +60,12 @@ urlpatterns = [
         ),
         name="password_reset_complete",
     ),
+
+
+    
 ]
+
+
 
 # Serve media files in development only
 if settings.DEBUG:

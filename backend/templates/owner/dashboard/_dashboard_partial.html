@@ -1,0 +1,127 @@
+<div id="owner-dashboard-content"
+  hx-get="{% url 'owner_dashboard_refresh' %}"
+  hx-trigger="every 30s"
+  hx-swap="outerHTML">
+
+  <div class="owner-dashboard-widgets">
+
+    <section class="dashboard-widget appointment-widget">
+      <div class="dashboard-widget-header">
+        <div>
+          <p class="dashboard-widget-eyebrow">Schedule</p>
+          <h2 class="dashboard-widget-title">Upcoming Appointments</h2>
+        </div>
+        <a href="{% url 'owner_appointments' %}" class="dashboard-widget-action">View all</a>
+      </div>
+
+      {% if upcoming_appointments %}
+      <ul class="widget-appointment-list">
+        {% for appointment in upcoming_appointments %}
+        <li class="widget-appointment-row">
+          <div class="widget-appointment-date">
+            <span>{{ appointment.date|date:"M" }}</span>
+            <strong>{{ appointment.date|date:"j" }}</strong>
+          </div>
+
+          <div class="widget-appointment-info">
+            <span class="status-badge status-badge-{{ appointment.status }}">{{ appointment.get_status_display }}</span>
+            <p class="widget-appointment-pet">{{ appointment.pet.name }}</p>
+            <p class="widget-appointment-datetime">{{ appointment.time|time:"g:i A" }}</p>
+          </div>
+
+          <a href="{% url 'owner_appointment_detail' appointment.pk %}" class="widget-table-link">View</a>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="widget-empty">
+        <p class="widget-empty-title">No upcoming appointments</p>
+        <p class="widget-empty-text">Book a visit for your pet anytime.</p>
+        <a href="{% url 'owner_book_appointment' %}" class="btn-primary">Book one now</a>
+      </div>
+      {% endif %}
+    </section>
+
+    <section class="dashboard-widget">
+      <div class="dashboard-widget-header">
+        <div>
+          <p class="dashboard-widget-eyebrow">Family</p>
+          <h2 class="dashboard-widget-title">My Pets</h2>
+        </div>
+        <a href="{% url 'owner_pet_list' %}" class="dashboard-widget-action">View all</a>
+      </div>
+
+      {% if my_pets %}
+      <div class="widget-pet-grid">
+        {% for pet in my_pets %}
+        <a href="{% url 'owner_pet_detail' pet.pk %}" class="widget-pet-card">
+          {% if pet.photo %}
+          <img src="{{ pet.photo.url }}" alt="{{ pet.name }}" class="widget-pet-photo" />
+          {% else %}
+          <div class="widget-pet-photo-placeholder">{{ pet.name|slice:":1" }}</div>
+          {% endif %}
+          <div>
+            <p class="widget-pet-name">{{ pet.name }}</p>
+            <p class="widget-pet-species">{{ pet.species }}</p>
+          </div>
+        </a>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="widget-empty">
+        <p class="widget-empty-title">No pets registered yet</p>
+        <p class="widget-empty-text">Add your first pet profile.</p>
+        <a href="{% url 'owner_pet_add' %}" class="btn-primary">Add a pet</a>
+      </div>
+      {% endif %}
+    </section>
+
+    <section class="dashboard-widget">
+      <div class="dashboard-widget-header">
+        <div>
+          <p class="dashboard-widget-eyebrow">Updates</p>
+          <h2 class="dashboard-widget-title">Recent Notifications</h2>
+        </div>
+        <button
+          hx-get="{% url 'notifications_panel' %}"
+          hx-target="#notification-panel-container"
+          hx-swap="innerHTML"
+          class="dashboard-widget-action">View all</button>
+      </div>
+
+      {% if recent_notifications %}
+      <ul class="widget-notification-list">
+        {% for notification in recent_notifications %}
+        <li class="widget-notification-row {% if not notification.is_read %}widget-notification-unread{% endif %}">
+          <div class="widget-notification-dot"></div>
+          <div class="widget-notification-content">
+            <p class="widget-notification-title">{{ notification.title }}</p>
+            <p class="widget-notification-time">{{ notification.created_at|timesince }} ago</p>
+          </div>
+          <a href="{% url 'notification_open' notification.pk %}" class="widget-notification-link">View</a>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="widget-empty">
+        <p class="widget-empty-text">No notifications yet.</p>
+      </div>
+      {% endif %}
+    </section>
+
+    <section class="owner-mini-card-grid">
+      <a href="{% url 'clinic_info' %}" class="owner-mini-card">
+        <span class="owner-mini-card-icon">🏥</span>
+        <strong>Clinic Info</strong>
+        <small>Hours, location, veterinarian profile</small>
+      </a>
+
+      <a href="{% url 'owner_health_article_list' %}" class="owner-mini-card">
+        <span class="owner-mini-card-icon">📚</span>
+        <strong>Health Library</strong>
+        <small>Pet care articles and guides</small>
+      </a>
+    </section>
+
+  </div>
+</div>

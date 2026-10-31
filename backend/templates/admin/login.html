@@ -1,5 +1,10 @@
 {% extends 'base.html' %}
 
+{% load static %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'css/admin/login.css' %}">
+{% endblock %}
+
 {% block title %}Admin Login — Hapi Vet{% endblock %}
 
 {% block content %}
@@ -10,6 +15,18 @@
 
     <!-- Clinic branding -->
     <div class="login-header">
+      {% if clinic.logo %}
+        <p>Logo URL: {{ clinic.logo.url }}</p>
+
+        <img
+          src="{{ clinic.logo.url }}"
+          alt="{{ clinic.clinic_name }} logo"
+          class="clinic-info-logo"
+        />
+      {% else %}
+        <p>No logo uploaded.</p>
+      {% endif %}
+      <img src="{{ clinic.logo.url }}" alt="{{ clinic.clinic_name }} logo" class="clinic-logo" />
       <h1 class="clinic-name">Hapi Vet</h1>
       <p class="clinic-tagline">Admin Access</p>
     </div>

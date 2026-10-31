@@ -31,6 +31,10 @@ from .models import (
     PetOwner,
 )
 
+from notifications.models import NotificationPreference
+
+from medical.models import MedicalRecord, Vaccination
+
 
 def _require_pet_owner(request):
     """
@@ -201,6 +205,7 @@ def owner_profile(request):
         return redirect("owner_onboarding_step1")
 
     contact_links = pet_owner.contact_links.all()
+    preference = request.user.notification_preference
 
     return render(
         request,
@@ -208,6 +213,7 @@ def owner_profile(request):
         {
             "pet_owner": pet_owner,
             "contact_links": contact_links,
+            "preference": preference,
         },
     )
 
@@ -323,15 +329,21 @@ def owner_pet_detail(request, pk):
         return guard
 
     pet_owner = get_object_or_404(PetOwner, user=request.user)
-
-    # Ensure the pet belongs to this owner
     pet = get_object_or_404(Pet, pk=pk, owner=pet_owner, is_archived=False)
 
-    # Check for a pending deletion request on this pet
     pending_deletion = PetDeletionRequest.objects.filter(
         pet=pet,
         status=PetDeletionRequest.PENDING,
     ).first()
+
+    # Medical history — public notes only, no private_notes in context
+    medical_records = MedicalRecord.objects.filter(
+        pet=pet,
+    ).order_by("-record_date")
+
+    vaccinations = Vaccination.objects.filter(
+        pet=pet,
+    ).order_by("-date_administered")
 
     return render(
         request,
@@ -339,6 +351,8 @@ def owner_pet_detail(request, pk):
         {
             "pet": pet,
             "pending_deletion": pending_deletion,
+            "medical_records": medical_records,
+            "vaccinations": vaccinations,
         },
     )
 
@@ -829,12 +843,10 @@ def _send_claim_email_for_owner(request, user):
     )
 
 
-
-
-
 # ---------------------------------------------------------------------------
 # Admin — Add Pet (to existing owner)
 # ---------------------------------------------------------------------------
+
 
 @login_required
 def admin_pet_add(request, owner_pk):
@@ -869,18 +881,12 @@ def admin_pet_add(request, owner_pk):
         "admin/pets/pet_form.html",
         {
             "form": form,
-            "owner": owner,        # used for cancel button and context
-            "pet": None,           # signals template this is a create, not edit
+            "owner": owner,  # used for cancel button and context
+            "pet": None,  # signals template this is a create, not edit
             "form_title": f"Add Pet for {owner.full_name}",
             "submit_label": "Add Pet",
         },
     )
-
-
-
-
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -946,7 +952,8 @@ def admin_pet_detail(request, pk):
     if guard:
         return guard
 
-    # Admin can view archived pets too
+    from medical.models import MedicalRecord, Vaccination
+
     pet = get_object_or_404(Pet, pk=pk)
 
     pending_deletion = PetDeletionRequest.objects.filter(
@@ -954,12 +961,22 @@ def admin_pet_detail(request, pk):
         status=PetDeletionRequest.PENDING,
     ).first()
 
+    medical_records = MedicalRecord.objects.filter(
+        pet=pet,
+    ).order_by("-record_date")
+
+    vaccinations = Vaccination.objects.filter(
+        pet=pet,
+    ).order_by("-date_administered")
+
     return render(
         request,
         "admin/pets/pet_detail.html",
         {
             "pet": pet,
             "pending_deletion": pending_deletion,
+            "medical_records": medical_records,
+            "vaccinations": vaccinations,
         },
     )
 

@@ -1,0 +1,65 @@
+<!-- Admin dashboard calendar widget — month/week grid with nav controls. -->
+<!-- Self-contained: nav/toggle clicks re-fetch and swap this whole block. -->
+<!-- Clicking a day fetches the day panel separately into #calendar-day-panel, -->
+<!-- defined in the parent dashboard template. -->
+<div id="admin-calendar-grid" class="flex flex-col min-w-0 p-5 bg-slate-800 rounded-2xl lg:flex-1">
+
+  <div class="calendar-header flex flex-col gap-4 mb-4 sm:flex-row sm:items-center sm:justify-between">
+
+    <div class="calendar-nav flex items-center gap-2">
+      <button hx-get="{% url 'admin_appointment_calendar_grid' %}?view={{ calendar_view }}&date={{ calendar_prev_date|date:'Y-m-d' }}" hx-target="#admin-calendar-grid" hx-swap="outerHTML" class="calendar-nav-button px-3 py-1.5 text-sm font-medium text-slate-200 bg-white/10 rounded-lg hover:bg-white/20">Previous</button>
+      <button hx-get="{% url 'admin_appointment_calendar_grid' %}?view={{ calendar_view }}&date={{ calendar_today_date|date:'Y-m-d' }}" hx-target="#admin-calendar-grid" hx-swap="outerHTML" class="calendar-nav-button px-3 py-1.5 text-sm font-medium text-slate-200 bg-white/10 rounded-lg hover:bg-white/20">Today</button>
+      <button hx-get="{% url 'admin_appointment_calendar_grid' %}?view={{ calendar_view }}&date={{ calendar_next_date|date:'Y-m-d' }}" hx-target="#admin-calendar-grid" hx-swap="outerHTML" class="calendar-nav-button px-3 py-1.5 text-sm font-medium text-slate-200 bg-white/10 rounded-lg hover:bg-white/20">Next</button>
+    </div>
+
+    <p class="calendar-period-label text-xl font-bold text-white">{{ calendar_period_label }} <span class="htmx-indicator calendar-spinner"></span></p>
+
+    <div class="calendar-view-toggle flex items-center gap-1 p-1 bg-white/10 rounded-lg">
+      <button hx-get="{% url 'admin_appointment_calendar_grid' %}?view=month&date={{ anchor_date|date:'Y-m-d' }}" hx-target="#admin-calendar-grid" hx-swap="outerHTML" class="calendar-toggle-button px-3 py-1 text-sm font-medium text-slate-200 rounded-md hover:text-white {% if calendar_view == 'month' %}calendar-toggle-active !bg-white !text-slate-800 shadow-sm{% endif %}">Month</button>
+      <button hx-get="{% url 'admin_appointment_calendar_grid' %}?view=week&date={{ anchor_date|date:'Y-m-d' }}" hx-target="#admin-calendar-grid" hx-swap="outerHTML" class="calendar-toggle-button px-3 py-1 text-sm font-medium text-slate-200 rounded-md hover:text-white {% if calendar_view == 'week' %}calendar-toggle-active !bg-white !text-slate-800 shadow-sm{% endif %}">Week</button>
+    </div>
+
+  </div>
+  <!-- end calendar-header -->
+
+  <!-- Weekday header row -->
+  <div class="calendar-weekday-row grid grid-cols-7 gap-1 mb-2">
+    <span class="calendar-weekday-label py-1 text-center text-xs font-semibold uppercase tracking-wide text-slate-400">Mon</span>
+    <span class="calendar-weekday-label py-1 text-center text-xs font-semibold uppercase tracking-wide text-slate-400">Tue</span>
+    <span class="calendar-weekday-label py-1 text-center text-xs font-semibold uppercase tracking-wide text-slate-400">Wed</span>
+    <span class="calendar-weekday-label py-1 text-center text-xs font-semibold uppercase tracking-wide text-slate-400">Thu</span>
+    <span class="calendar-weekday-label py-1 text-center text-xs font-semibold uppercase tracking-wide text-slate-400">Fri</span>
+    <span class="calendar-weekday-label py-1 text-center text-xs font-semibold uppercase tracking-wide text-slate-400">Sat</span>
+    <span class="calendar-weekday-label py-1 text-center text-xs font-semibold uppercase tracking-wide text-slate-400">Sun</span>
+  </div>
+
+  <!-- Calendar grid -->
+  <div class="calendar-grid calendar-grid-{{ calendar_view }} flex flex-col gap-1">
+    {% for week in calendar_weeks %}
+    <div class="calendar-week-row grid grid-cols-7 gap-1">
+      {% for cell in week %}
+        {% if cell.is_current_period %}
+        <button hx-get="{% url 'admin_appointment_calendar_day' %}?date={{ cell.date|date:'Y-m-d' }}" hx-target="#calendar-day-panel" hx-swap="innerHTML" class="calendar-day-cell relative flex flex-col items-center justify-start h-16 sm:h-20 p-2 text-slate-200 bg-white/5 rounded-lg hover:bg-white/10 transition-colors {% if cell.is_today %}calendar-day-today !bg-white/20 ring-2 ring-white/40{% endif %} {% if not cell.is_working_day %}calendar-day-non-working !text-slate-500{% endif %} {% if cell.is_blocked %}calendar-day-blocked !bg-red-500/10 !text-red-300{% endif %}">
+          <span class="calendar-day-number text-sm font-medium">{{ cell.day_number }}</span>
+          {% if cell.statuses %}
+          <span class="calendar-day-dots flex items-center justify-center gap-0.5 mt-1">
+            {% for status_item in cell.statuses %}
+            <span class="calendar-dot calendar-dot-{{ status_item.status }} w-1.5 h-1.5 rounded-full {% if status_item.status == 'pending' %}bg-yellow-400{% elif status_item.status == 'confirmed' %}bg-blue-500{% elif status_item.status == 'completed' %}bg-green-500{% elif status_item.status == 'cancelled' %}bg-red-500{% elif status_item.status == 'no_show' %}bg-gray-400{% endif %}" title="{{ status_item.count }} {{ status_item.status }}"></span>
+            {% endfor %}
+          </span>
+          {% endif %}
+        </button>
+        {% else %}
+        <!-- Filler day from adjacent month — not clickable, dimmed -->
+        <div class="calendar-day-cell calendar-day-outside relative flex flex-col items-center justify-start h-16 sm:h-20 p-2 rounded-lg text-slate-600 opacity-40">
+          <span class="calendar-day-number text-sm font-medium">{{ cell.day_number }}</span>
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+  <!-- end calendar-grid -->
+
+</div>
+<!-- end admin-calendar-grid -->

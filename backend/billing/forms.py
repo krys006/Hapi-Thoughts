@@ -1,7 +1,6 @@
 from django import forms
-from django.utils import timezone
 
-from .models import Service, BillingReceipt, BillingItem
+from .models import Service, BillingReceipt
 
 
 class ServiceForm(forms.ModelForm):
@@ -57,6 +56,8 @@ class BillingReceiptForm(forms.ModelForm):
     """
     Admin form — create or edit a billing receipt header.
     Items are added separately via BillingItemForm.
+    Payment status/date are not here: they change only via the
+    mark-paid / mark-cancelled actions.
     """
 
     class Meta:
@@ -67,24 +68,15 @@ class BillingReceiptForm(forms.ModelForm):
             "discount_value",
             "discount_note",
             "payment_method",
-            "payment_status",
-            "payment_date",
         ]
         widgets = {
             "billing_date": forms.DateInput(attrs={"type": "date"}),
-            "payment_date": forms.DateInput(attrs={"type": "date"}),
         }
 
     def clean(self):
         cleaned_data = super().clean()
-        payment_status = cleaned_data.get("payment_status")
-        payment_date = cleaned_data.get("payment_date")
         discount_type = cleaned_data.get("discount_type")
         discount_value = cleaned_data.get("discount_value")
-
-        # Payment date required when marking as paid
-        if payment_status == BillingReceipt.PAID and not payment_date:
-            cleaned_data["payment_date"] = timezone.now().date()
 
         # Discount value required when discount type is set
         if discount_type and (discount_value is None or discount_value <= 0):
@@ -103,9 +95,7 @@ class BillingItemForm(forms.Form):
 
     # Optional — if set, description auto-fills from service name
     service = forms.ModelChoiceField(
-        queryset=Service.objects.filter(
-            status__in=[Service.ACTIVE, Service.UNLISTED]
-        ),
+        queryset=Service.objects.filter(status__in=[Service.ACTIVE, Service.UNLISTED]),
         required=False,
         empty_label="Manual item (no service)",
     )

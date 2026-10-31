@@ -1,4 +1,9 @@
-{% extends 'base.html' %}
+{% extends 'base_dashboard.html' %}
+
+{% load static %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'css/admin/service_form.css' %}">
+{% endblock %}
 
 {% block title %}
   {% if is_edit %}Edit Service{% else %}Add Service{% endif %}

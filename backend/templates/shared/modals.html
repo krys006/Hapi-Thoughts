@@ -1,0 +1,72 @@
+<!-- Reusable confirmation modal — shared across the whole app. -->
+<!-- Usage: call openConfirmModal(actionUrl, title, message) from any -->
+<!-- button's onclick. The modal's single <form> POSTs to whatever URL -->
+<!-- was passed in, with one shared CSRF token. -->
+
+<!-- ── TEMPORARY BASELINE STYLING ──────────────────────────────────────── -->
+<!-- Plain CSS, not Tailwind — makes the modal functional as a real -->
+<!-- overlay popup before the frontend teammate's styling pass. -->
+<!-- Safe to delete this whole <style> block once real Tailwind classes -->
+<!-- are applied to .confirm-modal-overlay / .confirm-modal-box / etc. -->
+<style>
+  .confirm-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+  .confirm-modal-hidden {
+    display: none;
+  }
+  .confirm-modal-box {
+    background: #ffffff;
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    max-width: 28rem;
+    width: 90%;
+  }
+  .confirm-modal-title {
+    font-weight: 600;
+    font-size: 1.125rem;
+    margin-bottom: 0.5rem;
+  }
+  .confirm-modal-message {
+    margin-bottom: 1rem;
+    color: #374151;
+  }
+  .confirm-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+</style>
+<!-- ── END TEMPORARY BASELINE STYLING ──────────────────────────────────── -->
+
+<div id="confirm-modal-overlay" class="confirm-modal-overlay confirm-modal-hidden">
+  <div class="confirm-modal-box">
+    <h3 id="confirm-modal-title" class="confirm-modal-title"></h3>
+    <p id="confirm-modal-message" class="confirm-modal-message"></p>
+    <form id="confirm-modal-form" method="post" class="confirm-modal-form">
+      {% csrf_token %}
+      <div class="confirm-modal-actions">
+        <button type="button" onclick="closeConfirmModal()" class="btn-secondary">Cancel</button>
+        <button type="submit" class="btn-danger">Confirm</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  function openConfirmModal(actionUrl, title, message) {
+    document.getElementById('confirm-modal-form').action = actionUrl;
+    document.getElementById('confirm-modal-title').textContent = title;
+    document.getElementById('confirm-modal-message').textContent = message;
+    document.getElementById('confirm-modal-overlay').classList.remove('confirm-modal-hidden');
+  }
+  function closeConfirmModal() {
+    document.getElementById('confirm-modal-overlay').classList.add('confirm-modal-hidden');
+  }
+</script>

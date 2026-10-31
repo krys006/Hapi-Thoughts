@@ -3,7 +3,8 @@
 > This file defines all coding conventions for Hapi Vet.
 > Follow these rules consistently across all development.
 > Update this file if conventions change mid-development.
-> Both backend and frontend teammates must follow these rules.
+> Krys is the only developer (backend and frontend). These rules apply to
+> all work, including Claude Code sessions.
 
 ---
 
@@ -11,6 +12,8 @@
 
 ```
 Hapi-Thoughts/                  ← GitHub repo root
+├── CLAUDE.md                   ← Claude Code rules (read first)
+├── .claude/                    ← Claude Code settings (settings.json permissions)
 ├── backend/                    ← entire Django project lives here
 │   ├── hapivet/                ← Django project config
 │   │   ├── settings.py
@@ -31,14 +34,18 @@ Hapi-Thoughts/                  ← GitHub repo root
 │   ├── venv/                   ← virtual environment (never commit)
 │   ├── .env                    ← environment variables (never commit)
 │   ├── .env.example            ← example env file (safe to commit)
+│   ├── .flake8                 ← Flake8 config (run Flake8 from backend/)
 │   ├── requirements.txt        ← Python dependencies
 │   └── manage.py
 ├── docs/                       ← all project documentation
 │   ├── BRIEF.md
-│   ├── STACK.md
-│   ├── FEATURES.md
-│   ├── DATA_MODELS.md
 │   ├── CONVENTIONS.md
+│   ├── DATA_MODELS.md
+│   ├── FEATURES.md
+│   ├── GOOGLE_AUTH_NOTES.md
+│   ├── HANDOFF.md
+│   ├── STACK.md
+│   ├── SUPABASE_MIGRATION_NOTES.md
 │   └── SYSTEM_INSTRUCTIONS.md
 └── mobile/                     ← placeholder, unused in v1
 ```
@@ -48,8 +55,9 @@ Hapi-Thoughts/                  ← GitHub repo root
 > Repo name and Django project name are completely separate.
 
 > All Django commands are run from inside `backend/`:
-> ```bash
+> ```powershell
 > cd backend
+> venv\Scripts\Activate.ps1
 > python manage.py runserver
 > ```
 
@@ -94,166 +102,243 @@ views/
 
 ## 3. Template Structure
 
-All templates live in the top-level `templates/` folder.
+All templates live in the top-level `backend/templates/` folder.
 Never use per-app template folders.
+
+- `base_dashboard.html` is the base for every logged-in dashboard page
+  (header, bell, sidebar, flash messages).
+- `base.html` is the base for standalone auth pages (login, register,
+  password reset, email verification, onboarding).
+- HTMX partials are prefixed with `_` and never extend a base template.
+- Owner emails are plain-text templates in `owner/emails/*.txt`.
 
 ```
 templates/
-├── base.html                   ← Shared base template
-├── shared/                     ← Shared components
-│   ├── navbar.html
+├── base.html                         ← Auth/standalone page base
+├── base_dashboard.html               ← Dashboard base (admin + owner)
+├── shared/                           ← Used by both roles
+│   ├── clinic_info.html
+│   ├── modals.html
 │   ├── sidebar_admin.html
 │   ├── sidebar_owner.html
-│   ├── modals.html
-│   ├── flash_messages.html
-│   └── pagination.html
-├── admin/                      ← All admin-facing templates
+│   ├── _global_search_results.html
+│   ├── _owner_search_results.html
+│   ├── billing/
+│   │   └── _receipt_print.html
+│   └── notifications/
+│       ├── _panel.html
+│       └── _notification_row.html
+├── admin/
+│   ├── login.html
+│   ├── walkin_create.html
 │   ├── dashboard/
-│   │   └── index.html
+│   │   ├── index.html
+│   │   └── _dashboard_partial.html
 │   ├── appointments/
 │   │   ├── list.html
 │   │   ├── detail.html
-│   │   └── calendar.html
+│   │   ├── walkin_form.html
+│   │   ├── _appointment_list_partial.html
+│   │   ├── _calendar_grid.html
+│   │   ├── _calendar_day_panel.html
+│   │   ├── _pet_options.html
+│   │   └── _slot_options.html
 │   ├── pets/
 │   │   ├── owners_list.html
 │   │   ├── owner_detail.html
+│   │   ├── owner_form.html
+│   │   ├── owner_add_email.html
 │   │   ├── pets_list.html
-│   │   └── pet_detail.html
+│   │   ├── pet_detail.html
+│   │   ├── pet_form.html
+│   │   └── deletion_requests.html
 │   ├── medical/
+│   │   ├── record_list.html
 │   │   ├── record_detail.html
-│   │   └── record_form.html
+│   │   ├── record_form.html
+│   │   ├── pet_history.html
+│   │   ├── vaccination_list.html
+│   │   ├── vaccination_form.html
+│   │   ├── vaccination_edit.html
+│   │   └── vaccination_history.html
 │   ├── billing/
 │   │   ├── receipt_list.html
 │   │   ├── receipt_detail.html
-│   │   └── services_list.html
-│   ├── notifications/
-│   │   └── index.html
+│   │   ├── receipt_form.html
+│   │   ├── services_list.html
+│   │   └── service_form.html
 │   ├── health/
 │   │   ├── article_list.html
 │   │   └── article_form.html
 │   └── settings/
-│       └── clinic_settings.html
-└── owner/                      ← All pet owner-facing templates
+│       ├── clinic_settings.html
+│       └── _blocked_dates_list.html
+└── owner/
+    ├── login.html
+    ├── register.html
+    ├── register_pending.html
+    ├── verify_email_invalid.html
+    ├── forgot_password.html
+    ├── forgot_password_sent.html
+    ├── reset_password.html
+    ├── reset_password_complete.html
+    ├── onboarding.html
+    ├── onboarding/
+    │   ├── step1.html
+    │   └── step2.html
+    ├── emails/
+    │   ├── claim_account_subject.txt
+    │   ├── claim_account_body.txt
+    │   ├── password_reset_subject.txt
+    │   └── password_reset_email.txt
     ├── dashboard/
-    │   └── index.html
+    │   ├── index.html
+    │   └── _dashboard_partial.html
     ├── appointments/
     │   ├── list.html
     │   ├── book.html
-    │   └── detail.html
+    │   ├── detail.html
+    │   └── _slot_options.html
     ├── pets/
     │   ├── list.html
     │   ├── detail.html
-    │   └── add.html
+    │   ├── add.html
+    │   ├── edit.html
+    │   └── delete_request.html
     ├── medical/
-    │   └── history.html
+    │   ├── history.html
+    │   └── vaccination_history.html
     ├── billing/
     │   ├── list.html
     │   └── receipt_detail.html
-    ├── notifications/
-    │   └── index.html
     ├── health/
     │   ├── article_list.html
     │   └── article_detail.html
     └── profile/
         ├── index.html
-        └── edit.html
+        ├── edit.html
+        └── notification_preferences.html
 ```
 
 ---
 
 ## 4. Static Files Structure
 
-All static files live in the top-level `static/` folder.
+All static source files live in `backend/static/` (`STATICFILES_DIRS`).
+Per-page CSS and JS files are named after the page they serve
+(e.g. `css/admin/receipt_detail.css`).
 
 ```
 static/
 ├── css/
-│   ├── admin/              ← Admin-specific styles
-│   └── owner/              ← Pet owner-specific styles
+│   ├── admin/              ← Admin page styles
+│   ├── owner/              ← Pet owner page styles
+│   └── shared/             ← Styles used by both roles (header, clinic info)
 ├── js/
-│   ├── admin/              ← Admin-specific scripts
-│   └── owner/              ← Pet owner-specific scripts
+│   ├── admin/              ← Admin page scripts
+│   ├── owner/              ← Pet owner page scripts
+│   └── shared/             ← Scripts used by both roles
 └── images/
     ├── clinic/             ← Clinic logo and branding
     └── defaults/           ← Default avatars and placeholders
 ```
 
+> `backend/staticfiles/` is `collectstatic` output (`STATIC_ROOT`) —
+> never commit it.
+
 ### Media files (user uploads)
+Upload paths come from the `upload_to` values in the models:
 ```
-media/
-├── clinic/                 ← Clinic logo uploads
-├── owners/                 ← Pet owner profile photos
-├── pets/                   ← Pet profile photos
-└── test_results/           ← Medical test result files
+clinic/                     ← ClinicSettings.logo (appointments/models.py)
+owners/                     ← PetOwner.profile_photo (pets/models.py)
+pets/                       ← Pet.photo (pets/models.py)
+test_results/               ← TestResultFile.file (medical/models.py)
 ```
 
-> `media/` is generated at runtime — never commit it to GitHub.
-> Add `media/` to `.gitignore`.
+> Live (Render) runs with `USE_S3=True`, so these are folders in the
+> Supabase Storage bucket. Local dev runs with `USE_S3=False`, so they go
+> under `backend/media/`, which is generated at runtime — never commit it.
 
 ---
 
 ## 5. URL Structure
 
-### Role-prefixed URL pattern
-All URLs are prefixed by role for clear separation.
+### Every app is included at `""`
+`hapivet/urls.py` includes every app at the empty prefix. Each app's
+`urls.py` writes the **full path**, including the role prefix. There are no
+URL namespaces (`app_name`).
 
+```python
+# hapivet/urls.py (abridged)
+urlpatterns = [
+    path("", include("health.urls")),
+    path("", include("notifications.urls")),
+    path("", RedirectView.as_view(url="/login/"), name="home"),
+    path("", include("dashboard.urls")),
+    path("", include("accounts.urls")),
+    path("", include("pets.urls")),
+    path("", include("appointments.urls")),
+    path("", include("medical.urls")),
+    path("", include("billing.urls")),
+    path("accounts/", include("allauth.urls")),
+    # password reset: forgot-password/, reset-password/... (Django auth views)
+]
 ```
-/                           ← Landing / login redirect
-/login/                     ← Pet Owner login
-/register/                  ← Pet Owner registration
-/admin-login/               ← Admin login (separate)
 
-/owner/dashboard/           ← Pet Owner dashboard
-/admin/dashboard/           ← Admin dashboard
-/owner/pets/                ← Pet list
-/owner/pets/<id>/           ← Pet detail
-/owner/appointments/        ← Appointment list
-/owner/appointments/book/   ← Book appointment
-/owner/profile/             ← Profile page
-/owner/billing/             ← Billing history
-/owner/notifications/       ← Notifications
-/owner/health/              ← Health library
-
-/admin/appointments/        ← Appointment management
-/admin/pets/                ← Pet owner and pet management
-/admin/medical/             ← Medical records
-/admin/billing/             ← Billing management
-/admin/services/            ← Service catalog
-/admin/notifications/       ← Notification management
-/admin/health/              ← Health library management
-/admin/settings/            ← Clinic settings
+### Path layout
 ```
+/                               ← Redirects to /login/
+/login/  /register/             ← Pet Owner auth (accounts)
+/admin-login/                   ← Admin login (accounts)
+/logout/                        ← Shared logout (accounts)
+/clinic-info/                   ← Shared clinic info page (appointments)
+/forgot-password/  /reset-password/...  ← Password reset (hapivet/urls.py)
+/accounts/...                   ← allauth (Google OAuth)
+
+/owner/dashboard/               ← dashboard
+/owner/onboarding/step1/        ← pets
+/owner/profile/                 ← pets
+/owner/profile/notifications/   ← notifications (preferences)
+/owner/pets/                    ← pets
+/owner/pets/<pk>/medical/       ← medical
+/owner/appointments/            ← appointments
+/owner/billing/                 ← billing
+/owner/health/                  ← health
+
+/admin/dashboard/               ← dashboard
+/admin/search/                  ← dashboard (global search)
+/admin/walkin/create/           ← accounts (walk-in owner + pet)
+/admin/appointments/            ← appointments
+/admin/settings/                ← appointments (clinic settings)
+/admin/pets/  /admin/pets/owners/  ← pets
+/admin/medical/  /admin/vaccinations/  ← medical
+/admin/billing/  /admin/services/  ← billing
+/admin/health/                  ← health
+
+/notifications/...              ← Shared by both roles (not per-role)
+```
+
+> The custom `/admin/...` paths are the app's own admin pages. Django's
+> built-in `/admin` site is not used.
 
 ### URL naming convention
-URL names follow the pattern: `role:app_action`
+URL names are flat `snake_case` with a role prefix: `admin_`, `owner_`, or
+none for shared routes. They are **not** `role:app_action` namespaces.
 
 ```python
 # accounts/urls.py
-path('login/', views.login_view, name='owner_login'),
-path('register/', views.register_view, name='owner_register'),
+path("login/", views.owner_login, name="owner_login"),
+path("logout/", views.user_logout, name="logout"),
 
 # appointments/urls.py — owner
-path('owner/appointments/', views.appointment_list, name='owner_appointments'),
-path('owner/appointments/book/', views.book_appointment, name='owner_book_appointment'),
-path('owner/appointments/<int:pk>/', views.appointment_detail, name='owner_appointment_detail'),
+path("owner/appointments/book/", views.owner_book_appointment, name="owner_book_appointment"),
 
 # appointments/urls.py — admin
-path('admin/appointments/', views.admin_appointment_list, name='admin_appointments'),
-path('admin/appointments/<int:pk>/approve/', views.approve_appointment, name='admin_approve_appointment'),
-```
+path("admin/appointments/", views.admin_appointment_list, name="admin_appointments"),
+path("admin/appointments/<int:pk>/approve/", views.admin_appointment_approve, name="admin_appointment_approve"),
 
-### Main urls.py includes all app urls
-```python
-# hapivet/urls.py
-urlpatterns = [
-    path('', include('accounts.urls')),
-    path('owner/', include('pets.urls')),
-    path('owner/', include('appointments.urls')),
-    path('admin/', include('appointments.urls')),
-    path('admin/', include('medical.urls')),
-    path('admin/', include('billing.urls')),
-    # etc.
-]
+# notifications/urls.py — shared (no role prefix)
+path("notifications/panel/", views.notification_panel, name="notifications_panel"),
 ```
 
 ---
@@ -269,16 +354,16 @@ urlpatterns = [
 | Classes | PascalCase | `PetOwner`, `AppointmentForm` |
 | Constants | UPPER_SNAKE_CASE | `MAX_BOOKING_DAYS`, `DEFAULT_SLOT_DURATION` |
 | Model fields | snake_case | `date_of_birth`, `is_archived` |
-| URL names | snake_case with role prefix | `owner_appointments`, `admin_approve_appointment` |
+| URL names | snake_case with role prefix | `owner_appointments`, `admin_appointment_approve` |
 | Template names | snake_case | `appointment_list.html`, `pet_detail.html` |
 
 ### HTML / Templates
 | Item | Convention | Example |
 |---|---|---|
 | Template variables | snake_case | `{{ pet_owner.first_name }}` |
-| Block names | snake_case | `{% block page_content %}` |
+| Block names | snake_case | `{% block extra_css %}` |
 | Template tags | snake_case | `{% url 'owner_appointments' %}` |
-| CSS classes | Tailwind utility classes only | `class="flex items-center gap-4"` |
+| CSS classes | Tailwind utility classes plus per-page CSS files in `static/css/admin\|owner\|shared/` | `class="flex items-center gap-4"` |
 | Custom CSS classes | kebab-case | `class="appointment-card"` |
 | HTMX attributes | standard htmx attributes | `hx-get`, `hx-target`, `hx-trigger` |
 
@@ -287,6 +372,10 @@ urlpatterns = [
 ## 7. View Conventions
 
 All views are **function-based**. No class-based views.
+
+**Exception:** Framework-provided auth views (Django's built-in auth views,
+the `HapiVetPasswordResetView` subclass, and the root `RedirectView` in
+`hapivet/urls.py`) are the only allowed class-based views.
 
 ### Standard view structure
 ```python
@@ -441,34 +530,59 @@ class AppointmentBookingForm(forms.ModelForm):
 
 ## 10. Template Conventions
 
-### Base template structure
-Every page extends `base.html`:
+### Two base templates
+| Base | Used by | What it provides |
+|---|---|---|
+| `base_dashboard.html` | Every logged-in dashboard page, admin and owner (e.g. `admin/billing/receipt_detail.html`, `owner/pets/list.html`, `shared/clinic_info.html`) | Header with search and bell, role-based sidebar, flash messages, Tailwind + HTMX, CSRF header for HTMX, confirm modal |
+| `base.html` | Standalone auth pages (e.g. `owner/login.html`, `owner/register.html`, `admin/login.html`, password reset, `owner/onboarding/step1.html`) | Bare page with Tailwind + HTMX, no header or sidebar |
+
+### Blocks each base defines
 ```html
-{% extends 'base.html' %}
+<!-- base_dashboard.html -->
+{% block title %}Hapi Vet{% endblock %}
+{% block extra_css %}{% endblock %}   ← page CSS link, in <head>
+{% block content %}{% endblock %}     ← page body, inside <main>
+{% block extra_js %}{% endblock %}    ← page JS, end of <body>
 
-{% block title %}Appointments — Hapi Vet{% endblock %}
-
-{% block page_content %}
-  <!-- page content here -->
-{% endblock %}
-```
-
-### Base template blocks
-```html
 <!-- base.html -->
 {% block title %}Hapi Vet{% endblock %}
-{% block extra_css %}{% endblock %}    ← page-specific CSS
-{% block content %}{% endblock %}      ← full page content
-{% block page_content %}{% endblock %} ← main content area only
-{% block extra_js %}{% endblock %}     ← page-specific JS
+{% block tailwind %}…{% endblock %}   ← Tailwind CDN script (overridable)
+{% block htmx %}…{% endblock %}       ← HTMX script (overridable)
+{% block preload_assets %}{% endblock %}
+{% block extra_css %}{% endblock %}
+{% block content %}{% endblock %}
+{% block extra_js %}{% endblock %}
+```
+
+### Example dashboard page
+From `admin/billing/receipt_detail.html`:
+```html
+{% extends 'base_dashboard.html' %}
+
+{% load static %}
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'css/admin/receipt_detail.css' %}">
+{% endblock %}
+
+{% block title %}{{ receipt.receipt_number }} — Hapi Vet Admin{% endblock %}
+
+{% block content %}
+  <!-- page content here -->
+{% endblock content %}
+
+{% block extra_js %}
+  <!-- page scripts here -->
+{% endblock extra_js %}
 ```
 
 ### HTMX partial templates
-Partials are prefixed with underscore and never extend base.html:
+Partials are prefixed with underscore and never extend a base template.
+Real examples:
 ```
-_list_partial.html      ← table or list update
-_notification_count.html ← badge count update
-_calendar_day.html       ← calendar day update
+admin/appointments/_calendar_grid.html      ← calendar month grid
+admin/appointments/_calendar_day_panel.html ← calendar day side panel
+admin/dashboard/_dashboard_partial.html     ← self-polling dashboard stats
+shared/notifications/_panel.html            ← bell dropdown
 ```
 
 ### Template variable naming
@@ -512,14 +626,15 @@ Example:
 ```
 
 ### Color usage
-Until Figma design is finalized, use neutral Tailwind colors:
+Default Tailwind colors for new UI, where no page CSS file sets its own:
 - Primary actions: `blue-600`
 - Danger/delete: `red-600`
 - Success: `green-600`
 - Warning: `yellow-500`
 - Neutral: `gray-*`
 
-These will be replaced with clinic brand colors when Figma is ready.
+Page-specific brand colors (gradients, accents) live in the per-page CSS
+files in `static/css/admin|owner|shared/`.
 
 ### Status badge convention
 Appointment and billing statuses use consistent color badges:
@@ -585,38 +700,49 @@ Add to `.vscode/settings.json`:
 ```
 
 ### Flake8 config
-Add `.flake8` file to project root:
+The config lives in `backend/.flake8`, and Flake8 is run from `backend/`:
 ```ini
 [flake8]
 max-line-length = 88
 exclude =
     migrations,
+    venv,
+    staticfiles,
+    media,
     .git,
-    __pycache__,
-    .env
+    __pycache__
 ignore = E203, W503
+```
+
+```bash
+cd backend
+venv\Scripts\flake8.exe
 ```
 
 ### Rules
 - Black formats automatically on save — never manually adjust spacing
 - Fix all Flake8 warnings before committing
 - Never commit code with linting errors
-- Both teammates should have same VS Code settings
+- Keep the same VS Code settings on every machine you develop on
 
 ---
 
 ## 13. Git Conventions
 
-### Branch naming
+### Branches
 ```
-main              ← stable, production-ready
-rebuild           ← active clean rebuild
-feature/auth      ← new feature
-feature/appointments
-feature/medical-records
-fix/login-redirect
-fix/slot-conflict
+master            ← protected stable
+rebuild           ← auto-deploys to Render; Render's build runs migrate
+                    against the live Supabase DB (build command unverified)
+trial-run         ← buffer: work is PR'd here and tested before rebuild
+feature/<name>    ← new feature, cut from trial-run
+fix/<name>        ← bug fix, cut from trial-run
+style/<name>      ← styling-only change, cut from trial-run
+docs/<name>       ← documentation-only change, cut from trial-run
 ```
+
+Flow: branch from `trial-run` → PR into `trial-run` → test → PR
+`trial-run` into `rebuild` (deploys).
 
 ### Commit message format
 ```
@@ -642,8 +768,8 @@ docs: update DATA_MODELS.md with TestResultFile changes
 | `test` | Tests added or updated |
 
 ### Rules
-- Never commit directly to `main`
-- Always work on a feature branch
+- Never commit directly to `master` or `rebuild`
+- Always work on a feature/fix/style/docs branch cut from `trial-run`
 - Update relevant md files in the same commit as the code change
 - Never commit `backend/.env`
 - Never commit `backend/media/` folder
@@ -661,29 +787,48 @@ backend/.env            ← actual env values (never commit)
 backend/.env.example    ← template with empty values (safe to commit)
 ```
 
-### .env file (never commit)
-```env
-SECRET_KEY=your-secret-key-here
-DEBUG=True
-DATABASE_URL=postgresql://user:password@localhost:5432/hapivet_db
-EMAIL_HOST_USER=hapitutzvet@gmail.com
-EMAIL_HOST_PASSWORD=your-gmail-app-password
-ALLOWED_HOSTS=localhost,127.0.0.1
-GOOGLE_CLIENT_ID=your-google-client-id
-GOOGLE_CLIENT_SECRET=your-google-client-secret
-```
+### Variables read by settings.py
+These are the names `hapivet/settings.py` reads through `django-environ`.
+Values are shown empty on purpose. Never put real values in docs.
 
-### .env.example (safe to commit)
 ```env
+# Core
 SECRET_KEY=
 DEBUG=
-DATABASE_URL=
-EMAIL_HOST_USER=
-EMAIL_HOST_PASSWORD=
 ALLOWED_HOSTS=
+CSRF_TRUSTED_ORIGINS=
+
+# Database
+# Local: the local hapivet_dev PostgreSQL URL (localhost:5432).
+# Live (Render): the Supabase Session Pooler connection string.
+# Never put the live URL in backend/.env.
+DATABASE_URL=
+
+# Google OAuth (allauth)
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
+
+# Email
+# USE_BREVO_EMAIL: True sends real email through Brevo; False prints email
+# to the console. Defaults to the opposite of DEBUG. Local: False.
+USE_BREVO_EMAIL=
+DEFAULT_FROM_EMAIL=
+BREVO_API_KEY=            # required only when USE_BREVO_EMAIL=True
+
+# Media storage
+# USE_S3: True stores uploads in Supabase Storage (S3 API); False uses
+# backend/media/. Defaults to False. Local: False. Live (Render): True.
+USE_S3=
+AWS_ACCESS_KEY_ID=        # the AWS_* and MEDIA_URL values are required
+AWS_SECRET_ACCESS_KEY=    # only when USE_S3=True
+AWS_STORAGE_BUCKET_NAME=
+AWS_S3_ENDPOINT_URL=
+AWS_S3_REGION_NAME=
+AWS_S3_CUSTOM_DOMAIN=
+MEDIA_URL=
 ```
+
+`backend/.env.example` should list the same names with empty values.
 
 Always update `.env.example` when adding new environment variables.
 
@@ -700,9 +845,9 @@ Before committing:
 - [ ] Flake8 has no errors
 - [ ] Relevant md files updated if models or features changed
 - [ ] `.env` not included in commit
-- [ ] Working on a feature branch, not `main`
+- [ ] Working on a feature branch, not `master` or `rebuild`
 
 Before changing a model:
 - [ ] Update `DATA_MODELS.md` first
-- [ ] Run `makemigrations` and `migrate`
+- [ ] Write a migration plan (fields added/changed/removed, data risk) and get approval. `makemigrations` only with approval. Before any local `migrate`, run the DB host check (HANDOFF §3); it must show `localhost | hapivet_dev`. Merging into `rebuild` applies migrations to the live Supabase DB, so never migrate from a feature branch against live.
 - [ ] Update `FEATURES.md` if feature scope changed

@@ -1,15 +1,223 @@
-{% extends 'base.html' %}
+{% extends 'base_dashboard.html' %}
+{% load static %}
 
 {% block title %}Add a Pet — Hapi Vet{% endblock %}
 
 {% block content %}
 
+
+<style>
+  
+<style>
+
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+
+.pet-form-page{
+    max-width:430px;
+    margin:0 auto;
+    padding:20px;
+    font-family:'Poppins',sans-serif;
+}
+
+.pet-form-header{
+    margin-bottom:25px;
+}
+
+.pet-form-title{
+    color:white;
+    font-size:2rem;
+    font-weight:800;
+    margin-bottom:5px;
+}
+
+.page-subtitle{
+    color:rgba(255,255,255,.85);
+}
+
+.pet-form{
+    background:rgba(255,255,255,.15);
+    backdrop-filter:blur(18px);
+    border:1px solid rgba(255,255,255,.2);
+    border-radius:28px;
+    padding:24px;
+    box-shadow:0 10px 30px rgba(0,0,0,.12);
+}
+
+/* PHOTO */
+
+.photo-upload-card{
+    background:rgba(255,255,255,.10);
+    border:2px dashed rgba(255,255,255,.25);
+    border-radius:22px;
+    padding:25px;
+    text-align:center;
+    margin-bottom:25px;
+}
+
+.photo-upload-icon{
+    font-size:3rem;
+    color:white;
+    margin-bottom:10px;
+}
+
+.photo-upload-text{
+    color:white;
+    font-weight:600;
+    margin-bottom:15px;
+}
+
+.photo-upload-card input[type=file]{
+    width:100%;
+    color:white;
+}
+
+/* FORM */
+
+.form-section{
+    margin-bottom:18px;
+}
+
+.form-row-two-col{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:14px;
+}
+
+.form-label{
+    display:block;
+    color:white;
+    font-weight:600;
+    margin-bottom:8px;
+}
+
+.required-tag{
+    color:#ffd966;
+}
+
+.optional-tag{
+    color:rgba(255,255,255,.7);
+    font-size:.85rem;
+}
+
+/* INPUTS */
+
+.pet-form input,
+.pet-form select,
+.pet-form textarea{
+    width:100%;
+    padding:14px;
+    border:none;
+    border-radius:16px;
+    background:rgba(255,255,255,.18);
+    color:white;
+    font-size:15px;
+    outline:none;
+}
+
+.pet-form input::placeholder{
+    color:rgba(255,255,255,.65);
+}
+
+.pet-form select option{
+    color:black;
+}
+
+/* ERRORS */
+
+.form-error{
+    color:#ffd6d6;
+    margin-top:6px;
+    font-size:.85rem;
+}
+
+/* BUTTONS */
+
+.form-actions{
+    display:flex;
+    gap:12px;
+    margin-top:25px;
+}
+
+.btn-primary{
+    flex:1;
+    border:none;
+    border-radius:18px;
+    padding:15px;
+
+    background:linear-gradient(
+        135deg,
+        #7c5cff,
+        #00c6ff
+    );
+
+    color:white;
+    font-weight:700;
+    font-size:15px;
+    cursor:pointer;
+    text-decoration:none;
+    text-align:center;
+}
+
+.btn-secondary{
+    flex:1;
+
+    background:rgba(255,255,255,.15);
+
+    border:1px solid rgba(255,255,255,.2);
+
+    color:white;
+
+    text-decoration:none;
+
+    border-radius:18px;
+
+    padding:15px;
+
+    text-align:center;
+}
+
+.btn-primary:hover,
+.btn-secondary:hover{
+    transform:translateY(-2px);
+}
+
+/* MOBILE */
+
+@media(max-width:480px){
+
+    .form-row-two-col{
+        grid-template-columns:1fr;
+    }
+
+    .form-actions{
+        flex-direction:column;
+    }
+
+    .pet-form-title{
+        font-size:1.7rem;
+    }
+
+}
+
+</style>
+
 <div class="pet-form-page">
 
-  <div class="pet-form-header">
-    <h1 class="pet-form-title">Add a Pet</h1>
-    <a href="{% url 'owner_pet_list' %}" class="btn-secondary">Cancel</a>
-  </div>
+<div class="pet-form-header">
+
+    <div>
+
+        <h1 class="pet-form-title">
+            Add Pet
+        </h1>
+
+        <p class="page-subtitle">
+            Create your pet profile
+        </p>
+
+    </div>
+
+</div>
 
   <form method="post" enctype="multipart/form-data" class="pet-form">
     {% csrf_token %}
@@ -36,29 +244,45 @@
       {% endif %}
     </div>
 
-    <!-- Species and breed -->
+    <!-- Species and breed — cascading dropdown with custom input fallback -->
     <div class="form-row-two-col">
 
       <div class="form-section">
-        <label class="form-label" for="{{ form.species.id_for_label }}">
+        <label class="form-label" for="{{ form.species.id_for_label }}_select">
           Species <span class="required-tag">*</span>
         </label>
-        {{ form.species }}
+        <select id="{{ form.species.id_for_label }}_select" class="species-select">
+          <option value="">Select a species</option>
+          <option value="Dog">Dog</option>
+          <option value="Cat">Cat</option>
+          <option value="Bird">Bird</option>
+          <option value="Rabbit">Rabbit</option>
+          <option value="Hamster">Hamster</option>
+          <option value="__other__">Other (please specify)</option>
+        </select>
+        <!-- Actual submitted field — hidden unless "Other" is chosen -->
+        <div id="{{ form.species.id_for_label }}_custom_wrapper" class="hidden-field custom-input-wrapper">
+          {{ form.species }}
+        </div>
         {% if form.species.errors %}
           <p class="form-error">{{ form.species.errors.0 }}</p>
         {% endif %}
       </div>
 
       <div class="form-section">
-        <label class="form-label" for="{{ form.breed.id_for_label }}">
+        <label class="form-label" for="{{ form.breed.id_for_label }}_select">
           Breed <span class="optional-tag">(optional)</span>
         </label>
-        {{ form.breed }}
+        <select id="{{ form.breed.id_for_label }}_select" class="breed-select">
+          <option value="">Select species first</option>
+        </select>
+        <!-- Actual submitted field — hidden unless "Other" is chosen -->
+        <div id="{{ form.breed.id_for_label }}_custom_wrapper" class="hidden-field custom-input-wrapper">
+          {{ form.breed }}
+        </div>
         {% if form.breed.errors %}
           <p class="form-error">{{ form.breed.errors.0 }}</p>
         {% endif %}
-        <!-- NOTE for frontend teammate:
-             Species + breed upgraded to cascading HTMX dropdown in Phase 7. -->
       </div>
 
     </div>
@@ -126,11 +350,25 @@
 
     <div class="form-actions">
       <a href="{% url 'owner_pet_list' %}" class="btn-secondary">Cancel</a>
-      <button type="submit" class="btn-primary">Add Pet</button>
+   <button type="submit" class="btn-primary">
+    🐾 Add Pet
+</button>
     </div>
 
   </form>
 
 </div>
 
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/shared/pet_species_breed.js' %}"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    initPetSpeciesBreedFields(
+      '{{ form.species.id_for_label }}',
+      '{{ form.breed.id_for_label }}'
+    );
+  });
+</script>
 {% endblock %}

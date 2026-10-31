@@ -104,10 +104,10 @@ Phase 7 — Dashboards & Polish
 | Edit contact links (Facebook, other socials) | `complete` |
 | Profile photo upload (optional) | `complete` |
 | Auto-generated initials avatar if no photo uploaded | `complete` |
-| Notification preferences settings | `planned` |
-| Appointment reminder timing preference | `planned` |
-| Vaccination reminder timing preference (days in advance) | `planned` |
-| Per-type email notification toggles (on/off) | `planned` |
+| Notification preferences settings | `complete` |
+| Appointment reminder timing preference | `complete` |
+| Vaccination reminder timing preference (days in advance) | `complete` |
+| Per-type email notification toggles (on/off) | `complete` |
 
 ### 2.3 Pet Management (Pet Owner)
 | Feature | Status |
@@ -120,8 +120,8 @@ Phase 7 — Dashboards & Polish
 | Predefined deletion reasons (passed away, rehomed, duplicate, other) | `complete` |
 | Deletion request goes to Admin for approval | `complete` |
 | View pet profile | `complete` |
-| View pet vaccination history | `planned` |
-| View pet medical history (read-only, public notes only) | `planned` |
+| View pet vaccination history | `complete` |
+| View pet medical history (read-only, public notes only) | `complete` |
 
 ### Pet Profile Fields
 | Field | Required | Notes |
@@ -154,7 +154,7 @@ Phase 7 — Dashboards & Polish
 | Add a pet manually | `complete` |
 | Edit pet details | `complete` |
 | Approve pet deletion request | `complete` |
-| Reject pet deletion request | `complete.` |
+| Reject pet deletion request | `complete` |
 
 ### 2.5 Walk-in Client Flow
 | Feature | Status |
@@ -197,11 +197,11 @@ Phase 7 — Dashboards & Polish
 | Feature | Status |
 |---|---|
 | View all appointments (calendar and list view) | `planned` |
-| Calendar monthly and weekly view toggle | `planned` |
-| Colored dot indicators on calendar days with appointments | `planned` |
+| Calendar monthly and weekly view toggle | `complete` |
+| Colored dot indicators on calendar days with appointments | `complete` |
 | Click day to view appointment details in side panel | `planned` |
 | Approve appointment request (PENDING → CONFIRMED) | `complete` |
-| Reject appointment request (PENDING → CANCELLED) | `plancompletened` |
+| Reject appointment request (PENDING → CANCELLED) | `complete` |
 | Mark appointment as COMPLETED | `complete` |
 | Mark appointment as NO_SHOW | `complete` |
 | Add notes to appointment | `complete` |
@@ -252,11 +252,11 @@ PENDING → CONFIRMED → COMPLETED
 ### 4.2 Medical Records (Pet Owner)
 | Feature | Status |
 |---|---|
-| View pet medical history (read-only) | `planned` |
-| View public notes only | `planned` |
-| View prescription details | `planned` |
-| View test results (text only, no file access) | `planned` |
-| View vaccination records per pet | `planned` |
+| View pet medical history (read-only) | `complete` |
+| View public notes only | `complete` |
+| View prescription details | `complete` |
+| View test results (text only, no file access) | `complete` |
+| View vaccination records per pet | `complete` |
 
 ### 4.3 Vaccination Tracking
 | Feature | Status |
@@ -268,7 +268,7 @@ PENDING → CONFIRMED → COMPLETED
 | Custom vaccine name input if not in predefined list | `complete` |
 | Vaccination fields: vaccine name, date administered, weight at time of vaccination, next due date, batch/lot number, manufacturer, administered by, site of injection | `complete` |
 | View complete vaccination history per pet | `complete` |
-| Admin can manually trigger vaccination reminder | `planned` |
+| Admin can manually trigger vaccination reminder | `complete` |
 
 ---
 
@@ -277,14 +277,14 @@ PENDING → CONFIRMED → COMPLETED
 ### 5.1 Services and Pricing (Admin)
 | Feature | Status |
 |---|---|
-| Create a new service | `planned` |
-| Edit service name, description, and pricing | `planned` |
-| Set pricing type: Fixed or Range | `planned` |
-| Fixed pricing — single base price | `planned` |
-| Range pricing — min price and max price shown to pet owners | `planned` |
-| Actual billed amount set by Admin at billing time | `planned` |
-| Set service status: Draft / Active / Unlisted / Closed | `planned` |
-| Optional service category (Admin-defined freely) | `planned` |
+| Create a new service | `complete` |
+| Edit service name, description, and pricing | `complete` |
+| Set pricing type: Fixed or Range | `complete` |
+| Fixed pricing — single base price | `complete` |
+| Range pricing — min price and max price shown to pet owners | `complete` |
+| Actual billed amount set by Admin at billing time | `complete` |
+| Set service status: Draft / Active / Unlisted / Closed | `complete` |
+| Optional service category (Admin-defined freely) | `complete` |
 
 ### Service Status Behavior
 | Status | Visible to Pet Owner | Bookable |
@@ -297,28 +297,28 @@ PENDING → CONFIRMED → COMPLETED
 ### 5.2 Billing (Admin)
 | Feature | Status |
 |---|---|
-| Generate billing receipt at any point (not restricted to COMPLETED) | `planned` |
-| Add catalog services as billing line items | `planned` |
-| Add manual items (medicines, supplies) as billing line items | `planned` |
-| Each line item: quantity, description, unit price, subtotal | `planned` |
-| System auto-calculates total | `planned` |
-| Apply discount per receipt (percentage or fixed amount) | `planned` |
-| Discount note field (e.g. "Loyal client discount") | `planned` |
-| Set payment method (cash, etc.) | `planned` |
-| Set payment status: Pending / Paid / Cancelled | `planned` |
-| Edit receipt while status is Pending | `planned` |
-| Receipt locked once marked as Paid | `planned` |
-| View all billing transactions | `planned` |
-| View receipt detail | `planned` |
+| Generate billing receipt at any point (not restricted to COMPLETED) | `complete` |
+| Add catalog services as billing line items | `complete` |
+| Add manual items (medicines, supplies) as billing line items | `complete` |
+| Each line item: quantity, description, unit price, subtotal | `complete` |
+| System auto-calculates total | `complete` |
+| Apply discount per receipt (percentage or fixed amount) | `complete` |
+| Discount note field (e.g. "Loyal client discount") | `complete` |
+| Set payment method (cash, etc.) | `complete` |
+| Set payment status: Pending / Paid / Cancelled (via Mark as Paid / Cancel Receipt actions only) | `complete` |
+| Edit receipt while status is Pending | `complete` |
+| Receipt locked once marked as Paid or Cancelled | `complete` |
+| View all billing transactions | `complete` |
+| View receipt detail | `complete` |
 
 ### 5.3 Billing (Pet Owner)
 | Feature | Status |
 |---|---|
-| View billing receipt for completed appointments | `planned` |
-| View full billing history | `planned` |
-| Download receipt as PDF | `planned` |
-| Print receipt | `planned` |
-| Receive notification when billing is generated | `planned` |
+| View billing receipt for completed appointments | `complete` |
+| View full billing history | `complete` |
+| Download receipt as PDF | `complete` |
+| Print receipt | `complete` |
+| Receive notification when billing is generated | `complete` |
 
 ### Receipt Format
 ```
@@ -362,27 +362,27 @@ PENDING → CONFIRMED → COMPLETED
 ### 6.1 In-App Notifications
 | Feature | Status |
 |---|---|
-| Notification stored in database on trigger event | `planned` |
-| Bell icon in dashboard header | `planned` |
+| Notification stored in database on trigger event | `complete` |
+| Bell icon in dashboard header | `complete` |
 | Red dot on bell icon when unread notifications exist | `planned` |
 | Red dot disappears when all notifications are read | `planned` |
-| Click bell to open notification list | `planned` |
-| Click individual notification to view detail and mark as read | `planned` |
-| Mark all as read button | `planned` |
-| In-app notifications always on regardless of email toggles | `planned` |
-| Admin can clear notifications (all, read only) | `planned` |
+| Click bell to open notification list | `complete` |
+| Click individual notification to view detail and mark as read | `complete` |
+| Mark all as read button | `complete` |
+| In-app notifications always on regardless of email toggles | `complete` |
+| Admin can clear notifications (all, read only) | `complete` |
 
 ### 6.2 Email Notifications (Gmail SMTP)
 | Feature | Status |
 |---|---|
-| Email sent on appointment requested (to Admin) | `planned` |
-| Email sent on appointment approved (to Pet Owner) | `planned` |
-| Email sent on appointment rejected (to Pet Owner) | `planned` |
-| Email sent on appointment reminder (to Pet Owner) | `planned` |
-| Email sent on billing generated (to Pet Owner) | `planned` |
-| Email sent on vaccination reminder (to Pet Owner) | `planned` |
-| Email sent on follow-up reminder (to Pet Owner) | `planned` |
-| Admin configurable notification email in clinic settings | `planned` |
+| Email sent on appointment requested (to Admin) | `complete` |
+| Email sent on appointment approved (to Pet Owner) | `complete` |
+| Email sent on appointment rejected (to Pet Owner) | `complete` |
+| Email sent on appointment reminder (to Pet Owner) | `complete` |
+| Email sent on billing generated (to Pet Owner) | `complete` |
+| Email sent on vaccination reminder (to Pet Owner) | `complete` |
+| Email sent on follow-up reminder (to Pet Owner) | `complete` |
+| Admin configurable notification email in clinic settings | `complete` |
 | Failed email logged in system | `planned` |
 | Admin warned in dashboard when email fails | `planned` |
 | Admin can manually trigger resend of failed email | `planned` |
@@ -390,26 +390,26 @@ PENDING → CONFIRMED → COMPLETED
 ### 6.3 Notification Preferences
 | Feature | Status |
 |---|---|
-| Pet Owner per-type email toggle (appointment reminders on/off) | `planned` |
-| Pet Owner per-type email toggle (appointment status updates on/off) | `planned` |
-| Pet Owner per-type email toggle (billing notifications on/off) | `planned` |
-| Pet Owner per-type email toggle (vaccination reminders on/off) | `planned` |
-| Pet Owner per-type email toggle (follow-up reminders on/off) | `planned` |
-| Pet Owner appointment reminder timing preference (days before) | `planned` |
-| Pet Owner vaccination reminder timing preference (days before) | `planned` |
-| Admin per-type email toggles (all on by default) | `planned` |
+| Pet Owner per-type email toggle (appointment reminders on/off) | `complete` |
+| Pet Owner per-type email toggle (appointment status updates on/off) | `complete` |
+| Pet Owner per-type email toggle (billing notifications on/off) | `complete` |
+| Pet Owner per-type email toggle (vaccination reminders on/off) | `complete` |
+| Pet Owner per-type email toggle (follow-up reminders on/off) | `complete` |
+| Pet Owner appointment reminder timing preference (days before) | `complete` |
+| Pet Owner vaccination reminder timing preference (days before) | `complete` |
+| Admin per-type email toggles (all on by default) | `complete` |
 
 ### 6.4 Reminder System
 | Feature | Status |
 |---|---|
-| Appointment reminder — pet owner configurable (default 1 day before) | `planned` |
-| Appointment day-of reminder always fires (safety net) | `planned` |
-| Vaccination reminder — pet owner configurable (default 7 days before) | `planned` |
-| Vaccination day-of reminder always fires (safety net) | `planned` |
-| Admin can manually trigger vaccination reminder at any time | `planned` |
-| Follow-up reminder auto-triggers 3 days before follow-up date | `planned` |
-| Follow-up day-of reminder always fires (safety net) | `planned` |
-| Admin can manually trigger follow-up reminder at any time | `planned` |
+| Appointment reminder — pet owner configurable (default 1 day before) | `complete` |
+| Appointment day-of reminder always fires (safety net) | `complete` |
+| Vaccination reminder — pet owner configurable (default 7 days before) | `complete` |
+| Vaccination day-of reminder always fires (safety net) | `complete` |
+| Admin can manually trigger vaccination reminder at any time | `complete` |
+| Follow-up reminder auto-triggers 3 days before follow-up date | `complete` |
+| Follow-up day-of reminder always fires (safety net) | `complete` |
+| Admin can manually trigger follow-up reminder at any time | `complete` |
 
 ### 6.5 Notification Trigger Events
 | Event | Recipient |
@@ -429,77 +429,77 @@ PENDING → CONFIRMED → COMPLETED
 ### 7.1 Admin Dashboard
 | Feature | Status |
 |---|---|
-| Summary stats: total appointments today | `planned` |
-| Summary stats: pending appointment approvals | `planned` |
-| Summary stats: total registered pet owners | `planned` |
-| Summary stats: total registered pets | `planned` |
-| Summary stats: unpaid bills | `planned` |
-| Summary stats: upcoming vaccinations due this week | `planned` |
-| Summary stats: upcoming follow-ups due this week | `planned` |
-| Calendar view — monthly and weekly toggle | `planned` |
-| Calendar dot indicators color-coded by appointment status | `planned` |
+| Summary stats: total appointments today | `complete` |
+| Summary stats: pending appointment approvals | `complete` |
+| Summary stats: total registered pet owners | `complete` |
+| Summary stats: total registered pets | `complete` |
+| Summary stats: unpaid bills | `complete` |
+| Summary stats: upcoming vaccinations due this week | `complete` |
+| Summary stats: upcoming follow-ups due this week | `complete` |
+| Calendar view — monthly and weekly toggle | `complete` |
+| Calendar dot indicators color-coded by appointment status | `complete` |
 | Click calendar day to view appointment details in side panel | `planned` |
-| Pending appointment approvals widget | `planned` |
-| Recent notifications widget | `planned` |
-| HTMX polling for live data updates (10–30 sec) | `planned` |
-| Global search across pet owners, pets, appointments, medical records | `planned` |
-| Search results grouped by type | `planned` |
+| Pending appointment approvals widget | `complete` |
+| Recent notifications widget | `complete` |
+| HTMX polling for live data updates (10–30 sec) | `complete` |
+| Global search across pet owners, pets, appointments, medical records | `complete` |
+| Search results grouped by type | `complete` |
 
 ### 7.2 Pet Owner Dashboard
 | Feature | Status |
 |---|---|
-| Upcoming appointments section | `planned` |
-| My pets summary | `planned` |
-| Recent notifications | `planned` |
-| Quick book appointment button | `planned` |
-| Health Library quick access card | `planned` |
-| Clinic info quick access | `planned` |
-| Scoped search (own data only) | `planned` |
+| Upcoming appointments section | `complete` |
+| My pets summary | `complete` |
+| Recent notifications | `complete` |
+| Quick book appointment button | `complete` |
+| Health Library quick access card | `complete` |
+| Clinic info quick access | `complete` |
+| Scoped search (own data only) | `complete` |
 
 ### 7.3 Clinic Info & About Page
 | Feature | Status |
 |---|---|
-| Dr. Edgar about page (name, license number, bio) | `planned` |
-| Clinic name, address, contact numbers | `planned` |
-| Clinic operating hours | `planned` |
-| Google Maps embed of clinic location | `planned` |
-| Book an appointment button on clinic info page | `planned` |
-| Visible to both Admin and Pet Owner | `planned` |
+| Dr. Edgar about page (name, license number, bio) | `complete` |
+| Clinic name, address, contact numbers | `complete` |
+| Clinic operating hours | `complete` |
+| Google Maps embed of clinic location | `complete` |
+| Book an appointment button on clinic info page | `complete` |
+| Visible to both Admin and Pet Owner | `complete` |
 
 ### 7.4 Clinic Settings (Admin)
 | Feature | Status |
 |---|---|
-| Edit clinic name, address, contact number, email | `planned` |
-| Upload clinic logo | `planned` |
-| Edit operating hours and working days | `planned` |
-| Edit appointment slot duration | `planned` |
-| Set same-day booking cutoff time | `planned` |
-| Set admin notification email | `planned` |
-| Edit veterinarian profile (Dr. Edgar's details and bio) | `planned` |
+| Edit clinic name, address, contact number, email | `complete` |
+| Upload clinic logo | `complete` |
+| Edit operating hours and working days | `complete` |
+| Edit appointment slot duration | `complete` |
+| Set same-day booking cutoff time | `complete` |
+| Set admin notification email | `complete` |
+| Edit veterinarian profile (Dr. Edgar's details and bio) | `complete` |
 
 ### 7.5 Health Library
 | Feature | Status |
 |---|---|
-| Admin can create health articles | `planned` |
-| Admin can edit and delete health articles | `planned` |
-| Each article: condition name, description, causes, symptoms, general care | `planned` |
-| Pet Owner can browse and read articles (read-only) | `planned` |
-| Search articles by condition name | `planned` |
-| Visible to both Admin and Pet Owner (login required) | `planned` |
-| Health Library accessible from Pet Owner dashboard | `planned` |
+| Admin can create health articles | `complete` |
+| Admin can edit and delete health articles | `complete` |
+| Each article: condition name, description, causes, symptoms, general care | `complete` |
+| Pet Owner can browse and read articles (read-only) | `complete` |
+| Search articles by condition name | `complete` |
+| Visible to both Admin and Pet Owner (login required) | `complete` |
+| Health Library accessible from Pet Owner dashboard | `complete` |
 
 ### 7.6 General UI/UX
 | Feature | Status |
 |---|---|
-| Sidebar-based dashboard layout (Admin and Pet Owner) | `planned` |
-| Modal-based forms and confirmations | `planned` |
+| Sidebar-based dashboard layout (Admin and Pet Owner) | `complete` |
+| Modal-based forms and confirmations | `complete` |
 | Mobile responsive — Pet Owner views prioritized | `planned` |
-| Confirmation dialogs for destructive actions | `planned` |
-| Success / error flash messages | `planned` |
-| Simple empty states with text and action button | `planned` |
-| Loading states for HTMX requests | `planned` |
-| Cascading species/breed dropdown with custom input option | `planned` |
-| Color-coded appointment status badges | `planned` |
+| Confirmation dialogs for destructive actions | `complete` |
+| Success / error flash messages | `complete` |
+| Simple empty states with text and action button | `complete` |
+| Loading states for HTMX requests | `complete` |
+| Cascading species/breed dropdown with custom input option | `complete` |
+| Color-coded appointment status badges | `complete` |
 
 ---
 

@@ -82,7 +82,8 @@ class Service(models.Model):
 class BillingReceipt(models.Model):
     """
     Header record for each billing transaction.
-    Editable while PENDING. Locked once marked as PAID.
+    Editable while PENDING. Locked once PAID or CANCELLED.
+    Status changes only via the mark-paid / mark-cancelled actions.
     """
 
     # ── Payment status choices ───────────────────────────────────────────────
@@ -166,11 +167,6 @@ class BillingReceipt(models.Model):
     def __str__(self):
         return self.receipt_number
 
-    @property
-    def is_locked(self):
-        """Receipt is locked once payment status is PAID."""
-        return self.payment_status == self.PAID
-
     def calculate_totals(self):
         """
         Recalculates subtotal and total from billing items.
@@ -193,17 +189,16 @@ class BillingReceipt(models.Model):
         self.total_amount = max(self.subtotal - discount, Decimal("0"))
         self.save()
 
-
-
     @property
     def is_locked(self):
-        """Receipt is locked once payment status is PAID."""
-        return self.payment_status == self.PAID
+        """Receipt is locked (read-only) once PAID or CANCELLED."""
+        return self.payment_status in (self.PAID, self.CANCELLED)
 
     @property
     def discount_amount(self):
         """Returns the actual peso amount deducted as discount."""
         from decimal import Decimal
+
         if not self.discount_value or not self.discount_type:
             return Decimal("0")
         if self.discount_type == self.PERCENTAGE:
@@ -211,10 +206,6 @@ class BillingReceipt(models.Model):
         if self.discount_type == self.FIXED_DISCOUNT:
             return self.discount_value
         return Decimal("0")
-
-
-
-
 
     @classmethod
     def generate_receipt_number(cls):

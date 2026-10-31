@@ -1,0 +1,47 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git push:*)",
+      "Bash(git reset:*)",
+      "Bash(git clean:*)",
+      "Bash(git rebase:*)",
+      "Bash(git merge:*)",
+      "Bash(git checkout:*)",
+      "Bash(git switch:*)",
+      "Bash(git stash drop:*)",
+      "Bash(git branch -D:*)",
+
+      "Bash(python manage.py migrate:*)",
+      "Bash(venv\\Scripts\\python.exe manage.py migrate:*)",
+      "Bash(backend\\venv\\Scripts\\python.exe manage.py migrate:*)",
+      "Bash(.\\venv\\Scripts\\python.exe manage.py migrate:*)",
+      "Bash(venv/Scripts/python.exe manage.py migrate:*)",
+      "Bash(backend/venv/Scripts/python.exe manage.py migrate:*)",
+
+      "Bash(python manage.py flush:*)",
+      "Bash(venv\\Scripts\\python.exe manage.py flush:*)",
+      "Bash(backend\\venv\\Scripts\\python.exe manage.py flush:*)",
+      "Bash(.\\venv\\Scripts\\python.exe manage.py flush:*)",
+      "Bash(venv/Scripts/python.exe manage.py flush:*)",
+      "Bash(backend/venv/Scripts/python.exe manage.py flush:*)",
+
+      "Bash(python manage.py loaddata:*)",
+      "Bash(venv\\Scripts\\python.exe manage.py loaddata:*)",
+      "Bash(backend\\venv\\Scripts\\python.exe manage.py loaddata:*)",
+      "Bash(.\\venv\\Scripts\\python.exe manage.py loaddata:*)",
+      "Bash(venv/Scripts/python.exe manage.py loaddata:*)",
+      "Bash(backend/venv/Scripts/python.exe manage.py loaddata:*)"
+    ],
+    "ask": [
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+
+      "Bash(python manage.py makemigrations:*)",
+      "Bash(venv\\Scripts\\python.exe manage.py makemigrations:*)",
+      "Bash(backend\\venv\\Scripts\\python.exe manage.py makemigrations:*)",
+      "Bash(.\\venv\\Scripts\\python.exe manage.py makemigrations:*)",
+      "Bash(venv/Scripts/python.exe manage.py makemigrations:*)",
+      "Bash(backend/venv/Scripts/python.exe manage.py makemigrations:*)"
+    ]
+  }
+}

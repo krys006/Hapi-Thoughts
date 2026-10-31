@@ -8,6 +8,10 @@ from django.contrib.auth import (
     login,
     logout,
 )
+
+from django.contrib.auth import views as auth_views
+from django.urls import reverse, reverse_lazy
+
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
@@ -75,7 +79,7 @@ def owner_login(request):
             return render(request, "owner/login.html", {"email": email})
 
         login(request, user)
-        
+
         # Remember Me
         if request.POST.get("remember_me"):
             # Stay logged in for 30 days
@@ -199,8 +203,17 @@ def _send_verification_email(request, user):
     token = default_token_generator.make_token(user)
     uid = urlsafe_base64_encode(force_bytes(user.pk))
 
-    # Build the full verification URL
-    verification_url = request.build_absolute_uri(f"/verify-email/{uid}/{token}/")
+    # Build the verification path from its named URL
+    verification_path = reverse(
+        "owner_verify_email",
+        kwargs={
+            "uidb64": uid,
+            "token": token,
+        },
+    )
+
+    # Add the current domain and protocol
+    verification_url = request.build_absolute_uri(verification_path)
 
     subject = "Verify your Hapi Vet account"
     message = (
@@ -233,27 +246,6 @@ def user_logout(request):
     return redirect("owner_login")
 
 
-# ─── Placeholder Dashboards ───────────────────────────────────────────────────
-
-
-@login_required
-def admin_dashboard(request):
-    """Placeholder admin dashboard."""
-    if request.user.role != "admin":
-        return redirect("owner_dashboard")
-    return render(request, "admin/dashboard/index.html")
-
-
-@login_required
-def owner_dashboard(request):
-    """Placeholder pet owner dashboard."""
-    if request.user.role != "pet_owner":
-        return redirect("admin_dashboard")
-    if not request.user.is_onboarded:
-        return redirect("owner_onboarding")
-    return render(request, "owner/dashboard/index.html")
-
-
 @login_required
 def owner_onboarding(request):
     """
@@ -263,6 +255,33 @@ def owner_onboarding(request):
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
     return redirect("owner_onboarding_step1")
+
+
+
+
+
+class HapiVetPasswordResetView(auth_views.PasswordResetView):
+    template_name = "owner/forgot_password.html"
+    email_template_name = "owner/emails/password_reset_email.txt"
+    subject_template_name = "owner/emails/password_reset_subject.txt"
+    success_url = reverse_lazy("password_reset_done")
+
+    def form_valid(self, form):
+        form.save(
+            use_https=self.request.is_secure(),
+            token_generator=self.token_generator,
+            from_email=self.from_email,
+            email_template_name=self.email_template_name,
+            subject_template_name=self.subject_template_name,
+            request=self.request,
+            html_email_template_name=self.html_email_template_name,
+            extra_email_context=self.extra_email_context,
+            domain_override=self.request.get_host(),
+        )
+
+        return redirect(self.get_success_url())
+    
+
 
 
 # ---------------------------------------------------------------------------

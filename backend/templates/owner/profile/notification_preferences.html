@@ -1,0 +1,355 @@
+{% extends 'base_dashboard.html' %}
+
+{% block title %}Notification Preferences — Hapi Vet{% endblock %}
+
+{% block content %}
+
+<style>
+
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+
+.preferences-page{
+    max-width:420px;
+    margin:0 auto;
+    padding:20px;
+    font-family:'Poppins',sans-serif;
+}
+
+.preferences-header{
+    margin-bottom:24px;
+}
+
+.preferences-title{
+    font-size:2rem;
+    font-weight:700;
+    color:white;
+    margin-bottom:6px;
+}
+
+.preferences-subtitle{
+    color:white;
+    opacity:.85;
+    font-size:.95rem;
+}
+
+.preferences-form{
+    display:flex;
+    flex-direction:column;
+    gap:20px;
+}
+
+.preferences-section{
+
+    background:rgba(255,255,255,.15);
+
+    backdrop-filter:blur(15px);
+
+    border-radius:24px;
+
+    border:1px solid rgba(255,255,255,.2);
+
+    padding:20px;
+}
+
+.preferences-section-title{
+
+    color:white;
+
+    font-size:1.1rem;
+
+    font-weight:700;
+
+    margin-bottom:6px;
+}
+
+.preferences-section-desc{
+
+    color:white;
+
+    opacity:.75;
+
+    font-size:.9rem;
+
+    margin-bottom:20px;
+}
+
+.preferences-toggle-row{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:center;
+
+    gap:15px;
+
+    padding:14px 0;
+
+    border-bottom:1px solid rgba(255,255,255,.08);
+}
+
+.preferences-toggle-row:last-child{
+    border-bottom:none;
+}
+
+.preferences-toggle-info{
+    flex:1;
+}
+
+.preferences-toggle-label{
+
+    display:block;
+
+    color:white;
+
+    font-weight:600;
+
+    margin-bottom:4px;
+}
+
+.preferences-toggle-desc{
+
+    color:white;
+
+    opacity:.75;
+
+    font-size:.85rem;
+}
+
+/* Checkbox Styling */
+
+.preferences-toggle-row input[type="checkbox"]{
+
+    width:22px;
+
+    height:22px;
+
+    accent-color:#7c5cff;
+
+    cursor:pointer;
+}
+
+/* Reminder Timing */
+
+.preferences-timing-row{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:8px;
+
+    margin-bottom:18px;
+}
+
+.preferences-timing-label{
+
+    color:white;
+
+    font-weight:600;
+}
+
+.preferences-timing-row input,
+.preferences-timing-row select{
+
+    width:100%;
+
+    padding:14px;
+
+    border:none;
+
+    outline:none;
+
+    border-radius:14px;
+
+    background:rgba(255,255,255,.20);
+
+    color:white;
+
+    font-size:15px;
+}
+
+.preferences-timing-row select option{
+    background:#6d5cff;
+    color:white;
+}
+
+.preferences-timing-unit{
+
+    color:white;
+
+    opacity:.8;
+
+    font-size:.9rem;
+}
+
+.preferences-field-error{
+
+    color:#ffd7d7;
+
+    font-size:.85rem;
+}
+
+/* Buttons */
+
+.preferences-actions{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:12px;
+
+    margin-top:10px;
+}
+
+.btn-primary{
+
+    border:none;
+
+    padding:15px;
+
+    border-radius:16px;
+
+    background:linear-gradient(
+        90deg,
+        #7c5cff,
+        #4fc3ff
+    );
+
+    color:white;
+
+    font-size:15px;
+
+    font-weight:700;
+
+    cursor:pointer;
+}
+
+.btn-secondary{
+
+    text-align:center;
+
+    text-decoration:none;
+
+    padding:15px;
+
+    border-radius:16px;
+
+    background:rgba(255,255,255,.15);
+
+    color:white;
+}
+
+/* Mobile */
+
+@media(max-width:480px){
+
+    .preferences-page{
+        padding:15px;
+    }
+
+    .preferences-title{
+        font-size:1.7rem;
+    }
+
+    .preferences-toggle-row{
+        align-items:flex-start;
+    }
+
+}
+
+</style>
+
+<div class="preferences-page">
+
+  <div class="preferences-header">
+    <h1 class="preferences-title">Notification Preferences</h1>
+    <p class="preferences-subtitle">Choose which email notifications you want to receive.</p>
+  </div>
+
+  <form method="post" class="preferences-form">
+    {% csrf_token %}
+
+    <!-- Email notification toggles -->
+    <div class="preferences-section">
+      <h2 class="preferences-section-title">Email Notifications</h2>
+      <p class="preferences-section-desc">In-app notifications are always on regardless of these settings.</p>
+
+      <div class="preferences-toggle-row">
+        <div class="preferences-toggle-info">
+          <label class="preferences-toggle-label" for="{{ form.email_appointment_reminders.id_for_label }}">Appointment Reminders</label>
+          <p class="preferences-toggle-desc">Email reminder before your upcoming appointments.</p>
+        </div>
+        {{ form.email_appointment_reminders }}
+      </div>
+
+      <div class="preferences-toggle-row">
+        <div class="preferences-toggle-info">
+          <label class="preferences-toggle-label" for="{{ form.email_appointment_status.id_for_label }}">Appointment Status Updates</label>
+          <p class="preferences-toggle-desc">Email when your appointment is confirmed or rejected.</p>
+        </div>
+        {{ form.email_appointment_status }}
+      </div>
+
+      <div class="preferences-toggle-row">
+        <div class="preferences-toggle-info">
+          <label class="preferences-toggle-label" for="{{ form.email_billing.id_for_label }}">Billing Notifications</label>
+          <p class="preferences-toggle-desc">Email when a billing receipt is generated for you.</p>
+        </div>
+        {{ form.email_billing }}
+      </div>
+
+      <div class="preferences-toggle-row">
+        <div class="preferences-toggle-info">
+          <label class="preferences-toggle-label" for="{{ form.email_vaccination.id_for_label }}">Vaccination Reminders</label>
+          <p class="preferences-toggle-desc">Email when your pet's vaccination is coming due.</p>
+        </div>
+        {{ form.email_vaccination }}
+      </div>
+
+      <div class="preferences-toggle-row">
+        <div class="preferences-toggle-info">
+          <label class="preferences-toggle-label" for="{{ form.email_followup.id_for_label }}">Follow-up Reminders</label>
+          <p class="preferences-toggle-desc">Email when your pet has a scheduled follow-up coming up.</p>
+        </div>
+        {{ form.email_followup }}
+      </div>
+
+    </div>
+
+    <!-- Reminder timing -->
+    <div class="preferences-section">
+      <h2 class="preferences-section-title">Reminder Timing</h2>
+
+      <div class="preferences-timing-row">
+        <label class="preferences-timing-label" for="{{ form.appointment_reminder_days.id_for_label }}">Send appointment reminder</label>
+        {{ form.appointment_reminder_days }}
+        <span class="preferences-timing-unit">day(s) before</span>
+        {% if form.appointment_reminder_days.errors %}
+          <p class="preferences-field-error">{{ form.appointment_reminder_days.errors.0 }}</p>
+        {% endif %}
+      </div>
+
+      <div class="preferences-timing-row">
+        <label class="preferences-timing-label" for="{{ form.vaccination_reminder_days.id_for_label }}">Send vaccination reminder</label>
+        {{ form.vaccination_reminder_days }}
+        <span class="preferences-timing-unit">day(s) before</span>
+        {% if form.vaccination_reminder_days.errors %}
+          <p class="preferences-field-error">{{ form.vaccination_reminder_days.errors.0 }}</p>
+        {% endif %}
+      </div>
+
+    </div>
+
+    <!-- Actions -->
+    <div class="preferences-actions">
+      <button type="submit" class="btn-primary">Save Preferences</button>
+      <a href="{% url 'owner_profile' %}" class="btn-secondary">Cancel</a>
+    </div>
+
+  </form>
+
+</div>
+
+{% endblock %}

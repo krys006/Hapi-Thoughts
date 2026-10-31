@@ -16,10 +16,8 @@ urlpatterns = [
     path("logout/", views.user_logout, name="logout"),
     # Admin auth
     path("admin-login/", views.admin_login, name="admin_login"),
-    # Dashboards (placeholders)
-    path("owner/dashboard/", views.owner_dashboard, name="owner_dashboard"),
+    # onboarding
     path("owner/onboarding/", views.owner_onboarding, name="owner_onboarding"),
-    path("admin/dashboard/", views.admin_dashboard, name="admin_dashboard"),
     # Walk-in client registration (Admin only)
     path("admin/walkin/create/", views.admin_walkin_create, name="admin_walkin_create"),
 ]

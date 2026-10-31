@@ -1,0 +1,36 @@
+<!-- Admin sidebar navigation -->
+<nav class="sidebar-nav flex flex-col gap-6">
+
+  <div class="sidebar-nav-group flex flex-col gap-1">
+    <p class="sidebar-nav-group-label px-3 mb-1 text-xs font-semibold uppercase tracking-wider text-violet-500">Overview</p>
+    <a href="{% url 'admin_dashboard' %}" class="sidebar-link flex items-center px-3 py-2 text-sm font-medium text-slate-600 rounded-lg hover:text-violet-700 hover:bg-white/60 transition-colors {% if request.resolver_match.url_name == 'admin_dashboard' %}sidebar-link-active !text-violet-700 !font-semibold !bg-white shadow-sm{% endif %}">Dashboard</a>
+    <a href="{% url 'clinic_info' %}" class="sidebar-link flex items-center px-3 py-2 text-sm font-medium text-slate-600 rounded-lg hover:text-violet-700 hover:bg-white/60 transition-colors {% if request.resolver_match.url_name == 'clinic_info' %}sidebar-link-active !text-violet-700 !font-semibold !bg-white shadow-sm{% endif %}">Clinic Info</a>
+  </div>
+
+  <div class="sidebar-nav-group flex flex-col gap-1">
+    <p class="sidebar-nav-group-label px-3 mb-1 text-xs font-semibold uppercase tracking-wider text-violet-500">Clinic Operations</p>
+    <a href="{% url 'admin_appointments' %}" class="sidebar-link flex items-center px-3 py-2 text-sm font-medium text-slate-600 rounded-lg hover:text-violet-700 hover:bg-white/60 transition-colors {% if request.resolver_match.url_name == 'admin_appointments' %}sidebar-link-active !text-violet-700 !font-semibold !bg-white shadow-sm{% endif %}">Appointments</a>
+    <a href="{% url 'admin_owner_list' %}" class="sidebar-link flex items-center px-3 py-2 text-sm font-medium text-slate-600 rounded-lg hover:text-violet-700 hover:bg-white/60 transition-colors {% if request.resolver_match.url_name == 'admin_owner_list' %}sidebar-link-active !text-violet-700 !font-semibold !bg-white shadow-sm{% endif %}">Pet Owners</a>
+    <a href="{% url 'admin_pet_list' %}" class="sidebar-link flex items-center px-3 py-2 text-sm font-medium text-slate-600 rounded-lg hover:text-violet-700 hover:bg-white/60 transition-colors {% if request.resolver_match.url_name == 'admin_pet_list' %}sidebar-link-active !text-violet-700 !font-semibold !bg-white shadow-sm{% endif %}">Pets</a>
+    <a href="{% url 'admin_deletion_requests' %}" class="sidebar-link flex items-center px-3 py-2 text-sm font-medium text-slate-600 rounded-lg hover:text-violet-700 hover:bg-white/60 transition-colors {% if request.resolver_match.url_name == 'admin_deletion_requests' %}sidebar-link-active !text-violet-700 !font-semibold !bg-white shadow-sm{% endif %}">Deletion Requests</a>
+  </div>
+
+  <div class="sidebar-nav-group flex flex-col gap-1">
+    <p class="sidebar-nav-group-label px-3 mb-1 text-xs font-semibold uppercase tracking-wider text-violet-500">Records</p>
+    <a href="{% url 'admin_medical_record_list' %}" class="sidebar-link flex items-center px-3 py-2 text-sm font-medium text-slate-600 rounded-lg hover:text-violet-700 hover:bg-white/60 transition-colors {% if request.resolver_match.url_name == 'admin_medical_record_list' %}sidebar-link-active !text-violet-700 !font-semibold !bg-white shadow-sm{% endif %}">Medical Records</a>
+    <a href="{% url 'admin_vaccination_list' %}" class="sidebar-link flex items-center px-3 py-2 text-sm font-medium text-slate-600 rounded-lg hover:text-violet-700 hover:bg-white/60 transition-colors {% if request.resolver_match.url_name == 'admin_vaccination_list' %}sidebar-link-active !text-violet-700 !font-semibold !bg-white shadow-sm{% endif %}">Vaccinations</a>
+    <a href="{% url 'admin_health_article_list' %}" class="sidebar-link flex items-center px-3 py-2 text-sm font-medium text-slate-600 rounded-lg hover:text-violet-700 hover:bg-white/60 transition-colors {% if request.resolver_match.url_name == 'admin_health_article_list' %}sidebar-link-active !text-violet-700 !font-semibold !bg-white shadow-sm{% endif %}">Health Library</a>
+  </div>
+
+  <div class="sidebar-nav-group flex flex-col gap-1">
+    <p class="sidebar-nav-group-label px-3 mb-1 text-xs font-semibold uppercase tracking-wider text-violet-500">Billing</p>
+    <a href="{% url 'admin_receipt_list' %}" class="sidebar-link flex items-center px-3 py-2 text-sm font-medium text-slate-600 rounded-lg hover:text-violet-700 hover:bg-white/60 transition-colors {% if request.resolver_match.url_name == 'admin_receipt_list' %}sidebar-link-active !text-violet-700 !font-semibold !bg-white shadow-sm{% endif %}">Billing</a>
+    <a href="{% url 'admin_service_list' %}" class="sidebar-link flex items-center px-3 py-2 text-sm font-medium text-slate-600 rounded-lg hover:text-violet-700 hover:bg-white/60 transition-colors {% if request.resolver_match.url_name == 'admin_service_list' %}sidebar-link-active !text-violet-700 !font-semibold !bg-white shadow-sm{% endif %}">Services</a>
+  </div>
+
+  <div class="sidebar-nav-group flex flex-col gap-1">
+    <p class="sidebar-nav-group-label px-3 mb-1 text-xs font-semibold uppercase tracking-wider text-violet-500">Configuration</p>
+    <a href="{% url 'admin_clinic_settings' %}" class="sidebar-link flex items-center px-3 py-2 text-sm font-medium text-slate-600 rounded-lg hover:text-violet-700 hover:bg-white/60 transition-colors {% if request.resolver_match.url_name == 'admin_clinic_settings' %}sidebar-link-active !text-violet-700 !font-semibold !bg-white shadow-sm{% endif %}">Clinic Settings</a>
+  </div>
+
+</nav>

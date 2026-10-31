@@ -212,6 +212,9 @@ Only one instance exists — Admin edits it through clinic settings page.
 | `contact_number` | CharField | max_length=20, blank=True | — |
 | `email` | EmailField | blank=True | — |
 | `logo` | ImageField | upload_to='clinic/', blank=True, null=True | Clinic logo for receipts and UI |
+| `veterinarian_name` | CharField | max_length=100, blank=True | Shown on clinic info page |
+| `veterinarian_license_number` | CharField | max_length=50, blank=True | — |
+| `veterinarian_bio` | TextField | blank=True | — |
 | `opening_time` | TimeField | — | e.g. 08:00 |
 | `closing_time` | TimeField | — | e.g. 17:00 |
 | `slot_duration_minutes` | IntegerField | default=60 | 30 or 60 minutes |
@@ -306,7 +309,7 @@ Immutable — no deletion allowed.
 |---|---|---|---|
 | `id` | AutoField | PK | Auto |
 | `pet` | ForeignKey | Pet, on_delete=CASCADE | — |
-| `appointment` | ForeignKey | Appointment, null=True, blank=True, on_delete=SET_NULL | Null for standalone records |
+| `appointment` | OneToOneField | Appointment, null=True, blank=True, on_delete=SET_NULL | Null for standalone records. OneToOne enforces one record per appointment at the database level. |
 | `record_date` | DateField | — | Date of record |
 | `diagnosis` | TextField | blank=True | — |
 | `symptoms` | TextField | blank=True | — |
@@ -324,6 +327,7 @@ Immutable — no deletion allowed.
 - No deletion allowed — enforce at view level
 - Pet owners see all fields EXCEPT `private_notes`
 - One record per appointment (enforced at view level)
+- `appointment` is a OneToOneField, not a ForeignKey — this enforces "one medical record per appointment" at the database level, not just in view logic. Attempting to create a second record for the same appointment redirects to the existing one instead.
 
 ---
 
@@ -495,7 +499,8 @@ FIXED = 'fixed'
 **Rules:**
 - Receipt number auto-generated on creation (format: HV-YYYY-XXXX)
 - Editable only while `payment_status` is PENDING
-- Locked (read-only) once marked as PAID
+- Locked (read-only) once PAID or CANCELLED (`is_locked`); views refuse every write to a locked receipt
+- `payment_status` / `payment_date` change only via the Mark as Paid / Cancel Receipt actions, never via the receipt form
 - `total_amount` calculated as: subtotal - discount
 
 ---
@@ -532,6 +537,7 @@ Stores all in-app notifications for both Admin and Pet Owner.
 | `id` | AutoField | PK | Auto |
 | `recipient` | ForeignKey | User, on_delete=CASCADE | — |
 | `notification_type` | CharField | max_length=50, choices=TYPE_CHOICES | See types below |
+| `related_notification` | ForeignKey | 'self', null=True, blank=True, on_delete=SET_NULL, related_name='failure_alerts' | Set only on EMAIL_FAILED alerts — points to the notification whose email failed |
 | `title` | CharField | max_length=100 | Short notification title |
 | `message` | TextField | — | Full notification message |
 | `is_read` | BooleanField | default=False | — |

@@ -1,0 +1,90 @@
+{% load static %}
+
+<!-- Notification panel — loaded via HTMX into #notification-panel-container -->
+<!-- Mobile: fixed full-screen overlay | Desktop: absolute dropdown -->
+<div id="notification-panel"
+  class="notification-panel
+         fixed inset-0 z-50
+         md:absolute md:inset-auto md:top-10 md:right-0 md:w-96
+         md:rounded-xl md:shadow-xl">
+
+  <!-- ── Panel Header ─────────────────────────────────────── -->
+  <div class="notification-panel-header">
+
+    <!-- Close button — mobile only -->
+    <button class="notification-close-btn md:hidden"
+      hx-get="{% url 'notification_close' %}"
+      hx-target="#notification-panel-container"
+      hx-swap="innerHTML">
+      <!-- X icon -->
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="20" height="20">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+      </svg>
+    </button>
+
+    <h2 class="notification-panel-title">Notifications</h2>
+
+    <!-- Mark all read button -->
+    <button class="notification-mark-all-btn"
+      hx-post="{% url 'notification_mark_all_read' %}"
+      hx-target="#notification-panel-container"
+      hx-swap="innerHTML"
+      {% csrf_token %}>
+      Mark all read
+    </button>
+
+  </div>
+
+  <!-- ── Admin Clear Controls (admin only) ────────────────── -->
+  {% if request.user.is_admin %}
+  <div class="notification-clear-controls">
+    <button class="notification-clear-btn"
+      hx-post="{% url 'notification_clear' %}?mode=read"
+      hx-target="#notification-panel-container"
+      hx-swap="innerHTML"
+      hx-confirm="Clear all read notifications?">
+      Clear read
+    </button>
+    <button class="notification-clear-btn notification-clear-all-btn"
+      hx-post="{% url 'notification_clear' %}?mode=all"
+      hx-target="#notification-panel-container"
+      hx-swap="innerHTML"
+      hx-confirm="Clear ALL notifications? This cannot be undone.">
+      Clear all
+    </button>
+  </div>
+  {% endif %}
+
+  <!-- ── Notification List ─────────────────────────────────── -->
+  <div class="notification-list" id="notification-list">
+
+    {% if notifications %}
+      {% for notification in notifications %}
+        {% include "shared/notifications/_notification_row.html" %}
+      {% endfor %}
+    {% else %}
+      <div class="notification-empty">
+        <p class="notification-empty-text">You're all caught up!</p>
+      </div>
+    {% endif %}
+
+  </div>
+
+</div>
+
+<!-- ── Click-outside to close (desktop only) ─────────────── -->
+<script>
+  (function () {
+    // Small delay so the click that opened the panel doesn't immediately close it
+    setTimeout(function () {
+      document.addEventListener("click", function handler(e) {
+        var panel = document.getElementById("notification-panel");
+        var bell = document.getElementById("bell-button");
+        if (panel && !panel.contains(e.target) && !bell.contains(e.target)) {
+          document.getElementById("notification-panel-container").innerHTML = "";
+          document.removeEventListener("click", handler);
+        }
+      });
+    }, 100);
+  })();
+</script>

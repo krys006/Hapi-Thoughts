@@ -14,6 +14,18 @@ environ.Env.read_env(BASE_DIR / ".env")
 SECRET_KEY = env("SECRET_KEY")
 DEBUG = env("DEBUG")
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
+CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
+
+
+# ─── Production Security Hardening ───────────────────────────────────────────
+if not DEBUG:
+    # Render terminates HTTPS at its proxy and forwards as HTTP internally;
+    # this header tells Django the original request was actually secure.
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
 
 # ─── Custom User Model ────────────────────────────────────────────────────────
 AUTH_USER_MODEL = "accounts.User"
@@ -33,6 +45,7 @@ INSTALLED_APPS = [
     "allauth.account",
     "allauth.socialaccount",
     "allauth.socialaccount.providers.google",
+    "anymail",
     # Project apps
     "accounts",
     "pets",
@@ -42,6 +55,10 @@ INSTALLED_APPS = [
     "notifications",
     "health",
     "dashboard",
+    # Optional utilities
+    "django_extensions",
+    # Cloud storage for media files (supabase)
+    "storages",
 ]
 
 SITE_ID = 1
@@ -111,16 +128,13 @@ LOGIN_REDIRECT_URL = "/owner/dashboard/"  # we'll override this with role-based 
 ACCOUNT_LOGOUT_REDIRECT_URL = "/login/"
 
 
-
-
 # Override allauth default URLs to use our custom pages
 LOGIN_URL = "/login/"
 ACCOUNT_EMAIL_CONFIRMATION_ANONYMOUS_REDIRECT_URL = "/login/"
 ACCOUNT_EMAIL_CONFIRMATION_AUTHENTICATED_REDIRECT_URL = "/login/"
 ACCOUNT_SIGNUP_REDIRECT_URL = "/owner/onboarding/"
-
-
-
+# Email verification and password reset token lifetime (3 days)
+PASSWORD_RESET_TIMEOUT = 60 * 60 * 24 * 3
 
 
 # ─── Google OAuth ─────────────────────────────────────────────────────────────
@@ -128,7 +142,6 @@ SOCIALACCOUNT_PROVIDERS = {
     "google": {
         "SCOPE": ["profile", "email"],
         "AUTH_PARAMS": {"access_type": "online"},
-        "VERIFIED_EMAIL": True,  # tell allauth Google emails are pre-verified
         "APP": {
             "client_id": env("GOOGLE_CLIENT_ID", default=""),
             "secret": env("GOOGLE_CLIENT_SECRET", default=""),
@@ -139,36 +152,80 @@ SOCIALACCOUNT_PROVIDERS = {
 
 SOCIALACCOUNT_AUTO_SIGNUP = True
 SOCIALACCOUNT_EMAIL_VERIFICATION = "none"  # Google already verified the email
-SOCIALACCOUNT_LOGIN_ON_GET = True  # skip the allauth confirmation page
 SOCIALACCOUNT_EMAIL_REQUIRED = True
 
 SOCIALACCOUNT_ADAPTER = "accounts.adapters.CustomSocialAccountAdapter"
 
 
-
 # ─── Email ────────────────────────────────────────────────────────────────────
-if DEBUG:
-    # Development — print emails to terminal instead of sending
-    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
-    DEFAULT_FROM_EMAIL = "hapitutzvet@gmail.com"
+USE_BREVO_EMAIL = env.bool(
+    "USE_BREVO_EMAIL",
+    default=not DEBUG,
+)
+
+DEFAULT_FROM_EMAIL = env(
+    "DEFAULT_FROM_EMAIL",
+    default="Hapi Tutz <hapitutzvet@gmail.com>",
+)
+
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
+
+if USE_BREVO_EMAIL:
+    # Development email testing and production:
+    # send through Brevo's HTTPS API using Anymail.
+    EMAIL_BACKEND = "anymail.backends.brevo.EmailBackend"
+
+    ANYMAIL = {
+        "BREVO_API_KEY": env("BREVO_API_KEY"),
+    }
 else:
-    # Production — send real emails via Gmail SMTP
-    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-    EMAIL_HOST = "smtp.gmail.com"
-    EMAIL_PORT = 587
-    EMAIL_USE_TLS = True
-    EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
-    EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
-    DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+    # Normal local development:
+    # print emails to the terminal without consuming Brevo quota.
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
 # ─── Static & Media Files ─────────────────────────────────────────────────────
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"  # collectstatic output for production
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+# STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
-MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+
+# ─── Static & Media Files (Cloud Storage) ────────────────────────────────────
+if env.bool("USE_S3", default=False):
+    AWS_ACCESS_KEY_ID = env("AWS_ACCESS_KEY_ID")
+    AWS_SECRET_ACCESS_KEY = env("AWS_SECRET_ACCESS_KEY")
+    AWS_STORAGE_BUCKET_NAME = env("AWS_STORAGE_BUCKET_NAME")
+    AWS_S3_ENDPOINT_URL = env("AWS_S3_ENDPOINT_URL")
+    AWS_S3_REGION_NAME = env("AWS_S3_REGION_NAME")
+    AWS_S3_FILE_OVERWRITE = False
+    AWS_DEFAULT_ACL = "public-read"
+    AWS_QUERYSTRING_AUTH = False
+    AWS_S3_CUSTOM_DOMAIN = env("AWS_S3_CUSTOM_DOMAIN", default="")
+    AWS_LOCATION = ""
+
+    MEDIA_URL = env("MEDIA_URL")
+
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+        },
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
+else:
+    MEDIA_URL = "/media/"
+    MEDIA_ROOT = BASE_DIR / "media"
+
+    STORAGES = {
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+        },
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
+
 
 # ─── Internationalization ─────────────────────────────────────────────────────
 LANGUAGE_CODE = "en-us"
