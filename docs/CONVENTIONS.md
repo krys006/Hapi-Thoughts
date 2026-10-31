@@ -255,9 +255,9 @@ pets/                       ← Pet.photo (pets/models.py)
 test_results/               ← TestResultFile.file (medical/models.py)
 ```
 
-> With `USE_S3` on (local and live), these are folders in the Supabase
-> Storage bucket. With `USE_S3` off they go under `backend/media/`, which is
-> generated at runtime — never commit it.
+> Live (Render) runs with `USE_S3=True`, so these are folders in the
+> Supabase Storage bucket. Local dev runs with `USE_S3=False`, so they go
+> under `backend/media/`, which is generated at runtime — never commit it.
 
 ---
 
@@ -733,7 +733,7 @@ venv\Scripts\flake8.exe
 ```
 master            ← protected stable
 rebuild           ← auto-deploys to Render; Render's build runs migrate
-                    against the shared DB (build command unverified)
+                    against the live Supabase DB (build command unverified)
 trial-run         ← buffer: work is PR'd here and tested before rebuild
 feature/<name>    ← new feature, cut from trial-run
 fix/<name>        ← bug fix, cut from trial-run
@@ -798,7 +798,10 @@ DEBUG=
 ALLOWED_HOSTS=
 CSRF_TRUSTED_ORIGINS=
 
-# Database (Supabase Session Pooler connection string)
+# Database
+# Local: the local hapivet_dev PostgreSQL URL (localhost:5432).
+# Live (Render): the Supabase Session Pooler connection string.
+# Never put the live URL in backend/.env.
 DATABASE_URL=
 
 # Google OAuth (allauth)
@@ -814,7 +817,7 @@ BREVO_API_KEY=            # required only when USE_BREVO_EMAIL=True
 
 # Media storage
 # USE_S3: True stores uploads in Supabase Storage (S3 API); False uses
-# backend/media/. Defaults to False. Stays True locally because the DB is shared.
+# backend/media/. Defaults to False. Local: False. Live (Render): True.
 USE_S3=
 AWS_ACCESS_KEY_ID=        # the AWS_* and MEDIA_URL values are required
 AWS_SECRET_ACCESS_KEY=    # only when USE_S3=True
@@ -846,5 +849,5 @@ Before committing:
 
 Before changing a model:
 - [ ] Update `DATA_MODELS.md` first
-- [ ] Write a migration plan (fields added/changed/removed, data risk) and get approval. `makemigrations` only with approval. Applying a migration anywhere applies it to the live DB (shared Supabase), so never migrate from a feature branch.
+- [ ] Write a migration plan (fields added/changed/removed, data risk) and get approval. `makemigrations` only with approval. Before any local `migrate`, run the DB host check (HANDOFF §3); it must show `localhost | hapivet_dev`. Merging into `rebuild` applies migrations to the live Supabase DB, so never migrate from a feature branch against live.
 - [ ] Update `FEATURES.md` if feature scope changed
