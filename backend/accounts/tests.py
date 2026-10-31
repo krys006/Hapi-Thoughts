@@ -1,3 +1,4 @@
+import datetime
 import re
 
 from allauth.core.exceptions import ImmediateHttpResponse
@@ -16,6 +17,7 @@ from accounts.adapters import (
     UNVERIFIED_MESSAGE,
     CustomSocialAccountAdapter,
 )
+from appointments.models import ClinicSettings
 
 User = get_user_model()
 
@@ -196,3 +198,110 @@ class GoogleSignInViewTests(TestCase):
         )
         self.assertIsNotNone(form, "Google POST form not found")
         self.assertIn('name="csrfmiddlewaretoken"', form.group(1))
+
+
+class AdminLoginTests(TestCase):
+    """admin_login: redesigned page, and one generic error for every failure."""
+
+    PASSWORD = "admin-pass-123"
+    GENERIC_ERROR = "That email or password isn't right. Please try again."
+
+    def setUp(self):
+        self.url = reverse("admin_login")
+
+    # ─── Helpers ──────────────────────────────────────────────────────────────
+
+    def _clinic(self):
+        return ClinicSettings.objects.create(
+            clinic_name="Test Paws Clinic",
+            address="1 Test Street",
+            opening_time=datetime.time(8, 0),
+            closing_time=datetime.time(17, 0),
+            same_day_cutoff_time=datetime.time(15, 0),
+        )
+
+    def _user(self, username, email, role=User.ADMIN, is_active=True):
+        return User.objects.create_user(
+            username=username,
+            email=email,
+            password=self.PASSWORD,
+            role=role,
+            is_active=is_active,
+        )
+
+    def assertGenericFailure(self, response, email):
+        """200, the one generic message, typed email kept, nobody logged in."""
+        self.assertEqual(response.status_code, 200)
+        messages = [str(m) for m in get_messages(response.wsgi_request)]
+        self.assertEqual(messages, [self.GENERIC_ERROR])
+        self.assertTrue(response.context["login_failed"])
+        self.assertEqual(response.context["email"], email)
+        self.assertContains(response, f'value="{email}"')
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    # ─── GET ──────────────────────────────────────────────────────────────────
+
+    def test_get_shows_clinic_name_without_debug_text(self):
+        """The page uses the auth layout and shows no leftover debug output."""
+        self._clinic()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "admin/login.html")
+        self.assertTemplateUsed(response, "layouts/auth.html")
+        self.assertContains(response, "Test Paws Clinic")
+        self.assertNotContains(response, "Logo URL")
+        self.assertNotContains(response, "No logo uploaded")
+        self.assertNotContains(response, 'src=""')
+        self.assertContains(response, 'autocomplete="current-password"')
+
+    def test_get_without_clinic_settings_shows_default_name(self):
+        """No ClinicSettings row yet: the page still renders."""
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Hapi Vet")
+
+    def test_logged_in_admin_is_redirected(self):
+        self.client.force_login(self._user("admin1", "admin@example.com"))
+        response = self.client.get(self.url)
+        self.assertRedirects(
+            response, reverse("admin_dashboard"), fetch_redirect_response=False
+        )
+
+    # ─── POST ─────────────────────────────────────────────────────────────────
+
+    def test_every_failure_shows_one_generic_message(self):
+        """Wrong password, unknown or empty email, owner and inactive admin
+        all look the same."""
+        self._user("admin1", "admin@example.com")
+        self._user("owner1", "owner@example.com", role=User.PET_OWNER)
+        self._user("admin2", "off@example.com", is_active=False)
+        cases = {
+            "wrong password": ("admin@example.com", "wrong-pass-123"),
+            "unknown email": ("nobody@example.com", self.PASSWORD),
+            "empty email": ("", self.PASSWORD),
+            "owner account": ("owner@example.com", self.PASSWORD),
+            "inactive admin": ("off@example.com", self.PASSWORD),
+        }
+        for label, (email, password) in cases.items():
+            with self.subTest(label):
+                response = self.client.post(
+                    self.url, {"email": email, "password": password}
+                )
+                self.assertGenericFailure(response, email)
+
+    def test_empty_email_with_walkin_user_fails_cleanly(self):
+        """A walk-in saved with email="" can't be reached by an empty email
+        (User.email is unique, so only one such row can exist)."""
+        self._user("walkin1", "", role=User.PET_OWNER)
+        response = self.client.post(self.url, {"email": "", "password": self.PASSWORD})
+        self.assertGenericFailure(response, "")
+
+    def test_admin_logs_in_with_uppercase_email(self):
+        admin = self._user("admin1", "admin@example.com")
+        response = self.client.post(
+            self.url, {"email": "ADMIN@EXAMPLE.COM", "password": self.PASSWORD}
+        )
+        self.assertRedirects(
+            response, reverse("admin_dashboard"), fetch_redirect_response=False
+        )
+        self.assertEqual(self.client.session["_auth_user_id"], str(admin.pk))

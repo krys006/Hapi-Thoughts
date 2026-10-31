@@ -25,6 +25,7 @@ from django.utils.http import (
 )
 
 from accounts.forms import WalkInOwnerForm, WalkInPetForm
+from appointments.models import ClinicSettings
 from pets.models import ContactLink, Pet, PetOwner
 
 from .forms import PetOwnerRegistrationForm
@@ -104,36 +105,42 @@ def admin_login(request):
     if request.user.is_authenticated:
         return redirect_by_role(request.user)
 
+    clinic = ClinicSettings.objects.first()
+    email = ""
+    login_failed = False
+
     if request.method == "POST":
         email = request.POST.get("email", "").strip().lower()
         password = request.POST.get("password", "")
 
-        from django.contrib.auth import get_user_model
+        user = None
+        if email:
+            try:
+                user_obj = User.objects.get(email=email)
+            except (User.DoesNotExist, User.MultipleObjectsReturned):
+                # Defensive: email is unique today, but treat a duplicate
+                # as a failure too.
+                user_obj = None
+            if user_obj is not None:
+                user = authenticate(
+                    request, username=user_obj.username, password=password
+                )
 
-        User = get_user_model()
+        if user is not None and user.is_admin:
+            login(request, user)
+            return redirect("admin_dashboard")
 
-        try:
-            user_obj = User.objects.get(email=email)
-            user = authenticate(request, username=user_obj.username, password=password)
-        except User.DoesNotExist:
-            user = None
+        # One message for every failure (unknown email, wrong password,
+        # owner account, inactive account) on purpose, so the page never
+        # reveals which part was wrong or whether the email has an account.
+        messages.error(request, "That email or password isn't right. Please try again.")
+        login_failed = True
 
-        if user is None:
-            messages.error(request, "Invalid email or password.")
-            return render(request, "admin/login.html", {"email": email})
-
-        if user.role != "admin":
-            messages.error(request, "You do not have admin access.")
-            return render(request, "admin/login.html", {"email": email})
-
-        if not user.is_active:
-            messages.error(request, "This account has been deactivated.")
-            return render(request, "admin/login.html", {"email": email})
-
-        login(request, user)
-        return redirect("admin_dashboard")
-
-    return render(request, "admin/login.html")
+    return render(
+        request,
+        "admin/login.html",
+        {"clinic": clinic, "email": email, "login_failed": login_failed},
+    )
 
 
 # ─── Pet Owner Registration ───────────────────────────────────────────────────

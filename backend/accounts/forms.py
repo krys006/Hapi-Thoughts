@@ -31,7 +31,7 @@ class PetOwnerRegistrationForm(forms.ModelForm):
         if User.objects.filter(email=email).exists():
             raise forms.ValidationError("An account with this email already exists.")
         return email
-  
+
     def clean(self):
         cleaned_data = super().clean()
         password1 = cleaned_data.get("password1")
