@@ -189,7 +189,7 @@ Phase 7 — Dashboards & Polish
 | Same-day booking allowed before configured cutoff time | `complete` |
 | Request reschedule — select new slot and provide reason | `complete` |
 | Cancel appointment freely up to 24 hours before | `complete` |
-| Cancellation within 24 hours requires Admin approval | `complete` |
+| Cancellation within 24 hours requires Admin approval (not built: owners can currently cancel at any time; late cancellations are only flagged on the owner page) | `planned` |
 | Predefined cancellation reasons (change of plans, pet unwell, cannot make time, other) | `complete` |
 | View appointment history and current status | `complete` |
 
@@ -215,8 +215,15 @@ Phase 7 — Dashboards & Polish
 ```
 PENDING → CONFIRMED → COMPLETED
                     → NO_SHOW
-       → CANCELLED
+PENDING or CONFIRMED → CANCELLED
 ```
+- Admin reject: PENDING → CANCELLED.
+- Cancel (admin or owner): PENDING or CONFIRMED → CANCELLED.
+- Admin reschedule (PENDING or CONFIRMED): the original becomes CANCELLED and
+  a new appointment is created as CONFIRMED with `rescheduled_from` = the
+  original (the clinic chose the slot). An owner reschedule creates it as PENDING.
+- COMPLETED / NO_SHOW: only from CONFIRMED, on or after the appointment date.
+- Walk-ins are created as CONFIRMED.
 
 ### 3.5 Appointment Rules
 | Rule | Detail |
@@ -224,7 +231,7 @@ PENDING → CONFIRMED → COMPLETED
 | Booking limit | 30 days in advance |
 | Same-day booking | Allowed before configurable cutoff time |
 | Slots | One appointment per slot |
-| Cancellation deadline | 24 hours — after that requires Admin approval |
+| Cancellation deadline | Planned, not built: 24 hours, after that requires Admin approval. Today owners can cancel at any time; within 24 hours the owner page only shows a warning. |
 | Appointment type | Derived from service selected |
 | Additional services | Admin adds extras at billing stage |
 

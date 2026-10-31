@@ -1,7 +1,9 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.db import transaction
 from django.utils import timezone
+from django.utils.dateformat import format as date_format
 
 from .models import ClinicSettings, BlockedDate, Appointment
 from .forms import (
@@ -19,6 +21,7 @@ from .forms import (
 from .utils import get_available_slots, get_admin_calendar_context
 
 from notifications.utils import notify
+from dashboard.templatetags.friendly_dates import friendly_date
 from django.contrib.auth import get_user_model
 
 import datetime
@@ -425,7 +428,8 @@ def owner_appointment_reschedule(request, pk):
                     title="Appointment Reschedule Request",
                     message=(
                         f"{owner.first_name} {owner.last_name} has requested "
-                        f"to reschedule their appointment for {new_appointment.pet.name} "
+                        f"to reschedule their appointment for "
+                        f"{new_appointment.pet.name} "
                         f"to {new_appointment.date.strftime('%B %d, %Y')} "
                         f"at {new_appointment.time.strftime('%I:%M %p')}."
                     ),
@@ -489,6 +493,71 @@ def owner_get_slots(request):
 
 
 # ── Admin — Appointments ──────────────────────────────────────────────────────
+
+# Longest clinic message kept when declining a request (longer is trimmed).
+REJECT_MESSAGE_MAX_LENGTH = 500
+
+
+def _when(appointment):
+    """'Mon, Nov 2 at 2:00 PM' / 'Today at 9:00 AM' for messages."""
+    time = date_format(appointment.time, "g:i A")
+    return f"{friendly_date(appointment.date)} at {time}"
+
+
+def _too_early_message(appointment):
+    """Error for completing / no-showing an appointment before its date."""
+    return (
+        "You can mark this after the appointment date "
+        f"({friendly_date(appointment.date)})."
+    )
+
+
+def _admin_detail_context(
+    appointment, notes_form=None, cancel_form=None, reschedule_form=None
+):
+    """
+    Context for admin/appointments/detail.html. Pass a bound form to
+    re-render the page with that form's errors and typed values.
+    """
+    if notes_form is None:
+        notes_form = AdminAppointmentNotesForm(initial={"notes": appointment.notes})
+    if cancel_form is None:
+        cancel_form = AdminAppointmentCancelForm()
+    if reschedule_form is None:
+        reschedule_form = AdminAppointmentRescheduleForm(appointment)
+    return {
+        "appointment": appointment,
+        "notes_form": notes_form,
+        "cancel_form": cancel_form,
+        "reschedule_form": reschedule_form,
+    }
+
+
+def _reschedule_appointment(appointment, form, user):
+    """
+    Cancels the original and creates the new appointment as CONFIRMED
+    (the clinic chose the slot). Runs in one transaction: if creating the
+    new appointment fails, the original stays as it was.
+    Returns the new appointment.
+    """
+    with transaction.atomic():
+        appointment.status = Appointment.CANCELLED
+        appointment.cancellation_reason = Appointment.OTHER
+        appointment.cancellation_detail = "Rescheduled by clinic."
+        appointment.cancelled_by = user
+        appointment.save()
+
+        return Appointment.objects.create(
+            owner=appointment.owner,
+            pet=appointment.pet,
+            service=appointment.service,
+            date=form.cleaned_data["date"],
+            time=form.cleaned_data["time"],
+            reason=appointment.reason,
+            reschedule_reason=form.cleaned_data["reschedule_reason"],
+            rescheduled_from=appointment,
+            status=Appointment.CONFIRMED,
+        )
 
 
 @login_required
@@ -559,19 +628,10 @@ def admin_appointment_detail(request, pk):
         pk=pk,
     )
 
-    notes_form = AdminAppointmentNotesForm(initial={"notes": appointment.notes})
-    cancel_form = AdminAppointmentCancelForm()
-    reschedule_form = AdminAppointmentRescheduleForm(appointment)
-
     return render(
         request,
         "admin/appointments/detail.html",
-        {
-            "appointment": appointment,
-            "notes_form": notes_form,
-            "cancel_form": cancel_form,
-            "reschedule_form": reschedule_form,
-        },
+        _admin_detail_context(appointment),
     )
 
 
@@ -608,7 +668,8 @@ def admin_appointment_approve(request, pk):
 
             messages.success(
                 request,
-                f"Appointment for {appointment.pet.name} has been confirmed.",
+                f"Confirmed {appointment.pet.name} for {_when(appointment)}. "
+                "The owner has been notified.",
             )
 
     return redirect("admin_appointment_detail", pk=pk)
@@ -616,7 +677,11 @@ def admin_appointment_approve(request, pk):
 
 @login_required
 def admin_appointment_reject(request, pk):
-    """Admin action — reject a PENDING appointment → CANCELLED."""
+    """
+    Admin action — decline a PENDING appointment → CANCELLED.
+    An optional POST "message" is stored as the cancellation detail and
+    sent to the owner.
+    """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
@@ -626,24 +691,31 @@ def admin_appointment_reject(request, pk):
         if appointment.status != Appointment.PENDING:
             messages.error(request, "Only pending appointments can be rejected.")
         else:
+            clinic_message = request.POST.get("message", "").strip()
+            clinic_message = clinic_message[:REJECT_MESSAGE_MAX_LENGTH]
+
             appointment.status = Appointment.CANCELLED
             appointment.cancellation_reason = Appointment.OTHER
-            appointment.cancellation_detail = "Rejected by clinic."
+            appointment.cancellation_detail = clinic_message or "Rejected by clinic."
             appointment.cancelled_by = request.user
             appointment.save()
+
+            owner_message = (
+                f"Your appointment request for {appointment.pet.name} on "
+                f"{appointment.date.strftime('%B %d, %Y')} "
+                f"at {appointment.time.strftime('%I:%M %p')} "
+                f"was not confirmed by the clinic. "
+                f"Please contact the clinic for more information."
+            )
+            if clinic_message:
+                owner_message += f" Message from the clinic: {clinic_message}"
 
             # Notify pet owner of rejection
             notify(
                 recipient=appointment.owner.user,
                 notification_type="appointment_rejected",
                 title="Appointment Not Confirmed",
-                message=(
-                    f"Your appointment request for {appointment.pet.name} on "
-                    f"{appointment.date.strftime('%B %d, %Y')} "
-                    f"at {appointment.time.strftime('%I:%M %p')} "
-                    f"was not confirmed by the clinic. "
-                    f"Please contact the clinic for more information."
-                ),
+                message=owner_message,
                 related_appointment=appointment,
                 related_pet=appointment.pet,
                 email_subject="Appointment Update — Hapi Vet",
@@ -651,7 +723,8 @@ def admin_appointment_reject(request, pk):
 
             messages.success(
                 request,
-                f"Appointment for {appointment.pet.name} has been rejected.",
+                f"Declined {appointment.pet.name}'s request for "
+                f"{_when(appointment)}. The owner has been notified.",
             )
 
     return redirect("admin_appointment_detail", pk=pk)
@@ -659,7 +732,10 @@ def admin_appointment_reject(request, pk):
 
 @login_required
 def admin_appointment_complete(request, pk):
-    """Admin action — mark a CONFIRMED appointment as COMPLETED."""
+    """
+    Admin action — mark a CONFIRMED appointment as COMPLETED, on or after
+    the appointment date.
+    """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
@@ -670,12 +746,15 @@ def admin_appointment_complete(request, pk):
             messages.error(
                 request, "Only confirmed appointments can be marked as completed."
             )
+        elif appointment.date > timezone.localdate():
+            messages.error(request, _too_early_message(appointment))
         else:
             appointment.status = Appointment.COMPLETED
             appointment.save()
             messages.success(
                 request,
-                f"Appointment for {appointment.pet.name} marked as completed.",
+                f"Marked {appointment.pet.name}'s appointment on "
+                f"{_when(appointment)} as completed.",
             )
 
     return redirect("admin_appointment_detail", pk=pk)
@@ -683,7 +762,10 @@ def admin_appointment_complete(request, pk):
 
 @login_required
 def admin_appointment_no_show(request, pk):
-    """Admin action — mark a CONFIRMED appointment as NO_SHOW."""
+    """
+    Admin action — mark a CONFIRMED appointment as NO_SHOW, on or after
+    the appointment date.
+    """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
@@ -694,12 +776,15 @@ def admin_appointment_no_show(request, pk):
             messages.error(
                 request, "Only confirmed appointments can be marked as no-show."
             )
+        elif appointment.date > timezone.localdate():
+            messages.error(request, _too_early_message(appointment))
         else:
             appointment.status = Appointment.NO_SHOW
             appointment.save()
             messages.success(
                 request,
-                f"Appointment for {appointment.pet.name} marked as no-show.",
+                f"Marked {appointment.pet.name}'s appointment on "
+                f"{_when(appointment)} as a no-show.",
             )
 
     return redirect("admin_appointment_detail", pk=pk)
@@ -727,7 +812,10 @@ def admin_appointment_notes(request, pk):
 
 @login_required
 def admin_appointment_cancel(request, pk):
-    """Admin action — cancel an appointment on behalf of the pet owner."""
+    """
+    Admin action — cancel a PENDING or CONFIRMED appointment for the owner.
+    Invalid input re-renders the detail page with the form's errors.
+    """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
@@ -739,35 +827,44 @@ def admin_appointment_cancel(request, pk):
             return redirect("admin_appointment_detail", pk=pk)
 
         form = AdminAppointmentCancelForm(request.POST)
-        if form.is_valid():
-            appointment.status = Appointment.CANCELLED
-            appointment.cancellation_reason = form.cleaned_data["cancellation_reason"]
-            appointment.cancellation_detail = form.cleaned_data.get(
-                "cancellation_detail", ""
-            )
-            appointment.cancelled_by = request.user
-            appointment.save()
-
-            # Notify pet owner of cancellation by clinic
-            notify(
-                recipient=appointment.owner.user,
-                notification_type="appointment_cancelled",
-                title="Appointment Cancelled by Clinic",
-                message=(
-                    f"Your appointment for {appointment.pet.name} on "
-                    f"{appointment.date.strftime('%B %d, %Y')} "
-                    f"at {appointment.time.strftime('%I:%M %p')} "
-                    f"has been cancelled by the clinic. "
-                    f"Please contact the clinic for more information."
-                ),
-                related_appointment=appointment,
-                related_pet=appointment.pet,
-                email_subject="Appointment Cancelled — Hapi Vet",
+        if not form.is_valid():
+            messages.error(request, "Please correct the errors below.")
+            return render(
+                request,
+                "admin/appointments/detail.html",
+                _admin_detail_context(appointment, cancel_form=form),
             )
 
-            messages.success(request, "Appointment cancelled.")
-        else:
-            messages.error(request, "Please correct the errors.")
+        appointment.status = Appointment.CANCELLED
+        appointment.cancellation_reason = form.cleaned_data["cancellation_reason"]
+        appointment.cancellation_detail = form.cleaned_data.get(
+            "cancellation_detail", ""
+        )
+        appointment.cancelled_by = request.user
+        appointment.save()
+
+        # Notify pet owner of cancellation by clinic
+        notify(
+            recipient=appointment.owner.user,
+            notification_type="appointment_cancelled",
+            title="Appointment Cancelled by Clinic",
+            message=(
+                f"Your appointment for {appointment.pet.name} on "
+                f"{appointment.date.strftime('%B %d, %Y')} "
+                f"at {appointment.time.strftime('%I:%M %p')} "
+                f"has been cancelled by the clinic. "
+                f"Please contact the clinic for more information."
+            ),
+            related_appointment=appointment,
+            related_pet=appointment.pet,
+            email_subject="Appointment Cancelled — Hapi Vet",
+        )
+
+        messages.success(
+            request,
+            f"Cancelled {appointment.pet.name}'s appointment on "
+            f"{_when(appointment)}. The owner has been notified.",
+        )
 
     return redirect("admin_appointment_detail", pk=pk)
 
@@ -775,8 +872,10 @@ def admin_appointment_cancel(request, pk):
 @login_required
 def admin_appointment_reschedule(request, pk):
     """
-    Admin action — reschedule an appointment on behalf of the pet owner.
-    Cancels the original and creates a new CONFIRMED appointment.
+    Admin action — reschedule a PENDING or CONFIRMED appointment for the
+    owner. The new appointment is CONFIRMED, since the clinic chose the
+    slot (see _reschedule_appointment).
+    Invalid input re-renders the detail page with the form's errors.
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
@@ -789,51 +888,37 @@ def admin_appointment_reschedule(request, pk):
             return redirect("admin_appointment_detail", pk=pk)
 
         form = AdminAppointmentRescheduleForm(appointment, request.POST)
-        if form.is_valid():
-            # Cancel the original
-            appointment.status = Appointment.CANCELLED
-            appointment.cancellation_reason = Appointment.OTHER
-            appointment.cancellation_detail = "Rescheduled by clinic."
-            appointment.cancelled_by = request.user
-            appointment.save()
-
-            # Create new appointment as CONFIRMED (admin-initiated reschedule)
-            new_appointment = Appointment.objects.create(
-                owner=appointment.owner,
-                pet=appointment.pet,
-                service=appointment.service,
-                date=form.cleaned_data["date"],
-                time=form.cleaned_data["time"],
-                reason=appointment.reason,
-                reschedule_reason=form.cleaned_data["reschedule_reason"],
-                rescheduled_from=appointment,
-                status=Appointment.CONFIRMED,
-            )
-
-            # Notify pet owner of reschedule by clinic
-            notify(
-                recipient=new_appointment.owner.user,
-                notification_type="appointment_approved",
-                title="Appointment Rescheduled by Clinic",
-                message=(
-                    f"Your appointment for {new_appointment.pet.name} has been "
-                    f"rescheduled to {new_appointment.date.strftime('%B %d, %Y')} "
-                    f"at {new_appointment.time.strftime('%I:%M %p')} by the clinic."
-                ),
-                related_appointment=new_appointment,
-                related_pet=new_appointment.pet,
-                email_subject="Appointment Rescheduled — Hapi Vet",
-            )
-
-            messages.success(
+        if not form.is_valid():
+            messages.error(request, "Please correct the errors below.")
+            return render(
                 request,
-                f"Appointment rescheduled to "
-                f"{new_appointment.date} at {new_appointment.time}.",
+                "admin/appointments/detail.html",
+                _admin_detail_context(appointment, reschedule_form=form),
             )
-            return redirect("admin_appointment_detail", pk=new_appointment.pk)
-        else:
-            messages.error(request, "Please correct the errors.")
-            return redirect("admin_appointment_detail", pk=pk)
+
+        new_appointment = _reschedule_appointment(appointment, form, request.user)
+
+        # Notify pet owner of reschedule by clinic
+        notify(
+            recipient=new_appointment.owner.user,
+            notification_type="appointment_approved",
+            title="Appointment Rescheduled by Clinic",
+            message=(
+                f"Your appointment for {new_appointment.pet.name} has been "
+                f"rescheduled to {new_appointment.date.strftime('%B %d, %Y')} "
+                f"at {new_appointment.time.strftime('%I:%M %p')} by the clinic."
+            ),
+            related_appointment=new_appointment,
+            related_pet=new_appointment.pet,
+            email_subject="Appointment Rescheduled — Hapi Vet",
+        )
+
+        messages.success(
+            request,
+            f"Rescheduled {new_appointment.pet.name} to "
+            f"{_when(new_appointment)}. The owner has been notified.",
+        )
+        return redirect("admin_appointment_detail", pk=new_appointment.pk)
 
     return redirect("admin_appointment_detail", pk=pk)
 

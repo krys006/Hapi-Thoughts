@@ -439,7 +439,7 @@ class AdminAppointmentRescheduleForm(forms.Form):
         date = self.cleaned_data.get("date")
         if not date:
             return date
-        today = timezone.now().date()
+        today = timezone.localdate()
         if date < today:
             raise forms.ValidationError("Cannot reschedule to a past date.")
         return date

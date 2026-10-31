@@ -200,11 +200,16 @@
               action="{% url 'admin_appointment_reschedule' appointment.pk %}">
               {% csrf_token %}
 
+              {% for error in reschedule_form.non_field_errors %}
+                <p class="form-error">{{ error }}</p>
+              {% endfor %}
+
               <div class="form-group">
                 <label class="form-label">New Date</label>
                 <input
                   type="date"
                   name="date"
+                  value="{{ reschedule_form.date.value|default:'' }}"
                   hx-get="{% url 'admin_get_slots_for_date' %}"
                   hx-target="#admin-reschedule-slots"
                   hx-swap="innerHTML"
@@ -221,11 +226,17 @@
                 <select name="time" id="admin-reschedule-slots">
                   <option value="">Select a date first</option>
                 </select>
+                {% if reschedule_form.time.errors %}
+                  <p class="form-error">{{ reschedule_form.time.errors.0 }}</p>
+                {% endif %}
               </div>
 
               <div class="form-group">
                 <label class="form-label">Reason</label>
                 {{ reschedule_form.reschedule_reason }}
+                {% if reschedule_form.reschedule_reason.errors %}
+                  <p class="form-error">{{ reschedule_form.reschedule_reason.errors.0 }}</p>
+                {% endif %}
               </div>
 
               <button type="submit" class="btn-secondary btn-block">
@@ -241,6 +252,10 @@
               action="{% url 'admin_appointment_cancel' appointment.pk %}">
               {% csrf_token %}
 
+              {% for error in cancel_form.non_field_errors %}
+                <p class="form-error">{{ error }}</p>
+              {% endfor %}
+
               <div class="form-group">
                 <label class="form-label">Reason</label>
                 {{ cancel_form.cancellation_reason }}
@@ -252,12 +267,6 @@
                 </label>
                 {{ cancel_form.cancellation_detail }}
               </div>
-
-              {% if cancel_form.non_field_errors %}
-                {% for error in cancel_form.non_field_errors %}
-                  <p class="form-error">{{ error }}</p>
-                {% endfor %}
-              {% endif %}
 
               <button type="submit" class="btn-danger btn-block"
                 onclick="return confirm('Cancel this appointment?')">

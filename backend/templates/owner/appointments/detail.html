@@ -330,13 +330,6 @@ input[type="date"]::-webkit-calendar-picker-indicator{
         </div>
       {% endif %}
 
-      {% if appointment.notes %}
-        <div class="detail-row">
-          <span class="detail-label">Admin Notes</span>
-          <span class="detail-value">{{ appointment.notes }}</span>
-        </div>
-      {% endif %}
-
       {% if appointment.rescheduled_from %}
         <div class="detail-row">
           <span class="detail-label">Rescheduled From</span>
