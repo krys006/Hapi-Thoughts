@@ -3,7 +3,7 @@
   Schedule card: one day's appointments (cancelled ones left out).
   Shown for today on page load; the mini calendar swaps in other days.
 {% endcomment %}
-<section id="day-schedule" class="card flex flex-col">
+<section id="day-schedule" class="card flex h-full flex-col">
   <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
     <div>
       <h2 class="text-xl font-semibold text-gray-900">{% if is_today %}Today's schedule{% else %}Schedule for {{ selected_date|friendly_date }}{% endif %}</h2>

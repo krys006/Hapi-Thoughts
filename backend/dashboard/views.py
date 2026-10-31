@@ -283,15 +283,12 @@ def admin_dashboard(request):
 
 @login_required
 def admin_dashboard_partial(request):
-    """
-    Returns the stats + widgets block only.
-    Polled automatically every 30s by the block itself.
-    """
+    """Returns the stats cards only. Polled every 60s while the tab is visible."""
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
     context = _get_admin_dashboard_context(request)
-    return render(request, "admin/dashboard/_dashboard_partial.html", context)
+    return render(request, "admin/dashboard/_stats.html", context)
 
 
 @login_required

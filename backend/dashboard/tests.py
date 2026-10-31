@@ -290,6 +290,28 @@ class DashboardViewTests(ShellTestBase):
         self.assertEqual(response.context["selected_date"], today)
         self.assertEqual(list(response.context["day_appointments"]), [kept])
 
+    def test_refresh_renders_stats_partial(self):
+        response = self.client.get(reverse("admin_dashboard_refresh"))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "admin/dashboard/_stats.html")
+
+    def test_full_page_uses_layout_and_partials(self):
+        response = self.client.get(reverse("admin_dashboard"))
+        for template in (
+            "layouts/admin.html",
+            "admin/dashboard/_stats.html",
+            "admin/dashboard/_day_schedule.html",
+            "admin/dashboard/_mini_calendar.html",
+        ):
+            with self.subTest(template=template):
+                self.assertTemplateUsed(response, template)
+
+    def test_past_pending_request_is_flagged(self):
+        """A request whose date has passed gets a "Date has passed" badge."""
+        self._booking(timezone.localdate() - timedelta(days=3), 9, Appointment.PENDING)
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertContains(response, "Date has passed")
+
 
 class RoleAccessMiddlewareTests(ShellTestBase):
     """Wrong-role requests: HTMX gets 403, a normal page load is redirected."""

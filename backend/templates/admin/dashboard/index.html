@@ -1,43 +1,70 @@
 {% extends "layouts/admin.html" %}
+{% load friendly_dates %}
 
-{% block title %}Admin Dashboard — Hapi Vet{% endblock %}
+{% block title %}Dashboard — Hapi Vet Admin{% endblock %}
 
-{% block page_title %}Dashboard{% endblock %}
+{# Greeting; the name is left out if neither clinic settings nor the account has one #}
+{% block page_title %}{{ greeting }}{% if display_name %}, {{ display_name }}{% endif %}{% endblock %}
 {% block page_subtitle %}{{ today|date:"l, F j, Y" }}{% endblock %}
+{% block page_actions %}
+  <a href="{% url 'admin_walkin_appointment_create' %}" class="btn btn-primary">{% include "components/icon.html" with name="plus" %}New walk-in</a>
+{% endblock %}
 
 {% block content %}
+  {% include "admin/dashboard/_stats.html" %}
 
-<div class="admin-page flex flex-col gap-6">
-
-  <!-- Stats + widgets — self-polling block, see _dashboard_partial.html -->
-  {% include 'admin/dashboard/_dashboard_partial.html' %}
-
-  <!-- ─── Calendar Widget ────────────────────────────────────────────── -->
-  <!-- NOT part of the polling block above — nav state (month/week, -->
-  <!-- selected date) is preserved; only updates on explicit click. -->
-  <div class="dashboard-calendar-section flex flex-col gap-4 p-5 bg-white rounded-2xl border border-slate-100 shadow-sm">
-
-    <div class="dashboard-widget-header flex items-center justify-between">
-      <h2 class="dashboard-widget-title text-lg font-semibold text-slate-800">Calendar</h2>
+  {# Row 2: the day's schedule next to the mini calendar that switches it #}
+  <div class="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+    {# aria-live sits on this wrapper because the card inside is swapped out #}
+    <div aria-live="polite">
+      {% include "admin/dashboard/_day_schedule.html" %}
     </div>
-
-    <div class="dashboard-calendar-layout flex flex-col gap-6 lg:flex-row">
-
-      {% include 'admin/appointments/_calendar_grid.html' %}
-
-      <!-- Day detail panel — populated via HTMX when a day is clicked -->
-      <div id="calendar-day-panel" class="calendar-day-panel flex flex-col gap-3 w-full shrink-0 lg:w-96">
-        <div class="widget-empty flex items-center justify-center p-6">
-          <p class="widget-empty-text text-sm text-slate-400">Click a day on the calendar to view appointments.</p>
-        </div>
-      </div>
-
-    </div>
-    <!-- end dashboard-calendar-layout -->
-
+    {% include "admin/dashboard/_mini_calendar.html" %}
   </div>
-  <!-- end dashboard-calendar-section -->
 
-</div>
+  {# Row 3: recent activity next to requests waiting for approval #}
+  <div class="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+    <section class="card" aria-labelledby="recent-activity-title">
+      <div class="mb-4 flex items-center justify-between gap-3">
+        <h2 id="recent-activity-title" class="text-xl font-semibold text-gray-900">Recent activity</h2>
+        <button type="button" class="text-base font-medium text-blue-600 hover:underline" hx-get="{% url 'notifications_panel' %}" hx-target="#notification-panel-container" hx-swap="innerHTML">View all</button>
+      </div>
+      {% if recent_notifications %}
+        <ul class="divide-y divide-gray-100">
+          {% for notification in recent_notifications %}
+            <li><a href="{% url 'notification_open' notification.pk %}" class="flex items-start gap-3 rounded-lg px-2 py-3 hover:bg-gray-50"><span class="mt-0.5 rounded-lg p-2{% if notification.is_read %} bg-gray-100 text-gray-600{% else %} bg-violet-50 text-violet-700{% endif %}">{% include "components/icon.html" with name="bell" %}</span><span class="min-w-0 flex-1"><span class="block text-base text-gray-900{% if not notification.is_read %} font-semibold{% endif %}">{{ notification.title }}</span><span class="block text-base text-gray-700">{{ notification.message|truncatechars:110 }}</span></span><span class="shrink-0 whitespace-nowrap text-sm text-gray-600">{{ notification.created_at|friendly_datetime }}</span></a></li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        {% include "components/empty_state.html" with icon="bell" title="No activity yet" text="Booking requests, payments and other updates will show up here." %}
+      {% endif %}
+    </section>
 
+    <section class="card" aria-labelledby="needs-approval-title">
+      <div class="mb-4 flex items-center justify-between gap-3">
+        <h2 id="needs-approval-title" class="text-xl font-semibold text-gray-900">Needs approval</h2>
+        {% if pending_approvals %}<span class="badge bg-yellow-100 text-yellow-800">{{ pending_approvals }} waiting</span>{% endif %}
+      </div>
+      {% if pending_appointments %}
+        <ul class="divide-y divide-gray-100">
+          {% for appointment in pending_appointments|slice:":3" %}
+            <li class="flex items-center gap-3 py-3">
+              <div class="min-w-0 flex-1">
+                <p class="text-base font-semibold text-gray-900">{{ appointment.pet.name }}{% if appointment.service %} · {{ appointment.service.service_name }}{% endif %}</p>
+                <p class="text-base text-gray-700">{{ appointment.date|friendly_date }}, {{ appointment.time|time:"g:i A" }}</p>
+                <p class="text-sm text-gray-600">{{ appointment.owner.first_name }} {{ appointment.owner.last_name }}</p>
+                {% if appointment.date < today %}<p class="mt-1"><span class="badge bg-red-100 text-red-800">Date has passed</span></p>{% endif %}
+              </div>
+              <a href="{% url 'admin_appointment_detail' appointment.pk %}" class="btn btn-secondary shrink-0">Review</a>
+            </li>
+          {% endfor %}
+        </ul>
+        {% if pending_approvals > 3 %}
+          <a href="{% url 'admin_appointments' %}?status=pending" class="mt-3 inline-block text-base font-medium text-blue-600 hover:underline">See all {{ pending_approvals }} requests →</a>
+        {% endif %}
+      {% else %}
+        {% include "components/empty_state.html" with icon="circle-check" title="No requests waiting" text="New booking requests from pet owners will appear here." %}
+      {% endif %}
+    </section>
+  </div>
 {% endblock %}

@@ -144,7 +144,9 @@ templates/
 │   ├── walkin_create.html
 │   ├── dashboard/
 │   │   ├── index.html
-│   │   └── _dashboard_partial.html
+│   │   ├── _stats.html
+│   │   ├── _day_schedule.html
+│   │   └── _mini_calendar.html
 │   ├── appointments/
 │   │   ├── list.html
 │   │   ├── detail.html
@@ -595,7 +597,7 @@ Real examples:
 ```
 admin/appointments/_calendar_grid.html      ← calendar month grid
 admin/appointments/_calendar_day_panel.html ← calendar day side panel
-admin/dashboard/_dashboard_partial.html     ← self-polling dashboard stats
+admin/dashboard/_stats.html                 ← self-polling dashboard stats
 shared/notifications/_panel.html            ← bell dropdown
 ```
 
