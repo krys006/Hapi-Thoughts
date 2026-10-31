@@ -17,6 +17,8 @@
       "Bash(.\\venv\\Scripts\\python.exe manage.py migrate:*)",
       "Bash(venv/Scripts/python.exe manage.py migrate:*)",
       "Bash(backend/venv/Scripts/python.exe manage.py migrate:*)",
+      "Bash(backend\\venv\\Scripts\\python.exe backend\\manage.py migrate:*)",
+      "Bash(backend/venv/Scripts/python.exe backend/manage.py migrate:*)",
 
       "Bash(python manage.py flush:*)",
       "Bash(venv\\Scripts\\python.exe manage.py flush:*)",
@@ -24,13 +26,17 @@
       "Bash(.\\venv\\Scripts\\python.exe manage.py flush:*)",
       "Bash(venv/Scripts/python.exe manage.py flush:*)",
       "Bash(backend/venv/Scripts/python.exe manage.py flush:*)",
+      "Bash(backend\\venv\\Scripts\\python.exe backend\\manage.py flush:*)",
+      "Bash(backend/venv/Scripts/python.exe backend/manage.py flush:*)",
 
       "Bash(python manage.py loaddata:*)",
       "Bash(venv\\Scripts\\python.exe manage.py loaddata:*)",
       "Bash(backend\\venv\\Scripts\\python.exe manage.py loaddata:*)",
       "Bash(.\\venv\\Scripts\\python.exe manage.py loaddata:*)",
       "Bash(venv/Scripts/python.exe manage.py loaddata:*)",
-      "Bash(backend/venv/Scripts/python.exe manage.py loaddata:*)"
+      "Bash(backend/venv/Scripts/python.exe manage.py loaddata:*)",
+      "Bash(backend\\venv\\Scripts\\python.exe backend\\manage.py loaddata:*)",
+      "Bash(backend/venv/Scripts/python.exe backend/manage.py loaddata:*)"
     ],
     "ask": [
       "Bash(git add:*)",

@@ -1,0 +1,79 @@
+/*
+  Hapi Vet admin styles: Tailwind source for backend/static/css/app.css.
+  Lives OUTSIDE static/ on purpose: collectstatic must never see the
+  @import below, or the manifest storage fails on "tailwindcss".
+
+  Build (run from the repo root):
+    backend\bin\tailwindcss.exe -i backend\assets\tailwind\input.css -o backend\static\css\app.css --minify
+  Watch while editing templates:
+    backend\bin\tailwindcss.exe -i backend\assets\tailwind\input.css -o backend\static\css\app.css --watch
+*/
+
+/* source(none): don't auto-scan the whole repo (venv, staticfiles, media) */
+@import "tailwindcss" source(none);
+
+/* Paths are relative to this file */
+@source "../../templates";
+@source "../../static/js";
+
+@theme {
+  /* System fonts: no font files to load, familiar on Windows */
+  --font-sans: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* ---------- Base: readable defaults for every admin page ---------- */
+@layer base {
+  body {
+    @apply bg-gray-50 text-base text-gray-900 antialiased;
+  }
+
+  /* Clear keyboard focus ring everywhere */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-violet-600;
+  }
+}
+
+/* ---------- Components: the few shared classes ---------- */
+@layer components {
+  /* Buttons: 44px tall minimum (senior-friendly click target) */
+  .btn {
+    @apply inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-base font-medium whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  .btn-primary {
+    @apply bg-violet-600 text-white hover:bg-violet-700;
+  }
+  .btn-secondary {
+    @apply border border-gray-300 bg-white text-gray-800 hover:bg-gray-50;
+  }
+  .btn-danger {
+    @apply bg-red-600 text-white hover:bg-red-700;
+  }
+
+  /* Text inputs, selects, textareas. Django renders form widgets without
+     classes, so the same style also applies to controls inside a
+     .form-field wrapper (see components/form_field.html). */
+  .input,
+  .form-field :is(input:not([type="checkbox"], [type="radio"], [type="file"], [type="hidden"]), select, textarea) {
+    @apply block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-base text-gray-900 placeholder:text-gray-500 focus:border-violet-600 focus:ring-2 focus:ring-violet-200 focus:outline-none;
+  }
+
+  /* Field with errors: red border so the problem is easy to spot */
+  .form-field.has-error :is(input:not([type="checkbox"], [type="radio"], [type="file"], [type="hidden"]), select, textarea) {
+    @apply border-red-600 focus:border-red-600 focus:ring-red-200;
+  }
+
+  /* Checkboxes and radios: larger and in the brand colour */
+  .form-field :is(input[type="checkbox"], input[type="radio"]) {
+    @apply size-5 shrink-0 accent-violet-600;
+  }
+
+  /* White rounded card */
+  .card {
+    @apply rounded-xl border border-gray-200 bg-white p-6 shadow-sm;
+  }
+
+  /* Status pill: colour comes from components/status_badge.html */
+  .badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-1 text-sm font-medium whitespace-nowrap;
+  }
+}
