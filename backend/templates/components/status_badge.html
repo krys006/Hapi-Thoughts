@@ -1,0 +1,7 @@
+{% comment %}
+  Coloured status pill for appointments and receipts.
+  Usage: {% include "components/status_badge.html" with status=appointment.status label=appointment.get_status_display %}
+  Colours follow CONVENTIONS §11 (pending yellow, confirmed blue,
+  completed/paid green, cancelled red, no show gray).
+{% endcomment %}
+<span class="badge {% if status == 'pending' %}bg-yellow-100 text-yellow-800{% elif status == 'confirmed' %}bg-blue-100 text-blue-800{% elif status == 'completed' or status == 'paid' %}bg-green-100 text-green-800{% elif status == 'cancelled' %}bg-red-100 text-red-800{% else %}bg-gray-100 text-gray-800{% endif %}">{{ label|default:status }}</span>

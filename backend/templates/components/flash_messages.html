@@ -1,0 +1,27 @@
+{% comment %}
+  Django messages as large, readable banners that stay until closed
+  (no auto-fade, so there's time to read them).
+  Rendered once by the admin layout; pages must not loop over messages.
+{% endcomment %}
+{% if messages %}
+  <div class="mb-6 space-y-3">
+    {% for message in messages %}
+      <div data-flash class="flex items-start gap-3 rounded-lg border px-4 py-3 text-base {% if message.level_tag == 'success' %}border-green-200 bg-green-50 text-green-900{% elif message.level_tag == 'error' %}border-red-200 bg-red-50 text-red-900{% elif message.level_tag == 'warning' %}border-yellow-200 bg-yellow-50 text-yellow-900{% else %}border-blue-200 bg-blue-50 text-blue-900{% endif %}" role="{% if message.level_tag == 'error' %}alert{% else %}status{% endif %}">
+        {% if message.level_tag == 'success' %}
+          {% include "components/icon.html" with name="circle-check" class="mt-0.5 size-5 shrink-0" %}
+        {% elif message.level_tag == 'error' %}
+          {% include "components/icon.html" with name="circle-alert" class="mt-0.5 size-5 shrink-0" %}
+        {% elif message.level_tag == 'warning' %}
+          {% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0" %}
+        {% else %}
+          {% include "components/icon.html" with name="info" class="mt-0.5 size-5 shrink-0" %}
+        {% endif %}
+        <p class="flex-1">{{ message }}</p>
+        <button type="button" class="-my-1 -mr-2 flex min-h-11 items-center gap-1 rounded-md px-2 text-sm font-medium hover:bg-black/5" onclick="this.closest('[data-flash]').remove()">
+          {% include "components/icon.html" with name="x" class="size-4 shrink-0" %}
+          Close
+        </button>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}

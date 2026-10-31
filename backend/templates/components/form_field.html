@@ -1,0 +1,28 @@
+{% comment %}
+  One form field: label, control, help text and errors.
+  Usage: {% include "components/form_field.html" with field=form.email %}
+  Styling of the control comes from the .form-field rule in input.css,
+  so forms.py never needs Tailwind classes.
+{% endcomment %}
+{% if field.is_hidden %}
+  {{ field }}
+{% elif field.widget_type == "checkbox" %}
+  {# Checkbox: box first, label to the right, whole row clickable #}
+  <div class="form-field{% if field.errors %} has-error{% endif %}">
+    <label for="{{ field.id_for_label }}" class="flex min-h-11 cursor-pointer items-center gap-3 text-base text-gray-800">
+      {{ field }}
+      <span>{{ field.label }}</span>
+    </label>
+    {% if field.help_text %}<p class="mt-1 text-sm text-gray-600">{{ field.help_text }}</p>{% endif %}
+    {% for error in field.errors %}<p class="mt-1 text-sm font-medium text-red-700">{{ error }}</p>{% endfor %}
+  </div>
+{% else %}
+  <div class="form-field space-y-1.5{% if field.errors %} has-error{% endif %}">
+    <label for="{{ field.id_for_label }}" class="block text-base font-medium text-gray-800">
+      {{ field.label }}{% if field.field.required %} <span class="text-red-700" aria-hidden="true">*</span>{% endif %}
+    </label>
+    {{ field }}
+    {% if field.help_text %}<p class="text-sm text-gray-600">{{ field.help_text }}</p>{% endif %}
+    {% for error in field.errors %}<p class="text-sm font-medium text-red-700">{{ error }}</p>{% endfor %}
+  </div>
+{% endif %}
