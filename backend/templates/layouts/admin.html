@@ -1,0 +1,118 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Hapi Vet Admin{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  <script src="{% static 'vendor/htmx-2.0.11.min.js' %}" defer></script>
+  {% block extra_head %}{% endblock %}
+</head>
+{# hx-headers: CSRF token for every HTMX request, plus a marker telling views this page uses the new admin layout #}
+<body class="min-h-screen" hx-headers='{"X-CSRFToken": "{{ csrf_token }}", "X-Admin-Layout": "1"}'>
+  <div class="lg:flex">
+    {# Dark backdrop behind the sidebar on small screens #}
+    <div id="sidebar-backdrop" class="fixed inset-0 z-30 hidden bg-gray-900/40 lg:hidden" data-sidebar-close></div>
+
+    {# Sidebar: slide-in menu on small screens, pinned (sticky) on desktop #}
+    <aside id="admin-sidebar" class="fixed inset-y-0 left-0 z-40 flex w-72 -translate-x-full flex-col border-r border-violet-200 bg-violet-100 transition-transform lg:sticky lg:top-0 lg:h-screen lg:translate-x-0" aria-label="Main menu">
+      {% include "layouts/admin_sidebar.html" %}
+    </aside>
+
+    <div class="min-w-0 flex-1">
+      {# Top bar: menu button (small screens), search, notifications #}
+      <header class="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-3 sm:px-6 lg:px-8">
+        <button type="button" id="sidebar-open" class="btn btn-secondary lg:hidden" aria-controls="admin-sidebar" aria-expanded="false">
+          {% include "components/icon.html" with name="menu" %}
+          Menu
+        </button>
+
+        <div id="global-search-container" class="relative w-full max-w-xl">
+          <label for="global-search" class="sr-only">Search owners, pets and appointments</label>
+          <div class="relative">
+            <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
+              {% include "components/icon.html" with name="search" %}
+            </span>
+            <input id="global-search" type="search" name="q" autocomplete="off" placeholder="Search by owner or pet name" class="input pl-10" hx-get="{% url 'admin_global_search' %}" hx-trigger="keyup changed delay:300ms, search" hx-target="#global-search-results" hx-indicator="#global-search-spinner">
+            <span id="global-search-spinner" class="htmx-indicator absolute inset-y-0 right-3 flex items-center text-sm text-gray-600">Searching…</span>
+          </div>
+          <div id="global-search-results" class="absolute inset-x-0 top-full z-40 mt-2"></div>
+        </div>
+
+        <div id="notifications-area" class="relative ml-auto">
+          <button type="button" id="bell-button" class="btn btn-secondary" hx-get="{% url 'notifications_panel' %}" hx-target="#notification-panel-container" hx-swap="innerHTML">
+            {% include "components/icon.html" with name="bell" %}
+            <span class="hidden sm:inline">Notifications</span>
+            {% include "layouts/bell_count.html" %}
+          </button>
+          {# The notifications panel is loaded into this container (id shared with the owner side) #}
+          <div id="notification-panel-container"></div>
+        </div>
+      </header>
+
+      <main id="main-content" class="px-4 py-6 sm:px-6 lg:px-8">
+        {% include "components/flash_messages.html" %}
+
+        {% block page_header %}
+          <div class="mb-6 flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h1 class="text-2xl font-bold text-gray-900">{% block page_title %}{% endblock %}</h1>
+              <p class="mt-1 text-base text-gray-600">{% block page_subtitle %}{% endblock %}</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-3">{% block page_actions %}{% endblock %}</div>
+          </div>
+        {% endblock %}
+
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+
+  {# Confirm dialog used by openConfirmModal(); some admin pages still need it #}
+  {% include "shared/modals.html" %}
+
+  {# Page scripts. Also where the receipt print partial goes: it must stay a direct child of <body> #}
+  {% block extra_js %}{% endblock %}
+
+  <script>
+    // Sidebar on small screens, Escape key, and click-outside for the
+    // search results and notifications panel. Lives here once, so HTMX
+    // partials don't add listeners every time they load.
+    (function () {
+      var sidebar = document.getElementById("admin-sidebar");
+      var backdrop = document.getElementById("sidebar-backdrop");
+      var openButton = document.getElementById("sidebar-open");
+      var searchResults = document.getElementById("global-search-results");
+      var notificationPanel = document.getElementById("notification-panel-container");
+
+      function setSidebarOpen(open) {
+        sidebar.classList.toggle("-translate-x-full", !open);
+        backdrop.classList.toggle("hidden", !open);
+        openButton.setAttribute("aria-expanded", String(open));
+        if (open) {
+          var firstLink = sidebar.querySelector("a, button");
+          if (firstLink) firstLink.focus();
+        }
+      }
+
+      openButton.addEventListener("click", function () { setSidebarOpen(true); });
+      document.querySelectorAll("[data-sidebar-close]").forEach(function (el) {
+        el.addEventListener("click", function () { setSidebarOpen(false); });
+      });
+
+      document.addEventListener("keydown", function (event) {
+        if (event.key !== "Escape") return;
+        if (openButton.getAttribute("aria-expanded") === "true") setSidebarOpen(false);
+        searchResults.innerHTML = "";
+        notificationPanel.innerHTML = "";
+      });
+
+      document.addEventListener("click", function (event) {
+        if (!event.target.closest("#global-search-container")) searchResults.innerHTML = "";
+        if (!event.target.closest("#notifications-area")) notificationPanel.innerHTML = "";
+      });
+    })();
+  </script>
+</body>
+</html>
