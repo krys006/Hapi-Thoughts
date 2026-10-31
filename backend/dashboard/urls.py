@@ -9,6 +9,16 @@ urlpatterns = [
         views.admin_dashboard_partial,
         name="admin_dashboard_refresh",
     ),
+    path(
+        "admin/dashboard/calendar/",
+        views.admin_dashboard_calendar,
+        name="admin_dashboard_calendar",
+    ),
+    path(
+        "admin/dashboard/day/",
+        views.admin_dashboard_day,
+        name="admin_dashboard_day",
+    ),
     path("admin/search/", views.admin_global_search, name="admin_global_search"),
     path(
         "owner/dashboard/refresh/",

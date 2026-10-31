@@ -1,3 +1,4 @@
+from django.http import HttpResponseForbidden
 from django.shortcuts import redirect
 from django.urls import reverse
 
@@ -29,6 +30,7 @@ class RoleAccessMiddleware:
     - Unauthenticated users can only access PUBLIC_URLS
     - Pet owners cannot access /admin/* URLs
     - Admins cannot access /owner/* URLs
+    - Wrong-role HTMX requests get 403 instead of a redirect
     - Unauthenticated users hitting protected URLs are redirected to login
     """
 
@@ -47,12 +49,18 @@ class RoleAccessMiddleware:
             login_url = reverse("owner_login")
             return redirect(f"{login_url}?next={path}")
 
-        # Pet owner trying to access admin URLs
+        # Pet owner trying to access admin URLs. HTMX gets a 403: the browser
+        # would follow a redirect and swap a whole page into the target.
         if request.user.role == "pet_owner" and path.startswith("/admin/"):
+            if request.headers.get("HX-Request"):
+                return HttpResponseForbidden()
             return redirect("/owner/dashboard/")
 
-        # Admin trying to access pet owner URLs
+        # Admin trying to access pet owner URLs. HTMX gets a 403: the browser
+        # would follow a redirect and swap a whole page into the target.
         if request.user.role == "admin" and path.startswith("/owner/"):
+            if request.headers.get("HX-Request"):
+                return HttpResponseForbidden()
             return redirect("/admin/dashboard/")
 
         return self.get_response(request)

@@ -6,10 +6,12 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.test import RequestFactory, SimpleTestCase, TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from appointments.models import Appointment
 from dashboard.context_processors import shell
 from dashboard.templatetags.friendly_dates import friendly_date, friendly_datetime
+from dashboard.views import _greeting, _parse_day
 from notifications.models import Notification
 from pets.models import Pet, PetDeletionRequest, PetOwner
 
@@ -178,4 +180,127 @@ class LogoutRedirectTests(ShellTestBase):
         response = self.client.get(reverse("logout"))
         self.assertRedirects(
             response, reverse("owner_login"), fetch_redirect_response=False
+        )
+
+
+class GreetingTests(SimpleTestCase):
+
+    def test_greeting_by_manila_hour(self):
+        """Morning before 12:00, afternoon before 18:00, evening after."""
+        cases = {
+            # 01:00 UTC = 09:00 Manila
+            datetime(2026, 6, 15, 1, 0, tzinfo=dt_timezone.utc): "Good morning",
+            # 06:00 UTC = 14:00 Manila
+            datetime(2026, 6, 15, 6, 0, tzinfo=dt_timezone.utc): "Good afternoon",
+            # 11:00 UTC = 19:00 Manila
+            datetime(2026, 6, 15, 11, 0, tzinfo=dt_timezone.utc): "Good evening",
+        }
+        for value, expected in cases.items():
+            with self.subTest(value=value):
+                self.assertEqual(_greeting(value), expected)
+
+
+@mock.patch("django.utils.timezone.now", return_value=FROZEN_NOW)
+class ParseDayTests(SimpleTestCase):
+
+    def test_valid_iso_date(self, _now):
+        self.assertEqual(_parse_day("2026-06-20"), date(2026, 6, 20))
+
+    def test_bad_values_fall_back_to_today(self, _now):
+        """Missing, malformed and impossible dates all give today (Manila)."""
+        for value in (None, "", "nonsense", "2026-02-30"):
+            with self.subTest(value=value):
+                self.assertEqual(_parse_day(value), date(2026, 6, 15))
+
+
+class DashboardViewTests(ShellTestBase):
+    """The dashboard page and its two HTMX partials."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.admin)
+
+    def _booking(self, day, hour, status):
+        return Appointment.objects.create(
+            owner=self.owner, pet=self.pet, date=day, time=time(hour, 0), status=status
+        )
+
+    def _cell(self, response, day):
+        """The mini calendar cell for one date."""
+        for week in response.context["calendar_weeks"]:
+            for cell in week:
+                if cell["date"] == day:
+                    return cell
+        self.fail(f"No calendar cell for {day}")
+
+    def test_partials_are_admin_only(self):
+        """Owners: HTMX gets 403, a normal page load is redirected."""
+        self.client.force_login(self.owner.user)
+        for name in ("admin_dashboard_calendar", "admin_dashboard_day"):
+            with self.subTest(name=name):
+                url = reverse(name)
+                htmx = self.client.get(url, headers={"HX-Request": "true"})
+                self.assertEqual(htmx.status_code, 403)
+                self.assertRedirects(
+                    self.client.get(url),
+                    reverse("owner_dashboard"),
+                    fetch_redirect_response=False,
+                )
+
+    def test_day_lists_that_day_in_time_order_without_cancelled(self):
+        day = date(2026, 6, 20)
+        later = self._booking(day, 10, Appointment.CONFIRMED)
+        earlier = self._booking(day, 9, Appointment.PENDING)
+        self._booking(day, 11, Appointment.CANCELLED)
+        self._booking(date(2026, 6, 21), 9, Appointment.CONFIRMED)
+        response = self.client.get(
+            reverse("admin_dashboard_day"), {"date": "2026-06-20"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["selected_date"], day)
+        self.assertEqual(list(response.context["day_appointments"]), [earlier, later])
+
+    def test_day_without_date_is_today(self):
+        response = self.client.get(reverse("admin_dashboard_day"))
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["is_today"])
+        self.assertEqual(response.context["selected_date"], timezone.localdate())
+
+    def test_calendar_flags_days_with_pending(self):
+        """Yellow dot only on days with a request waiting for approval."""
+        self._booking(date(2026, 6, 20), 9, Appointment.PENDING)
+        self._booking(date(2026, 6, 22), 9, Appointment.CONFIRMED)
+        response = self.client.get(
+            reverse("admin_dashboard_calendar"), {"date": "2026-06-01"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self._cell(response, date(2026, 6, 20))["has_pending"])
+        self.assertFalse(self._cell(response, date(2026, 6, 22))["has_pending"])
+
+    def test_full_page_has_greeting_and_todays_schedule(self):
+        today = timezone.localdate()
+        kept = self._booking(today, 9, Appointment.CONFIRMED)
+        self._booking(today, 10, Appointment.CANCELLED)
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            response.context["greeting"],
+            ("Good morning", "Good afternoon", "Good evening"),
+        )
+        self.assertEqual(response.context["selected_date"], today)
+        self.assertEqual(list(response.context["day_appointments"]), [kept])
+
+
+class RoleAccessMiddlewareTests(ShellTestBase):
+    """Wrong-role requests: HTMX gets 403, a normal page load is redirected."""
+
+    def test_admin_on_owner_url(self):
+        self.client.force_login(self.admin)
+        url = reverse("owner_dashboard")
+        htmx = self.client.get(url, headers={"HX-Request": "true"})
+        self.assertEqual(htmx.status_code, 403)
+        self.assertRedirects(
+            self.client.get(url),
+            reverse("admin_dashboard"),
+            fetch_redirect_response=False,
         )
