@@ -1,6 +1,8 @@
-{% extends 'base_dashboard.html' %}
+{% extends "layouts/admin.html" %}
 
 {% block title %}Edit Vaccination — {{ pet.name }} — Hapi Vet Admin{% endblock %}
+
+{% block page_header %}{% endblock %}
 
 {% block content %}
 
@@ -18,14 +20,6 @@
       </a>
     {% endif %}
   </div>
-
-  {% if messages %}
-    <div class="flash-messages">
-      {% for message in messages %}
-        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
-      {% endfor %}
-    </div>
-  {% endif %}
 
   {% if vaccination.is_corrected %}
     <div class="warning-banner">

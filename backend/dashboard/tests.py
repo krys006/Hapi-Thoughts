@@ -183,6 +183,20 @@ class LogoutRedirectTests(ShellTestBase):
         )
 
 
+class ClinicInfoFrameTests(ShellTestBase):
+    """The shared clinic info page picks its frame by role."""
+
+    def test_admin_gets_admin_layout(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("clinic_info"))
+        self.assertTemplateUsed(response, "layouts/admin.html")
+
+    def test_owner_gets_owner_dashboard(self):
+        self.client.force_login(self.owner.user)
+        response = self.client.get(reverse("clinic_info"))
+        self.assertTemplateUsed(response, "base_dashboard.html")
+
+
 class GreetingTests(SimpleTestCase):
 
     def test_greeting_by_manila_hour(self):

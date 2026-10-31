@@ -1,12 +1,16 @@
-{% extends 'base_dashboard.html' %}
+{% extends "layouts/admin.html" %}
 
 {% load static %}
-{% block extra_css %}
-  <link rel="stylesheet" href="{% static 'css/admin/owner_detail.css' %}">
-  <link rel="stylesheet" href="{% static 'css/admin/owners_list.css' %}">
+{% block legacy_css %}
+<style>
+  @import url("{% static 'css/admin/owner_detail.css' %}") layer(legacy);
+  @import url("{% static 'css/admin/owners_list.css' %}") layer(legacy);
+</style>
 {% endblock %}
 
 {% block title %}Pet Owners — Hapi Vet Admin{% endblock %}
+
+{% block page_header %}{% endblock %}
 
 {% block content %}
 
@@ -142,9 +146,9 @@
 
 </div>
 
+{% endblock %}
+
 {% block extra_js %}
   <script src="{% static 'js/shared/pet_species_breed.js' %}"></script>
   <script src="{% static 'js/admin/owners_list.js' %}"></script>
-{% endblock %}
-
 {% endblock %}

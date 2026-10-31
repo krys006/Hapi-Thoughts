@@ -1,11 +1,15 @@
-{% extends 'base_dashboard.html' %}
+{% extends "layouts/admin.html" %}
 
 {% load static %}
-{% block extra_css %}
-  <link rel="stylesheet" href="{% static 'css/admin/clinic_settings.css' %}">
+{% block legacy_css %}
+<style>
+  @import url("{% static 'css/admin/clinic_settings.css' %}") layer(legacy);
+</style>
 {% endblock %}
 
 {% block title %}Clinic Settings — Hapi Vet{% endblock %}
+
+{% block page_header %}{% endblock %}
 
 {% block content %}
 
@@ -17,15 +21,6 @@
       Configure clinic schedule, contact details, and blocked dates.
     </p>
   </div>
-
-  <!-- Flash messages -->
-  {% if messages %}
-    <div class="flash-messages">
-      {% for message in messages %}
-        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
-      {% endfor %}
-    </div>
-  {% endif %}
 
   <div class="settings-layout">
 
@@ -302,8 +297,8 @@
 
 </div>
 
-{% block extra_js %}
-  <script src="{% static 'js/admin/clinic_settings.js' %}"></script>
 {% endblock %}
 
+{% block extra_js %}
+  <script src="{% static 'js/admin/clinic_settings.js' %}"></script>
 {% endblock %}

@@ -55,7 +55,7 @@
                 <p class="text-sm text-gray-600">{{ appointment.owner.first_name }} {{ appointment.owner.last_name }}</p>
                 {% if appointment.date < today %}<p class="mt-1"><span class="badge bg-red-100 text-red-800">Date has passed</span></p>{% endif %}
               </div>
-              <a href="{% url 'admin_appointment_detail' appointment.pk %}" class="btn btn-secondary shrink-0">Review</a>
+              <a href="{% url 'admin_appointment_detail' appointment.pk %}" class="btn btn-outline shrink-0">Review</a>
             </li>
           {% endfor %}
         </ul>

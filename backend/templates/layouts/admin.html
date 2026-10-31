@@ -6,6 +6,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Hapi Vet Admin{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  {% comment %}
+    TEMPORARY: CSS of admin pages not redesigned yet. Pages import their
+    old stylesheets into the "legacy" layer here, e.g.
+    <style>@import url("{% static 'css/admin/x.css' %}") layer(legacy);</style>
+    Remove this block when the last old page is redesigned (Slice 7).
+  {% endcomment %}
+  {% block legacy_css %}{% endblock %}
   <script src="{% static 'vendor/htmx-2.0.11.min.js' %}" defer></script>
   {% block extra_head %}{% endblock %}
 </head>
@@ -23,7 +30,7 @@
     <div class="min-w-0 flex-1">
       {# Top bar: menu button (small screens), search, notifications #}
       <header class="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-3 sm:px-6 lg:px-8">
-        <button type="button" id="sidebar-open" class="btn btn-secondary lg:hidden" aria-controls="admin-sidebar" aria-expanded="false">
+        <button type="button" id="sidebar-open" class="btn btn-outline lg:hidden" aria-controls="admin-sidebar" aria-expanded="false">
           {% include "components/icon.html" with name="menu" %}
           Menu
         </button>
@@ -41,7 +48,7 @@
         </div>
 
         <div id="notifications-area" class="relative ml-auto">
-          <button type="button" id="bell-button" class="btn btn-secondary" hx-get="{% url 'notifications_panel' %}" hx-target="#notification-panel-container" hx-swap="innerHTML">
+          <button type="button" id="bell-button" class="btn btn-outline" hx-get="{% url 'notifications_panel' %}" hx-target="#notification-panel-container" hx-swap="innerHTML">
             {% include "components/icon.html" with name="bell" %}
             <span class="hidden sm:inline">Notifications</span>
             {% include "layouts/bell_count.html" %}
@@ -51,7 +58,7 @@
         </div>
       </header>
 
-      <main id="main-content" class="px-4 py-6 sm:px-6 lg:px-8">
+      <main id="main-content" class="{% block main_class %}px-4 py-6 sm:px-6 lg:px-8{% endblock %}">
         {% include "components/flash_messages.html" %}
 
         {% block page_header %}

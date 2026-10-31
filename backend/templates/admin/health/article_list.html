@@ -1,12 +1,16 @@
-{% extends 'base_dashboard.html' %}
+{% extends "layouts/admin.html" %}
 
 {% load static %}
-{% block extra_css %}
-  <link rel="stylesheet" href="{% static 'css/admin/article_form.css' %}">
-  <link rel="stylesheet" href="{% static 'css/admin/article_list.css' %}">
+{% block legacy_css %}
+<style>
+  @import url("{% static 'css/admin/article_form.css' %}") layer(legacy);
+  @import url("{% static 'css/admin/article_list.css' %}") layer(legacy);
+</style>
 {% endblock %}
 
 {% block title %}Health Library — Hapi Vet{% endblock %}
+
+{% block page_header %}{% endblock %}
 
 {% block content %}
 
@@ -77,8 +81,8 @@
 
 </div>
 
-{% block extra_js %}
-  <script src="{% static 'js/admin/article_list.js' %}"></script>
 {% endblock %}
 
+{% block extra_js %}
+  <script src="{% static 'js/admin/article_list.js' %}"></script>
 {% endblock %}

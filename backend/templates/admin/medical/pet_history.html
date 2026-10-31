@@ -1,12 +1,16 @@
-{% extends 'base_dashboard.html' %}
+{% extends "layouts/admin.html" %}
 
 {% load static %}
-{% block extra_css %}
-  <link rel="stylesheet" href="{% static 'css/admin/record_detail.css' %}">
-  <link rel="stylesheet" href="{% static 'css/admin/pet_history.css' %}">
+{% block legacy_css %}
+<style>
+  @import url("{% static 'css/admin/record_detail.css' %}") layer(legacy);
+  @import url("{% static 'css/admin/pet_history.css' %}") layer(legacy);
+</style>
 {% endblock %}
 
 {% block title %}Medical History — {{ pet.name }} — Hapi Vet Admin{% endblock %}
+
+{% block page_header %}{% endblock %}
 
 {% block content %}
 
@@ -23,14 +27,6 @@
       </a>
     </div>
   </div>
-
-  {% if messages %}
-    <div class="flash-messages">
-      {% for message in messages %}
-        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
-      {% endfor %}
-    </div>
-  {% endif %}
 
   {% if records %}
     <ul class="record-list">
@@ -59,8 +55,8 @@
 
 </div>
 
-{% block extra_js %}
-  <script src="{% static 'js/admin/pet_history.js' %}"></script>
 {% endblock %}
 
+{% block extra_js %}
+  <script src="{% static 'js/admin/pet_history.js' %}"></script>
 {% endblock %}

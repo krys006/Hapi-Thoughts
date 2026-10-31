@@ -1,12 +1,16 @@
-{% extends 'base_dashboard.html' %}
+{% extends "layouts/admin.html" %}
 
 {% load static %}
-{% block extra_css %}
-  <link rel="stylesheet" href="{% static 'css/admin/service_form.css' %}">
-  <link rel="stylesheet" href="{% static 'css/admin/service_list.css' %}">
+{% block legacy_css %}
+<style>
+  @import url("{% static 'css/admin/service_form.css' %}") layer(legacy);
+  @import url("{% static 'css/admin/service_list.css' %}") layer(legacy);
+</style>
 {% endblock %}
 
 {% block title %}Services — Hapi Vet Admin{% endblock %}
+
+{% block page_header %}{% endblock %}
 
 {% block content %}
 
@@ -18,14 +22,6 @@
       + Add Service
     </a>
   </div>
-
-  {% if messages %}
-    <div class="flash-messages">
-      {% for message in messages %}
-        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
-      {% endfor %}
-    </div>
-  {% endif %}
 
   <!-- Status filter tabs -->
   <div class="filter-tabs">
@@ -73,8 +69,8 @@
 
 </div>
 
-{% block extra_js %}
-  <script src="{% static 'js/admin/service_list.js' %}"></script>
 {% endblock %}
 
+{% block extra_js %}
+  <script src="{% static 'js/admin/service_list.js' %}"></script>
 {% endblock %}

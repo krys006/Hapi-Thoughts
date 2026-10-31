@@ -676,7 +676,7 @@ backend\bin\tailwindcss.exe -i backend\assets\tailwind\input.css -o backend\stat
 - `app.css` is committed, so Render needs no Node or Tailwind build. Never edit it by hand.
 - The CLI scans only `backend/templates/` and `backend/static/js/`. Write class
   names as whole strings there (no building names like `"bg-" + colour`).
-- Shared classes live in `input.css`: `.btn`, `.btn-primary`, `.btn-secondary`,
+- Shared classes live in `input.css`: `.btn`, `.btn-primary`, `.btn-outline`,
   `.btn-danger`, `.input`, `.card`, `.badge`, `.form-field`. Everything else
   uses utility classes in the template.
 

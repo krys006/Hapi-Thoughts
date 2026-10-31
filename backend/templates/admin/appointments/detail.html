@@ -1,11 +1,15 @@
-{% extends 'base_dashboard.html' %}
+{% extends "layouts/admin.html" %}
 
 {% load static %}
-{% block extra_css %}
-  <link rel="stylesheet" href="{% static 'css/admin/appointment_detail.css' %}">
+{% block legacy_css %}
+<style>
+  @import url("{% static 'css/admin/appointment_detail.css' %}") layer(legacy);
+</style>
 {% endblock %}
 
 {% block title %}Appointment Detail — Hapi Vet Admin{% endblock %}
+
+{% block page_header %}{% endblock %}
 
 {% block content %}
 
@@ -17,14 +21,6 @@
       Back to Appointments
     </a>
   </div>
-
-  {% if messages %}
-    <div class="flash-messages">
-      {% for message in messages %}
-        <div class="flash-message flash-{{ message.tags }}">{{ message }}</div>
-      {% endfor %}
-    </div>
-  {% endif %}
 
   <div class="detail-layout">
 

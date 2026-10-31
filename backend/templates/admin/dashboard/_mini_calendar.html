@@ -7,11 +7,11 @@
   <div class="mb-3 flex items-center justify-between gap-2">
     <h2 class="text-lg font-semibold text-gray-900">{{ calendar_period_label }}</h2>
     <div class="flex gap-1">
-      <button type="button" class="btn btn-secondary px-3" hx-get="{% url 'admin_dashboard_calendar' %}?date={{ calendar_prev_date|date:'Y-m-d' }}" hx-target="#mini-calendar" hx-swap="outerHTML">
+      <button type="button" class="btn btn-outline px-3" hx-get="{% url 'admin_dashboard_calendar' %}?date={{ calendar_prev_date|date:'Y-m-d' }}" hx-target="#mini-calendar" hx-swap="outerHTML">
         {% include "components/icon.html" with name="chevron-left" %}
         <span class="sr-only">Previous month</span>
       </button>
-      <button type="button" class="btn btn-secondary px-3" hx-get="{% url 'admin_dashboard_calendar' %}?date={{ calendar_next_date|date:'Y-m-d' }}" hx-target="#mini-calendar" hx-swap="outerHTML">
+      <button type="button" class="btn btn-outline px-3" hx-get="{% url 'admin_dashboard_calendar' %}?date={{ calendar_next_date|date:'Y-m-d' }}" hx-target="#mini-calendar" hx-swap="outerHTML">
         {% include "components/icon.html" with name="chevron-right" %}
         <span class="sr-only">Next month</span>
       </button>
