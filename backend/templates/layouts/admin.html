@@ -28,8 +28,8 @@
     </aside>
 
     <div class="min-w-0 flex-1">
-      {# Top bar: menu button (small screens), search, notifications #}
-      <header class="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-3 sm:px-6 lg:px-8">
+      {# Top bar: menu button (small screens), search, notifications. Sticky, so search stays visible while scrolling. #}
+      <header class="sticky top-0 z-20 flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-3 sm:px-6 lg:px-8">
         <button type="button" id="sidebar-open" class="btn btn-outline lg:hidden" aria-controls="admin-sidebar" aria-expanded="false">
           {% include "components/icon.html" with name="menu" %}
           Menu

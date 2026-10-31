@@ -111,4 +111,11 @@
   #main-content > :is(.admin-page, .clinic-info-page) {
     padding: 0;
   }
+
+  /* The sticky top bar is about 69px tall. Old detail pages pin their
+     right-hand column (action buttons) at top: 24px, which would slide
+     under it; push it below the bar instead (about 69px + the old 24px). */
+  #main-content .detail-sidebar {
+    top: 5.75rem;
+  }
 }
