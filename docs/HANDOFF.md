@@ -268,7 +268,7 @@ built-in auth views, the `HapiVetPasswordResetView` subclass, and the root
 (walk-ins are created as CONFIRMED). Only Admin writes medical records.
 Medical records and vaccinations are never deleted (corrections use
 `is_corrected` + `correction_note`). Private notes are never visible to
-owners. Receipts lock when PAID. No double-booking. Archives are soft
+owners. Receipts lock when PAID or CANCELLED. No double-booking. Archives are soft
 deletes.
 
 **Database:**
