@@ -1,6 +1,6 @@
 # HANDOFF.md — Hapi Vet Project State
 
-> Last updated: 2026-10-31, after Slice 0 of the admin UI overhaul
+> Last updated: 2026-11-01, after Slice 1 of the admin UI overhaul
 > (post-break audit: 2026-10-16).
 > §3–§5 describe the verified state as of those dates. Anything marked
 > "(unverified)" could not be confirmed from the code.
@@ -217,8 +217,8 @@ modals in `static/js/admin/*.js` are not ported. Approved mockups: dashboard
 (stat cards; today's schedule next to a mini calendar; recent activity next
 to needs-approval) and the appointments list.
 - Slice 0 foundations: Tailwind build, pinned HTMX 2.0.11 in `static/vendor/`, components — Done 2026-10-31
-- Slice 1 shell + dashboard (next): `layouts/admin.html`; sticky sidebar with icons, count badges and logout; page header with search and a labelled Notifications button; context processor (unread_count, clinic, sidebar counts); dashboard rebuild with mini calendar (HTMX day switch); fix the `_panel.html` listener build-up; poll only while the tab is visible; delete unused header.css / header_notifications.*
-- Slice 2 admin login (logo bug, debug text, `base.html` messages inside a comment)
+- Slice 1 shell + dashboard: new `layouts/admin.html` with sidebar badges and logout; top bar search and Notifications; admin notification panel; redesigned dashboard with day schedule and mini calendar; shell context processor; Manila dates; 403/HX-Redirect for HTMX — Done 2026-11-01
+- Slice 2 admin login (next): logo bug, debug text, `base.html` messages inside a comment
 - Slice 3 appointments (list, detail, walk-in, calendar page)
 - Slice 4 pets and owners (incl. the broken `<a>` tags in deletion_requests)
 - Slice 5 medical
@@ -226,6 +226,10 @@ to needs-approval) and the appointments list.
 - Slice 7 health + clinic settings (`escapejs` on article titles; server-rendered settings tabs)
 - Slice 8 admin mobile pass; then the owner side
 - Open: `form_field.html` needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple form is migrated.
+- Notes for later slices:
+  - Slice 6 (billing): replace `{% url %}` inside `onclick` with `data-*` attributes wired by one script; add `for=` to the Add Item labels; keep typed values when the form shows errors.
+  - Owner side: `owner/onboarding/step2.html` and `owner/pets/edit.html` extend no base template (no Tailwind/HTMX/frame). These are real bugs.
+  - Dashboard "Clinic info" link still goes to the old-layout shared page.
 - Every slice: rebuild `app.css` before committing; test at 150% zoom; re-run collectstatic locally once a template references `app.css` or vendored HTMX (tests use the manifest).
 
 ### SMALL FIXES (no schema change), one commit each
@@ -233,10 +237,16 @@ to needs-approval) and the appointments list.
 - Normalize (lowercase) emails on save — the walk-in form doesn't (`accounts/forms.py` `WalkInOwnerForm.clean_email`) [backend]
 - Flake8 cleanup [backend] — backend/.flake8 added in the docs commit; current count: 51.
 - Re-save requirements.txt as UTF-8 [backend] — verified: currently UTF-16 LE with CRLF
-- Logout always redirects to owner_login, even for admins [backend]
-- Admin sidebar has no logout link [frontend] → UI overhaul Slice 1
+- Logout always redirects to owner_login, even for admins [backend] — Done 2026-11-01
+- Admin sidebar has no logout link [frontend] → UI overhaul Slice 1 — Done 2026-11-01
 - Logout accepts GET; convert to POST form (low priority) [both]
 - Pricing on booking page: bring over commit 8b45d23 from backend-dev (no migration) [both]
+- UTC dates: remaining `timezone.now().date()` in booking/slot logic and other views — `appointments/utils.py` `get_available_slots`, `is_slot_available`, `get_available_dates`; `appointments/views.py:177`, `:501`; `dashboard/views.py` `_get_owner_dashboard_context`; `billing/views.py:203`, `:368`; `medical/views.py:87`, `:318`; plus `appointments/forms.py`, `pets/forms.py`, both `models.py` files and `send_reminders.py` → use `timezone.localdate()`, with tests for the same-day cutoff [backend]
+- ClinicSettings is fetched two ways: `get_or_create(pk=1)` on the settings page vs `.first()` everywhere else — add one helper [backend]
+- `notification_mark_read` view is unused (dead code) [backend]
+- `vaccinations_due` counts corrected vaccinations; `followups_due` includes archived pets [backend]
+- DATA_MODELS and HANDOFF §6 say MedicalRecord has `is_corrected`; only Vaccination does — fix the docs [backend]
+- owner_login and admin_login ignore ?next=, so after logging in users always land on their dashboard instead of the page they were on [backend]
 
 ### FRONTEND BRANCH REVIEW
 - B3: review the `frontend/hannah-user` branch (owner templates) and decide, piece by piece, what to bring in and what to discard. It is no longer under active development. Check form field names and template tags against the current views; base_dashboard.html will conflict. [frontend]
@@ -253,7 +263,7 @@ to needs-approval) and the appointments list.
 - Resend failed emails: review b6e0ad3's logic (written for Gmail SMTP before the Brevo switch in 8548613; must catch anymail errors). Model/migration already synced. [both]
 
 ### POLISH
-- Bell & header: context processor providing unread_count + clinic (fixes red dot, header logo, admin login logo); then header.css / header_notifications.css / header_notifications.js fixes (Tailwind conflicts, overflow clipping, duplicate click-outside script in _panel.html, stuck active class) [both] → UI overhaul Slice 1
+- Bell & header: context processor + admin notification panel; the unused header CSS/JS files are deleted [both] → UI overhaul Slice 1 — Done 2026-11-01
 - Multi-line `<a>` tags [frontend] — 2026-10-31 audit: 53 in admin/shared templates across 20 files, plus 2 broken tags in `admin/pets/deletion_requests.html`. Fixed slice by slice as files are touched.
 - Views over 50 lines (admin_walkin_create = 111) [backend]
 - Mobile responsiveness [frontend] → UI overhaul Slice 8

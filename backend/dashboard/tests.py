@@ -314,7 +314,8 @@ class DashboardViewTests(ShellTestBase):
 
 
 class RoleAccessMiddlewareTests(ShellTestBase):
-    """Wrong-role requests: HTMX gets 403, a normal page load is redirected."""
+    """Wrong-role requests: HTMX gets 403, a normal page load is redirected.
+    Logged-out requests go to the matching login page; HTMX gets HX-Redirect."""
 
     def test_admin_on_owner_url(self):
         self.client.force_login(self.admin)
@@ -324,5 +325,29 @@ class RoleAccessMiddlewareTests(ShellTestBase):
         self.assertRedirects(
             self.client.get(url),
             reverse("admin_dashboard"),
+            fetch_redirect_response=False,
+        )
+
+    def test_logged_out_admin_page_goes_to_admin_login(self):
+        """admin_login ignores ?next=, so none is added."""
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertRedirects(
+            response, reverse("admin_login"), fetch_redirect_response=False
+        )
+
+    def test_logged_out_htmx_gets_hx_redirect(self):
+        """Empty 200 with HX-Redirect, so HTMX loads the whole login page."""
+        response = self.client.get(
+            reverse("admin_dashboard_refresh"), headers={"HX-Request": "true"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"")
+        self.assertEqual(response.headers["HX-Redirect"], reverse("admin_login"))
+
+    def test_logged_out_owner_page_goes_to_owner_login(self):
+        url = reverse("owner_dashboard")
+        self.assertRedirects(
+            self.client.get(url),
+            f"{reverse('owner_login')}?next={url}",
             fetch_redirect_response=False,
         )

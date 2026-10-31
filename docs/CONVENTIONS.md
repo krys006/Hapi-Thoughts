@@ -109,6 +109,8 @@ Never use per-app template folders.
 
 - `base_dashboard.html` is the base for every logged-in dashboard page
   (header, bell, sidebar, flash messages).
+- `layouts/admin.html` is the base for admin pages migrated to the new UI
+  (see §10).
 - `base.html` is the base for standalone auth pages (login, register,
   password reset, email verification, onboarding).
 - HTMX partials are prefixed with `_` and never extend a base template.
@@ -127,6 +129,11 @@ templates/
 │   ├── status_badge.html
 │   ├── flash_messages.html
 │   └── empty_state.html
+├── layouts/                          ← New admin base (§10, §11)
+│   ├── admin.html
+│   ├── admin_sidebar.html
+│   ├── admin_nav_link.html
+│   └── bell_count.html
 ├── shared/                           ← Used by both roles
 │   ├── clinic_info.html
 │   ├── modals.html
@@ -147,6 +154,9 @@ templates/
 │   │   ├── _stats.html
 │   │   ├── _day_schedule.html
 │   │   └── _mini_calendar.html
+│   ├── notifications/
+│   │   ├── _panel.html
+│   │   └── _notification_row.html
 │   ├── appointments/
 │   │   ├── list.html
 │   │   ├── detail.html
@@ -546,14 +556,31 @@ class AppointmentBookingForm(forms.ModelForm):
 
 ## 10. Template Conventions
 
-### Two base templates
+### Three base templates
 | Base | Used by | What it provides |
 |---|---|---|
-| `base_dashboard.html` | Every logged-in dashboard page, admin and owner (e.g. `admin/billing/receipt_detail.html`, `owner/pets/list.html`, `shared/clinic_info.html`) | Header with search and bell, role-based sidebar, flash messages, Tailwind + HTMX, CSRF header for HTMX, confirm modal |
+| `layouts/admin.html` | Admin pages migrated to the new UI (e.g. `admin/dashboard/index.html`) | Sidebar with count badges and logout, top bar with search and Notifications, flash messages, compiled `app.css`, vendored HTMX, CSRF + `X-Admin-Layout` via `hx-headers`, confirm modal |
+| `base_dashboard.html` | Logged-in pages not migrated yet, admin and owner (e.g. `admin/billing/receipt_detail.html`, `owner/pets/list.html`, `shared/clinic_info.html`) | Header with search and bell, role-based sidebar, flash messages, Tailwind + HTMX, CSRF header for HTMX, confirm modal |
 | `base.html` | Standalone auth pages (e.g. `owner/login.html`, `owner/register.html`, `admin/login.html`, password reset, `owner/onboarding/step1.html`) | Bare page with Tailwind + HTMX, no header or sidebar |
+
+Migrated pages never loop over `messages` (the layout includes
+`components/flash_messages.html`) and load no `static/css/admin/` file.
 
 ### Blocks each base defines
 ```html
+<!-- layouts/admin.html -->
+{% block title %}Hapi Vet Admin{% endblock %}
+{% block extra_head %}{% endblock %}  ← extra tags in <head>
+{% block page_header %}               ← default header, wraps the three below
+  {% block page_title %}{% endblock %}
+  {% block page_subtitle %}{% endblock %}
+  {% block page_actions %}{% endblock %}
+{% endblock %}
+{% block content %}{% endblock %}     ← page body, inside <main>
+{% block extra_js %}{% endblock %}    ← page JS, end of <body>; the receipt
+                                         print partial goes here (it must be
+                                         a direct child of <body>)
+
 <!-- base_dashboard.html -->
 {% block title %}Hapi Vet{% endblock %}
 {% block extra_css %}{% endblock %}   ← page CSS link, in <head>
