@@ -23,6 +23,8 @@
     </a>
   </div>
 
+  {% include "admin/billing/_billing_tabs.html" with active="services" %}
+
   <!-- Status filter tabs -->
   <div class="filter-tabs">
     <a href="{% url 'admin_service_list' %}" class="filter-tab {% if not status_filter %}filter-tab--active{% endif %}">All <span class="filter-count">{{ counts.all }}</span></a>

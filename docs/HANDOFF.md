@@ -218,6 +218,7 @@ modals in `static/js/admin/*.js` are not ported. Approved mockups: dashboard
 to needs-approval) and the appointments list.
 - Slice 0 foundations: Tailwind build, pinned HTMX 2.0.11 in `static/vendor/`, components — Done 2026-10-31
 - Slice 1 shell + dashboard: new `layouts/admin.html` with sidebar badges and logout; top bar search and Notifications; admin notification panel; redesigned dashboard with day schedule and mini calendar; shell context processor; Manila dates; 403/HX-Redirect for HTMX — Done 2026-11-01
+- Slice 1.5 — new frame on all admin pages (legacy CSS layer); sidebar trimmed to 9 items in 3 groups: Deletion requests is a tab on Pets, Services a tab on Billing, Clinic info a button in Clinic settings — in progress
 - Slice 2 admin login (next): logo bug, debug text, `base.html` messages inside a comment
 - Slice 3 appointments (list, detail, walk-in, calendar page)
 - Slice 4 pets and owners (incl. the broken `<a>` tags in deletion_requests)
@@ -229,7 +230,7 @@ to needs-approval) and the appointments list.
 - Notes for later slices:
   - Slice 6 (billing): replace `{% url %}` inside `onclick` with `data-*` attributes wired by one script; add `for=` to the Add Item labels; keep typed values when the form shows errors.
   - Owner side: `owner/onboarding/step2.html` and `owner/pets/edit.html` extend no base template (no Tailwind/HTMX/frame). These are real bugs.
-  - Dashboard "Clinic info" link still goes to the old-layout shared page.
+  - Clinic info (shared/clinic_info.html) picks its frame by role: admin layout for admins, base_dashboard.html for owners.
 - Every slice: rebuild `app.css` before committing; test at 150% zoom; re-run collectstatic locally once a template references `app.css` or vendored HTMX (tests use the manifest).
 
 ### SMALL FIXES (no schema change), one commit each
