@@ -87,8 +87,16 @@ class ApproveTests(AppointmentTestBase):
         response = self._post("admin_appointment_approve", appointment)
         self._assert_status(appointment, Appointment.CONFIRMED)
         self.assertIn(
-            f"Confirmed Bantay for {friendly_date(appointment.date)} at 9:00 AM. "
-            "The owner has been notified.",
+            f"Confirmed Bantay for {friendly_date(appointment.date, 'mid')} "
+            "at 9:00 AM. The owner has been notified.",
+            self._messages(response),
+        )
+
+    def test_message_says_today_in_lowercase(self):
+        appointment = self._appointment(Appointment.PENDING, days_from_today=0)
+        response = self._post("admin_appointment_approve", appointment)
+        self.assertIn(
+            "Confirmed Bantay for today at 9:00 AM. The owner has been notified.",
             self._messages(response),
         )
 
@@ -135,7 +143,7 @@ class RejectTests(AppointmentTestBase):
         self._assert_status(appointment, Appointment.CANCELLED)
         self.assertEqual(appointment.cancelled_by, self.admin)
         self.assertIn(
-            f"Declined Bantay's request for {friendly_date(appointment.date)} "
+            f"Declined Bantay's request for {friendly_date(appointment.date, 'mid')} "
             "at 9:00 AM. The owner has been notified.",
             self._messages(response),
         )
@@ -186,7 +194,7 @@ class CompleteAndNoShowTests(AppointmentTestBase):
                 response = self._post(url_name, appointment)
                 self._assert_status(appointment, Appointment.CONFIRMED)
                 self.assertIn(
-                    "You can mark this after the appointment date (Tomorrow).",
+                    "You can mark this after the appointment date (tomorrow).",
                     self._messages(response),
                 )
 
@@ -219,7 +227,7 @@ class CompleteAndNoShowTests(AppointmentTestBase):
                 )
                 response = self._post(url_name, appointment)
                 self.assertIn(
-                    f"Marked Bantay's appointment on Today at 9:00 AM {ending}",
+                    f"Marked Bantay's appointment on today at 9:00 AM {ending}",
                     self._messages(response),
                 )
 
@@ -290,7 +298,7 @@ class RescheduleTests(AppointmentTestBase):
                     fetch_redirect_response=False,
                 )
                 self.assertIn(
-                    f"Rescheduled Bantay to {friendly_date(self.target)} "
+                    f"Rescheduled Bantay to {friendly_date(self.target, 'mid')} "
                     f"at {hour}:00 AM. The owner has been notified.",
                     self._messages(response),
                 )
@@ -521,6 +529,16 @@ class DetailPageTests(AppointmentTestBase):
         self.assertContains(response, "Pet didn't come (no-show)")
         self.assertNotContains(response, "appears here on")
 
+    def test_confirmed_banner_says_today_in_lowercase(self):
+        response = self._get(self._appointment(Appointment.CONFIRMED, 0, hour=11))
+        self.assertContains(response, "Confirmed for today at 11:00 AM")
+        self.assertNotContains(response, "Confirmed for Today")
+
+        future = self._appointment(Appointment.CONFIRMED, days_from_today=5)
+        response = self._get(future)
+        day = date_format(future.date, "D, M j")
+        self.assertContains(response, f"Confirmed for {day} at 9:00 AM")
+
     def test_completed_without_record_or_receipt_links_to_create_both(self):
         appointment = self._completed_with()
         response = self._get(appointment)
@@ -644,8 +662,15 @@ class DetailPageTests(AppointmentTestBase):
             "Select a valid choice. 10:00:00 is not one of the available choices.",
         )
         self.assertContains(response, "The vet is away that day.</textarea>")
-        target = (self.today + datetime.timedelta(days=5)).isoformat()
-        self.assertContains(response, f'value="{target}"')
+        target = self.today + datetime.timedelta(days=5)
+        self.assertContains(response, f'value="{target.isoformat()}"')
+        self.assertContains(response, f"Free times on {long_date(target)}</h3>")
+
+    def test_plain_visit_move_dialog_has_no_slot_heading(self):
+        response = self._get(self._appointment(Appointment.CONFIRMED))
+        self.assertContains(response, "Pick a date to see the free times.")
+        self.assertNotContains(response, "Free times")
+        self.assertContains(response, ">New time <span")
 
     def test_reschedule_error_keeps_the_chosen_time_checked(self):
         """Missing reason: the picked time is still free, so it stays checked."""
@@ -703,6 +728,36 @@ class SlotViewTests(AppointmentTestBase):
         past = (self.today - datetime.timedelta(days=1)).isoformat()
         response = self._get(date=past, **{"as": "buttons"})
         self.assertContains(response, "No free times on this day.")
+
+    def test_buttons_heading_names_the_day(self):
+        day = self.today + datetime.timedelta(days=5)
+        response = self._get(date=day.isoformat(), **{"as": "buttons"})
+        self.assertContains(response, f"Free times on {long_date(day)}</h3>")
+        self.assertContains(response, 'type="radio"')
+
+    def test_buttons_heading_for_today(self):
+        response = self._get(date=self.today.isoformat(), **{"as": "buttons"})
+        expected = date_format(self.today, "l, F j")
+        self.assertContains(response, f"Free times today, {expected}</h3>")
+        self.assertNotContains(response, "Today, ")
+
+    def test_buttons_no_heading_without_a_date(self):
+        for params in ({}, {"date": ""}, {"date": "not-a-date"}):
+            with self.subTest(params=params):
+                response = self._get(**params, **{"as": "buttons"})
+                self.assertNotContains(response, "<h3")
+                self.assertNotContains(response, "Free times")
+
+    def test_buttons_heading_kept_with_the_empty_message(self):
+        past = self.today - datetime.timedelta(days=1)
+        response = self._get(date=past.isoformat(), **{"as": "buttons"})
+        self.assertContains(response, f"Free times on {long_date(past)}</h3>")
+        self.assertContains(response, "No free times on this day.")
+
+    def test_options_have_no_heading(self):
+        day = (self.today + datetime.timedelta(days=5)).isoformat()
+        response = self._get(date=day)
+        self.assertNotContains(response, "Free times")
 
 
 class AccessTests(AppointmentTestBase):

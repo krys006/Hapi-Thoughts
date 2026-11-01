@@ -3,7 +3,7 @@
   <form method="post" action="{% url 'admin_appointment_no_show' appointment.pk %}" class="p-6 sm:p-7">
     {% csrf_token %}
     <h2 id="no-show-dialog-title" class="text-xl font-bold">Mark {{ appointment.pet.name }} as a no-show?</h2>
-    <p class="mt-2 text-base text-gray-700">Use this if {{ appointment.pet.name }} didn't come on <b>{{ appointment.date|friendly_date }} at {{ appointment.time|time:"g:i A" }}</b>. It can't be undone.</p>
+    <p class="mt-2 text-base text-gray-700">Use this if {{ appointment.pet.name }} didn't come on <b>{{ appointment.date|friendly_date:"mid" }} at {{ appointment.time|time:"g:i A" }}</b>. It can't be undone.</p>
     {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, mark as no-show" icon="user-x" %}
   </form>
 </dialog>

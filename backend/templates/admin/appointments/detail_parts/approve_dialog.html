@@ -3,7 +3,7 @@
   <form method="post" action="{% url 'admin_appointment_approve' appointment.pk %}" class="p-6 sm:p-7">
     {% csrf_token %}
     <h2 id="approve-dialog-title" class="text-xl font-bold">Approve {{ appointment.pet.name }}'s request?</h2>
-    <p class="mt-2 text-base text-gray-700">The visit on <b>{{ appointment.date|friendly_date }} at {{ appointment.time|time:"g:i A" }}</b> will be confirmed.</p>
+    <p class="mt-2 text-base text-gray-700">The visit on <b>{{ appointment.date|friendly_date:"mid" }} at {{ appointment.time|time:"g:i A" }}</b> will be confirmed.</p>
     {% include "admin/appointments/detail_parts/notify_line.html" with class="mt-2" %}
     {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, approve request" icon="check" %}
   </form>

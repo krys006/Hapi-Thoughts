@@ -4,7 +4,7 @@
   <form method="post" action="{% url 'admin_appointment_reject' appointment.pk %}" class="p-6 sm:p-7">
     {% csrf_token %}
     <h2 id="decline-dialog-title" class="text-xl font-bold">Decline {{ appointment.pet.name }}'s request?</h2>
-    <p class="mt-2 text-base text-gray-700">The request for <b>{{ appointment.date|friendly_date }} at {{ appointment.time|time:"g:i A" }}</b> won't be confirmed.</p>
+    <p class="mt-2 text-base text-gray-700">The request for <b>{{ appointment.date|friendly_date:"mid" }} at {{ appointment.time|time:"g:i A" }}</b> won't be confirmed.</p>
     {% include "admin/appointments/detail_parts/notify_line.html" with class="mt-2" %}
     <div class="form-field mt-5 space-y-1.5">
       <label for="decline-message" class="block text-base font-medium text-gray-800">Message to the owner <span class="font-normal text-gray-600">(optional)</span></label>

@@ -3,7 +3,7 @@
   <form method="post" action="{% url 'admin_appointment_complete' appointment.pk %}" class="p-6 sm:p-7">
     {% csrf_token %}
     <h2 id="complete-dialog-title" class="text-xl font-bold">Mark {{ appointment.pet.name }}'s visit as completed?</h2>
-    <p class="mt-2 text-base text-gray-700">Do this once the visit on <b>{{ appointment.date|friendly_date }} at {{ appointment.time|time:"g:i A" }}</b> is over. It can't be undone.</p>
+    <p class="mt-2 text-base text-gray-700">Do this once the visit on <b>{{ appointment.date|friendly_date:"mid" }} at {{ appointment.time|time:"g:i A" }}</b> is over. It can't be undone.</p>
     {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, mark as completed" icon="check" %}
   </form>
 </dialog>

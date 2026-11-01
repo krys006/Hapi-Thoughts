@@ -148,16 +148,64 @@ class FriendlyDateTests(SimpleTestCase):
                 self.assertEqual(friendly_date(value), expected)
 
     def test_long_date(self, _now):
-        """Today and tomorrow keep their label; other days get the year."""
+        """Today and tomorrow keep their label; only other years get the year."""
         today = date(2026, 6, 15)
         cases = {
             today: "Today, Monday, June 15",
             today + timedelta(days=1): "Tomorrow, Tuesday, June 16",
-            date(2026, 11, 2): "Monday, November 2, 2026",
+            date(2026, 11, 2): "Monday, November 2",
+            date(2027, 1, 4): "Monday, January 4, 2027",
+            date(2025, 11, 2): "Sunday, November 2, 2025",
         }
         for value, expected in cases.items():
             with self.subTest(value=value):
                 self.assertEqual(long_date(value), expected)
+
+    def test_long_date_across_new_year(self, _now):
+        """Dec 31 in Manila: Jan 1 is 'Tomorrow', Jan 2 needs the new year."""
+        # 04:00 UTC = 12:00 Manila on Dec 31, 2026
+        _now.return_value = datetime(2026, 12, 31, 4, 0, tzinfo=dt_timezone.utc)
+        cases = {
+            date(2026, 12, 30): "Wednesday, December 30",
+            date(2027, 1, 1): "Tomorrow, Friday, January 1",
+            date(2027, 1, 2): "Saturday, January 2, 2027",
+        }
+        for value, expected in cases.items():
+            with self.subTest(value=value):
+                self.assertEqual(long_date(value), expected)
+        # On Jan 1, 2027, the day before is last year
+        _now.return_value = datetime(2027, 1, 1, 4, 0, tzinfo=dt_timezone.utc)
+        self.assertEqual(long_date(date(2026, 12, 31)), "Thursday, December 31, 2026")
+
+    def test_mid_sentence_lowercases_relative_labels_only(self, _now):
+        """With "mid", today/tomorrow/yesterday are lowercase; others unchanged."""
+        today = date(2026, 6, 15)
+        friendly_cases = {
+            today: "today",
+            today - timedelta(days=1): "yesterday",
+            today + timedelta(days=1): "tomorrow",
+            date(2026, 3, 2): "Mon, Mar 2",
+            date(2025, 11, 2): "Sun, Nov 2, 2025",
+        }
+        for value, expected in friendly_cases.items():
+            with self.subTest(filter="friendly_date", value=value):
+                self.assertEqual(friendly_date(value, "mid"), expected)
+        long_cases = {
+            today: "today, Monday, June 15",
+            today + timedelta(days=1): "tomorrow, Tuesday, June 16",
+            today - timedelta(days=1): "Sunday, June 14",
+            date(2026, 11, 2): "Monday, November 2",
+            date(2027, 1, 4): "Monday, January 4, 2027",
+        }
+        for value, expected in long_cases.items():
+            with self.subTest(filter="long_date", value=value):
+                self.assertEqual(long_date(value, "mid"), expected)
+
+    def test_mid_sentence_empty_values(self, _now):
+        for value in (None, ""):
+            with self.subTest(value=value):
+                self.assertEqual(friendly_date(value, "mid"), "")
+                self.assertEqual(long_date(value, "mid"), "")
 
     def test_empty_values(self, _now):
         """None and "" render as an empty string."""

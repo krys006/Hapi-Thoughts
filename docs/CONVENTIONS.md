@@ -702,6 +702,22 @@ return render(request, 'template.html', {
 })
 ```
 
+### Date filters (`{% load friendly_dates %}`)
+Admin dates are in Manila time (`timezone.localdate()`).
+- `friendly_date`: "Today", "Tomorrow", "Yesterday", "Mon, Nov 2", or
+  "Mon, Nov 2, 2025" for another year.
+- `long_date`: "Today, Sunday, November 1", "Tomorrow, Monday, November 2",
+  "Tuesday, November 3", or "Monday, January 4, 2027" — the year only
+  when it isn't the current year (`timezone.localdate().year`), same as
+  `friendly_date`.
+- `friendly_datetime`: "Today, 3:58 PM", "Mon, Nov 2, 3:58 PM".
+- Inside a sentence, pass `"mid"` to `friendly_date` or `long_date`:
+  `Confirmed for {{ appointment.date|friendly_date:"mid" }}` gives
+  "Confirmed for today at…". Only today/tomorrow/yesterday are lowercased;
+  every other output is unchanged. Never use `|lower` on a date (it would
+  give "mon, nov 2"). Leave the argument off at the start of a line or a
+  label ("Right now: Today at 9:00 AM").
+
 ---
 
 ## 11. Tailwind CSS Conventions

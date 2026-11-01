@@ -4,7 +4,7 @@
   <form method="post" action="{% url 'admin_appointment_cancel' appointment.pk %}" class="p-6 sm:p-7">
     {% csrf_token %}
     <h2 id="cancel-dialog-title" class="text-xl font-bold">Cancel {{ appointment.pet.name }}'s appointment?</h2>
-    <p class="mt-2 text-base text-gray-700">The visit on <b>{{ appointment.date|friendly_date }} at {{ appointment.time|time:"g:i A" }}</b> will be cancelled.</p>
+    <p class="mt-2 text-base text-gray-700">The visit on <b>{{ appointment.date|friendly_date:"mid" }} at {{ appointment.time|time:"g:i A" }}</b> will be cancelled.</p>
     {% include "admin/appointments/detail_parts/notify_line.html" with class="mt-2" %}
 
     {% if open_dialog == "cancel" %}

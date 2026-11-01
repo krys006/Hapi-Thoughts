@@ -23,10 +23,10 @@
     </div>
 
     <fieldset class="mt-5">
-      <legend class="text-base font-medium text-gray-800">Free times <span class="text-red-700" aria-hidden="true">*</span></legend>
+      <legend class="text-base font-medium text-gray-800">New time <span class="text-red-700" aria-hidden="true">*</span></legend>
       <div id="move-slots" class="mt-1.5" aria-live="polite">
         {% if reschedule_slots is not None %}
-          {% include "admin/appointments/_slot_buttons.html" with slots=reschedule_slots selected=selected_time %}
+          {% include "admin/appointments/_slot_buttons.html" with slots=reschedule_slots slots_date=reschedule_date selected=selected_time %}
         {% else %}
           <p class="rounded-lg border border-dashed border-gray-300 px-4 py-5 text-center text-base text-gray-600">Pick a date to see the free times.</p>
         {% endif %}

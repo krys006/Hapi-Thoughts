@@ -9,7 +9,7 @@
     {% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-6 shrink-0" %}
     <div>
       <p class="text-lg font-semibold">This date has already passed</p>
-      <p class="mt-0.5 text-base">{{ appointment.owner.full_name }} asked for {{ appointment.date|friendly_date }} at {{ appointment.time|time:"g:i A" }}, but it wasn't approved in time. Move it to another time or decline it.</p>
+      <p class="mt-0.5 text-base">{{ appointment.owner.full_name }} asked for {{ appointment.date|friendly_date:"mid" }} at {{ appointment.time|time:"g:i A" }}, but it wasn't approved in time. Move it to another time or decline it.</p>
     </div>
   </div>
 {% elif appointment.status == "pending" %}
@@ -17,14 +17,14 @@
     {% include "components/icon.html" with name="clock" class="mt-0.5 size-6 shrink-0" %}
     <div>
       <p class="text-lg font-semibold">Waiting for your approval</p>
-      <p class="mt-0.5 text-base">{{ appointment.owner.full_name }} asked for {{ appointment.date|friendly_date }} at {{ appointment.time|time:"g:i A" }} online. Approve it, move it to another time, or decline it.</p>
+      <p class="mt-0.5 text-base">{{ appointment.owner.full_name }} asked for {{ appointment.date|friendly_date:"mid" }} at {{ appointment.time|time:"g:i A" }} online. Approve it, move it to another time, or decline it.</p>
     </div>
   </div>
 {% elif appointment.status == "confirmed" %}
   <div class="mb-6 flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-5 py-4 text-blue-900">
     {% include "components/icon.html" with name="circle-check" class="mt-0.5 size-6 shrink-0" %}
     <div>
-      <p class="text-lg font-semibold">Confirmed for {{ appointment.date|friendly_date }} at {{ appointment.time|time:"g:i A" }}</p>
+      <p class="text-lg font-semibold">Confirmed for {{ appointment.date|friendly_date:"mid" }} at {{ appointment.time|time:"g:i A" }}</p>
       {% if can_mark_visit %}
         <p class="mt-0.5 text-base">After the visit, mark it as completed. If the pet didn't come, mark it as a no-show.</p>
       {% else %}
@@ -55,7 +55,7 @@
   <div class="mb-6 flex items-start gap-3 rounded-xl border border-gray-300 bg-gray-100 px-5 py-4 text-gray-900">
     {% include "components/icon.html" with name="calendar-clock" class="mt-0.5 size-6 shrink-0" %}
     <div>
-      <p class="text-lg font-semibold">Moved to {{ moved_to.date|long_date }} at {{ moved_to.time|time:"g:i A" }}</p>
+      <p class="text-lg font-semibold">Moved to {{ moved_to.date|long_date:"mid" }} at {{ moved_to.time|time:"g:i A" }}</p>
       <p class="mt-0.5 text-base">The clinic moved this appointment to a new time. Use the new appointment from now on.</p>
     </div>
   </div>
@@ -72,7 +72,7 @@
     {% include "components/icon.html" with name="user-x" class="mt-0.5 size-6 shrink-0" %}
     <div>
       <p class="text-lg font-semibold">Marked as a no-show</p>
-      <p class="mt-0.5 text-base">{{ appointment.pet.name }} didn't come on {{ appointment.date|friendly_date }} at {{ appointment.time|time:"g:i A" }}.</p>
+      <p class="mt-0.5 text-base">{{ appointment.pet.name }} didn't come on {{ appointment.date|friendly_date:"mid" }} at {{ appointment.time|time:"g:i A" }}.</p>
     </div>
   </div>
 {% endif %}

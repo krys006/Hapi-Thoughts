@@ -514,16 +514,17 @@ REJECT_MESSAGE_MAX_LENGTH = 500
 
 
 def _when(appointment):
-    """'Mon, Nov 2 at 2:00 PM' / 'Today at 9:00 AM' for messages."""
+    """'Mon, Nov 2 at 2:00 PM' / 'today at 9:00 AM', for use mid-sentence
+    in messages."""
     time = date_format(appointment.time, "g:i A")
-    return f"{friendly_date(appointment.date)} at {time}"
+    return f"{friendly_date(appointment.date, 'mid')} at {time}"
 
 
 def _too_early_message(appointment):
     """Error for completing / no-showing an appointment before its date."""
     return (
         "You can mark this after the appointment date "
-        f"({friendly_date(appointment.date)})."
+        f"({friendly_date(appointment.date, 'mid')})."
     )
 
 
@@ -574,11 +575,12 @@ def _reschedule_slot_context(form):
     the form isn't bound or its date isn't valid (nothing to show yet).
     """
     if not form.is_bound:
-        return {"reschedule_slots": None, "selected_time": ""}
+        return {"reschedule_slots": None, "reschedule_date": None, "selected_time": ""}
     # Checking form.errors first runs validation, which fills cleaned_data
     valid_date = None if "date" in form.errors else form.cleaned_data.get("date")
     return {
         "reschedule_slots": get_available_slots(valid_date) if valid_date else None,
+        "reschedule_date": valid_date,
         "selected_time": form.data.get("time", ""),
     }
 
@@ -1095,6 +1097,7 @@ def admin_get_slots_for_date(request):
     import datetime
 
     date_str = request.GET.get("date", "")
+    date = None
     slots = []
 
     if date_str:
@@ -1113,7 +1116,11 @@ def admin_get_slots_for_date(request):
     return render(
         request,
         template,
-        {"slots": slots, "selected": request.GET.get("selected", "")},
+        {
+            "slots": slots,
+            "slots_date": date,
+            "selected": request.GET.get("selected", ""),
+        },
     )
 
 
