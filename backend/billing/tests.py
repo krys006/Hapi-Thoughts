@@ -1,5 +1,8 @@
+import datetime
 import inspect
 from decimal import Decimal
+from unittest import mock
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
@@ -49,7 +52,7 @@ class BillingTestBase(TestCase):
             pet=self.pet,
             payment_status=status,
             payment_date=(
-                timezone.now().date() if status == BillingReceipt.PAID else None
+                timezone.localdate() if status == BillingReceipt.PAID else None
             ),
         )
         BillingItem.objects.create(
@@ -68,7 +71,7 @@ class BillingTestBase(TestCase):
     def _edit_data(self, **extra):
         """Valid BillingReceiptForm POST data with a 50.00 fixed discount."""
         data = {
-            "billing_date": timezone.now().date().isoformat(),
+            "billing_date": timezone.localdate().isoformat(),
             "discount_type": BillingReceipt.FIXED_DISCOUNT,
             "discount_value": "50.00",
             "discount_note": "Test discount",
@@ -92,6 +95,13 @@ class ReceiptModelTests(BillingTestBase):
         would silently replace the first, so __dict__ can't tell)."""
         source = inspect.getsource(BillingReceipt)
         self.assertEqual(source.count("def is_locked"), 1)
+
+    def test_receipt_number_uses_the_manila_year(self):
+        """00:30 on Jan 1, 2027 in Manila is still Dec 31, 2026 in UTC."""
+        new_year = datetime.datetime(2027, 1, 1, 0, 30, tzinfo=ZoneInfo("Asia/Manila"))
+        with mock.patch("django.utils.timezone.now", return_value=new_year):
+            number = BillingReceipt.generate_receipt_number()
+        self.assertEqual(number, "HV-2027-0001")
 
 
 class LockedReceiptTests(BillingTestBase):
@@ -205,7 +215,7 @@ class PendingReceiptTests(BillingTestBase):
             reverse("admin_receipt_edit", args=[receipt.pk]),
             self._edit_data(
                 payment_status=BillingReceipt.PAID,
-                payment_date=timezone.now().date().isoformat(),
+                payment_date=timezone.localdate().isoformat(),
             ),
         )
         receipt.refresh_from_db()
@@ -218,7 +228,7 @@ class PendingReceiptTests(BillingTestBase):
         self.client.post(reverse("admin_receipt_mark_paid", args=[receipt.pk]))
         receipt.refresh_from_db()
         self.assertEqual(receipt.payment_status, BillingReceipt.PAID)
-        self.assertEqual(receipt.payment_date, timezone.now().date())
+        self.assertEqual(receipt.payment_date, timezone.localdate())
         self.assertEqual(
             Notification.objects.filter(related_billing=receipt).count(), 1
         )

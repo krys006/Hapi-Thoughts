@@ -179,7 +179,7 @@ class PetForm(forms.ModelForm):
         from django.utils import timezone
 
         dob = self.cleaned_data.get("date_of_birth")
-        if dob and dob > timezone.now().date():
+        if dob and dob > timezone.localdate():
             raise forms.ValidationError("Date of birth cannot be in the future.")
         return dob
 
@@ -381,7 +381,7 @@ class AdminPetForm(forms.ModelForm):
         from django.utils import timezone
 
         dob = self.cleaned_data.get("date_of_birth")
-        if dob and dob > timezone.now().date():
+        if dob and dob > timezone.localdate():
             raise forms.ValidationError("Date of birth cannot be in the future.")
         return dob
 

@@ -182,7 +182,7 @@ class Appointment(models.Model):
     def is_upcoming(self):
         from django.utils import timezone
 
-        return self.date >= timezone.now().date()
+        return self.date >= timezone.localdate()
 
     @property
     def is_cancellable_freely(self):

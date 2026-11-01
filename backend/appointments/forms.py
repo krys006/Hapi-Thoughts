@@ -108,7 +108,7 @@ class BlockedDateForm(forms.ModelForm):
 
     def clean_date(self):
         date = self.cleaned_data.get("date")
-        if date and date < timezone.now().date():
+        if date and date < timezone.localdate():
             raise forms.ValidationError("Cannot block a date in the past.")
         return date
 
@@ -212,7 +212,7 @@ class AppointmentBookingForm(forms.Form):
             return date
 
         clinic = ClinicSettings.objects.first()
-        today = timezone.now().date()
+        today = timezone.localdate()
 
         if date < today:
             raise forms.ValidationError("Cannot book an appointment in the past.")
@@ -298,7 +298,7 @@ class AppointmentRescheduleForm(forms.Form):
             return date
 
         clinic = ClinicSettings.objects.first()
-        today = timezone.now().date()
+        today = timezone.localdate()
 
         if date < today:
             raise forms.ValidationError("Cannot reschedule to a past date.")
@@ -413,7 +413,8 @@ class AdminAppointmentRescheduleForm(forms.Form):
                     pass
 
         if submitted_date:
-            slots = get_available_slots(submitted_date)
+            # Move dialog rules: no same-day cutoff, only slots not started yet
+            slots = get_available_slots(submitted_date, move=True)
             if slots:
                 self.fields["time"].choices = [("", "Select a time")] + [
                     (s.strftime("%H:%M:%S"), s.strftime("%I:%M %p")) for s in slots
@@ -435,7 +436,7 @@ class AdminAppointmentRescheduleForm(forms.Form):
             raise forms.ValidationError("Invalid time slot selected.")
 
         if not is_slot_available(
-            date, time, exclude_appointment_pk=self.appointment.pk
+            date, time, exclude_appointment_pk=self.appointment.pk, move=True
         ):
             raise forms.ValidationError(
                 "This slot is no longer available. Please select another."

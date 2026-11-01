@@ -14,7 +14,7 @@ from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
 from appointments.models import Appointment, BlockedDate, ClinicSettings
-from appointments.utils import get_available_slots
+from appointments.utils import get_available_slots, is_slot_available
 from billing.models import BillingReceipt, Service
 from dashboard.templatetags.friendly_dates import friendly_date, long_date
 from medical.models import MedicalRecord
@@ -1449,28 +1449,172 @@ class WalkInSlotTests(FrozenNowTestBase):
         self.assertIn(datetime.time(12, 0), slots)
 
 
-class OwnerSlotsUnchangedTests(FrozenNowTestBase):
-    """The default (owner) rules: today only offers slots after the 15:00
-    cutoff, whatever the time is."""
+class OwnerSameDayCutoffTests(FrozenNowTestBase):
+    """The default (owner) rules for today: no slots once it is 15:00 (the
+    cutoff) or later, otherwise only slots that haven't started yet.
+    "Now" is Mon, Nov 2, 9:30 AM unless a test freezes another time."""
 
-    def test_today_morning_offers_only_slots_after_the_cutoff(self):
-        self.assertEqual(self._hours(get_available_slots(WALK_IN_DAY)), [16])
+    TOMORROW = WALK_IN_DAY + datetime.timedelta(days=1)
 
-    def test_today_after_the_cutoff_still_offers_the_same_slots(self):
-        self.freeze(_manila(15, 30))
-        self.assertEqual(self._hours(get_available_slots(WALK_IN_DAY)), [16])
+    def _assert_is_slot_available_agrees(self, day):
+        offered = get_available_slots(day)
+        for hour in range(8, 17):
+            time = datetime.time(hour, 0)
+            with self.subTest(day=day, time=time):
+                self.assertEqual(is_slot_available(day, time), time in offered)
 
-    def test_future_date_offers_the_full_day(self):
-        day = WALK_IN_DAY + datetime.timedelta(days=3)
-        self.assertEqual(self._hours(get_available_slots(day)), list(range(8, 17)))
+    def test_morning_offers_slots_that_have_not_started(self):
+        self.assertEqual(
+            self._hours(get_available_slots(WALK_IN_DAY)), list(range(10, 17))
+        )
+        self._assert_is_slot_available_agrees(WALK_IN_DAY)
+
+    def test_a_minute_before_the_cutoff_offers_only_later_slots(self):
+        self.freeze(_manila(14, 59))
+        self.assertEqual(self._hours(get_available_slots(WALK_IN_DAY)), [15, 16])
+        self._assert_is_slot_available_agrees(WALK_IN_DAY)
+
+    def test_at_and_after_the_cutoff_offers_none_today(self):
+        for now in (_manila(15, 0), _manila(16, 30)):
+            with self.subTest(now=now):
+                self.freeze(now)
+                self.assertEqual(get_available_slots(WALK_IN_DAY), [])
+                self._assert_is_slot_available_agrees(WALK_IN_DAY)
+
+    def test_tomorrow_after_the_cutoff_offers_the_full_day(self):
+        self.freeze(_manila(16, 30))
+        self.assertEqual(
+            self._hours(get_available_slots(self.TOMORROW)), list(range(8, 17))
+        )
+        self._assert_is_slot_available_agrees(self.TOMORROW)
+
+    def test_just_after_midnight_uses_the_manila_date(self):
+        # 00:30 Manila on Nov 2 is still Nov 1 in UTC
+        self.freeze(_manila(0, 30))
+        self.assertEqual(
+            self._hours(get_available_slots(WALK_IN_DAY)), list(range(8, 17))
+        )
+        last_day = WALK_IN_DAY + datetime.timedelta(days=30)
+        for day, hours in (
+            (WALK_IN_DAY - datetime.timedelta(days=1), []),
+            (last_day, list(range(8, 17))),
+            (last_day + datetime.timedelta(days=1), []),
+        ):
+            with self.subTest(day=day):
+                self.assertEqual(self._hours(get_available_slots(day)), hours)
+                self._assert_is_slot_available_agrees(day)
 
     def test_owner_slot_view_uses_the_owner_rules(self):
         self.client.force_login(self.owner.user)
         response = self.client.get(
             reverse("owner_get_slots"), {"date": WALK_IN_DAY.isoformat()}
         )
-        self.assertContains(response, 'value="16:00:00"')
+        self.assertContains(response, 'value="10:00:00"')
         self.assertNotContains(response, 'value="09:00:00"')
+
+    def _book(self, hour):
+        self.client.force_login(self.owner.user)
+        return self.client.post(
+            reverse("owner_book_appointment"),
+            {
+                "pet": self.pet.pk,
+                "date": WALK_IN_DAY.isoformat(),
+                "time": datetime.time(hour, 0).isoformat(),
+            },
+        )
+
+    def test_owner_can_book_a_slot_that_has_not_started(self):
+        self._book(10)
+        self.assertEqual(Appointment.objects.get().time, datetime.time(10, 0))
+
+    def test_owner_booking_a_started_slot_is_refused(self):
+        response = self._book(9)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Appointment.objects.exists())
+
+    def test_owner_booking_after_the_cutoff_is_refused(self):
+        self.freeze(_manila(15, 0))
+        response = self._book(16)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Appointment.objects.exists())
+
+
+class MoveDialogSlotTests(FrozenNowTestBase):
+    """The admin Move dialog rules for today: no same-day cutoff, only slots
+    whose start is after now. "Now" is Mon, Nov 2, 9:30 AM unless a test
+    freezes another time."""
+
+    def _assert_is_slot_available_agrees(self, day):
+        offered = get_available_slots(day, move=True)
+        for hour in range(8, 17):
+            time = datetime.time(hour, 0)
+            with self.subTest(day=day, time=time):
+                self.assertEqual(
+                    is_slot_available(day, time, move=True), time in offered
+                )
+
+    def test_offers_slots_that_have_not_started(self):
+        for now, hours in (
+            (_manila(9, 30), list(range(10, 17))),
+            (_manila(15, 30), [16]),
+            (_manila(16, 30), []),
+        ):
+            with self.subTest(now=now):
+                self.freeze(now)
+                slots = get_available_slots(WALK_IN_DAY, move=True)
+                self.assertEqual(self._hours(slots), hours)
+                self._assert_is_slot_available_agrees(WALK_IN_DAY)
+
+    def test_future_date_offers_the_full_day(self):
+        self.freeze(_manila(16, 30))
+        day = WALK_IN_DAY + datetime.timedelta(days=1)
+        self.assertEqual(
+            self._hours(get_available_slots(day, move=True)), list(range(8, 17))
+        )
+
+    def test_slot_view_uses_the_move_rules(self):
+        self.freeze(_manila(15, 30))
+        response = self.client.get(
+            reverse("admin_get_slots_for_date"),
+            {"date": WALK_IN_DAY.isoformat(), "as": "buttons"},
+        )
+        self.assertContains(response, 'type="radio" name="time" value="16:00:00"')
+        self.assertNotContains(response, '"15:00:00"')
+
+    def _move(self, original, hour):
+        return self._post(
+            "admin_appointment_reschedule",
+            original,
+            {
+                "date": WALK_IN_DAY.isoformat(),
+                "time": datetime.time(hour, 0).isoformat(),
+                "reschedule_reason": "The vet is away that day.",
+            },
+        )
+
+    def test_move_after_the_owner_cutoff_is_allowed(self):
+        self.freeze(_manila(15, 30))
+        original = self._appointment(Appointment.PENDING)
+        self._move(original, 16)
+        new = Appointment.objects.get(rescheduled_from=original)
+        self.assertEqual((new.date, new.time), (WALK_IN_DAY, datetime.time(16, 0)))
+
+    def test_move_to_a_started_slot_is_refused(self):
+        original = self._appointment(Appointment.PENDING)
+        self._move(original, 9)
+        self._assert_status(original, Appointment.PENDING)
+        self.assertFalse(Appointment.objects.filter(rescheduled_from=original).exists())
+
+
+class SlotViewJustAfterMidnightTests(SlotViewTests):
+    """Every SlotViewTests test again at 00:30 Manila, while the UTC date is
+    still the previous day."""
+
+    def setUp(self):
+        patcher = mock.patch("django.utils.timezone.now", return_value=_manila(0, 30))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        super().setUp()
 
 
 class WalkInSlotViewTests(FrozenNowTestBase):
@@ -1489,7 +1633,9 @@ class WalkInSlotViewTests(FrozenNowTestBase):
         response = self._get(**{"for": "walk_in", "as": "buttons"})
         self.assertContains(response, 'type="radio" name="time" value="09:00:00"')
 
-    def test_default_keeps_the_cutoff(self):
+    def test_default_uses_the_move_rule(self):
+        """Without ?for=walk_in: the Move rule, so at 9:30 the started 9:00
+        slot is left out and 16:00 is offered."""
         for params in ({}, {"as": "buttons"}):
             with self.subTest(params=params):
                 response = self._get(**params)
