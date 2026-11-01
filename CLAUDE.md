@@ -16,6 +16,10 @@ Read docs/HANDOFF.md before any task.
 
 ## Commands
 - Always run Python and manage.py commands with backend\venv\Scripts\python.exe (the project venv), never plain python.
+- Don't run the full test suite; Krys runs it. While working you may run the tests for the app you changed (backend\venv\Scripts\python.exe backend\manage.py test <app>).
+- Report exactly which test commands you ran and paste their real output. Never describe a result you didn't see, and never write a "task finished" or "background task" notice yourself.
+- Never loosen or remove an assertion to make a test pass. If a test fails, report why and propose a fix; say clearly if an assertion changed.
+- Known: before 8 AM Manila, SlotViewTests.test_buttons_empty_state and test_buttons_heading_kept_with_the_empty_message fail because of the UTC-date backlog item. Report them, don't fix them unless asked.
 
 ## Git rules
 - Never run git commands that change branches, history or the remote. Krys runs all git commands.
