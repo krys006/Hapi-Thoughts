@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Walk-in v1</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: "Segoe UI", system-ui, sans-serif; }
+</style>
+</head>
+<body class="bg-gray-200 text-gray-900 antialiased">
+
+<header class="sticky top-0 z-10 border-b border-gray-300 bg-white/95 px-6 py-3 backdrop-blur">
+  <p class="mb-2 text-sm font-semibold text-gray-700">New walk-in v1 · pick a state</p>
+  <div id="switcher" class="flex flex-wrap gap-2"></div>
+</header>
+
+<div class="overflow-x-auto p-6">
+  <div id="caption" class="mb-4 max-w-[1280px] rounded-xl border border-violet-200 bg-violet-50 p-4 text-base text-gray-800"></div>
+  <div id="stage"></div>
+  <p class="mt-3 text-sm text-gray-600">Desktop frame is 1280 px wide: a 1920×1080 screen at 150% zoom. “Today” in this mockup is Monday, November 2, 10:20 AM. Icons in the build come from lucide-static, as usual.</p>
+</div>
+
+<script>
+// ---------- Icons (Lucide) ----------
+const P = {
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  home:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  fileText:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  syringe:'<path d="m18 2 4 4"/><path d="m17 7 3-3"/><path d="M19 9 8.7 19.3c-1 1-2.5 1-3.4 0l-.6-.6c-1-1-1-2.5 0-3.4L15 5"/><path d="m9 11 4 4"/><path d="m5 19-3 3"/><path d="m14 4 6 6"/>',
+  book:'<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="m4.9 4.9 2.1 2.1"/><path d="m17 17 2.1 2.1"/><path d="M2 12h3"/><path d="M19 12h3"/><path d="m4.9 19.1 2.1-2.1"/><path d="m17 7 2.1-2.1"/>',
+  logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
+  search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  arrowRight:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  arrowLeft:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  userPlus:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/>',
+  mail:'<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
+  phone:'<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/>',
+  dog:'<path d="M11.25 16.25h1.5L12 17z"/><path d="M16 14v.5"/><path d="M4.42 11.247A13.152 13.152 0 0 0 4 14.556C4 18.728 7.582 21 12 21s8-2.272 8-6.444a11.702 11.702 0 0 0-.493-3.309"/><path d="M8 14v.5"/><path d="M8.5 8.5c-.384 1.05-1.083 2.028-2.344 2.5-1.931.722-3.576-.297-3.656-1-.113-.994 1.177-6.53 4-7 1.923-.321 3.651.845 3.651 2.235A7.497 7.497 0 0 1 14 5.277c0-1.39 1.844-2.598 3.767-2.277 2.823.47 4.113 6.006 4 7-.08.703-1.725 1.722-3.656 1-1.261-.472-1.855-1.45-2.239-2.5"/>',
+  cat:'<path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z"/><path d="M8 14v.5"/><path d="M16 14v.5"/><path d="M11.25 16.25h1.5L12 17l-.75-.75Z"/>'
+};
+const ic = (n, c = 'size-5 shrink-0') =>
+  `<svg class="${c}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+const outline = (n, c) =>
+  `<svg class="${c}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// ---------- Shell (same as list/detail v2) ----------
+const navLink = (i, l, active = false, badge = '') =>
+  `<a class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base ${active ? 'bg-white font-semibold text-violet-800 shadow-sm ring-1 ring-violet-200' : 'text-gray-800'}">${ic(i)}<span class="flex-1">${l}</span>${badge ? `<span class="rounded-full bg-violet-600 px-2 text-sm font-semibold text-white">${badge}</span>` : ''}</a>`;
+const group = t => `<p class="px-3 pb-1 pt-4 text-sm font-semibold text-violet-800">${t}</p>`;
+const sidebar = () => `
+<aside class="flex w-72 shrink-0 flex-col border-r border-violet-200 bg-violet-100">
+  <div class="flex items-center gap-3 border-b border-violet-200 px-5 py-4">
+    <span class="grid size-10 shrink-0 place-content-center rounded-lg bg-violet-600 text-white">${ic('paw')}</span>
+    <div><p class="text-base font-semibold">Hapi Tutz Vet Supplies</p><p class="text-sm text-gray-700">Admin</p></div>
+  </div>
+  <nav class="flex-1 px-3 pb-3 pt-1">
+    ${group('Daily work')}<div class="space-y-1">${navLink('home','Dashboard')}${navLink('calendar','Appointments',true,4)}${navLink('users','Pet owners')}${navLink('paw','Pets',false,1)}</div>
+    ${group('Records')}<div class="space-y-1">${navLink('fileText','Medical records')}${navLink('syringe','Vaccinations')}${navLink('book','Health library')}</div>
+    ${group('Clinic')}<div class="space-y-1">${navLink('receipt','Billing')}${navLink('settings','Clinic settings')}</div>
+  </nav>
+  <div class="border-t border-violet-200 px-3 py-3">${navLink('logout','Log out')}</div>
+</aside>`;
+const topbar = (globalSearch) => `
+<div class="flex min-h-[4.25rem] items-center gap-4 border-b border-gray-200 bg-white px-8 py-3">
+  ${globalSearch ? `<span class="flex min-h-11 w-[26rem] items-center gap-3 rounded-lg border border-gray-300 bg-white px-4 text-base text-gray-600">${ic('search')}Find a pet or owner</span>` : ''}
+  <span class="flex-1"></span>
+  <span class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800">${ic('bell')}Notifications<span class="rounded-full bg-red-600 px-2 text-sm font-semibold text-white">1</span></span>
+</div>`;
+const shell = (body, globalSearch = true) => `
+<div class="relative flex min-h-[720px] w-[1280px] overflow-hidden rounded-xl border border-gray-300 bg-gray-50 shadow-sm">
+  ${sidebar()}
+  <div class="flex min-w-0 flex-1 flex-col">${topbar(globalSearch)}<main class="flex-1 p-8">${body}</main></div>
+</div>`;
+
+// ---------- Pieces ----------
+const initials = n => { const p = n.trim().split(/\s+/); return (p[0][0] + (p.length > 1 ? p[p.length-1][0] : '')).toUpperCase(); };
+const ownerPic = (n, size = 'size-10') => `<span class="grid ${size} shrink-0 place-content-center rounded-full bg-violet-50 text-sm font-semibold tracking-wide text-violet-700 ring-1 ring-violet-200">${initials(n)}</span>`;
+const petPic = (species, c = 'size-10 rounded-xl') => `<span class="grid ${c} shrink-0 place-content-center bg-violet-50 text-violet-600 ring-1 ring-violet-200">${outline(species,'size-6 shrink-0')}</span>`;
+const btnOutline = (label, icon = '', extra = '') => `<span class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-semibold text-gray-800 ${extra}">${icon ? ic(icon) : ''}${label}</span>`;
+const btnPrimary = (label, icon = '') => `<span class="inline-flex min-h-11 items-center gap-2 rounded-lg bg-violet-600 px-5 text-base font-semibold text-white">${icon ? ic(icon) : ''}${label}</span>`;
+const link = (label, icon = '') => `<span class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">${icon ? ic(icon) : ''}${label}</span>`;
+
+// Steps: 1 Who is it for · 2 The visit · 3 Check and book
+const steps = active => {
+  const S = ['Who is it for?','The visit','Check and book'];
+  return `<ol class="mb-6 flex flex-wrap gap-3">${S.map((s, i) => {
+    const n = i + 1, done = n < active, on = n === active;
+    const dot = done ? `<span class="grid size-8 place-content-center rounded-full bg-violet-600 text-white">${ic('check','size-4 shrink-0')}</span>`
+      : on ? `<span class="grid size-8 place-content-center rounded-full bg-violet-600 text-base font-semibold text-white">${n}</span>`
+      : `<span class="grid size-8 place-content-center rounded-full border-2 border-gray-300 bg-white text-base font-semibold text-gray-700">${n}</span>`;
+    return `<li class="flex items-center gap-2 text-base ${on ? 'font-semibold text-gray-900' : 'text-gray-700'}">${dot}${s}${n < 3 ? `<span class="mx-1 h-px w-10 bg-gray-300"></span>` : ''}</li>`;
+  }).join('')}</ol>`;
+};
+const head = (title, sub) => `
+<div class="mb-4">${link('Back to appointments','arrowLeft')}</div>
+<div class="mb-5"><h1 class="text-2xl font-bold">${title}</h1><p class="mt-1 text-base text-gray-600">${sub}</p></div>`;
+
+const field = (label, value, opts = {}) => `
+<label class="block ${opts.wide ? 'col-span-2' : ''}">
+  <span class="mb-1.5 block text-base font-medium text-gray-800">${label}${opts.req ? ' <span class="text-red-600">*</span>' : ''}</span>
+  <span class="flex min-h-12 items-center justify-between rounded-lg border ${opts.err ? 'border-red-500' : 'border-gray-300'} bg-white px-4 text-base ${value ? 'text-gray-900' : 'text-gray-500'}">${value || opts.ph || ''}${opts.select ? ic('arrowRight','size-5 shrink-0 rotate-90 text-gray-600') : ''}${opts.date ? ic('calendar','size-5 shrink-0 text-gray-600') : ''}</span>
+  ${opts.help ? `<span class="mt-1.5 block text-sm text-gray-600">${opts.help}</span>` : ''}
+  ${opts.err ? `<span class="mt-1.5 flex items-center gap-1 text-sm font-medium text-red-700">${ic('alert','size-4 shrink-0')}${opts.err}</span>` : ''}
+</label>`;
+
+// ---------- 1 · Who is it for ----------
+const ownerResult = (name, phone, pets) => `
+<li class="flex flex-wrap items-center gap-4 border-t border-gray-100 px-5 py-4 first:border-t-0">
+  ${ownerPic(name)}
+  <div class="min-w-0 flex-1">
+    <p class="text-base font-semibold">${name}</p>
+    <p class="text-sm text-gray-600">${phone || 'No phone number'}</p>
+    <p class="mt-1 flex flex-wrap gap-x-4 text-base text-gray-800">${pets.map(([p, s]) => `<span class="inline-flex items-center gap-1.5">${outline(s,'size-5 shrink-0 text-violet-600')}${p}</span>`).join('')}</p>
+  </div>
+  ${btnOutline('Choose','arrowRight')}
+</li>`;
+const searchForm = (label = 'Find the owner') => `
+  <form class="mb-4 flex flex-wrap items-end gap-3">
+    <label class="flex-1"><span class="mb-1.5 block text-base font-medium text-gray-800">${label}</span>
+      <span class="flex min-h-12 items-center gap-3 rounded-lg border border-violet-400 bg-white px-4 text-base text-gray-900">${ic('search','size-5 shrink-0 text-gray-600')}cruz</span></label>
+    ${btnOutline('Search','search','min-h-12')}
+  </form>`;
+const results = `
+  <p class="mb-2 text-base text-gray-700">3 owners match “cruz”</p>
+  <ul class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+    ${ownerResult('Liza Cruz','0917 123 4567',[['Brownie','dog']])}
+    ${ownerResult('Rosa Dela Cruz','0920 444 7788',[['Max','dog'],['Muning','cat']])}
+    ${ownerResult('Ana Cruz','',[['Bantay','dog']])}
+  </ul>`;
+const btnViolet = (label, icon) => `<span class="inline-flex min-h-12 items-center gap-2 rounded-lg border-2 border-violet-600 bg-white px-5 text-base font-semibold text-violet-700">${ic(icon)}${label}</span>`;
+const whoHead = head('New walk-in','Book a visit for a pet that is here now, or for someone who called.') + steps(1);
+
+// A · Violet banner above the search
+const whoA = shell(whoHead + `
+<div class="max-w-3xl">
+  <div class="mb-6 flex flex-wrap items-center gap-4 rounded-xl border-2 border-violet-300 bg-violet-50 px-5 py-4">
+    <span class="grid size-12 shrink-0 place-content-center rounded-xl bg-violet-600 text-white">${ic('userPlus','size-6 shrink-0')}</span>
+    <div class="flex-1"><p class="text-lg font-semibold text-gray-900">First visit at the clinic?</p><p class="text-base text-gray-700">Add the owner and their pet first. It takes a minute.</p></div>
+    ${btnViolet('New owner','plus')}
+  </div>
+  ${searchForm('Been here before? Find the owner')}
+  ${results}
+</div>`, false);
+
+// B · Two big choices side by side
+const whoB = shell(whoHead + `
+<div class="max-w-4xl">
+  <p class="mb-3 text-lg font-semibold">Has this owner been to the clinic before?</p>
+  <div class="mb-6 grid grid-cols-2 gap-4">
+    <div class="flex items-center gap-4 rounded-xl border-2 border-violet-600 bg-violet-50 px-5 py-5">
+      <span class="grid size-12 shrink-0 place-content-center rounded-xl bg-violet-600 text-white">${ic('search','size-6 shrink-0')}</span>
+      <div><p class="text-lg font-semibold">Yes, find them</p><p class="text-base text-gray-700">Search by owner, pet or phone below.</p></div>
+    </div>
+    <div class="flex items-center gap-4 rounded-xl border-2 border-gray-300 bg-white px-5 py-5">
+      <span class="grid size-12 shrink-0 place-content-center rounded-xl bg-violet-100 text-violet-700">${ic('userPlus','size-6 shrink-0')}</span>
+      <div class="flex-1"><p class="text-lg font-semibold">No, first visit</p><p class="text-base text-gray-700">Add the owner and their pet.</p></div>
+      ${ic('arrowRight','size-6 shrink-0 text-gray-700')}
+    </div>
+  </div>
+  ${searchForm()}
+  ${results}
+</div>`, false);
+
+// C · "New owner" is the page's one violet button
+const whoC = shell(`
+<div class="mb-4">${link('Back to appointments','arrowLeft')}</div>
+<div class="mb-5 flex flex-wrap items-start gap-4">
+  <div class="flex-1"><h1 class="text-2xl font-bold">New walk-in</h1><p class="mt-1 text-base text-gray-600">Book a visit for a pet that is here now, or for someone who called.</p></div>
+  ${btnPrimary('New owner','userPlus')}
+</div>` + steps(1) + `
+<div class="max-w-3xl">
+  ${searchForm()}
+  ${results}
+  <p class="mt-4 flex items-center gap-2 text-base text-gray-700">${ic('userPlus','size-5 shrink-0 text-violet-700')}Not in the list? Use <b class="font-semibold text-gray-900">New owner</b> at the top right.</p>
+</div>`, false);
+
+// ---------- 2 · New owner ----------
+const stepNewOwner = shell(head('New owner','Add the owner and the pet that came in. You book the visit next.') + steps(1) + `
+<div class="grid max-w-4xl gap-6">
+  <section class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+    <h2 class="mb-4 text-xl font-semibold">Owner</h2>
+    <div class="grid grid-cols-2 gap-5">
+      ${field('First name','Ana',{req:true})}
+      ${field('Last name','Cruz',{req:true})}
+      ${field('Phone number','',{ph:'For example: 0917 123 4567'})}
+      ${field('Email','',{ph:'Leave empty if they have none', help:'We will email them a link to set a password and see their pet\u2019s records.'})}
+    </div>
+  </section>
+  <section class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+    <h2 class="mb-1 text-xl font-semibold">Pet</h2>
+    <p class="mb-4 text-base text-gray-600">The pet being seen today. You can add more pets later.</p>
+    <div class="grid grid-cols-2 gap-5">
+      ${field('Pet name','Bantay',{req:true})}
+      ${field('Species','Dog',{req:true, select:true})}
+      ${field('Breed','',{ph:'For example: Aspin'})}
+      ${field('Sex','',{ph:'Choose one', select:true})}
+      ${field('Birthday','',{ph:'mm/dd/yyyy', date:true, help:'A rough date is fine.'})}
+      ${field('Weight (kg)','',{ph:'For example: 8.5'})}
+    </div>
+  </section>
+  <div class="flex flex-wrap justify-end gap-3">
+    ${btnOutline('Cancel')}
+    ${btnPrimary('Save and continue','arrowRight')}
+  </div>
+</div>`);
+
+// ---------- 3 · The visit ----------
+const petCard = (name, kind, species, on) => `
+<label class="flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border-2 ${on ? 'border-violet-600 bg-violet-50' : 'border-gray-200 bg-white'} px-4 py-3">
+  <span class="grid size-6 shrink-0 place-content-center rounded-full border-2 ${on ? 'border-violet-600' : 'border-gray-400'} bg-white">${on ? '<span class="size-3 rounded-full bg-violet-600"></span>' : ''}</span>
+  ${petPic(species)}
+  <span><span class="block text-base font-semibold">${name}</span><span class="block text-sm text-gray-600">${kind}</span></span>
+</label>`;
+const slot = (t, on = false, note = '') => `
+<span class="inline-flex min-h-12 flex-col items-center justify-center rounded-lg border-2 px-4 py-1 text-base font-semibold ${on ? 'border-violet-600 bg-violet-600 text-white' : 'border-gray-300 bg-white text-gray-800'}">${t}${note ? `<span class="text-sm font-medium ${on ? 'text-violet-100' : 'text-gray-600'}">${note}</span>` : ''}</span>`;
+const visitForm = (err) => `
+<div class="grid max-w-4xl gap-6">
+  ${err ? `<div class="flex items-start gap-3 rounded-xl border border-red-300 bg-red-50 px-5 py-4 text-red-900">${ic('alert','size-6 shrink-0')}<p class="text-base"><b>10:00 AM was just taken.</b> Someone else booked it a moment ago. Please pick another time. Everything else you entered is kept.</p></div>` : ''}
+  <section class="flex flex-wrap items-center gap-4 rounded-xl border border-gray-200 bg-white px-6 py-4 shadow-sm">
+    ${ownerPic('Rosa Dela Cruz')}
+    <div class="flex-1"><p class="text-sm text-gray-600">Owner</p><p class="text-base font-semibold">Rosa Dela Cruz</p><p class="text-sm text-gray-600">0920 444 7788 · rosa.dc@gmail.com</p></div>
+    ${link('Change owner')}
+  </section>
+  <section class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+    <fieldset>
+      <legend class="mb-3 text-xl font-semibold">Which pet? <span class="text-red-600">*</span></legend>
+      <div class="grid grid-cols-2 gap-3">
+        ${petCard('Max','Dog, Labrador','dog',true)}
+        ${petCard('Muning','Cat, Puspin','cat',false)}
+      </div>
+      <div class="mt-2">${link('Add another pet','plus')}</div>
+    </fieldset>
+  </section>
+  <section class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+    <h2 class="mb-4 text-xl font-semibold">When?</h2>
+    <div class="mb-5 w-64">${field('Date','11/02/2026',{req:true, date:true, help:'Today is filled in. Pick another day for a phone booking.'})}</div>
+    <fieldset>
+      <legend class="mb-1.5 text-base font-medium text-gray-800">Time <span class="text-red-600">*</span></legend>
+      <h3 class="mb-3 text-base font-semibold text-gray-900">Free times today, Monday, November 2</h3>
+      <div class="flex flex-wrap gap-3">
+        ${err ? '' : slot('10:00 AM', true, 'Now')}
+        ${slot('11:00 AM')}${slot('1:00 PM', !!err && false)}${slot('2:00 PM')}${slot('3:00 PM')}${slot('4:00 PM')}
+      </div>
+      ${err ? `<p class="mt-2 flex items-center gap-1 text-sm font-medium text-red-700">${ic('alert','size-4 shrink-0')}Pick a time.</p>` : `<p class="mt-2 text-sm text-gray-600">Times already booked or requested online are not shown.</p>`}
+    </fieldset>
+  </section>
+  <section class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+    <h2 class="mb-4 text-xl font-semibold">Details <span class="text-base font-normal text-gray-600">(optional)</span></h2>
+    <div class="grid grid-cols-2 gap-5">
+      ${field('Service','Vaccination',{select:true})}
+      <span></span>
+      <label class="col-span-2 block"><span class="mb-1.5 block text-base font-medium text-gray-800">Reason for the visit</span>
+        <span class="flex min-h-24 rounded-lg border border-gray-300 bg-white px-4 py-3 text-base text-gray-900">Second anti-rabies shot.</span></label>
+    </div>
+  </section>
+  <div class="flex flex-wrap justify-end gap-3">
+    ${btnOutline('Cancel')}
+    ${btnPrimary('Review','arrowRight')}
+  </div>
+</div>`;
+const stepVisit = shell(head('New walk-in','Pick the pet and the time.') + steps(2) + visitForm(false));
+const stepError = shell(head('New walk-in','Pick the pet and the time.') + steps(2) + visitForm(true));
+
+// ---------- 4 · Check and book ----------
+const row = (k, v) => `<div class="grid grid-cols-[10rem_1fr] gap-4 border-t border-gray-100 py-3 first:border-t-0"><dt class="text-base text-gray-600">${k}</dt><dd class="text-base font-medium text-gray-900">${v}</dd></div>`;
+const checkCard = (email) => `
+<div class="grid max-w-3xl gap-6">
+  <section class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+    <div class="mb-4 flex items-center gap-4">${petPic('dog','size-16 rounded-2xl')}<div><p class="text-xl font-semibold">Max</p><p class="text-base text-gray-600">Dog, Labrador</p></div></div>
+    <dl>
+      ${row('When','<span class="text-lg font-semibold">Today, Monday, November 2 at 10:00 AM</span>')}
+      ${row('Owner','Rosa Dela Cruz · 0920 444 7788')}
+      ${row('Service','Vaccination')}
+      ${row('Reason','Second anti-rabies shot.')}
+      ${row('Status','<span class="inline-flex rounded-full bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-800">Confirmed</span> <span class="inline-flex rounded-full bg-violet-100 px-3 py-1 text-sm font-semibold text-violet-800">Walk-in</span>')}
+    </dl>
+  </section>
+  <p class="flex items-center gap-2 text-base text-gray-800">${email ? ic('mail','size-5 shrink-0 text-gray-600') + 'Rosa Dela Cruz will get an email about this visit.' : ic('phone','size-5 shrink-0 text-gray-600') + 'Ana Cruz has no email. Tell them the time in person or call 0917 555 0101.'}</p>
+  <div class="flex flex-wrap justify-end gap-3">
+    ${btnOutline('Change','arrowLeft')}
+    ${btnPrimary('Book walk-in','check')}
+  </div>
+</div>`;
+const stepCheck = shell(head('Check and book','Nothing is saved until you press Book walk-in.') + steps(3) + checkCard(true));
+
+// ---------- States ----------
+const states = [
+  { id:'whoA', label:'1 · Who is it for?',
+    caption:`<b>Step 1 (approved: option A).</b> A violet banner “First visit at the clinic?” sits above the search, with a violet-outlined “New owner” button (not filled, so this screen has no primary button). The search (owner name, pet name or phone) is labelled “Been here before? Find the owner”; the top-bar search is hidden on this screen only. Each result shows the owner's pets; “Choose” goes straight to step 2. Opened from an owner or pet page, this step is skipped.`,
+    html: whoA },
+  { id:'new', label:'2 · New owner',
+    caption:`<b>New owner</b> (still step 1). Owner and their first pet on one screen; the pet is required because a visit needs one. Email is optional, with plain help text. <b>Save and continue</b> goes straight to “The visit” with this owner and pet already chosen, not to the owner page.`,
+    html: stepNewOwner },
+  { id:'visit', label:'3 · The visit',
+    caption:`<b>Step 2.</b> Owner summary with “Change owner”. Pets as large radio cards (preselected when there is only one). Date starts on today. Free times use the shared slot buttons in walk-in mode: the slot in progress shows as “Now”; pending online requests and booked times are not offered. Service and reason are optional. <b>Review</b> is the only violet button.`,
+    html: stepVisit },
+  { id:'check', label:'4 · Check and book',
+    caption:`<b>Step 3, the confirmation.</b> A server-rendered summary; nothing is saved yet. The line under the card says who gets told (email) or, without email, shows the phone number. <b>Book walk-in</b> saves it and opens the new appointment's detail page with “Walk-in booked for Max today at 10:00 AM.” <b>Change</b> goes back with every value kept.`,
+    html: stepCheck },
+  { id:'error', label:'5 · Time was taken',
+    caption:`<b>Error after Book walk-in</b> (someone else took the slot in the meantime). Back on step 2 with a plain red message at the top. The pet, date, service and reason are kept; only the time must be picked again. Field errors use the same red text under the field.`,
+    html: stepError }
+];
+
+const sw = document.getElementById('switcher');
+function show(id) {
+  const s = states.find(x => x.id === id);
+  document.getElementById('stage').innerHTML = s.html;
+  document.getElementById('caption').innerHTML = s.caption;
+  [...sw.children].forEach(b => {
+    const on = b.dataset.id === id;
+    b.className = 'min-h-11 rounded-lg px-4 text-base font-medium ' +
+      (on ? 'bg-violet-600 text-white' : 'border border-gray-300 bg-white text-gray-800 hover:bg-gray-50');
+  });
+}
+states.forEach(s => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.dataset.id = s.id; b.textContent = s.label;
+  b.onclick = () => show(s.id);
+  sw.appendChild(b);
+});
+show('whoA');
+</script>
+</body>
+</html>
