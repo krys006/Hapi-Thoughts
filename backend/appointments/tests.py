@@ -7,6 +7,7 @@ from django.db import DatabaseError
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateformat import format as date_format
 
 from appointments.models import Appointment, ClinicSettings
 from dashboard.templatetags.friendly_dates import friendly_date
@@ -96,6 +97,19 @@ class ApproveTests(AppointmentTestBase):
                     "Only pending appointments can be approved.",
                     self._messages(response),
                 )
+
+    def test_refused_when_date_has_passed(self):
+        appointment = self._appointment(Appointment.PENDING, days_from_today=-3)
+        response = self._post("admin_appointment_approve", appointment)
+        self._assert_status(appointment, Appointment.PENDING)
+        self.assertIn(
+            f"This request was for {friendly_date(appointment.date)}, which has "
+            "passed. Move it to another time or decline it.",
+            self._messages(response),
+        )
+        self.assertFalse(
+            Notification.objects.filter(recipient=self.owner.user).exists()
+        )
 
 
 class RejectTests(AppointmentTestBase):
@@ -229,6 +243,7 @@ class CancelTests(AppointmentTestBase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Please provide details when selecting Other.")
         self.assertTrue(response.context["cancel_form"].is_bound)
+        self.assertEqual(response.context["open_dialog"], "cancel")
         self._assert_status(appointment, Appointment.CONFIRMED)
 
 
@@ -296,6 +311,50 @@ class RescheduleTests(AppointmentTestBase):
         self._assert_status(original, Appointment.CONFIRMED)
         self.assertEqual(Appointment.objects.count(), 2)
 
+    def test_error_reopens_move_dialog_with_the_chosen_time(self):
+        """Taken slot: the dialog reopens with the date's free times and the
+        time the admin picked (no longer in the list, so not re-checked)."""
+        original = self._appointment(Appointment.CONFIRMED)
+        Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=self.target,
+            time=datetime.time(10, 0),
+            status=Appointment.CONFIRMED,
+        )
+        response = self._post("admin_appointment_reschedule", original, self._data())
+        self.assertEqual(response.context["open_dialog"], "move")
+        self.assertEqual(response.context["selected_time"], "10:00:00")
+        slots = response.context["reschedule_slots"]
+        self.assertIn(datetime.time(11, 0), slots)
+        self.assertNotIn(datetime.time(10, 0), slots)
+
+    def test_past_date_error_has_no_slots(self):
+        original = self._appointment(Appointment.CONFIRMED)
+        yesterday = self.today - datetime.timedelta(days=1)
+        response = self._post(
+            "admin_appointment_reschedule", original, self._data(day=yesterday)
+        )
+        self.assertEqual(response.context["open_dialog"], "move")
+        self.assertIsNone(response.context["reschedule_slots"])
+
+    def test_owner_notification_text(self):
+        """Absolute date, no leading zeros, says the new time is confirmed."""
+        original = self._appointment(Appointment.PENDING)
+        self._post(
+            "admin_appointment_reschedule", original, self._data(slot="09:00:00")
+        )
+        notification = Notification.objects.get(recipient=self.owner.user)
+        self.assertEqual(notification.notification_type, "appointment_approved")
+        self.assertEqual(notification.title, "Appointment moved by the clinic")
+        self.assertEqual(
+            notification.message,
+            f"Your appointment for Bantay was moved to "
+            f"{date_format(self.target, 'D, M j')} at 9:00 AM by the clinic. "
+            "The new time is confirmed.",
+        )
+        self.assertNotIn("09:00", notification.message)
+
     def test_original_kept_if_creating_the_new_one_fails(self):
         original = self._appointment(Appointment.CONFIRMED)
         with mock.patch.object(
@@ -305,6 +364,112 @@ class RescheduleTests(AppointmentTestBase):
                 self._post("admin_appointment_reschedule", original, self._data())
         self._assert_status(original, Appointment.CONFIRMED)
         self.assertEqual(Appointment.objects.count(), 1)
+
+
+class NotesTests(AppointmentTestBase):
+
+    def test_admin_saves_notes(self):
+        appointment = self._appointment(Appointment.CONFIRMED)
+        response = self._post(
+            "admin_appointment_notes", appointment, {"notes": "Use a muzzle."}
+        )
+        appointment.refresh_from_db()
+        self.assertEqual(appointment.notes, "Use a muzzle.")
+        self.assertIn("Notes saved.", self._messages(response))
+
+    def test_pet_owner_is_refused(self):
+        appointment = self._appointment(Appointment.CONFIRMED)
+        self.client.force_login(self.owner.user)
+        response = self._post(
+            "admin_appointment_notes", appointment, {"notes": "Owner text"}
+        )
+        self.assertRedirects(
+            response, reverse("owner_dashboard"), fetch_redirect_response=False
+        )
+        appointment.refresh_from_db()
+        self.assertEqual(appointment.notes, "")
+
+
+class DetailContextTests(AppointmentTestBase):
+    """Flags the detail page uses to pick its banner and buttons."""
+
+    def _context(self, appointment):
+        response = self.client.get(
+            reverse("admin_appointment_detail", args=[appointment.pk])
+        )
+        self.assertEqual(response.status_code, 200)
+        return response.context
+
+    def test_date_flags(self):
+        cases = (
+            # status, days from today, date_has_passed, can_mark_visit
+            (Appointment.PENDING, -1, True, False),
+            (Appointment.CONFIRMED, -1, True, True),
+            (Appointment.CONFIRMED, 0, False, True),
+            (Appointment.CONFIRMED, 1, False, False),
+        )
+        for status, days, passed, can_mark in cases:
+            with self.subTest(status=status, days=days):
+                context = self._context(self._appointment(status, days, hour=8))
+                self.assertEqual(context["date_has_passed"], passed)
+                self.assertEqual(context["can_mark_visit"], can_mark)
+
+    def test_owner_email_and_who_cancelled(self):
+        appointment = self._appointment(Appointment.CANCELLED)
+        appointment.cancelled_by = self.owner.user
+        appointment.save()
+        context = self._context(appointment)
+        self.assertTrue(context["owner_has_email"])
+        self.assertTrue(context["cancelled_by_owner"])
+        self.assertIsNone(context["open_dialog"])
+        self.assertIsNone(context["reschedule_slots"])
+
+        appointment.cancelled_by = self.admin
+        appointment.save()
+        self.owner.user.email = ""
+        self.owner.user.save()
+        context = self._context(appointment)
+        self.assertFalse(context["owner_has_email"])
+        self.assertFalse(context["cancelled_by_owner"])
+
+    def test_moved_to(self):
+        original = self._appointment(Appointment.CANCELLED)
+        self.assertIsNone(self._context(original)["moved_to"])
+        new = Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=original.date,
+            time=datetime.time(11, 0),
+            status=Appointment.CONFIRMED,
+            rescheduled_from=original,
+        )
+        self.assertEqual(self._context(original)["moved_to"], new)
+
+
+class SlotViewTests(AppointmentTestBase):
+
+    def _get(self, **params):
+        return self.client.get(reverse("admin_get_slots_for_date"), params)
+
+    def test_default_returns_options(self):
+        day = (self.today + datetime.timedelta(days=5)).isoformat()
+        response = self._get(date=day)
+        self.assertContains(response, '<option value="10:00:00">10:00 AM</option>')
+        self.assertNotContains(response, 'type="radio"')
+
+    def test_buttons_return_radios_and_mark_the_selected_time(self):
+        day = (self.today + datetime.timedelta(days=5)).isoformat()
+        response = self._get(date=day, selected="10:00:00", **{"as": "buttons"})
+        self.assertNotContains(response, "<option")
+        content = response.content.decode()
+        self.assertIn('type="radio" name="time" value="11:00:00"', content)
+        self.assertIn('value="10:00:00" class="sr-only" required checked', content)
+        self.assertEqual(content.count(" checked"), 1)
+
+    def test_buttons_empty_state(self):
+        past = (self.today - datetime.timedelta(days=1)).isoformat()
+        response = self._get(date=past, **{"as": "buttons"})
+        self.assertContains(response, "No free times on this day.")
 
 
 class AccessTests(AppointmentTestBase):

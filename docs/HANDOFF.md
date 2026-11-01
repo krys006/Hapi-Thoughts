@@ -220,7 +220,8 @@ to needs-approval) and the appointments list.
 - Slice 1 shell + dashboard: new `layouts/admin.html` with sidebar badges and logout; top bar search and Notifications; admin notification panel; redesigned dashboard with day schedule and mini calendar; shell context processor; Manila dates; 403/HX-Redirect for HTMX — Done 2026-11-01
 - Slice 1.5 — new frame on all admin pages (legacy CSS layer); sidebar trimmed to 9 items in 3 groups: Deletion requests is a tab on Pets, Services a tab on Billing, Clinic info a button in Clinic settings — Done 2026-11-01
 - Slice 2 admin login: new `layouts/auth.html`; redesigned admin login (clinic logo/name, large fields, Show password, Caps Lock warning, one generic error); `login.css` retired — Done 2026-11-01
-- Slice 3 appointments (list, detail, walk-in, calendar page) — next
+- Slice 3 appointments (list, detail, walk-in, calendar page) — in progress
+  - 3a-2 B1 detail backend: approve refuses past dates; `_notify_owner` helper; reschedule message "moved by the clinic… The new time is confirmed."; detail context flags for the redesign; `?as=buttons` slot partial; `long_date` and `species_icon` filters — Done 2026-11-01
 - Slice 4 pets and owners (incl. the broken `<a>` tags in deletion_requests)
 - Slice 5 medical
 - Slice 6 billing (receipt print must stay a direct child of `<body>`, with no transform/filter on any ancestor)
@@ -254,6 +255,8 @@ to needs-approval) and the appointments list.
 - Admin password reset: the reset flow is owner-branded and ends on the owner login; build an admin version if needed. [both]
 - Admin login has no rate limiting or lockout. [backend]
 - Password reset email hard-codes `http://` (ignores the protocol). [backend]
+- Pet-mismatch guard: `admin_medical_record_create` (`?appointment=` is never checked against the `pet_pk` in the URL) and `admin_receipt_create` (no check that the appointment can take a receipt) — refuse an appointment that belongs to another pet [backend]
+- Walk-in same-day cutoff bug: `AdminWalkInAppointmentForm` says walk-ins bypass the same-day cutoff, but its time choices come from `get_available_slots`, which drops today's slots before the cutoff, so a walk-in today before the cutoff can't be booked. Planned for Slice 3c (walk-in) [backend]
 
 ### FRONTEND BRANCH REVIEW
 - B3: review the `frontend/hannah-user` branch (owner templates) and decide, piece by piece, what to bring in and what to discard. It is no longer under active development. Check form field names and template tags against the current views; base_dashboard.html will conflict. [frontend]
@@ -267,6 +270,8 @@ to needs-approval) and the appointments list.
 - PetDeletionRequest: cancelling deletes the row; should become a CANCELLED status (choices change = new migration) [backend] — verified: `pets/views.py:518`
 - Upload filename sanitization (Supabase rejects non-ASCII names); callable upload_to = new migration [backend] — verified: all `upload_to` values are plain strings
 - Walk-ins without email are saved with `email=""` (`accounts/views.py:340,348`), which collides on the unique email constraint for the second one — decide nullable email vs. another approach [backend]
+- Distinct "declined" cancellation reason: a clinic decline and a clinic cancel with reason Other are stored the same way (`cancellation_reason=other`, `cancelled_by`=admin), so the detail page can't tell them apart. Needs a new `CANCEL_CHOICES` value (choices change = new migration) [backend]
+- Notes "last saved" timestamp: the detail page can't show when the internal notes were last saved (`updated_at` changes on every save). Needs a new field; low priority [backend]
 - Resend failed emails: review b6e0ad3's logic (written for Gmail SMTP before the Brevo switch in 8548613; must catch anymail errors). Model/migration already synced. [both]
 
 ### POLISH

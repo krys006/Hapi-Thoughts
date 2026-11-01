@@ -512,6 +512,53 @@ def _too_early_message(appointment):
     )
 
 
+def _notification_when(appointment):
+    """'November 02, 2026 at 02:00 PM', the format of the older owner messages."""
+    return (
+        f"{appointment.date.strftime('%B %d, %Y')} "
+        f"at {appointment.time.strftime('%I:%M %p')}"
+    )
+
+
+def _notify_owner(appointment, notification_type, title, message, email_subject):
+    """In-app notification to the appointment's owner, plus email per their
+    preferences (see notifications.utils.notify)."""
+    notify(
+        recipient=appointment.owner.user,
+        notification_type=notification_type,
+        title=title,
+        message=message,
+        related_appointment=appointment,
+        related_pet=appointment.pet,
+        email_subject=email_subject,
+    )
+
+
+def _open_dialog(cancel_form, reschedule_form):
+    """Which dialog the detail page reopens after a form error, or None."""
+    if reschedule_form.is_bound and reschedule_form.errors:
+        return "move"
+    if cancel_form.is_bound and cancel_form.errors:
+        return "cancel"
+    return None
+
+
+def _reschedule_slot_context(form):
+    """
+    Free times for the submitted date and the time the admin picked, so a
+    bound reschedule form can be shown again. reschedule_slots is None when
+    the form isn't bound or its date isn't valid (nothing to show yet).
+    """
+    if not form.is_bound:
+        return {"reschedule_slots": None, "selected_time": ""}
+    # Checking form.errors first runs validation, which fills cleaned_data
+    valid_date = None if "date" in form.errors else form.cleaned_data.get("date")
+    return {
+        "reschedule_slots": get_available_slots(valid_date) if valid_date else None,
+        "selected_time": form.data.get("time", ""),
+    }
+
+
 def _admin_detail_context(
     appointment, notes_form=None, cancel_form=None, reschedule_form=None
 ):
@@ -525,12 +572,35 @@ def _admin_detail_context(
         cancel_form = AdminAppointmentCancelForm()
     if reschedule_form is None:
         reschedule_form = AdminAppointmentRescheduleForm(appointment)
-    return {
+
+    today = timezone.localdate()
+    cancelled_by = appointment.cancelled_by
+    context = {
         "appointment": appointment,
         "notes_form": notes_form,
         "cancel_form": cancel_form,
         "reschedule_form": reschedule_form,
+        "date_has_passed": appointment.date < today,
+        "can_mark_visit": (
+            appointment.status == Appointment.CONFIRMED and appointment.date <= today
+        ),
+        "owner_has_email": bool(appointment.owner.user.email),
+        "cancelled_by_owner": cancelled_by is not None and cancelled_by.is_pet_owner,
+        # At most one: a moved appointment is cancelled, so it can't move again
+        "moved_to": appointment.rescheduled_to.first(),
+        "open_dialog": _open_dialog(cancel_form, reschedule_form),
     }
+    context.update(_reschedule_slot_context(reschedule_form))
+    return context
+
+
+def _render_detail(request, appointment, **forms):
+    """Renders the admin detail page; pass a bound form to show its errors."""
+    return render(
+        request,
+        "admin/appointments/detail.html",
+        _admin_detail_context(appointment, **forms),
+    )
 
 
 def _reschedule_appointment(appointment, form, user):
@@ -624,15 +694,18 @@ def admin_appointment_detail(request, pk):
         return redirect("owner_dashboard")
 
     appointment = get_object_or_404(
-        Appointment.objects.select_related("owner", "pet", "service"),
+        Appointment.objects.select_related(
+            "owner__user",
+            "pet",
+            "service",
+            "cancelled_by",
+            "medical_record",
+            "billing_receipt",
+        ),
         pk=pk,
     )
 
-    return render(
-        request,
-        "admin/appointments/detail.html",
-        _admin_detail_context(appointment),
-    )
+    return _render_detail(request, appointment)
 
 
 @login_required
@@ -646,24 +719,24 @@ def admin_appointment_approve(request, pk):
     if request.method == "POST":
         if appointment.status != Appointment.PENDING:
             messages.error(request, "Only pending appointments can be approved.")
+        elif appointment.date < timezone.localdate():
+            messages.error(
+                request,
+                f"This request was for {friendly_date(appointment.date)}, which "
+                "has passed. Move it to another time or decline it.",
+            )
         else:
             appointment.status = Appointment.CONFIRMED
             appointment.save()
 
             # Notify pet owner of approval
-            notify(
-                recipient=appointment.owner.user,
-                notification_type="appointment_approved",
-                title="Appointment Confirmed",
-                message=(
-                    f"Your appointment for {appointment.pet.name} on "
-                    f"{appointment.date.strftime('%B %d, %Y')} "
-                    f"at {appointment.time.strftime('%I:%M %p')} "
-                    f"has been confirmed."
-                ),
-                related_appointment=appointment,
-                related_pet=appointment.pet,
-                email_subject="Appointment Confirmed — Hapi Vet",
+            _notify_owner(
+                appointment,
+                "appointment_approved",
+                "Appointment Confirmed",
+                f"Your appointment for {appointment.pet.name} on "
+                f"{_notification_when(appointment)} has been confirmed.",
+                "Appointment Confirmed — Hapi Vet",
             )
 
             messages.success(
@@ -702,8 +775,7 @@ def admin_appointment_reject(request, pk):
 
             owner_message = (
                 f"Your appointment request for {appointment.pet.name} on "
-                f"{appointment.date.strftime('%B %d, %Y')} "
-                f"at {appointment.time.strftime('%I:%M %p')} "
+                f"{_notification_when(appointment)} "
                 f"was not confirmed by the clinic. "
                 f"Please contact the clinic for more information."
             )
@@ -711,14 +783,12 @@ def admin_appointment_reject(request, pk):
                 owner_message += f" Message from the clinic: {clinic_message}"
 
             # Notify pet owner of rejection
-            notify(
-                recipient=appointment.owner.user,
-                notification_type="appointment_rejected",
-                title="Appointment Not Confirmed",
-                message=owner_message,
-                related_appointment=appointment,
-                related_pet=appointment.pet,
-                email_subject="Appointment Update — Hapi Vet",
+            _notify_owner(
+                appointment,
+                "appointment_rejected",
+                "Appointment Not Confirmed",
+                owner_message,
+                "Appointment Update — Hapi Vet",
             )
 
             messages.success(
@@ -802,7 +872,7 @@ def admin_appointment_notes(request, pk):
         form = AdminAppointmentNotesForm(request.POST)
         if form.is_valid():
             appointment.notes = form.cleaned_data["notes"]
-            appointment.save()
+            appointment.save(update_fields=["notes", "updated_at"])
             messages.success(request, "Notes saved.")
         else:
             messages.error(request, "Could not save notes.")
@@ -829,11 +899,7 @@ def admin_appointment_cancel(request, pk):
         form = AdminAppointmentCancelForm(request.POST)
         if not form.is_valid():
             messages.error(request, "Please correct the errors below.")
-            return render(
-                request,
-                "admin/appointments/detail.html",
-                _admin_detail_context(appointment, cancel_form=form),
-            )
+            return _render_detail(request, appointment, cancel_form=form)
 
         appointment.status = Appointment.CANCELLED
         appointment.cancellation_reason = form.cleaned_data["cancellation_reason"]
@@ -844,20 +910,14 @@ def admin_appointment_cancel(request, pk):
         appointment.save()
 
         # Notify pet owner of cancellation by clinic
-        notify(
-            recipient=appointment.owner.user,
-            notification_type="appointment_cancelled",
-            title="Appointment Cancelled by Clinic",
-            message=(
-                f"Your appointment for {appointment.pet.name} on "
-                f"{appointment.date.strftime('%B %d, %Y')} "
-                f"at {appointment.time.strftime('%I:%M %p')} "
-                f"has been cancelled by the clinic. "
-                f"Please contact the clinic for more information."
-            ),
-            related_appointment=appointment,
-            related_pet=appointment.pet,
-            email_subject="Appointment Cancelled — Hapi Vet",
+        _notify_owner(
+            appointment,
+            "appointment_cancelled",
+            "Appointment Cancelled by Clinic",
+            f"Your appointment for {appointment.pet.name} on "
+            f"{_notification_when(appointment)} has been cancelled by the clinic. "
+            "Please contact the clinic for more information.",
+            "Appointment Cancelled — Hapi Vet",
         )
 
         messages.success(
@@ -890,27 +950,21 @@ def admin_appointment_reschedule(request, pk):
         form = AdminAppointmentRescheduleForm(appointment, request.POST)
         if not form.is_valid():
             messages.error(request, "Please correct the errors below.")
-            return render(
-                request,
-                "admin/appointments/detail.html",
-                _admin_detail_context(appointment, reschedule_form=form),
-            )
+            return _render_detail(request, appointment, reschedule_form=form)
 
         new_appointment = _reschedule_appointment(appointment, form, request.user)
 
-        # Notify pet owner of reschedule by clinic
-        notify(
-            recipient=new_appointment.owner.user,
-            notification_type="appointment_approved",
-            title="Appointment Rescheduled by Clinic",
-            message=(
-                f"Your appointment for {new_appointment.pet.name} has been "
-                f"rescheduled to {new_appointment.date.strftime('%B %d, %Y')} "
-                f"at {new_appointment.time.strftime('%I:%M %p')} by the clinic."
-            ),
-            related_appointment=new_appointment,
-            related_pet=new_appointment.pet,
-            email_subject="Appointment Rescheduled — Hapi Vet",
+        # Notify pet owner of reschedule by clinic. Absolute date, since the
+        # email may be read on another day.
+        _notify_owner(
+            new_appointment,
+            "appointment_approved",
+            "Appointment moved by the clinic",
+            f"Your appointment for {new_appointment.pet.name} was moved to "
+            f"{date_format(new_appointment.date, 'D, M j')} at "
+            f"{date_format(new_appointment.time, 'g:i A')} by the clinic. "
+            "The new time is confirmed.",
+            "Appointment Rescheduled — Hapi Vet",
         )
 
         messages.success(
@@ -1030,10 +1084,16 @@ def admin_get_slots_for_date(request):
         except ValueError:
             pass
 
+    # ?as=buttons: large radio buttons (detail page); default: <option>s (walk-in)
+    template = (
+        "admin/appointments/_slot_buttons.html"
+        if request.GET.get("as") == "buttons"
+        else "admin/appointments/_slot_options.html"
+    )
     return render(
         request,
-        "admin/appointments/_slot_options.html",
-        {"slots": slots},
+        template,
+        {"slots": slots, "selected": request.GET.get("selected", "")},
     )
 
 

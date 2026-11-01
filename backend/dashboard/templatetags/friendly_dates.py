@@ -41,6 +41,20 @@ def friendly_date(value):
 
 
 @register.filter
+def long_date(value):
+    """'Today, Saturday, October 31', 'Tomorrow, Sunday, November 1' or
+    'Monday, November 2, 2026'."""
+    if not value:
+        return ""
+    today = timezone.localdate()
+    if value == today:
+        return f"Today, {date_format(value, 'l, F j')}"
+    if value == today + timedelta(days=1):
+        return f"Tomorrow, {date_format(value, 'l, F j')}"
+    return date_format(value, "l, F j, Y")
+
+
+@register.filter
 def friendly_datetime(value):
     """'Today, 3:58 PM', 'Yesterday, 9:05 AM' or 'Mon, Nov 2, 3:58 PM'."""
     if not value:

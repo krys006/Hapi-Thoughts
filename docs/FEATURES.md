@@ -201,6 +201,7 @@ Phase 7 — Dashboards & Polish
 | Colored dot indicators on calendar days with appointments | `complete` |
 | Click day to view appointment details in side panel | `planned` |
 | Approve appointment request (PENDING → CONFIRMED) | `complete` |
+| Approve refused once the requested date has passed (move or decline it instead) | `complete` |
 | Reject appointment request (PENDING → CANCELLED) | `complete` |
 | Mark appointment as COMPLETED | `complete` |
 | Mark appointment as NO_SHOW | `complete` |

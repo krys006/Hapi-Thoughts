@@ -11,7 +11,11 @@ from django.utils import timezone
 
 from appointments.models import Appointment
 from dashboard.context_processors import shell
-from dashboard.templatetags.friendly_dates import friendly_date, friendly_datetime
+from dashboard.templatetags.friendly_dates import (
+    friendly_date,
+    friendly_datetime,
+    long_date,
+)
 from dashboard.views import _greeting, _parse_day
 from notifications.models import Notification
 from pets.models import Pet, PetDeletionRequest, PetOwner
@@ -141,12 +145,25 @@ class FriendlyDateTests(SimpleTestCase):
             with self.subTest(value=value):
                 self.assertEqual(friendly_date(value), expected)
 
+    def test_long_date(self, _now):
+        """Today and tomorrow keep their label; other days get the year."""
+        today = date(2026, 6, 15)
+        cases = {
+            today: "Today, Monday, June 15",
+            today + timedelta(days=1): "Tomorrow, Tuesday, June 16",
+            date(2026, 11, 2): "Monday, November 2, 2026",
+        }
+        for value, expected in cases.items():
+            with self.subTest(value=value):
+                self.assertEqual(long_date(value), expected)
+
     def test_empty_values(self, _now):
         """None and "" render as an empty string."""
         for value in (None, ""):
             with self.subTest(value=value):
                 self.assertEqual(friendly_date(value), "")
                 self.assertEqual(friendly_datetime(value), "")
+                self.assertEqual(long_date(value), "")
 
     def test_just_after_midnight_manila_is_today(self, _now):
         """16:30 UTC on Jun 14 is 00:30 on Jun 15 in Manila."""
