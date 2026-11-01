@@ -22,7 +22,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         self.dry_run = options["dry_run"]
-        today = timezone.now().date()
+        today = timezone.localdate()
 
         if self.dry_run:
             self.stdout.write(

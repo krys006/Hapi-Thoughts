@@ -215,7 +215,7 @@ class BillingReceipt(models.Model):
         """
         from django.utils import timezone
 
-        year = timezone.now().year
+        year = timezone.localdate().year
         prefix = f"HV-{year}-"
 
         # Find the highest existing number for this year

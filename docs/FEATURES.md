@@ -239,7 +239,8 @@ PENDING or CONFIRMED → CANCELLED
 | Rule | Detail |
 |---|---|
 | Booking limit | 30 days in advance |
-| Same-day booking | Allowed before configurable cutoff time |
+| Same-day booking | Allowed before the configurable cutoff time (Manila time). Before the cutoff, today offers only slots that haven't started yet; from the cutoff on, no slots today. Applies to the owner booking and reschedule forms, and is re-checked on submit. |
+| Move rules (admin) | Same as owner booking, except today has no same-day cutoff: only slots whose start is after the current Manila time are offered (not the slot in progress). Re-checked on submit. |
 | Slots | One appointment per slot |
 | Walk-in rules (admin) | Date defaults to today; future dates allowed inside the normal booking window (phone bookings), still saved as walk-ins. Today: no same-day cutoff, the slot in progress and later ones are offered (slot end after the current Manila time). Past dates, blocked dates and closed days have no slots. PENDING requests keep blocking their slot. |
 | Cancellation deadline | Planned, not built: 24 hours, after that requires Admin approval. Today owners can cancel at any time; within 24 hours the owner page only shows a warning. |

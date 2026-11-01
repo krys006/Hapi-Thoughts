@@ -202,7 +202,7 @@ def owner_appointment_list(request):
         return redirect("admin_dashboard")
 
     owner = request.user.petowner
-    today = timezone.now().date()
+    today = timezone.localdate()
 
     upcoming = (
         Appointment.objects.filter(
@@ -586,7 +586,9 @@ def _reschedule_slot_context(form):
     # Checking form.errors first runs validation, which fills cleaned_data
     valid_date = None if "date" in form.errors else form.cleaned_data.get("date")
     return {
-        "reschedule_slots": get_available_slots(valid_date) if valid_date else None,
+        "reschedule_slots": (
+            get_available_slots(valid_date, move=True) if valid_date else None
+        ),
         "reschedule_date": valid_date,
         "selected_time": form.data.get("time", ""),
     }
@@ -1156,8 +1158,9 @@ def admin_get_slots_for_date(request):
     """
     HTMX view — returns slot <option> elements for a selected date.
     Used in admin forms (walk-in, reschedule).
-    ?for=walk_in uses the walk-in rules (see get_available_slots); the
-    Move dialog leaves it out and keeps the default rules.
+    ?for=walk_in uses the walk-in rules (see get_available_slots); without
+    it (the Move dialog) the Move rules: no same-day cutoff, only slots
+    that haven't started.
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
@@ -1171,9 +1174,8 @@ def admin_get_slots_for_date(request):
     if date_str:
         try:
             date = datetime.date.fromisoformat(date_str)
-            slots = get_available_slots(
-                date, walk_in=request.GET.get("for") == "walk_in"
-            )
+            walk_in = request.GET.get("for") == "walk_in"
+            slots = get_available_slots(date, walk_in=walk_in, move=not walk_in)
         except ValueError:
             pass
 

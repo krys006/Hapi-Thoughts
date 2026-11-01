@@ -187,7 +187,7 @@ def _get_owner_dashboard_context(request):
     Shared by the full-page view and the HTMX polling partial.
     """
     owner = request.user.petowner
-    today = timezone.now().date()
+    today = timezone.localdate()
 
     upcoming_appointments = (
         Appointment.objects.filter(owner=owner, date__gte=today)

@@ -139,7 +139,7 @@ class Pet(models.Model):
         """Calculate age dynamically. Returns a human-readable string."""
         if not self.date_of_birth:
             return "Unknown"
-        today = timezone.now().date()
+        today = timezone.localdate()
         delta = today - self.date_of_birth
         years = delta.days // 365
         months = (delta.days % 365) // 30

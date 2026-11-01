@@ -84,7 +84,7 @@ def admin_medical_record_create(request, pet_pk):
             messages.error(request, "Please correct the errors below.")
     else:
         # Pre-fill record date with today
-        initial = {"record_date": timezone.now().date()}
+        initial = {"record_date": timezone.localdate()}
         # If linked to appointment, pre-fill date with appointment date
         if appointment:
             initial["record_date"] = appointment.date
@@ -315,7 +315,7 @@ def admin_vaccination_standalone_create(request, pet_pk):
         else:
             messages.error(request, "Please correct the errors below.")
     else:
-        form = VaccinationForm(initial={"date_administered": timezone.now().date()})
+        form = VaccinationForm(initial={"date_administered": timezone.localdate()})
 
     return render(
         request,

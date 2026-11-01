@@ -200,7 +200,7 @@ def admin_receipt_create(request):
         else:
             messages.error(request, "Please correct the errors below.")
     else:
-        initial = {"billing_date": timezone.now().date()}
+        initial = {"billing_date": timezone.localdate()}
         form = BillingReceiptForm(initial=initial)
 
     # For non-appointment receipts, load owners for manual selection
@@ -365,7 +365,7 @@ def admin_receipt_mark_paid(request, pk):
             messages.error(request, LOCKED_MESSAGE)
         else:
             receipt.payment_status = BillingReceipt.PAID
-            receipt.payment_date = timezone.now().date()
+            receipt.payment_date = timezone.localdate()
             receipt.save()
 
             # Notify pet owner that their receipt has been marked as paid
