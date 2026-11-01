@@ -126,7 +126,7 @@ Phase 7 — Dashboards & Polish
 ### Pet Profile Fields
 | Field | Required | Notes |
 |---|---|---|
-| Photo | Optional | Initials avatar as placeholder |
+| Photo | Optional | Placeholder when no photo: species icon (dog, cat, rabbit, bird, or a paw) on admin pages; initials avatar on owner pages |
 | Registration number | Optional | Government-issued |
 | Name | Required | — |
 | Species | Required | Dropdown + custom input |

@@ -1,0 +1,17 @@
+{% load pet_display %}
+{% comment %}
+  Pet picture: the uploaded photo, or a species icon on a violet tile.
+  Usage: {% include "components/pet_avatar.html" with pet=appointment.pet size="lg" %}
+  size: "lg" (64px, page headers) or "sm" (40px, list rows). Default "lg".
+{% endcomment %}
+{% if pet.photo %}
+  <img src="{{ pet.photo.url }}" alt="Photo of {{ pet.name }}" loading="lazy" class="{% if size == 'sm' %}size-10 rounded-xl{% else %}size-16 rounded-2xl{% endif %} shrink-0 object-cover">
+{% else %}
+  <span class="grid {% if size == 'sm' %}size-10 rounded-xl{% else %}size-16 rounded-2xl{% endif %} shrink-0 place-content-center bg-violet-50 text-violet-600 ring-1 ring-violet-200" role="img" aria-label="No photo of {{ pet.name }} yet">
+    {% if size == "sm" %}
+      {% include "components/icon.html" with name=pet.species|species_icon class="size-6 shrink-0" stroke="1.5" %}
+    {% else %}
+      {% include "components/icon.html" with name=pet.species|species_icon class="size-9 shrink-0" stroke="1.5" %}
+    {% endif %}
+  </span>
+{% endif %}

@@ -127,6 +127,8 @@ templates/
 ├── base_dashboard.html               ← Dashboard base (admin + owner)
 ├── components/                       ← Include-only UI building blocks (§11)
 │   ├── icon.html
+│   ├── pet_avatar.html
+│   ├── owner_avatar.html
 │   ├── form_field.html
 │   ├── status_badge.html
 │   ├── flash_messages.html
@@ -562,7 +564,7 @@ class AppointmentBookingForm(forms.ModelForm):
 ### Four base templates
 | Base | Used by | What it provides |
 |---|---|---|
-| `layouts/admin.html` | Admin pages migrated to the new UI (e.g. `admin/dashboard/index.html`) | Sidebar with count badges and logout, top bar with search and Notifications, flash messages, compiled `app.css`, vendored HTMX, CSRF + `X-Admin-Layout` via `hx-headers`, confirm modal |
+| `layouts/admin.html` | Admin pages migrated to the new UI (e.g. `admin/dashboard/index.html`) | Sidebar with count badges and logout, top bar with search ("Find a pet or owner") and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/admin/dialogs.js`, CSRF + `X-Admin-Layout` via `hx-headers`, confirm modal |
 | `layouts/auth.html` | `admin/login.html` | Admin login: standalone card on a violet background, `app.css`, no HTMX |
 | `base_dashboard.html` | Logged-in pages not migrated yet, admin and owner (e.g. `admin/billing/receipt_detail.html`, `owner/pets/list.html`, `shared/clinic_info.html`) | Header with search and bell, role-based sidebar, flash messages, Tailwind + HTMX, CSRF header for HTMX, confirm modal |
 | `base.html` | Standalone auth pages (e.g. `owner/login.html`, `owner/register.html`, password reset, `owner/onboarding/step1.html`) | Bare page with Tailwind + HTMX, no header or sidebar |
@@ -575,6 +577,8 @@ Migrated pages never loop over `messages` (the layout includes
 <!-- layouts/admin.html -->
 {% block title %}Hapi Vet Admin{% endblock %}
 {% block extra_head %}{% endblock %}  ← extra tags in <head>
+{% block topbar_search %}…{% endblock %} ← global search in the top bar; a page
+                                         with its own search empties it
 {% block page_header %}               ← default header, wraps the three below
   {% block page_title %}{% endblock %}
   {% block page_subtitle %}{% endblock %}
@@ -605,6 +609,26 @@ Migrated pages never loop over `messages` (the layout includes
 {% block content %}{% endblock %}
 {% block extra_js %}{% endblock %}
 ```
+
+### Dialogs (admin layout)
+`layouts/admin.html` loads `static/js/admin/dialogs.js` (deferred) on every
+page. Use a native `<dialog>` with data attributes, no inline handlers:
+```html
+<button type="button" class="btn btn-outline" data-dialog-open="move-dialog">Move</button>
+<dialog id="move-dialog">
+  …<input name="date" autofocus>…
+  <button type="button" class="btn btn-outline" data-dialog-close>Keep it</button>
+</dialog>
+<dialog id="decline-dialog" data-open-on-load>…</dialog>  ← opens on page load (e.g. form errors)
+```
+- `data-dialog-open="<id>"` opens that dialog with `showModal()`.
+- `data-dialog-close` inside a dialog closes it; so does a click on the
+  backdrop and the Escape key.
+- `data-open-on-load` opens the dialog when the page loads, or when an HTMX
+  swap brings it in (once per dialog).
+- Focus goes to the element with `autofocus`.
+- Clicks are handled once on `document`, so dialogs inside HTMX partials
+  need no extra wiring.
 
 ### Example dashboard page
 From `admin/billing/receipt_detail.html`:
@@ -721,7 +745,9 @@ The main admin user is an elderly vet. Every migrated admin page follows these:
 ### Components (`templates/components/`)
 | Component | Usage |
 |---|---|
-| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Lucide 1.66.0 (ISC), 30 icons. To add one, copy its shapes from the Lucide SVG file. |
+| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 44 icons. To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
+| `pet_avatar.html` | `{% include "components/pet_avatar.html" with pet=appointment.pet size="lg" %}`. `lg` 64px (`size-16 rounded-2xl`), `sm` 40px (`size-10 rounded-xl`). The pet's photo, or a violet tile with the `species_icon` icon (dog, cat, rabbit, bird, paw-print) at stroke 1.5, labelled "No photo of {name} yet". |
+| `owner_avatar.html` | `{% include "components/owner_avatar.html" with owner=appointment.owner size="xs" %}`. Circle; `sm` 40px, `xs` 32px. The profile photo, or initials (one letter when the last name is blank). Old owner templates still draw initials inline until Slice 4. |
 | `form_field.html` | `{% include "components/form_field.html" with field=form.email %}`. Label, control, help text, errors. Needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple field uses it. |
 | `status_badge.html` | `{% include "components/status_badge.html" with status=obj.status label=obj.get_status_display %}` |
 | `flash_messages.html` | Rendered once by the admin layout; pages must not loop over `messages`. |

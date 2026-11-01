@@ -3,6 +3,7 @@ from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
+from django.core import mail
 from django.db import DatabaseError
 from django.test import TestCase
 from django.urls import reverse
@@ -99,14 +100,19 @@ class ApproveTests(AppointmentTestBase):
                 )
 
     def test_refused_when_date_has_passed(self):
-        appointment = self._appointment(Appointment.PENDING, days_from_today=-3)
-        response = self._post("admin_appointment_approve", appointment)
-        self._assert_status(appointment, Appointment.PENDING)
-        self.assertIn(
-            f"This request was for {friendly_date(appointment.date)}, which has "
-            "passed. Move it to another time or decline it.",
-            self._messages(response),
-        )
+        """Absolute date ("Thu, Oct 29"), not "Yesterday"."""
+        for days in (-1, -3):
+            with self.subTest(days=days):
+                appointment = self._appointment(
+                    Appointment.PENDING, days_from_today=days
+                )
+                response = self._post("admin_appointment_approve", appointment)
+                self._assert_status(appointment, Appointment.PENDING)
+                self.assertIn(
+                    f"This request was for {date_format(appointment.date, 'D, M j')}, "
+                    "which has passed. Move it to another time or decline it.",
+                    self._messages(response),
+                )
         self.assertFalse(
             Notification.objects.filter(recipient=self.owner.user).exists()
         )
@@ -354,6 +360,13 @@ class RescheduleTests(AppointmentTestBase):
             "The new time is confirmed.",
         )
         self.assertNotIn("09:00", notification.message)
+
+    def test_owner_email_subject(self):
+        original = self._appointment(Appointment.PENDING)
+        self._post("admin_appointment_reschedule", original, self._data())
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].subject, "Appointment moved — Hapi Vet")
+        self.assertEqual(mail.outbox[0].to, ["owner@example.com"])
 
     def test_original_kept_if_creating_the_new_one_fails(self):
         original = self._appointment(Appointment.CONFIRMED)

@@ -722,8 +722,8 @@ def admin_appointment_approve(request, pk):
         elif appointment.date < timezone.localdate():
             messages.error(
                 request,
-                f"This request was for {friendly_date(appointment.date)}, which "
-                "has passed. Move it to another time or decline it.",
+                f"This request was for {date_format(appointment.date, 'D, M j')}, "
+                "which has passed. Move it to another time or decline it.",
             )
         else:
             appointment.status = Appointment.CONFIRMED
@@ -964,7 +964,7 @@ def admin_appointment_reschedule(request, pk):
             f"{date_format(new_appointment.date, 'D, M j')} at "
             f"{date_format(new_appointment.time, 'g:i A')} by the clinic. "
             "The new time is confirmed.",
-            "Appointment Rescheduled — Hapi Vet",
+            "Appointment moved — Hapi Vet",
         )
 
         messages.success(

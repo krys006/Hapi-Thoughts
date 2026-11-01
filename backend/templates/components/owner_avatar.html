@@ -1,0 +1,11 @@
+{% comment %}
+  Owner picture in a circle: the profile photo, or initials.
+  Usage: {% include "components/owner_avatar.html" with owner=appointment.owner size="xs" %}
+  size: "sm" (40px) or "xs" (32px, table rows). Default "sm".
+  Initials are one letter when the last name is blank.
+{% endcomment %}
+{% if owner.profile_photo %}
+  <img src="{{ owner.profile_photo.url }}" alt="{{ owner.first_name }}{% if owner.last_name %} {{ owner.last_name }}{% endif %}" loading="lazy" class="{% if size == 'xs' %}size-8{% else %}size-10{% endif %} shrink-0 rounded-full object-cover">
+{% else %}
+  <span class="grid {% if size == 'xs' %}size-8 text-sm{% else %}size-10 text-base{% endif %} shrink-0 place-content-center rounded-full bg-violet-50 font-semibold tracking-wide text-violet-700 ring-1 ring-violet-200" role="img" aria-label="{{ owner.first_name }}{% if owner.last_name %} {{ owner.last_name }}{% endif %}">{{ owner.first_name|first|upper }}{{ owner.last_name|first|upper }}</span>
+{% endif %}

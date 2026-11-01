@@ -5,6 +5,8 @@ from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
+from django.template import engines
+from django.template.loader import render_to_string
 from django.test import RequestFactory, SimpleTestCase, TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -263,6 +265,73 @@ class SidebarTests(ShellTestBase):
     def test_services_highlights_billing(self):
         nav = self._sidebar(self.client.get(reverse("admin_service_list")))
         self.assertIn('aria-current="page"', self._link(nav, "admin_receipt_list"))
+
+
+class TopbarSearchTests(ShellTestBase):
+    """The global search sits in {% block topbar_search %}, so a page can drop it."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.admin)
+
+    def test_normal_admin_page_has_global_search(self):
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertContains(response, 'id="global-search"')
+        self.assertContains(response, 'placeholder="Find a pet or owner"')
+        self.assertContains(
+            response,
+            '<label for="global-search" class="sr-only">Find a pet or owner</label>',
+        )
+
+    def test_page_can_empty_the_block(self):
+        page = engines["django"].from_string(
+            '{% extends "layouts/admin.html" %}{% block topbar_search %}{% endblock %}'
+        )
+        request = self.factory.get(reverse("admin_dashboard"))
+        request.user = self.admin
+        html = page.render({}, request)
+        self.assertNotIn("Find a pet or owner", html)
+        self.assertNotIn('id="global-search', html)
+        # The rest of the top bar stays
+        self.assertIn('id="bell-button"', html)
+
+    def test_layout_loads_dialogs_js(self):
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertRegex(
+            response.content.decode(),
+            r'<script src="/static/js/admin/dialogs\.[0-9a-f]+\.js" defer></script>',
+        )
+
+
+def _squash(html):
+    """Rendered markup with indentation and blank lines removed."""
+    return "".join(line.strip() for line in html.splitlines())
+
+
+class IconComponentTests(SimpleTestCase):
+
+    def _icon(self, **context):
+        return _squash(render_to_string("components/icon.html", context))
+
+    def test_existing_icon_renders_unchanged(self):
+        self.assertEqual(
+            self._icon(name="x"),
+            '<svg class="size-5 shrink-0" xmlns="http://www.w3.org/2000/svg" '
+            'width="20" height="20" viewBox="0 0 24 24" fill="none" '
+            'stroke="currentColor" stroke-width="2" stroke-linecap="round" '
+            'stroke-linejoin="round" aria-hidden="true" focusable="false">'
+            '<path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>',
+        )
+
+    def test_stroke_param(self):
+        self.assertIn('stroke-width="1.5"', self._icon(name="x", stroke="1.5"))
+        self.assertNotIn('stroke-width="2"', self._icon(name="x", stroke="1.5"))
+
+    def test_new_icon_renders(self):
+        html = self._icon(name="dog", **{"class": "size-9"})
+        self.assertIn('class="size-9"', html)
+        self.assertIn('<path d="M11.25 16.25h1.5L12 17z" />', html)
+        self.assertEqual(html.count("<path"), 5)
 
 
 class GreetingTests(SimpleTestCase):
