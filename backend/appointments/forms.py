@@ -345,7 +345,14 @@ class AdminAppointmentNotesForm(forms.Form):
     """
 
     notes = forms.CharField(
-        widget=forms.Textarea(attrs={"rows": 3}),
+        widget=forms.Textarea(
+            attrs={
+                "rows": 4,
+                "placeholder": "For example: nervous with strangers, use a muzzle.",
+                # Helper line on the detail page's notes card
+                "aria-describedby": "notes-help",
+            }
+        ),
         required=False,
         help_text="Internal notes about this appointment.",
     )
@@ -357,12 +364,14 @@ class AdminAppointmentCancelForm(forms.Form):
     """
 
     cancellation_reason = forms.ChoiceField(
+        label="Reason",
         choices=Appointment.CANCEL_CHOICES,
     )
     cancellation_detail = forms.CharField(
+        label="Details",
         widget=forms.Textarea(attrs={"rows": 3}),
         required=False,
-        help_text="Additional detail (required if reason is Other).",
+        help_text="Required when the reason is Other. The owner can see this.",
     )
 
     def clean(self):
@@ -386,8 +395,8 @@ class AdminAppointmentRescheduleForm(forms.Form):
         choices=[("", "Select a date first")],
     )
     reschedule_reason = forms.CharField(
+        label="Reason for the change",
         widget=forms.Textarea(attrs={"rows": 3}),
-        help_text="Reason for rescheduling.",
     )
 
     def __init__(self, appointment, *args, **kwargs):

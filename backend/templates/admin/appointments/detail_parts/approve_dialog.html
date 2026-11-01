@@ -1,0 +1,10 @@
+{% load friendly_dates %}
+<dialog id="approve-dialog" aria-labelledby="approve-dialog-title" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50">
+  <form method="post" action="{% url 'admin_appointment_approve' appointment.pk %}" class="p-6 sm:p-7">
+    {% csrf_token %}
+    <h2 id="approve-dialog-title" class="text-xl font-bold">Approve {{ appointment.pet.name }}'s request?</h2>
+    <p class="mt-2 text-base text-gray-700">The visit on <b>{{ appointment.date|friendly_date:"mid" }} at {{ appointment.time|time:"g:i A" }}</b> will be confirmed.</p>
+    {% include "admin/appointments/detail_parts/notify_line.html" with class="mt-2" %}
+    {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, approve request" icon="check" %}
+  </form>
+</dialog>

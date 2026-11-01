@@ -1,0 +1,23 @@
+{% comment %}
+  "Showing 26–42 of 42" with Previous/Next. A missing page is a greyed
+  <span>, not a link. With one page only the "Showing all N" text shows.
+{% endcomment %}
+<div class="flex flex-wrap items-center gap-3 border-t border-gray-200 px-5 py-3">
+  {% if page_obj.paginator.num_pages > 1 %}
+    <p class="flex-1 text-base text-gray-700">Showing {{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ page_obj.paginator.count }}</p>
+    <nav class="flex gap-3" aria-label="Pages">
+      {% if prev_page_query %}
+        <a href="{{ prev_page_query }}" class="btn btn-outline">{% include "components/icon.html" with name="chevron-left" %}Previous</a>
+      {% else %}
+        <span class="btn border border-gray-200 bg-gray-50 text-gray-600" aria-disabled="true">{% include "components/icon.html" with name="chevron-left" %}Previous</span>
+      {% endif %}
+      {% if next_page_query %}
+        <a href="{{ next_page_query }}" class="btn btn-outline">Next{% include "components/icon.html" with name="chevron-right" %}</a>
+      {% else %}
+        <span class="btn border border-gray-200 bg-gray-50 text-gray-600" aria-disabled="true">Next{% include "components/icon.html" with name="chevron-right" %}</span>
+      {% endif %}
+    </nav>
+  {% else %}
+    <p class="flex-1 text-base text-gray-700">Showing all {{ page_obj.paginator.count }}</p>
+  {% endif %}
+</div>

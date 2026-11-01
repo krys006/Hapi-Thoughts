@@ -1,0 +1,45 @@
+{% load friendly_dates %}
+{% comment %}
+  Move to another time (posts to admin_appointment_reschedule). Picking a
+  date loads that day's free times as large radio buttons
+  (_slot_buttons.html). After a form error the dialog reopens with the
+  typed date, reason and chosen time (reschedule_slots / selected_time
+  come from _reschedule_slot_context in the view).
+{% endcomment %}
+<dialog id="move-dialog" aria-labelledby="move-dialog-title" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50"{% if open_dialog == "move" %} data-open-on-load{% endif %}>
+  <form method="post" action="{% url 'admin_appointment_reschedule' appointment.pk %}" class="p-6 sm:p-7">
+    {% csrf_token %}
+    <h2 id="move-dialog-title" class="text-xl font-bold">Move {{ appointment.pet.name }} to another time</h2>
+    <p class="mt-1 text-base text-gray-700">Right now: <b>{{ appointment.date|friendly_date }} at {{ appointment.time|time:"g:i A" }}</b>{% if appointment.service %} · {{ appointment.service.service_name }}{% endif %}</p>
+
+    {% if open_dialog == "move" %}
+      {% include "admin/appointments/detail_parts/dialog_error.html" with errors=reschedule_form.non_field_errors %}
+    {% endif %}
+
+    <div class="form-field mt-5 space-y-1.5{% if reschedule_form.date.errors %} has-error{% endif %}">
+      <label for="move-date" class="block text-base font-medium text-gray-800">New date <span class="text-red-700" aria-hidden="true">*</span></label>
+      <input type="date" id="move-date" name="date" value="{{ reschedule_form.date.value|default:'' }}" required class="sm:max-w-64" hx-get="{% url 'admin_get_slots_for_date' %}?as=buttons&amp;selected={{ selected_time|urlencode }}" hx-trigger="change" hx-target="#move-slots" hx-swap="innerHTML">
+      {% for error in reschedule_form.date.errors %}<p class="text-sm font-medium text-red-700">{{ error }}</p>{% endfor %}
+    </div>
+
+    <fieldset class="mt-5">
+      <legend class="text-base font-medium text-gray-800">New time <span class="text-red-700" aria-hidden="true">*</span></legend>
+      <div id="move-slots" class="mt-1.5" aria-live="polite">
+        {% if reschedule_slots is not None %}
+          {% include "admin/appointments/_slot_buttons.html" with slots=reschedule_slots slots_date=reschedule_date selected=selected_time %}
+        {% else %}
+          <p class="rounded-lg border border-dashed border-gray-300 px-4 py-5 text-center text-base text-gray-600">Pick a date to see the free times.</p>
+        {% endif %}
+      </div>
+      {% for error in reschedule_form.time.errors %}<p class="mt-1.5 text-sm font-medium text-red-700">{{ error }}</p>{% endfor %}
+    </fieldset>
+
+    <div class="mt-5">
+      {% include "components/form_field.html" with field=reschedule_form.reschedule_reason %}
+    </div>
+
+    <p class="mt-4 text-base text-gray-700">The new time is confirmed right away.</p>
+    {% include "admin/appointments/detail_parts/notify_line.html" with class="mt-1" %}
+    {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Move appointment" icon="calendar-clock" %}
+  </form>
+</dialog>

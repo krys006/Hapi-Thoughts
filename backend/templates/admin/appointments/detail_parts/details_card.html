@@ -1,0 +1,94 @@
+{% load friendly_dates %}
+{% comment %}
+  "Appointment details" card. Label and value side by side from sm up,
+  stacked on phones. Medical record / receipt rows only after the visit;
+  the reason row only for a cancellation (a moved appointment shows its
+  new time in the banner instead).
+{% endcomment %}
+<section class="card" aria-labelledby="details-title">
+  <h2 id="details-title" class="mb-2 text-xl font-semibold">Appointment details</h2>
+  <dl class="divide-y divide-gray-100">
+    <div class="grid py-2 sm:grid-cols-[10rem_1fr] sm:items-center sm:gap-3">
+      <dt class="text-sm text-gray-600 sm:text-base">Pet</dt>
+      <dd class="flex min-h-11 flex-wrap items-center gap-x-2 text-base text-gray-900">
+        <a href="{% url 'admin_pet_detail' appointment.pet.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ appointment.pet.name }}</a>
+        <span>· {{ appointment.pet.species }}{% if appointment.pet.breed %}, {{ appointment.pet.breed }}{% endif %}</span>
+      </dd>
+    </div>
+    <div class="grid py-2 sm:grid-cols-[10rem_1fr] sm:items-center sm:gap-3">
+      <dt class="text-sm text-gray-600 sm:text-base">Owner</dt>
+      <dd class="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 text-base text-gray-900">
+        {% include "components/owner_avatar.html" with owner=appointment.owner size="xs" %}
+        <span>
+          <a href="{% url 'admin_owner_detail' appointment.owner.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ appointment.owner.full_name }}</a>
+          · {% if appointment.owner.contact_number %}{{ appointment.owner.contact_number }}{% else %}<span class="text-gray-600">No phone number</span>{% endif %}
+        </span>
+      </dd>
+    </div>
+    <div class="grid py-2 sm:grid-cols-[10rem_1fr] sm:items-center sm:gap-3">
+      <dt class="text-sm text-gray-600 sm:text-base">Service</dt>
+      <dd class="flex min-h-11 items-center text-base text-gray-900">
+        {% if appointment.service %}{{ appointment.service.service_name }}{% else %}<span class="text-gray-600">Not chosen</span>{% endif %}
+      </dd>
+    </div>
+    <div class="grid py-2 sm:grid-cols-[10rem_1fr] sm:items-center sm:gap-3">
+      <dt class="text-sm text-gray-600 sm:text-base">Date and time</dt>
+      <dd class="flex min-h-11 items-center text-base text-gray-900">{{ appointment.date|long_date }} at {{ appointment.time|time:"g:i A" }}</dd>
+    </div>
+    <div class="grid py-2 sm:grid-cols-[10rem_1fr] sm:items-center sm:gap-3">
+      <dt class="text-sm text-gray-600 sm:text-base">Reason for visit</dt>
+      <dd class="flex min-h-11 items-center text-base text-gray-900">
+        {% if appointment.reason %}{{ appointment.reason }}{% else %}<span class="text-gray-600">None given</span>{% endif %}
+      </dd>
+    </div>
+    {% if appointment.rescheduled_from %}
+      <div class="grid py-2 sm:grid-cols-[10rem_1fr] sm:items-center sm:gap-3">
+        <dt class="text-sm text-gray-600 sm:text-base">Moved from</dt>
+        <dd class="flex min-h-11 flex-wrap items-center gap-x-2 text-base text-gray-900">
+          <a href="{% url 'admin_appointment_detail' appointment.rescheduled_from.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ appointment.rescheduled_from.date|friendly_date }} at {{ appointment.rescheduled_from.time|time:"g:i A" }}</a>
+          {% if appointment.reschedule_reason %}<span>· {{ appointment.reschedule_reason }}</span>{% endif %}
+        </dd>
+      </div>
+    {% endif %}
+    <div class="grid py-2 sm:grid-cols-[10rem_1fr] sm:items-center sm:gap-3">
+      <dt class="text-sm text-gray-600 sm:text-base">Booked</dt>
+      <dd class="flex min-h-11 items-center text-base text-gray-900">
+        {{ appointment.created_at|friendly_datetime }}, {% if appointment.is_walk_in %}walk-in added by the clinic{% elif appointment.rescheduled_from %}moved here by the clinic{% else %}online by the owner{% endif %}
+      </dd>
+    </div>
+
+    {% if appointment.status == "completed" %}
+      <div class="grid py-2 sm:grid-cols-[10rem_1fr] sm:items-center sm:gap-3">
+        <dt class="text-sm text-gray-600 sm:text-base">Medical record</dt>
+        <dd class="flex min-h-11 flex-wrap items-center gap-x-2 text-base text-gray-900">
+          {% if medical_record %}
+            <a href="{% url 'admin_medical_record_detail' medical_record.pk %}" class="font-medium text-blue-600 underline underline-offset-2">Open medical record</a>
+            <span class="text-gray-600">· added {{ medical_record.created_at|friendly_datetime }}</span>
+          {% else %}
+            <span class="text-gray-600">Not added yet</span>
+          {% endif %}
+        </dd>
+      </div>
+      <div class="grid py-2 sm:grid-cols-[10rem_1fr] sm:items-center sm:gap-3">
+        <dt class="text-sm text-gray-600 sm:text-base">Receipt</dt>
+        <dd class="flex min-h-11 flex-wrap items-center gap-x-2 text-base text-gray-900">
+          {% if receipt %}
+            <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="font-medium text-blue-600 underline underline-offset-2">Open receipt</a>
+            <span class="text-gray-600">· {{ receipt.receipt_number }}</span>
+          {% else %}
+            <span class="text-gray-600">Not created yet</span>
+          {% endif %}
+        </dd>
+      </div>
+    {% endif %}
+
+    {% if appointment.status == "cancelled" and not moved_to %}
+      <div class="grid py-2 sm:grid-cols-[10rem_1fr] sm:items-center sm:gap-3">
+        <dt class="text-sm text-gray-600 sm:text-base">Reason</dt>
+        <dd class="flex min-h-11 items-center text-base text-gray-900">
+          {{ appointment.get_cancellation_reason_display|default:"No reason given" }}{% if appointment.cancellation_detail %}: {{ appointment.cancellation_detail }}{% endif %}
+        </dd>
+      </div>
+    {% endif %}
+  </dl>
+</section>

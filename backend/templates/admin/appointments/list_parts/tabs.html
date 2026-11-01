@@ -1,0 +1,37 @@
+{% comment %}
+  Status tabs. md and up: one link per tab (the active one violet, Needs
+  approval's count yellow while it waits). Phones: a "Show" dropdown in a
+  GET form, so it works without JavaScript. On the hidden "unfinished" tab
+  no tab is active and a line above the table says what is shown.
+{% endcomment %}
+<nav class="mb-4 hidden flex-wrap gap-2 md:flex" aria-label="Filter by status">
+  {% for tab in tabs %}
+    {% if tab.id == active_tab %}
+      <a href="{% url 'admin_appointments' %}?status={{ tab.id }}" class="inline-flex min-h-12 items-center gap-2 rounded-lg bg-violet-600 px-4 text-base font-semibold text-white" aria-current="page">{{ tab.label }}<span class="rounded-full bg-white/25 px-2 text-sm font-semibold text-white">{{ tab.count }}</span></a>
+    {% else %}
+      <a href="{% url 'admin_appointments' %}?status={{ tab.id }}" class="inline-flex min-h-12 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800 hover:bg-gray-50">{{ tab.label }}<span class="rounded-full px-2 text-sm font-semibold {% if tab.id == 'pending' and tab.count %}bg-yellow-200 text-yellow-900{% else %}bg-gray-100 text-gray-800{% endif %}">{{ tab.count }}</span></a>
+    {% endif %}
+  {% endfor %}
+</nav>
+
+<form method="get" action="{% url 'admin_appointments' %}" class="mb-4 flex items-end gap-3 md:hidden">
+  <div class="min-w-0 flex-1">
+    <label for="status-select" class="mb-1.5 block text-base font-medium text-gray-800">Show</label>
+    <select id="status-select" name="status" class="input font-semibold">
+      {% if active_tab == "unfinished" %}
+        <option value="unfinished" selected>Past visits still marked Confirmed</option>
+      {% endif %}
+      {% for tab in tabs %}
+        <option value="{{ tab.id }}"{% if tab.id == active_tab %} selected{% endif %}>{{ tab.label }} ({{ tab.count }})</option>
+      {% endfor %}
+    </select>
+  </div>
+  <button type="submit" class="btn btn-outline">Show</button>
+</form>
+
+{% if active_tab == "unfinished" %}
+  <div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1">
+    <p class="text-lg font-semibold text-gray-900">Past visits still marked Confirmed</p>
+    <a href="{% url 'admin_appointments' %}?status=upcoming" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="arrow-left" %}Back to Upcoming</a>
+  </div>
+{% endif %}

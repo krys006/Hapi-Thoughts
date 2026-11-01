@@ -1,0 +1,12 @@
+{% comment %}
+  Red box at the top of a dialog that reopened after a form error, with
+  the form's non-field errors (e.g. "This slot is no longer available").
+  Usage: {% include "admin/appointments/detail_parts/dialog_error.html" with errors=form.non_field_errors %}
+{% endcomment %}
+<div class="mt-4 flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-base text-red-900" role="alert">
+  {% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0" %}
+  <div>
+    <p class="font-medium">Please correct the errors below.</p>
+    {% for error in errors %}<p class="mt-1">{{ error }}</p>{% endfor %}
+  </div>
+</div>

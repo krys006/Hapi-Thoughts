@@ -1,6 +1,6 @@
 # HANDOFF.md — Hapi Vet Project State
 
-> Last updated: 2026-11-01, after Slice 2 of the admin UI overhaul
+> Last updated: 2026-11-01, after Slice 3b B5 (appointments list template)
 > (post-break audit: 2026-10-16).
 > §3–§5 describe the verified state as of those dates. Anything marked
 > "(unverified)" could not be confirmed from the code.
@@ -220,7 +220,14 @@ to needs-approval) and the appointments list.
 - Slice 1 shell + dashboard: new `layouts/admin.html` with sidebar badges and logout; top bar search and Notifications; admin notification panel; redesigned dashboard with day schedule and mini calendar; shell context processor; Manila dates; 403/HX-Redirect for HTMX — Done 2026-11-01
 - Slice 1.5 — new frame on all admin pages (legacy CSS layer); sidebar trimmed to 9 items in 3 groups: Deletion requests is a tab on Pets, Services a tab on Billing, Clinic info a button in Clinic settings — Done 2026-11-01
 - Slice 2 admin login: new `layouts/auth.html`; redesigned admin login (clinic logo/name, large fields, Show password, Caps Lock warning, one generic error); `login.css` retired — Done 2026-11-01
-- Slice 3 appointments (list, detail, walk-in, calendar page) — next
+- Slice 3 appointments (list, detail, walk-in, calendar page) — in progress
+  - 3a-2 B1 detail backend: approve refuses past dates; `_notify_owner` helper; reschedule message "moved by the clinic… The new time is confirmed."; detail context flags for the redesign; `?as=buttons` slot partial; `long_date` and `species_icon` filters — Done 2026-11-01
+  - 3a-2 B2 shared components: icon `stroke`, `pet_avatar`, `owner_avatar`, `dialogs.js`, `topbar_search` block — Done 2026-11-01
+  - 3a-2 B3 detail page redesign: `admin/appointments/detail.html` on the new layout (no legacy CSS) with includes in `detail_parts/`; status banner per state, details + internal notes cards, actions card (first on small screens), native dialogs for approve/decline/complete/no-show/cancel/move; move dialog uses `_slot_buttons.html`; dialogs reopen on form errors; context adds `medical_record` and `receipt`; admin form labels ("Reason", "Details", "Reason for the change") and a notes placeholder; `species_icon` matches plurals — Done 2026-11-01. `static/css/admin/appointment_detail.css` was deleted in B5.
+  - 3a-2 B3 polish: `friendly_date` / `long_date` take an optional `"mid"` argument (lowercase today/tomorrow/yesterday inside a sentence; CONVENTIONS §10 "Date filters"), used in the status banners, the approve/decline/complete/no-show/cancel dialogs ("Confirmed for today at 11:00 AM") and the admin flash messages (`_when`, `_too_early_message`: "Confirmed Bantay for today at 9:00 AM."); `long_date` leaves out the year in the current year; `_slot_buttons.html` shows a "Free times on {long_date}" heading ("Free times today, Sunday, November 1") from `slots_date` (slot view) / `reschedule_date` (`_reschedule_slot_context`), none before a date is picked; the move dialog's legend is "New time" — Done 2026-11-01
+  - 3b B4 list backend: `admin_appointment_list` rewritten on helpers in `appointments/utils.py` (`tab_counts`, `resolve_list_tab`, `filter_appointments`, `parse_list_date`, `group_by_day`, `list_tabs`, `unfinished_visits`, `list_querystring`, `paging_links`). Tabs `pending` ("Needs approval"), `upcoming` (CONFIRMED from today; `confirmed` is an alias), `completed`, `cancelled` (excludes moved originals), `no_show`, `all`, plus hidden `unfinished` (CONFIRMED before today). Default tab: pending when any exist, else upcoming; unknown values fall back to it. `?q=` (every word matches pet name or owner first/last name) and `?date=` search every status and show "All"; a bad date is ignored. Work tabs sort oldest first, history tabs newest first; 25 per page. Tab counts are one aggregate query, unaffected by search. Rows carry `is_moved` (an Exists subquery) for the "Moved" label. Context for B5: `active_tab`, `tabs`, `day_groups`, `page_obj`, `page_query`, `prev_page_query`/`next_page_query`, `q`, `date_filter` (a date), `is_searching`, `unfinished_count`, `unfinished_visit` (only when exactly one). `appointments` and the HX-Request partial were kept for the old template (removed in B5) — Done 2026-11-01.
+  - 3b B5 list template redesign: `admin/appointments/list.html` on the new layout (no legacy CSS, no top-bar search) with includes in `list_parts/`; tab links from md up (Needs approval count yellow while waiting), a "Show" GET dropdown on phones; search form (q + date, never status) with Clear search; yellow unfinished notice on pending/upcoming (view flag `show_unfinished_notice`); hidden unfinished tab shows "Past visits still marked Confirmed" + "Back to Upcoming"; table grouped by day ("Today · …" heading) from md up, one-link cards below md; Moved / Walk-in / Date has passed tags; pager with disabled spans; empty states per tab and for search. Only button: "New walk-in" (no Calendar button: there is no admin calendar page yet). HX-Request branch, `_appointment_list_partial.html`, `appointments_list.js`, `appointments_list.css` and `appointment_detail.css` deleted; `appointments` context key removed (`today` kept for the day headings and the passed-date tag) — Done 2026-11-01
+  - Next: PR `feature/admin-appointment-detail` into `trial-run`
 - Slice 4 pets and owners (incl. the broken `<a>` tags in deletion_requests)
 - Slice 5 medical
 - Slice 6 billing (receipt print must stay a direct child of `<body>`, with no transform/filter on any ancestor)
@@ -242,7 +249,7 @@ to needs-approval) and the appointments list.
 - Admin sidebar has no logout link [frontend] → UI overhaul Slice 1 — Done 2026-11-01
 - Logout accepts GET; convert to POST form (low priority) [both]
 - Pricing on booking page: bring over commit 8b45d23 from backend-dev (no migration) [both]
-- UTC dates: remaining `timezone.now().date()` in booking/slot logic and other views — `appointments/utils.py` `get_available_slots`, `is_slot_available`, `get_available_dates`; `appointments/views.py` `owner_appointment_list`, `admin_appointment_list`; `dashboard/views.py` `_get_owner_dashboard_context`; `billing/views.py:203`, `:368`; `medical/views.py:87`, `:318`; plus `appointments/forms.py` (`AdminAppointmentRescheduleForm.clean_date` done 2026-11-01), `pets/forms.py`, both `models.py` files and `send_reminders.py` → use `timezone.localdate()`, with tests for the same-day cutoff [backend]
+- UTC dates: remaining `timezone.now().date()` in booking/slot logic and other views — `appointments/utils.py` `get_available_slots`, `is_slot_available`, `get_available_dates`; `appointments/views.py` `owner_appointment_list` (`admin_appointment_list` done 2026-11-01); `dashboard/views.py` `_get_owner_dashboard_context`; `billing/views.py:203`, `:368`; `medical/views.py:87`, `:318`; plus `appointments/forms.py` (`AdminAppointmentRescheduleForm.clean_date` done 2026-11-01), `pets/forms.py`, both `models.py` files and `send_reminders.py` → use `timezone.localdate()`, with tests for the same-day cutoff [backend]
 - ClinicSettings is fetched two ways: `get_or_create(pk=1)` on the settings page vs `.first()` everywhere else — add one helper [backend]
 - Admin reschedule uses owner booking limits (30-day window, same-day cutoff); same-day slots aren't filtered by the current time [backend]
 - Reschedule notification uses type `appointment_approved` (follows the owner's status-email preference) [backend]
@@ -254,6 +261,8 @@ to needs-approval) and the appointments list.
 - Admin password reset: the reset flow is owner-branded and ends on the owner login; build an admin version if needed. [both]
 - Admin login has no rate limiting or lockout. [backend]
 - Password reset email hard-codes `http://` (ignores the protocol). [backend]
+- Pet-mismatch guard: `admin_medical_record_create` (`?appointment=` is never checked against the `pet_pk` in the URL) and `admin_receipt_create` (no check that the appointment can take a receipt) — refuse an appointment that belongs to another pet [backend]
+- Walk-in same-day cutoff bug: `AdminWalkInAppointmentForm` says walk-ins bypass the same-day cutoff, but its time choices come from `get_available_slots`, which drops today's slots before the cutoff, so a walk-in today before the cutoff can't be booked. Planned for Slice 3c (walk-in) [backend]
 
 ### FRONTEND BRANCH REVIEW
 - B3: review the `frontend/hannah-user` branch (owner templates) and decide, piece by piece, what to bring in and what to discard. It is no longer under active development. Check form field names and template tags against the current views; base_dashboard.html will conflict. [frontend]
@@ -267,6 +276,8 @@ to needs-approval) and the appointments list.
 - PetDeletionRequest: cancelling deletes the row; should become a CANCELLED status (choices change = new migration) [backend] — verified: `pets/views.py:518`
 - Upload filename sanitization (Supabase rejects non-ASCII names); callable upload_to = new migration [backend] — verified: all `upload_to` values are plain strings
 - Walk-ins without email are saved with `email=""` (`accounts/views.py:340,348`), which collides on the unique email constraint for the second one — decide nullable email vs. another approach [backend]
+- Distinct "declined" cancellation reason: a clinic decline and a clinic cancel with reason Other are stored the same way (`cancellation_reason=other`, `cancelled_by`=admin), so the detail page can't tell them apart. Needs a new `CANCEL_CHOICES` value (choices change = new migration) [backend]
+- Notes "last saved" timestamp: the detail page can't show when the internal notes were last saved (`updated_at` changes on every save). Needs a new field; low priority [backend]
 - Resend failed emails: review b6e0ad3's logic (written for Gmail SMTP before the Brevo switch in 8548613; must catch anymail errors). Model/migration already synced. [both]
 
 ### POLISH

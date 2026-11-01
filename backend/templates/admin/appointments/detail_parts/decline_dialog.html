@@ -1,0 +1,16 @@
+{% load friendly_dates %}
+{# maxlength matches REJECT_MESSAGE_MAX_LENGTH in appointments/views.py #}
+<dialog id="decline-dialog" aria-labelledby="decline-dialog-title" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50">
+  <form method="post" action="{% url 'admin_appointment_reject' appointment.pk %}" class="p-6 sm:p-7">
+    {% csrf_token %}
+    <h2 id="decline-dialog-title" class="text-xl font-bold">Decline {{ appointment.pet.name }}'s request?</h2>
+    <p class="mt-2 text-base text-gray-700">The request for <b>{{ appointment.date|friendly_date:"mid" }} at {{ appointment.time|time:"g:i A" }}</b> won't be confirmed.</p>
+    {% include "admin/appointments/detail_parts/notify_line.html" with class="mt-2" %}
+    <div class="form-field mt-5 space-y-1.5">
+      <label for="decline-message" class="block text-base font-medium text-gray-800">Message to the owner <span class="font-normal text-gray-600">(optional)</span></label>
+      <textarea id="decline-message" name="message" rows="3" maxlength="500" aria-describedby="decline-message-hint" class="min-h-24"></textarea>
+      <p id="decline-message-hint" class="text-sm text-gray-600">Up to 500 characters</p>
+    </div>
+    {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, decline request" icon="circle-x" danger=True %}
+  </form>
+</dialog>

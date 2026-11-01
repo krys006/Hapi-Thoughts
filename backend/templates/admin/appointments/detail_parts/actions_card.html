@@ -1,0 +1,100 @@
+{% comment %}
+  Right-hand actions card. Buttons open the dialogs in detail_parts/;
+  only one primary (violet) button per state. Danger buttons are outlined
+  red here; the solid red is kept for the "Yes, …" button in the dialog.
+{% endcomment %}
+<section class="card" aria-labelledby="actions-title">
+  {% if appointment.status == "pending" %}
+    <h2 id="actions-title" class="mb-4 text-xl font-semibold">What would you like to do?</h2>
+    <div class="space-y-3">
+      {% if not date_has_passed %}
+        <button type="button" class="btn btn-primary min-h-12 w-full font-semibold" data-dialog-open="approve-dialog" aria-haspopup="dialog">
+          {% include "components/icon.html" with name="check" %}
+          Approve request
+        </button>
+        <button type="button" class="btn btn-outline min-h-12 w-full font-semibold" data-dialog-open="move-dialog" aria-haspopup="dialog">
+          {% include "components/icon.html" with name="calendar-clock" %}
+          Move to another time
+        </button>
+      {% else %}
+        <button type="button" class="btn btn-primary min-h-12 w-full font-semibold" data-dialog-open="move-dialog" aria-haspopup="dialog">
+          {% include "components/icon.html" with name="calendar-clock" %}
+          Move to another time
+        </button>
+      {% endif %}
+      <hr class="my-4! border-gray-200">
+      <button type="button" class="btn min-h-12 w-full border border-red-300 bg-white font-semibold text-red-700 hover:bg-red-50" data-dialog-open="decline-dialog" aria-haspopup="dialog">
+        {% include "components/icon.html" with name="circle-x" %}
+        Decline request
+      </button>
+    </div>
+    {% include "admin/appointments/detail_parts/notify_line.html" with class="mt-4 border-t border-gray-100 pt-4" %}
+
+  {% elif appointment.status == "confirmed" %}
+    <h2 id="actions-title" class="mb-4 text-xl font-semibold">What would you like to do?</h2>
+    <div class="space-y-3">
+      {% if can_mark_visit %}
+        <button type="button" class="btn btn-primary min-h-12 w-full font-semibold" data-dialog-open="complete-dialog" aria-haspopup="dialog">
+          {% include "components/icon.html" with name="check" %}
+          Mark as completed
+        </button>
+        <button type="button" class="btn btn-outline min-h-12 w-full font-semibold" data-dialog-open="no-show-dialog" aria-haspopup="dialog">
+          {% include "components/icon.html" with name="user-x" %}
+          Pet didn't come (no-show)
+        </button>
+        <hr class="my-4! border-gray-200">
+      {% else %}
+        <p class="flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-3 text-sm text-gray-700">
+          {% include "components/icon.html" with name="info" class="mt-0.5 size-4 shrink-0" %}
+          <span>“Mark as completed” appears here on {{ appointment.date|date:"D, M j" }}.</span>
+        </p>
+      {% endif %}
+      <button type="button" class="btn btn-outline min-h-12 w-full font-semibold" data-dialog-open="move-dialog" aria-haspopup="dialog">
+        {% include "components/icon.html" with name="calendar-clock" %}
+        Move to another time
+      </button>
+      {% if not can_mark_visit %}<hr class="my-4! border-gray-200">{% endif %}
+      <button type="button" class="btn min-h-12 w-full border border-red-300 bg-white font-semibold text-red-700 hover:bg-red-50" data-dialog-open="cancel-dialog" aria-haspopup="dialog">
+        {% include "components/icon.html" with name="calendar-x" %}
+        Cancel appointment
+      </button>
+    </div>
+    {% include "admin/appointments/detail_parts/notify_line.html" with class="mt-4 border-t border-gray-100 pt-4" suffix=" if you move or cancel it" %}
+
+  {% elif appointment.status == "completed" %}
+    <h2 id="actions-title" class="mb-4 text-xl font-semibold">Next steps</h2>
+    {# The main (violet) button is whatever is still missing: the record first, then the receipt #}
+    <div class="space-y-3">
+      {% if medical_record %}
+        <a href="{% url 'admin_medical_record_detail' medical_record.pk %}" class="btn btn-outline min-h-12 w-full font-semibold">{% include "components/icon.html" with name="file-text" %}Open medical record</a>
+      {% else %}
+        <a href="{% url 'admin_medical_record_create' appointment.pet.pk %}?appointment={{ appointment.pk }}" class="btn btn-primary min-h-12 w-full font-semibold">{% include "components/icon.html" with name="file-text" %}Add medical record</a>
+      {% endif %}
+      {% if receipt %}
+        <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="btn btn-outline min-h-12 w-full font-semibold">{% include "components/icon.html" with name="receipt" %}Open receipt</a>
+      {% elif medical_record %}
+        <a href="{% url 'admin_receipt_create' %}?appointment={{ appointment.pk }}" class="btn btn-primary min-h-12 w-full font-semibold">{% include "components/icon.html" with name="receipt" %}Create receipt</a>
+      {% else %}
+        <a href="{% url 'admin_receipt_create' %}?appointment={{ appointment.pk }}" class="btn btn-outline min-h-12 w-full font-semibold">{% include "components/icon.html" with name="receipt" %}Create receipt</a>
+      {% endif %}
+    </div>
+    {% if not medical_record or not receipt %}
+      <p class="mt-4 flex items-start gap-2 border-t border-gray-100 pt-4 text-sm text-gray-700">
+        {% include "components/icon.html" with name="info" class="mt-0.5 size-4 shrink-0" %}
+        <span>What you add here is linked to this visit automatically.</span>
+      </p>
+    {% endif %}
+
+  {% elif appointment.status == "cancelled" and moved_to %}
+    <h2 id="actions-title" class="mb-4 text-xl font-semibold">Next steps</h2>
+    <a href="{% url 'admin_appointment_detail' moved_to.pk %}" class="btn btn-primary min-h-12 w-full font-semibold">{% include "components/icon.html" with name="arrow-right" %}Open the new appointment</a>
+
+  {% else %}
+    {# Cancelled or no-show: read-only #}
+    <h2 id="actions-title" class="mb-4 text-xl font-semibold">Nothing more to do</h2>
+    <p class="flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-3 text-sm text-gray-700">
+      {% include "components/icon.html" with name="info" class="mt-0.5 size-4 shrink-0" %}
+      <span>Declined, cancelled and no-show appointments can't be changed. To see {{ appointment.pet.name }} again, add a walk-in or ask the owner to book online.</span>
+    </p>
+  {% endif %}
+</section>

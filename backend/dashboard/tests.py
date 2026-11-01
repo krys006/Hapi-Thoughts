@@ -5,13 +5,19 @@ from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
+from django.template import engines
+from django.template.loader import render_to_string
 from django.test import RequestFactory, SimpleTestCase, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
 from appointments.models import Appointment
 from dashboard.context_processors import shell
-from dashboard.templatetags.friendly_dates import friendly_date, friendly_datetime
+from dashboard.templatetags.friendly_dates import (
+    friendly_date,
+    friendly_datetime,
+    long_date,
+)
 from dashboard.views import _greeting, _parse_day
 from notifications.models import Notification
 from pets.models import Pet, PetDeletionRequest, PetOwner
@@ -141,12 +147,73 @@ class FriendlyDateTests(SimpleTestCase):
             with self.subTest(value=value):
                 self.assertEqual(friendly_date(value), expected)
 
+    def test_long_date(self, _now):
+        """Today and tomorrow keep their label; only other years get the year."""
+        today = date(2026, 6, 15)
+        cases = {
+            today: "Today, Monday, June 15",
+            today + timedelta(days=1): "Tomorrow, Tuesday, June 16",
+            date(2026, 11, 2): "Monday, November 2",
+            date(2027, 1, 4): "Monday, January 4, 2027",
+            date(2025, 11, 2): "Sunday, November 2, 2025",
+        }
+        for value, expected in cases.items():
+            with self.subTest(value=value):
+                self.assertEqual(long_date(value), expected)
+
+    def test_long_date_across_new_year(self, _now):
+        """Dec 31 in Manila: Jan 1 is 'Tomorrow', Jan 2 needs the new year."""
+        # 04:00 UTC = 12:00 Manila on Dec 31, 2026
+        _now.return_value = datetime(2026, 12, 31, 4, 0, tzinfo=dt_timezone.utc)
+        cases = {
+            date(2026, 12, 30): "Wednesday, December 30",
+            date(2027, 1, 1): "Tomorrow, Friday, January 1",
+            date(2027, 1, 2): "Saturday, January 2, 2027",
+        }
+        for value, expected in cases.items():
+            with self.subTest(value=value):
+                self.assertEqual(long_date(value), expected)
+        # On Jan 1, 2027, the day before is last year
+        _now.return_value = datetime(2027, 1, 1, 4, 0, tzinfo=dt_timezone.utc)
+        self.assertEqual(long_date(date(2026, 12, 31)), "Thursday, December 31, 2026")
+
+    def test_mid_sentence_lowercases_relative_labels_only(self, _now):
+        """With "mid", today/tomorrow/yesterday are lowercase; others unchanged."""
+        today = date(2026, 6, 15)
+        friendly_cases = {
+            today: "today",
+            today - timedelta(days=1): "yesterday",
+            today + timedelta(days=1): "tomorrow",
+            date(2026, 3, 2): "Mon, Mar 2",
+            date(2025, 11, 2): "Sun, Nov 2, 2025",
+        }
+        for value, expected in friendly_cases.items():
+            with self.subTest(filter="friendly_date", value=value):
+                self.assertEqual(friendly_date(value, "mid"), expected)
+        long_cases = {
+            today: "today, Monday, June 15",
+            today + timedelta(days=1): "tomorrow, Tuesday, June 16",
+            today - timedelta(days=1): "Sunday, June 14",
+            date(2026, 11, 2): "Monday, November 2",
+            date(2027, 1, 4): "Monday, January 4, 2027",
+        }
+        for value, expected in long_cases.items():
+            with self.subTest(filter="long_date", value=value):
+                self.assertEqual(long_date(value, "mid"), expected)
+
+    def test_mid_sentence_empty_values(self, _now):
+        for value in (None, ""):
+            with self.subTest(value=value):
+                self.assertEqual(friendly_date(value, "mid"), "")
+                self.assertEqual(long_date(value, "mid"), "")
+
     def test_empty_values(self, _now):
         """None and "" render as an empty string."""
         for value in (None, ""):
             with self.subTest(value=value):
                 self.assertEqual(friendly_date(value), "")
                 self.assertEqual(friendly_datetime(value), "")
+                self.assertEqual(long_date(value), "")
 
     def test_just_after_midnight_manila_is_today(self, _now):
         """16:30 UTC on Jun 14 is 00:30 on Jun 15 in Manila."""
@@ -246,6 +313,73 @@ class SidebarTests(ShellTestBase):
     def test_services_highlights_billing(self):
         nav = self._sidebar(self.client.get(reverse("admin_service_list")))
         self.assertIn('aria-current="page"', self._link(nav, "admin_receipt_list"))
+
+
+class TopbarSearchTests(ShellTestBase):
+    """The global search sits in {% block topbar_search %}, so a page can drop it."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.admin)
+
+    def test_normal_admin_page_has_global_search(self):
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertContains(response, 'id="global-search"')
+        self.assertContains(response, 'placeholder="Find a pet or owner"')
+        self.assertContains(
+            response,
+            '<label for="global-search" class="sr-only">Find a pet or owner</label>',
+        )
+
+    def test_page_can_empty_the_block(self):
+        page = engines["django"].from_string(
+            '{% extends "layouts/admin.html" %}{% block topbar_search %}{% endblock %}'
+        )
+        request = self.factory.get(reverse("admin_dashboard"))
+        request.user = self.admin
+        html = page.render({}, request)
+        self.assertNotIn("Find a pet or owner", html)
+        self.assertNotIn('id="global-search', html)
+        # The rest of the top bar stays
+        self.assertIn('id="bell-button"', html)
+
+    def test_layout_loads_dialogs_js(self):
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertRegex(
+            response.content.decode(),
+            r'<script src="/static/js/admin/dialogs\.[0-9a-f]+\.js" defer></script>',
+        )
+
+
+def _squash(html):
+    """Rendered markup with indentation and blank lines removed."""
+    return "".join(line.strip() for line in html.splitlines())
+
+
+class IconComponentTests(SimpleTestCase):
+
+    def _icon(self, **context):
+        return _squash(render_to_string("components/icon.html", context))
+
+    def test_existing_icon_renders_unchanged(self):
+        self.assertEqual(
+            self._icon(name="x"),
+            '<svg class="size-5 shrink-0" xmlns="http://www.w3.org/2000/svg" '
+            'width="20" height="20" viewBox="0 0 24 24" fill="none" '
+            'stroke="currentColor" stroke-width="2" stroke-linecap="round" '
+            'stroke-linejoin="round" aria-hidden="true" focusable="false">'
+            '<path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>',
+        )
+
+    def test_stroke_param(self):
+        self.assertIn('stroke-width="1.5"', self._icon(name="x", stroke="1.5"))
+        self.assertNotIn('stroke-width="2"', self._icon(name="x", stroke="1.5"))
+
+    def test_new_icon_renders(self):
+        html = self._icon(name="dog", **{"class": "size-9"})
+        self.assertIn('class="size-9"', html)
+        self.assertIn('<path d="M11.25 16.25h1.5L12 17z" />', html)
+        self.assertEqual(html.count("<path"), 5)
 
 
 class GreetingTests(SimpleTestCase):

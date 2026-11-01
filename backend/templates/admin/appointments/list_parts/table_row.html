@@ -1,0 +1,28 @@
+{% comment %}
+  One table row (md and up). The "Open" button is the only link; rows have
+  no click handler.
+{% endcomment %}
+<tr class="border-t border-gray-100 hover:bg-violet-50/40">
+  <td class="px-5 py-4 align-middle"><p class="text-base font-semibold whitespace-nowrap">{{ appointment.time|time:"g:i A" }}</p></td>
+  <td class="px-5 py-4">
+    <div class="flex items-center gap-3">
+      {% include "components/pet_avatar.html" with pet=appointment.pet size="sm" %}
+      <div>
+        <p class="text-base font-semibold">{{ appointment.pet.name }}</p>
+        <p class="text-sm text-gray-600">{{ appointment.pet.species }}{% if appointment.pet.breed %}, {{ appointment.pet.breed }}{% endif %}</p>
+      </div>
+    </div>
+  </td>
+  <td class="px-5 py-4">
+    <div class="flex items-center gap-3">
+      {% include "components/owner_avatar.html" with owner=appointment.owner size="xs" %}
+      <div>
+        <p class="text-base">{{ appointment.owner.full_name }}</p>
+        {% if appointment.owner.contact_number %}<p class="text-sm text-gray-600">{{ appointment.owner.contact_number }}</p>{% endif %}
+      </div>
+    </div>
+  </td>
+  <td class="px-5 py-4 text-base">{% if appointment.service %}{{ appointment.service.service_name }}{% else %}<span class="text-gray-600">No service picked</span>{% endif %}</td>
+  <td class="px-5 py-4">{% include "admin/appointments/list_parts/badges.html" %}</td>
+  <td class="px-5 py-4 text-right"><a href="{% url 'admin_appointment_detail' appointment.pk %}" class="btn btn-outline font-semibold">Open<span class="sr-only"> {{ appointment.pet.name }}, {{ appointment.date|date:"M j" }} at {{ appointment.time|time:"g:i A" }}</span>{% include "components/icon.html" with name="arrow-right" %}</a></td>
+</tr>

@@ -126,7 +126,7 @@ Phase 7 — Dashboards & Polish
 ### Pet Profile Fields
 | Field | Required | Notes |
 |---|---|---|
-| Photo | Optional | Initials avatar as placeholder |
+| Photo | Optional | Placeholder when no photo: species icon (dog, cat, rabbit, bird, or a paw) on admin pages; initials avatar on owner pages |
 | Registration number | Optional | Government-issued |
 | Name | Required | — |
 | Species | Required | Dropdown + custom input |
@@ -196,11 +196,15 @@ Phase 7 — Dashboards & Polish
 ### 3.3 Appointment Management (Admin)
 | Feature | Status |
 |---|---|
-| View all appointments (calendar and list view) | `planned` |
+| View all appointments in a list: status tabs (Needs approval, Upcoming, Completed, Cancelled, No show, All) with counts, grouped by day, 25 per page | `complete` |
+| Search appointments by pet or owner name and by date (searches every status) | `complete` |
+| Notice for past visits still marked Confirmed, with a link to them | `complete` |
+| View all appointments on a calendar page | `planned` |
 | Calendar monthly and weekly view toggle | `complete` |
 | Colored dot indicators on calendar days with appointments | `complete` |
 | Click day to view appointment details in side panel | `planned` |
 | Approve appointment request (PENDING → CONFIRMED) | `complete` |
+| Approve refused once the requested date has passed (move or decline it instead) | `complete` |
 | Reject appointment request (PENDING → CANCELLED) | `complete` |
 | Mark appointment as COMPLETED | `complete` |
 | Mark appointment as NO_SHOW | `complete` |

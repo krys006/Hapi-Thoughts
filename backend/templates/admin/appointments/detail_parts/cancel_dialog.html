@@ -1,0 +1,20 @@
+{% load friendly_dates %}
+{# Reopens by itself (data-open-on-load) when the cancel form came back with errors #}
+<dialog id="cancel-dialog" aria-labelledby="cancel-dialog-title" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50"{% if open_dialog == "cancel" %} data-open-on-load{% endif %}>
+  <form method="post" action="{% url 'admin_appointment_cancel' appointment.pk %}" class="p-6 sm:p-7">
+    {% csrf_token %}
+    <h2 id="cancel-dialog-title" class="text-xl font-bold">Cancel {{ appointment.pet.name }}'s appointment?</h2>
+    <p class="mt-2 text-base text-gray-700">The visit on <b>{{ appointment.date|friendly_date:"mid" }} at {{ appointment.time|time:"g:i A" }}</b> will be cancelled.</p>
+    {% include "admin/appointments/detail_parts/notify_line.html" with class="mt-2" %}
+
+    {% if open_dialog == "cancel" %}
+      {% include "admin/appointments/detail_parts/dialog_error.html" with errors=cancel_form.non_field_errors %}
+    {% endif %}
+
+    <div class="mt-5 space-y-5">
+      {% include "components/form_field.html" with field=cancel_form.cancellation_reason %}
+      {% include "components/form_field.html" with field=cancel_form.cancellation_detail %}
+    </div>
+    {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, cancel appointment" icon="calendar-x" danger=True %}
+  </form>
+</dialog>

@@ -1,292 +1,51 @@
 {% extends "layouts/admin.html" %}
+{% load friendly_dates %}
 
-{% load static %}
-{% block legacy_css %}
-<style>
-  @import url("{% static 'css/admin/appointment_detail.css' %}") layer(legacy);
-</style>
+{% block title %}{{ appointment.pet.name }} · {% if appointment.service %}{{ appointment.service.service_name }}{% else %}Appointment{% endif %} — Hapi Vet Admin{% endblock %}
+
+{% block page_header %}
+  <a href="{% url 'admin_appointments' %}" class="mb-2 inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 hover:underline">{% include "components/icon.html" with name="arrow-left" %}Back to appointments</a>
+  <div class="mb-5 flex flex-wrap items-center gap-4">
+    {% include "components/pet_avatar.html" with pet=appointment.pet size="lg" %}
+    <h1 class="text-2xl font-bold text-gray-900">{{ appointment.pet.name }} · {% if appointment.service %}{{ appointment.service.service_name }}{% else %}Appointment{% endif %}</h1>
+    {% if appointment.is_walk_in %}
+      <span class="rounded-full bg-violet-100 px-3 py-1 text-sm font-semibold text-violet-800">Walk-in</span>
+    {% endif %}
+  </div>
 {% endblock %}
 
-{% block title %}Appointment Detail — Hapi Vet Admin{% endblock %}
-
-{% block page_header %}{% endblock %}
-
 {% block content %}
+  {% include "admin/appointments/detail_parts/status_banner.html" %}
 
-<div class="admin-page">
-
-  <div class="admin-page-header">
-    <h1 class="admin-page-title">Appointment Detail</h1>
-    <a href="{% url 'admin_appointments' %}" class="btn-link">
-      Back to Appointments
-    </a>
-  </div>
-
-  <div class="detail-layout">
-
-    <!-- ── Left: Appointment Info ──────────────────────────────────────── -->
-    <div class="detail-main">
-
-      <div class="detail-card">
-
-        <div class="detail-header">
-          <span class="status-badge status-{{ appointment.status }}">
-            {{ appointment.get_status_display }}
-          </span>
-          {% if appointment.is_walk_in %}
-            <span class="walk-in-badge">Walk-in</span>
-          {% endif %}
-        </div>
-
-        <div class="detail-grid">
-
-          <div class="detail-row">
-            <span class="detail-label">Pet</span>
-            <span class="detail-value">
-              <a href="{% url 'admin_pet_detail' appointment.pet.pk %}" class="link">
-                {{ appointment.pet.name }}
-              </a>
-            </span>
-          </div>
-
-          <div class="detail-row">
-            <span class="detail-label">Owner</span>
-            <span class="detail-value">
-              <a href="{% url 'admin_owner_detail' appointment.owner.pk %}" class="link">
-                {{ appointment.owner.full_name }}
-              </a>
-            </span>
-          </div>
-
-          <div class="detail-row">
-            <span class="detail-label">Date</span>
-            <span class="detail-value">{{ appointment.date|date:"F j, Y" }}</span>
-          </div>
-
-          <div class="detail-row">
-            <span class="detail-label">Time</span>
-            <span class="detail-value">{{ appointment.time|time:"g:i A" }}</span>
-          </div>
-
-          {% if appointment.service %}
-            <div class="detail-row">
-              <span class="detail-label">Service</span>
-              <span class="detail-value">{{ appointment.service.service_name }}</span>
-            </div>
-          {% endif %}
-
-          {% if appointment.reason %}
-            <div class="detail-row">
-              <span class="detail-label">Reason for Visit</span>
-              <span class="detail-value">{{ appointment.reason }}</span>
-            </div>
-          {% endif %}
-
-          {% if appointment.reschedule_reason %}
-            <div class="detail-row">
-              <span class="detail-label">Reschedule Reason</span>
-              <span class="detail-value">{{ appointment.reschedule_reason }}</span>
-            </div>
-          {% endif %}
-
-          {% if appointment.rescheduled_from %}
-            <div class="detail-row">
-              <span class="detail-label">Rescheduled From</span>
-              <span class="detail-value">
-                <a href="{% url 'admin_appointment_detail' appointment.rescheduled_from.pk %}"
-                  class="link">
-                  {{ appointment.rescheduled_from.date|date:"F j, Y" }}
-                  at {{ appointment.rescheduled_from.time|time:"g:i A" }}
-                </a>
-              </span>
-            </div>
-          {% endif %}
-
-          {% if appointment.cancellation_reason %}
-            <div class="detail-row">
-              <span class="detail-label">Cancellation Reason</span>
-              <span class="detail-value">
-                {{ appointment.get_cancellation_reason_display }}
-                {% if appointment.cancellation_detail %}
-                  — {{ appointment.cancellation_detail }}
-                {% endif %}
-              </span>
-            </div>
-          {% endif %}
-
-          <div class="detail-row">
-            <span class="detail-label">Booked On</span>
-            <span class="detail-value">
-              {{ appointment.created_at|date:"F j, Y g:i A" }}
-            </span>
-          </div>
-
-        </div>
-      </div>
-
-      <!-- Notes form -->
-      <div class="detail-card">
-        <h2 class="detail-card-title">Admin Notes</h2>
-        <form method="post" action="{% url 'admin_appointment_notes' appointment.pk %}">
-          {% csrf_token %}
-          {{ notes_form.notes }}
-          <div class="form-actions">
-            <button type="submit" class="btn-secondary">Save Notes</button>
-          </div>
-        </form>
-      </div>
-
+  {# Actions come first in the page, so on small screens they sit above the details #}
+  <div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+    <div class="lg:sticky lg:top-24 lg:col-start-2 lg:row-start-1">
+      {% include "admin/appointments/detail_parts/actions_card.html" %}
     </div>
-
-    <!-- ── Right: Actions ─────────────────────────────────────────────── -->
-    <div class="detail-sidebar">
-
-      <!-- Status transition actions -->
-      <div class="action-card">
-        <h2 class="action-card-title">Actions</h2>
-
-        {% if appointment.status == 'pending' %}
-          <!-- Approve -->
-          <form method="post"
-            action="{% url 'admin_appointment_approve' appointment.pk %}">
-            {% csrf_token %}
-            <button type="submit" class="btn-primary btn-block">
-              Approve Appointment
-            </button>
-          </form>
-
-          <!-- Reject -->
-          <form method="post"
-            action="{% url 'admin_appointment_reject' appointment.pk %}">
-            {% csrf_token %}
-            <button type="submit" class="btn-danger btn-block"
-              onclick="return confirm('Reject this appointment?')">
-              Reject Appointment
-            </button>
-          </form>
-        {% endif %}
-
-        {% if appointment.status == 'confirmed' %}
-          <!-- Complete -->
-          <form method="post"
-            action="{% url 'admin_appointment_complete' appointment.pk %}">
-            {% csrf_token %}
-            <button type="submit" class="btn-primary btn-block">
-              Mark as Completed
-            </button>
-          </form>
-
-          <!-- No Show -->
-          <form method="post"
-            action="{% url 'admin_appointment_no_show' appointment.pk %}">
-            {% csrf_token %}
-            <button type="submit" class="btn-secondary btn-block"
-              onclick="return confirm('Mark this appointment as no-show?')">
-              Mark as No Show
-            </button>
-          </form>
-        {% endif %}
-
-        {% if appointment.status in 'pending,confirmed' %}
-          <hr class="action-divider" />
-        {% endif %}
-
-        <!-- Reschedule — available for pending and confirmed -->
-        {% if appointment.status == 'pending' or appointment.status == 'confirmed' %}
-
-          <details class="action-details">
-            <summary class="action-details-summary">Reschedule</summary>
-            <form method="post"
-              action="{% url 'admin_appointment_reschedule' appointment.pk %}">
-              {% csrf_token %}
-
-              {% for error in reschedule_form.non_field_errors %}
-                <p class="form-error">{{ error }}</p>
-              {% endfor %}
-
-              <div class="form-group">
-                <label class="form-label">New Date</label>
-                <input
-                  type="date"
-                  name="date"
-                  value="{{ reschedule_form.date.value|default:'' }}"
-                  hx-get="{% url 'admin_get_slots_for_date' %}"
-                  hx-target="#admin-reschedule-slots"
-                  hx-swap="innerHTML"
-                  hx-trigger="change"
-                  hx-include="[name='date']"
-                />
-                {% if reschedule_form.date.errors %}
-                  <p class="form-error">{{ reschedule_form.date.errors.0 }}</p>
-                {% endif %}
-              </div>
-
-              <div class="form-group">
-                <label class="form-label">New Time Slot</label>
-                <select name="time" id="admin-reschedule-slots">
-                  <option value="">Select a date first</option>
-                </select>
-                {% if reschedule_form.time.errors %}
-                  <p class="form-error">{{ reschedule_form.time.errors.0 }}</p>
-                {% endif %}
-              </div>
-
-              <div class="form-group">
-                <label class="form-label">Reason</label>
-                {{ reschedule_form.reschedule_reason }}
-                {% if reschedule_form.reschedule_reason.errors %}
-                  <p class="form-error">{{ reschedule_form.reschedule_reason.errors.0 }}</p>
-                {% endif %}
-              </div>
-
-              <button type="submit" class="btn-secondary btn-block">
-                Confirm Reschedule
-              </button>
-            </form>
-          </details>
-
-          <!-- Cancel -->
-          <details class="action-details">
-            <summary class="action-details-summary">Cancel Appointment</summary>
-            <form method="post"
-              action="{% url 'admin_appointment_cancel' appointment.pk %}">
-              {% csrf_token %}
-
-              {% for error in cancel_form.non_field_errors %}
-                <p class="form-error">{{ error }}</p>
-              {% endfor %}
-
-              <div class="form-group">
-                <label class="form-label">Reason</label>
-                {{ cancel_form.cancellation_reason }}
-              </div>
-
-              <div class="form-group">
-                <label class="form-label">
-                  Detail <span class="form-optional">(required if Other)</span>
-                </label>
-                {{ cancel_form.cancellation_detail }}
-              </div>
-
-              <button type="submit" class="btn-danger btn-block"
-                onclick="return confirm('Cancel this appointment?')">
-                Confirm Cancellation
-              </button>
-            </form>
-          </details>
-
-        {% endif %}
-
-        <!-- No actions available for terminal states -->
-        {% if appointment.status == 'completed' or appointment.status == 'cancelled' or appointment.status == 'no_show' %}
-          <p class="text-muted">No further actions available.</p>
-        {% endif %}
-
-      </div>
-
+    <div class="space-y-6 lg:col-start-1 lg:row-start-1">
+      {% include "admin/appointments/detail_parts/details_card.html" %}
+      {% include "admin/appointments/detail_parts/notes_card.html" %}
     </div>
   </div>
 
-</div>
-
+  {% comment %}
+    Only the dialogs whose buttons the actions card shows. Pending: approve
+    (not on a passed date) and decline. Confirmed: complete and no-show (on
+    or after the visit day) and cancel. Both: move.
+  {% endcomment %}
+  {% if appointment.status == "pending" %}
+    {% if not date_has_passed %}
+      {% include "admin/appointments/detail_parts/approve_dialog.html" %}
+    {% endif %}
+    {% include "admin/appointments/detail_parts/decline_dialog.html" %}
+  {% elif appointment.status == "confirmed" %}
+    {% if can_mark_visit %}
+      {% include "admin/appointments/detail_parts/complete_dialog.html" %}
+      {% include "admin/appointments/detail_parts/no_show_dialog.html" %}
+    {% endif %}
+    {% include "admin/appointments/detail_parts/cancel_dialog.html" %}
+  {% endif %}
+  {% if appointment.status == "pending" or appointment.status == "confirmed" %}
+    {% include "admin/appointments/detail_parts/move_dialog.html" %}
+  {% endif %}
 {% endblock %}

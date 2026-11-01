@@ -1,0 +1,28 @@
+{% load friendly_dates %}
+{% comment %}
+  Free times as large radio buttons (name="time"). Returned by
+  admin_get_slots_for_date?as=buttons, and included by the detail page.
+  Context: slots (list of times), slots_date (the day they are for, or
+  None before a date is picked: no heading), selected ("HH:MM:SS" or "")
+  to check one.
+{% endcomment %}
+{% if slots_date %}
+  {% with mid=slots_date|long_date:"mid" %}
+    {# "mid" differs only for today/tomorrow: "Free times today, Sunday, November 1" #}
+    <h3 class="mb-2 text-base font-semibold text-gray-900">Free times {% if mid != slots_date|long_date %}{{ mid }}{% else %}on {{ mid }}{% endif %}</h3>
+  {% endwith %}
+{% endif %}
+{% if slots %}
+  <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+    {% for slot in slots %}
+      {% with value=slot|time:"H:i:s" %}
+        <label class="flex min-h-12 cursor-pointer items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-base font-medium text-gray-800 hover:bg-violet-50 has-[:checked]:border-violet-600 has-[:checked]:bg-violet-600 has-[:checked]:text-white has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-violet-400 has-[:focus-visible]:ring-offset-2">
+          <input type="radio" name="time" value="{{ value }}" class="sr-only" required{% if value == selected %} checked{% endif %}>
+          {{ slot|time:"g:i A" }}
+        </label>
+      {% endwith %}
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="rounded-lg border border-dashed border-gray-300 px-4 py-5 text-center text-base text-gray-600">No free times on this day.</p>
+{% endif %}
