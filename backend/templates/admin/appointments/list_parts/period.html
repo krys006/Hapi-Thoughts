@@ -1,0 +1,33 @@
+{% comment %}
+  Period filter. "Show" applies on change (data-auto-submit,
+  static/js/admin/auto_submit.js; the Apply button is for no JavaScript)
+  and sends no from, so a new kind starts on the current period. With a
+  period on: Previous / Next links, the period in words, and "Back to …"
+  when another period is showing.
+{% endcomment %}
+<div class="mb-5 flex flex-wrap items-end gap-3">
+  <form method="get" action="{% url 'admin_appointments' %}" class="flex items-end gap-3">
+    <input type="hidden" name="status" value="{{ active_tab }}">
+    {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+    <div class="w-48">
+      <label for="period-show" class="mb-1.5 block text-base font-medium text-gray-800">Show</label>
+      <select id="period-show" name="show" class="input min-h-12 font-semibold" data-auto-submit>
+        {% for value, label in show_options %}
+          <option value="{{ value }}"{% if value == period.kind %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <noscript><button type="submit" class="btn btn-outline min-h-12 font-semibold">Apply</button></noscript>
+  </form>
+
+  {% if period.kind != "any" %}
+    <nav class="flex flex-wrap items-center gap-3" aria-label="Pick a period">
+      <a href="?{{ prev_period_query }}" class="btn btn-outline min-h-12 font-semibold">{% include "components/icon.html" with name="chevron-left" %}Previous<span class="sr-only"> {{ period.kind }}</span></a>
+      <p class="inline-flex min-h-12 items-center gap-2 rounded-lg border-2 border-violet-600 bg-violet-50 px-5 text-lg font-semibold text-violet-900">{% include "components/icon.html" with name="calendar" class="size-5 shrink-0 text-violet-700" %}{{ period.label }}</p>
+      <a href="?{{ next_period_query }}" class="btn btn-outline min-h-12 font-semibold">Next<span class="sr-only"> {{ period.kind }}</span>{% include "components/icon.html" with name="chevron-right" %}</a>
+      {% if not period.is_current %}
+        <a href="?{{ current_period_query }}" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="arrow-left" %}{{ period.back_to }}</a>
+      {% endif %}
+    </nav>
+  {% endif %}
+</div>

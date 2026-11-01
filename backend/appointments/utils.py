@@ -6,6 +6,7 @@ from django.db.models import Count, Exists, OuterRef, Prefetch, Q
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
+from dashboard.templatetags.friendly_dates import MID_SENTENCE, long_date_on
 from notifications.utils import notify
 from pets.models import Pet, PetOwner
 from .models import ClinicSettings, BlockedDate, Appointment
@@ -379,10 +380,132 @@ def parse_list_date(value):
         return None
 
 
-def filter_appointments(tab, today, q="", date=None):
+# Period filter (?show=&from=): (id, label) in the "Show" dropdown's order
+SHOW_OPTIONS = [
+    ("any", "Any date"),
+    ("day", "One day"),
+    ("week", "One week"),
+    ("month", "One month"),
+    ("year", "One year"),
+]
+_PERIOD_KINDS = {kind for kind, _ in SHOW_OPTIONS}
+
+
+def _period_start(kind, day):
+    """First day of the day/week/month/year holding day (weeks start Monday)."""
+    if kind == "week":
+        return day - datetime.timedelta(days=day.weekday())
+    if kind == "month":
+        return day.replace(day=1)
+    if kind == "year":
+        return day.replace(month=1, day=1)
+    return day
+
+
+def _shift_period(kind, start, steps):
+    """First day of the period `steps` periods after (negative: before) start."""
+    if kind == "week":
+        return start + datetime.timedelta(weeks=steps)
+    if kind == "month":
+        months = start.year * 12 + start.month - 1 + steps
+        return datetime.date(months // 12, months % 12 + 1, 1)
+    if kind == "year":
+        return start.replace(year=start.year + steps)
+    return start + datetime.timedelta(days=steps)
+
+
+def _week_range(start, end, today):
+    """'Nov 2 to Nov 8'; the year when it isn't this year, both years when
+    the week runs across New Year."""
+    if start.year != end.year:
+        return f"{date_format(start, 'M j, Y')} to {date_format(end, 'M j, Y')}"
+    if start.year != today.year:
+        return f"{date_format(start, 'M j')} to {date_format(end, 'M j, Y')}"
+    return f"{date_format(start, 'M j')} to {date_format(end, 'M j')}"
+
+
+def _period_label(kind, start, end, today, style=None):
+    """'This week: Nov 2 to Nov 8', 'October 2026', 'Today, Monday, November 2'.
+    style "mid" lowercases the leading this/last/next/today/tomorrow."""
+    if kind == "day":
+        return long_date_on(start, today, style)
+    current = _period_start(kind, today)
+    word = None
+    if kind == "week":
+        word = {
+            current: "This week",
+            _shift_period(kind, current, -1): "Last week",
+            _shift_period(kind, current, 1): "Next week",
+        }.get(start)
+        text = _week_range(start, end, today)
+    elif kind == "month":
+        word = "This month" if start == current else None
+        text = date_format(start, "F Y")
+    else:
+        word = "This year" if start == current else None
+        text = str(start.year)
+    if not word:
+        return text
+    return f"{word.lower() if style == MID_SENTENCE else word}: {text}"
+
+
+def resolve_period(show, from_value, today):
+    """
+    The period filter as a dict. show is any/day/week/month/year (unknown
+    → any). from_value is an ISO date, snapped to the first day of its
+    period; missing or bad → the period holding today.
+    Keys: kind, start, end (both None for "any"), label, mid_label,
+    is_current, is_past (ends before today), prev_from, next_from,
+    current_from, back_to ("Back to this week"), back_to_mid ("this week").
+    """
+    kind = show if show in _PERIOD_KINDS else "any"
+    if kind == "any":
+        return {"kind": "any", "start": None, "end": None, "is_current": True}
+
+    current = _period_start(kind, today)
+    try:
+        start = _period_start(kind, parse_list_date(from_value) or today)
+        prev_from = _shift_period(kind, start, -1)
+        next_from = _shift_period(kind, start, 1)
+    except (ValueError, OverflowError):
+        # A from in the first or last year a date can hold
+        start = current
+        prev_from = _shift_period(kind, start, -1)
+        next_from = _shift_period(kind, start, 1)
+    end = next_from - datetime.timedelta(days=1)
+    back_to = "today" if kind == "day" else f"this {kind}"
+    return {
+        "kind": kind,
+        "start": start,
+        "end": end,
+        "label": _period_label(kind, start, end, today),
+        "mid_label": _period_label(kind, start, end, today, MID_SENTENCE),
+        "is_current": start == current,
+        "is_past": end < today,
+        "prev_from": prev_from,
+        "next_from": next_from,
+        "current_from": current,
+        "back_to": f"Back to {back_to}",
+        "back_to_mid": back_to,
+    }
+
+
+def list_period(params, today):
+    """
+    (period, is_old_date_link) from the request's ?show=&from=. An old
+    ?date=YYYY-MM-DD link (no show) means show=day&from=that date.
+    """
+    old_date = parse_list_date(params.get("date", ""))
+    if "show" not in params and old_date:
+        return resolve_period("day", old_date.isoformat(), today), True
+    return resolve_period(params.get("show"), params.get("from", ""), today), False
+
+
+def filter_appointments(tab, today, q="", period=None):
     """
     Rows for one tab, sorted for that tab. Every word in q must match the
-    pet name or the owner's first or last name (case-insensitive).
+    pet name or the owner's first or last name (case-insensitive). A
+    period (from resolve_period) keeps rows from its start to its end.
     """
     rows = _with_moved_flag(
         Appointment.objects.select_related("pet", "owner", "owner__user", "service")
@@ -394,8 +517,8 @@ def filter_appointments(tab, today, q="", date=None):
             | Q(owner__first_name__icontains=word)
             | Q(owner__last_name__icontains=word)
         )
-    if date:
-        rows = rows.filter(date=date)
+    if period and period["start"]:
+        rows = rows.filter(date__range=(period["start"], period["end"]))
 
     # pk breaks ties (e.g. a cancelled row and a new one in the same slot),
     # so pages never repeat or skip a row.
@@ -433,10 +556,35 @@ def group_by_day(rows):
     return [(day, list(day_rows)) for day, day_rows in groupby(rows, lambda a: a.date)]
 
 
-def list_querystring(tab, q, date):
-    """status/q/date as a query string (no "?"), skipping empty values."""
-    params = {"status": tab, "q": q, "date": date.isoformat() if date else ""}
+def list_querystring(tab, q, period, start=None):
+    """status/q/show/from as a query string (no "?"), skipping empty values.
+    "Any date" sends neither show nor from. start replaces the period's own
+    first day (Previous / Next / Back to links)."""
+    params = {"status": tab, "q": q}
+    if period["kind"] != "any":
+        params["show"] = period["kind"]
+        params["from"] = (start or period["start"]).isoformat()
     return urlencode({key: value for key, value in params.items() if value})
+
+
+def list_links(tab, status, q, period):
+    """
+    Query strings (no "?") for the list's links. Tabs keep the period, not
+    the search. The pager and Previous / Next / Back to keep everything.
+    Clear search keeps the requested status (not the "All" a search
+    forces) and the period.
+    """
+    links = {
+        "page_query": list_querystring(tab, q, period),
+        "tab_period_query": list_querystring("", "", period),
+        "clear_search_query": list_querystring(status, "", period),
+    }
+    if period["kind"] != "any":
+        for name in ("prev", "next", "current"):
+            links[f"{name}_period_query"] = list_querystring(
+                tab, q, period, period[f"{name}_from"]
+            )
+    return links
 
 
 def paging_links(page_obj, page_query):

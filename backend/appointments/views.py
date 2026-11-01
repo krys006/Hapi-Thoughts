@@ -23,6 +23,7 @@ from .forms import (
 
 from .utils import (
     LIST_PAGE_SIZE,
+    SHOW_OPTIONS,
     WALKIN_PAGE_SIZE,
     WALKIN_SEARCH_LIMIT,
     create_walkin_appointment,
@@ -31,10 +32,10 @@ from .utils import (
     get_available_slots,
     get_walkin_owner,
     group_by_day,
-    list_querystring,
+    list_links,
+    list_period,
     list_tabs,
     paging_links,
-    parse_list_date,
     resolve_list_tab,
     search_walkin_owners,
     slot_in_progress,
@@ -674,43 +675,43 @@ def _reschedule_appointment(appointment, form, user):
 @login_required
 def admin_appointment_list(request):
     """
-    Admin view — appointments list with status tabs, search and paging.
-    A search (?q= or ?date=) looks in every status and shows the "All" tab.
+    Admin view — appointments list with status tabs, period, search and paging.
+    A search (?q=) looks in every status and shows the "All" tab. The period
+    (?show=&from=, see resolve_period) narrows whichever tab is open.
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
     today = timezone.localdate()
     q = request.GET.get("q", "").strip()
-    date_filter = parse_list_date(request.GET.get("date", ""))
-    is_searching = bool(q or date_filter)
+    status = request.GET.get("status", "")
+    period, is_old_date_link = list_period(request.GET, today)
     counts = tab_counts(today)
-    active_tab = (
-        "all" if is_searching else resolve_list_tab(request.GET.get("status"), counts)
-    )
+    # An old ?date= link without a status meant every status on that day
+    show_all = q or (is_old_date_link and not status)
+    active_tab = "all" if show_all else resolve_list_tab(status, counts)
 
-    rows = filter_appointments(active_tab, today, q, date_filter)
+    rows = filter_appointments(active_tab, today, q, period)
     page_obj = Paginator(rows, LIST_PAGE_SIZE).get_page(request.GET.get("page"))
 
-    page_query = list_querystring(active_tab, q, date_filter)
+    links = list_links(active_tab, status, q, period)
     context = {
         "active_tab": active_tab,
         "tabs": list_tabs(counts),
         "day_groups": group_by_day(page_obj.object_list),
         "page_obj": page_obj,
-        "page_query": page_query,
-        **paging_links(page_obj, page_query),
+        **links,
+        **paging_links(page_obj, links["page_query"]),
         "q": q,
-        "date_filter": date_filter,
-        "is_searching": is_searching,
+        "period": period,
+        "show_options": SHOW_OPTIONS,
+        "is_searching": bool(q),
         **unfinished_visits(today, counts["unfinished"]),
         # The yellow notice belongs on the work tabs, not on search results
         "show_unfinished_notice": (
-            counts["unfinished"] > 0
-            and not is_searching
-            and active_tab in ("pending", "upcoming")
+            counts["unfinished"] > 0 and not q and active_tab in ("pending", "upcoming")
         ),
-        # Day headings ("Today · …") and the "Date has passed" tag
+        # Day cards (today's is outlined) and the "Date has passed" tag
         "today": today,
     }
     return render(request, "admin/appointments/list.html", context)

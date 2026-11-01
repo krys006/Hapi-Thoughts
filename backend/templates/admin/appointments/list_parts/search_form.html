@@ -1,0 +1,20 @@
+{% comment %}
+  Appointment search: a plain GET form. Used twice by list.html: in the
+  top bar from md up and in the page body below md (form_class sets the
+  breakpoint, id_prefix keeps the ids apart). Sends q plus the current
+  period (show/from), never status: a search looks in every status.
+{% endcomment %}
+<form method="get" action="{% url 'admin_appointments' %}" class="{{ form_class }}" role="search">
+  <label for="{{ id_prefix }}-appointment-search" class="sr-only">Search appointments</label>
+  <div class="relative w-full min-w-0 max-w-[30rem]">
+    <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-600">
+      {% include "components/icon.html" with name="search" %}
+    </span>
+    <input id="{{ id_prefix }}-appointment-search" type="search" name="q" value="{{ q }}" placeholder="Search appointments: pet or owner name" class="input pl-10">
+  </div>
+  {% if period.kind != "any" %}
+    <input type="hidden" name="show" value="{{ period.kind }}">
+    <input type="hidden" name="from" value="{{ period.start|date:'Y-m-d' }}">
+  {% endif %}
+  <button type="submit" class="btn btn-outline font-semibold">{% include "components/icon.html" with name="search" %}Search</button>
+</form>

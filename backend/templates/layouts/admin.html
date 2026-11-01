@@ -15,6 +15,7 @@
   {% block legacy_css %}{% endblock %}
   <script src="{% static 'vendor/htmx-2.0.11.min.js' %}" defer></script>
   <script src="{% static 'js/admin/dialogs.js' %}" defer></script>
+  <script src="{% static 'js/admin/auto_submit.js' %}" defer></script>
   {% block extra_head %}{% endblock %}
 </head>
 {# hx-headers: CSRF token for every HTMX request, plus a marker telling views this page uses the new admin layout #}
@@ -36,7 +37,7 @@
           Menu
         </button>
 
-        {# Pages with their own search (e.g. the appointments list) empty this block #}
+        {# Pages with their own search override this block (the appointments list puts its search here) or empty it (walk-in step 1) #}
         {% block topbar_search %}
         <div id="global-search-container" class="relative w-full max-w-xl">
           <label for="global-search" class="sr-only">Find a pet or owner</label>

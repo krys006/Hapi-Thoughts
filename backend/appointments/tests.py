@@ -8,6 +8,7 @@ from django.contrib.messages import get_messages
 from django.core import mail
 from django.db import DatabaseError, connection
 from django.core.paginator import Paginator
+from django.templatetags.static import static
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
@@ -18,7 +19,9 @@ from appointments.models import Appointment, BlockedDate, ClinicSettings
 from appointments.utils import (
     get_available_slots,
     is_slot_available,
+    list_period,
     paging_links,
+    resolve_period,
     slot_in_progress,
 )
 from billing.models import BillingReceipt, Service
@@ -1017,18 +1020,20 @@ class AdminListTests(AppointmentTestBase):
         self.assertEqual(self._ids(self._get(q="Bantay santos")), [])
 
     def test_date_filter(self):
+        """An old ?date= link opens that one day on the "All" tab."""
         on_day = self._appointment(Appointment.COMPLETED, -2)
         self._appointment(Appointment.COMPLETED, -3)
         response = self._get(date=on_day.date.isoformat())
         self.assertEqual(response.context["active_tab"], "all")
-        self.assertEqual(response.context["date_filter"], on_day.date)
+        self.assertEqual(response.context["period"]["kind"], "day")
+        self.assertEqual(response.context["period"]["start"], on_day.date)
         self.assertEqual(self._ids(response), [on_day.pk])
 
     def test_bad_date_is_ignored(self):
         pending = self._appointment(Appointment.PENDING)
         response = self._get(date="31/10/2026")
         self.assertEqual(response.status_code, 200)
-        self.assertIsNone(response.context["date_filter"])
+        self.assertEqual(response.context["period"]["kind"], "any")
         self.assertFalse(response.context["is_searching"])
         self.assertEqual(response.context["active_tab"], "pending")
         self.assertEqual(self._ids(response), [pending.pk])
@@ -1065,7 +1070,13 @@ class AdminListTests(AppointmentTestBase):
         self.assertEqual(len(first.context["page_obj"].object_list), 25)
         self.assertEqual(first.context["prev_page_query"], "")
         next_query = first.context["next_page_query"]
-        for part in ("status=all", "q=Bantay", f"date={day.isoformat()}", "page=2"):
+        for part in (
+            "status=all",
+            "q=Bantay",
+            "show=day",
+            f"from={day.isoformat()}",
+            "page=2",
+        ):
             self.assertIn(part, next_query)
 
         second = self.client.get(reverse("admin_appointments") + next_query)
@@ -1139,12 +1150,22 @@ class AdminListTests(AppointmentTestBase):
     def _service(self, name="Check-up"):
         return Service.objects.create(service_name=name, status=Service.ACTIVE)
 
-    def test_page_uses_admin_layout_with_one_search_and_one_primary(self):
+    def test_page_uses_admin_layout_with_two_search_forms_and_one_primary(self):
+        """One search form in the top bar (md up), the same one in the page
+        body below md."""
         response = self._get()
         html = self._html(response)
         self.assertTemplateUsed(response, "layouts/admin.html")
         self.assertNotContains(response, "Find a pet or owner")
-        self.assertContains(response, 'name="q"', count=1)
+        self.assertContains(response, 'name="q"', count=2)
+        topbar, page = re.findall(r'<form [^>]*class="([^"]*)" role="search">', html)
+        self.assertEqual(topbar.split()[0], "hidden")
+        self.assertIn("md:flex", topbar.split())
+        self.assertIn("flex", page.split())
+        self.assertIn("md:hidden", page.split())
+        header = html[: html.index('id="main-content"')]
+        self.assertIn('id="topbar-appointment-search"', header)
+        self.assertNotIn('id="page-appointment-search"', header)
         self.assertEqual(len(re.findall(r"\bbtn-primary\b", html)), 1)
         self.assertContains(
             response, f'href="{reverse("admin_walkin_appointment_create")}"'
@@ -1199,9 +1220,9 @@ class AdminListTests(AppointmentTestBase):
         self._appointment(Appointment.CONFIRMED, 0)
         response = self._get(status="upcoming")
         self.assertContains(response, "No service picked")
-        heading = f"Today · {date_format(self.today, 'l, F j')}"
+        heading = f">Today, {date_format(self.today, 'l, F j')}</h2>"
         self.assertContains(response, heading)
-        self.assertContains(response, "· 1 appointment<")
+        self.assertContains(response, ">1 appointment<")
 
     def test_notice_one_visit_names_it_and_links_to_detail(self):
         visit = self._appointment(Appointment.CONFIRMED, -2)
@@ -1251,7 +1272,7 @@ class AdminListTests(AppointmentTestBase):
         visit = self._appointment(Appointment.PENDING, 1)
         response = self._get(q="Bantay", date=visit.date.isoformat())
         self.assertContains(response, 'value="Bantay"')
-        self.assertContains(response, f'value="{visit.date.isoformat()}"')
+        self.assertContains(response, f'name="from" value="{visit.date.isoformat()}"')
         self.assertContains(response, "Clear search")
         self.assertEqual(self._active_tabs(response), ["All"])
 
@@ -1269,7 +1290,7 @@ class AdminListTests(AppointmentTestBase):
         self.assertContains(response, "Clear search")
         day = self.today + datetime.timedelta(days=5)
         response = self._get(date=day.isoformat())
-        self.assertContains(response, f"No appointments for {friendly_date(day)}")
+        self.assertContains(response, "No appointments in this period")
 
     def test_empty_tab_states(self):
         titles = {
@@ -1348,10 +1369,12 @@ class AdminListTests(AppointmentTestBase):
         self._appointment(Appointment.PENDING)
         self._appointment(Appointment.CONFIRMED, -1)
         html = self._html(self._get(status="all"))
+        # Folder plus file stem: manifest storage adds a hash before the
+        # extension (appointments_list.<hash>.js)
         for name in (
-            "appointments_list.js",
-            "appointments_list.css",
-            "appointment_detail.css",
+            "js/admin/appointments_list",
+            "css/admin/appointments_list",
+            "css/admin/appointment_detail",
             "css/admin/",
         ):
             self.assertNotIn(name, html)
@@ -2605,3 +2628,474 @@ class WalkInStepOneHtmxTests(WalkInFlowTestBase):
         )
         self.assertNotContains(response, "hx-push-url")
         self.assertContains(response, '<div id="owner-results">')
+
+
+# ─── Appointments list v4: period, top-bar search, day cards ─────────────────
+
+D = datetime.date
+# Monday, November 2, 2026: "today" in the period tests below.
+PERIOD_TODAY = D(2026, 11, 2)
+
+
+class ResolvePeriodTests(SimpleTestCase):
+
+    def _period(self, show, from_value="", today=PERIOD_TODAY):
+        return resolve_period(show, from_value, today)
+
+    def test_any_and_unknown_show(self):
+        for show in (None, "", "any", "bogus", "Week"):
+            with self.subTest(show=show):
+                period = self._period(show, "2026-11-05")
+                self.assertEqual(period["kind"], "any")
+                self.assertIsNone(period["start"])
+                self.assertIsNone(period["end"])
+
+    def test_day_labels(self):
+        cases = {
+            "2026-11-02": ("Today, Monday, November 2", True),
+            "2026-11-01": ("Sunday, November 1", False),
+            "2026-11-03": ("Tomorrow, Tuesday, November 3", False),
+            "2027-01-04": ("Monday, January 4, 2027", False),
+        }
+        for from_value, (label, is_current) in cases.items():
+            with self.subTest(from_value=from_value):
+                period = self._period("day", from_value)
+                self.assertEqual(period["label"], label)
+                self.assertEqual(period["is_current"], is_current)
+                self.assertEqual(period["start"], period["end"])
+        period = self._period("day", "2026-11-02")
+        self.assertEqual(period["mid_label"], "today, Monday, November 2")
+        self.assertEqual(period["prev_from"], D(2026, 11, 1))
+        self.assertEqual(period["next_from"], D(2026, 11, 3))
+        self.assertEqual(period["back_to"], "Back to today")
+        self.assertEqual(period["back_to_mid"], "today")
+
+    def test_week_labels(self):
+        cases = {
+            "2026-11-02": "This week: Nov 2 to Nov 8",
+            "2026-10-26": "Last week: Oct 26 to Nov 1",
+            "2026-11-09": "Next week: Nov 9 to Nov 15",
+            "2026-11-16": "Nov 16 to Nov 22",
+            "2025-12-01": "Dec 1 to Dec 7, 2025",
+        }
+        for from_value, label in cases.items():
+            with self.subTest(from_value=from_value):
+                self.assertEqual(self._period("week", from_value)["label"], label)
+        period = self._period("week", "2026-11-02")
+        self.assertEqual(period["end"], D(2026, 11, 8))
+        self.assertEqual(period["mid_label"], "this week: Nov 2 to Nov 8")
+        self.assertEqual(period["prev_from"], D(2026, 10, 26))
+        self.assertEqual(period["next_from"], D(2026, 11, 9))
+        self.assertEqual(period["back_to"], "Back to this week")
+
+    def test_week_across_new_year(self):
+        period = self._period("week", "2026-12-30")
+        self.assertEqual(period["start"], D(2026, 12, 28))
+        self.assertEqual(period["end"], D(2027, 1, 3))
+        self.assertEqual(period["label"], "Dec 28, 2026 to Jan 3, 2027")
+        this_week = self._period("week", "", today=D(2026, 12, 31))
+        self.assertEqual(this_week["label"], "This week: Dec 28, 2026 to Jan 3, 2027")
+
+    def test_month_labels_and_steps(self):
+        period = self._period("month", "2026-11-02")
+        self.assertEqual(period["label"], "This month: November 2026")
+        self.assertEqual(period["mid_label"], "this month: November 2026")
+        self.assertEqual(period["back_to"], "Back to this month")
+        october = self._period("month", "2026-10-15")
+        self.assertEqual(october["label"], "October 2026")
+        self.assertEqual(october["start"], D(2026, 10, 1))
+        self.assertEqual(october["end"], D(2026, 10, 31))
+        self.assertEqual(october["prev_from"], D(2026, 9, 1))
+        self.assertEqual(october["next_from"], D(2026, 11, 1))
+        self.assertEqual(
+            self._period("month", "2026-12-01")["next_from"], D(2027, 1, 1)
+        )
+        self.assertEqual(
+            self._period("month", "2027-01-01")["prev_from"], D(2026, 12, 1)
+        )
+
+    def test_leap_year_february(self):
+        leap = self._period("month", "2028-02-15")
+        self.assertEqual(leap["start"], D(2028, 2, 1))
+        self.assertEqual(leap["end"], D(2028, 2, 29))
+        self.assertEqual(leap["label"], "February 2028")
+        self.assertEqual(self._period("month", "2027-02-10")["end"], D(2027, 2, 28))
+
+    def test_year_labels(self):
+        period = self._period("year", "2026-11-02")
+        self.assertEqual(period["label"], "This year: 2026")
+        self.assertEqual(period["start"], D(2026, 1, 1))
+        self.assertEqual(period["end"], D(2026, 12, 31))
+        last = self._period("year", "2025-01-01")
+        self.assertEqual(last["label"], "2025")
+        self.assertEqual(last["next_from"], D(2026, 1, 1))
+        self.assertEqual(last["back_to"], "Back to this year")
+
+    def test_mid_period_from_snaps_to_its_start(self):
+        cases = {
+            "week": ("2026-11-05", D(2026, 11, 2)),
+            "month": ("2026-11-19", D(2026, 11, 1)),
+            "year": ("2025-07-04", D(2025, 1, 1)),
+        }
+        for kind, (from_value, start) in cases.items():
+            with self.subTest(kind=kind):
+                self.assertEqual(self._period(kind, from_value)["start"], start)
+        self.assertTrue(self._period("week", "2026-11-08")["is_current"])
+
+    def test_bad_or_missing_from_means_the_current_period(self):
+        for from_value in ("", None, "31/10/2026", "2026-02-30", "soon"):
+            with self.subTest(from_value=from_value):
+                period = self._period("week", from_value)
+                self.assertEqual(period["start"], D(2026, 11, 2))
+                self.assertTrue(period["is_current"])
+        # A step past the first or last date Python can hold falls back too
+        self.assertEqual(self._period("year", "9999-06-01")["start"], D(2026, 1, 1))
+        self.assertEqual(self._period("day", "0001-01-01")["start"], PERIOD_TODAY)
+
+    def test_is_past(self):
+        self.assertTrue(self._period("week", "2026-10-26")["is_past"])
+        self.assertFalse(self._period("week", "2026-11-02")["is_past"])
+
+    def test_old_date_param(self):
+        period, is_old = list_period({"date": "2026-11-05"}, PERIOD_TODAY)
+        self.assertTrue(is_old)
+        self.assertEqual((period["kind"], period["start"]), ("day", D(2026, 11, 5)))
+        period, is_old = list_period(
+            {"date": "2026-11-05", "show": "month"}, PERIOD_TODAY
+        )
+        self.assertFalse(is_old)
+        self.assertEqual(period["kind"], "month")
+        period, is_old = list_period({"date": "bad"}, PERIOD_TODAY)
+        self.assertEqual((period["kind"], is_old), ("any", False))
+
+
+class ListPeriodViewTests(FrozenNowTestBase):
+    """The list page with "now" at 00:30 on Monday, Nov 2, 2026 (Manila),
+    still Sunday in UTC."""
+
+    NOW = _manila(0, 30)
+
+    def _get(self, **params):
+        # "from" is a Python keyword, so tests pass it as from_
+        if "from_" in params:
+            params["from"] = params.pop("from_")
+        return self.client.get(reverse("admin_appointments"), params)
+
+    def _html(self, response):
+        return response.content.decode()
+
+    def _ids(self, response):
+        return [a.pk for a in response.context["page_obj"].object_list]
+
+    def _counts(self, response):
+        return {t["id"]: t["count"] for t in response.context["tabs"]}
+
+    def _form_with(self, html, control_id):
+        """The <form> holding the element with id control_id."""
+        pattern = rf'<form [^>]*>(?:(?!</form>).)*id="{control_id}".*?</form>'
+        return re.search(pattern, html, re.S).group(0)
+
+    def _status_nav(self, html):
+        pattern = r'<nav [^>]*aria-label="Filter by status">.*?</nav>'
+        return re.search(pattern, html, re.S).group(0)
+
+    # ─── Period ───────────────────────────────────────────────────────────────
+
+    def test_today_is_the_manila_date(self):
+        response = self._get(show="day")
+        self.assertEqual(response.context["period"]["start"], WALK_IN_DAY)
+        self.assertContains(response, "Today, Monday, November 2")
+
+    def test_period_filters_inside_the_tab(self):
+        today = self._appointment(Appointment.CONFIRMED, 0)
+        thursday = self._appointment(Appointment.CONFIRMED, 3)
+        self._appointment(Appointment.CONFIRMED, 7)
+        self._appointment(Appointment.PENDING, 1)
+        response = self._get(status="upcoming", show="week")
+        self.assertEqual(response.context["active_tab"], "upcoming")
+        self.assertEqual(self._ids(response), [today.pk, thursday.pk])
+        self.assertContains(response, "This week: Nov 2 to Nov 8")
+
+    def test_tab_counts_ignore_period_and_search(self):
+        self._appointment(Appointment.CONFIRMED, 0)
+        self._appointment(Appointment.CONFIRMED, 10)
+        self._appointment(Appointment.PENDING, 1)
+        plain = self._counts(self._get())
+        for params in (
+            {"show": "week"},
+            {"show": "day", "from_": "2026-11-20"},
+            {"q": "Bantay", "show": "month", "from_": "2025-01-01"},
+            {"q": "nobody"},
+        ):
+            with self.subTest(params=params):
+                self.assertEqual(self._counts(self._get(**params)), plain)
+
+    def test_upcoming_with_a_past_week_is_empty_and_says_why(self):
+        self._appointment(Appointment.CONFIRMED, -5)
+        response = self._get(status="upcoming", show="week", from_="2026-10-26")
+        self.assertEqual(self._ids(response), [])
+        self.assertContains(response, "No appointments in this period")
+        self.assertContains(
+            response,
+            "Upcoming shows visits from today on. Pick another period, "
+            "or go back to this week.",
+        )
+        self.assertContains(
+            response, 'href="?status=upcoming&amp;show=week&amp;from=2026-11-02"'
+        )
+        self.assertContains(response, "Back to this week")
+
+    def test_empty_other_period_and_current_period(self):
+        response = self._get(status="completed", show="month", from_="2026-09-01")
+        self.assertContains(response, "Pick another period, or go back to this month.")
+        self.assertNotContains(response, "Upcoming shows visits")
+        response = self._get(status="completed", show="month")
+        self.assertContains(response, "Pick another period.")
+        self.assertNotContains(response, "Back to this month")
+
+    def test_old_date_link_opens_that_day(self):
+        pending = self._appointment(Appointment.PENDING, 3)
+        confirmed = self._appointment(Appointment.CONFIRMED, 3, hour=10)
+        self._appointment(Appointment.CONFIRMED, 4)
+        response = self._get(date="2026-11-05")
+        self.assertEqual(response.context["active_tab"], "all")
+        self.assertEqual(response.context["period"]["kind"], "day")
+        self.assertEqual(set(self._ids(response)), {pending.pk, confirmed.pk})
+        self.assertContains(response, "Thursday, November 5")
+        self.assertContains(response, '<option value="day" selected>')
+        response = self._get(date="2026-11-05", status="pending")
+        self.assertEqual(response.context["active_tab"], "pending")
+        self.assertEqual(self._ids(response), [pending.pk])
+
+    def test_previous_next_and_back_links_keep_params(self):
+        response = self._get(status="pending", show="week", from_="2026-11-16")
+        context = response.context
+        self.assertEqual(
+            context["prev_period_query"], "status=pending&show=week&from=2026-11-09"
+        )
+        self.assertEqual(
+            context["next_period_query"], "status=pending&show=week&from=2026-11-23"
+        )
+        self.assertEqual(
+            context["current_period_query"], "status=pending&show=week&from=2026-11-02"
+        )
+        html = self._html(response)
+        self.assertRegex(
+            html,
+            r'(?s)<a href="\?status=pending&amp;show=week&amp;from=2026-11-09" '
+            r'class="btn btn-outline[^"]*">(?:(?!</a>).)*Previous',
+        )
+        self.assertRegex(
+            html,
+            r'<a href="\?status=pending&amp;show=week&amp;from=2026-11-23" '
+            r'class="btn btn-outline[^"]*">Next',
+        )
+        self.assertContains(response, "Back to this week")
+        searching = self._get(q="Bantay", show="month")
+        self.assertEqual(
+            searching.context["prev_period_query"],
+            "status=all&q=Bantay&show=month&from=2026-10-01",
+        )
+
+    def test_period_box_and_no_controls_on_any_date(self):
+        response = self._get(show="week")
+        self.assertContains(
+            response,
+            'class="inline-flex min-h-12 items-center gap-2 rounded-lg border-2 '
+            "border-violet-600 bg-violet-50 px-5 text-lg font-semibold "
+            'text-violet-900">',
+        )
+        self.assertNotContains(response, "Back to this week")
+        response = self._get()
+        self.assertNotContains(response, 'aria-label="Pick a period"')
+        self.assertNotContains(response, "Previous<span")
+
+    def test_show_dropdown_applies_on_change(self):
+        html = self._html(self._get(status="upcoming", show="month"))
+        form = self._form_with(html, "period-show")
+        self.assertIn('<input type="hidden" name="status" value="upcoming">', form)
+        self.assertNotIn('name="from"', form)
+        self.assertIn(
+            'name="show" class="input min-h-12 font-semibold" data-auto-submit', form
+        )
+        self.assertIn(
+            '<noscript><button type="submit" class="btn btn-outline min-h-12 '
+            'font-semibold">Apply</button></noscript>',
+            form,
+        )
+        options = re.findall(r'<option value="(\w+)"( selected)?>([^<]+)<', form)
+        self.assertEqual(
+            options,
+            [
+                ("any", "", "Any date"),
+                ("day", "", "One day"),
+                ("week", "", "One week"),
+                ("month", " selected", "One month"),
+                ("year", "", "One year"),
+            ],
+        )
+        # static() gives the URL the active storage renders (hashed with manifest)
+        auto_submit = static("js/admin/auto_submit.js")
+        self.assertIn(f'<script src="{auto_submit}" defer></script>', html)
+
+    def test_pager_keeps_every_param(self):
+        day = WALK_IN_DAY + datetime.timedelta(days=2)
+        for i in range(26):
+            Appointment.objects.create(
+                owner=self.owner,
+                pet=self.pet,
+                date=day,
+                time=datetime.time(8 + i // 4, (i % 4) * 15),
+                status=Appointment.PENDING,
+            )
+        next_query = self._get(q="Bantay", show="week").context["next_page_query"]
+        for part in (
+            "status=all",
+            "q=Bantay",
+            "show=week",
+            "from=2026-11-02",
+            "page=2",
+        ):
+            self.assertIn(part, next_query)
+
+    # ─── Search ───────────────────────────────────────────────────────────────
+
+    def test_search_with_a_period(self):
+        in_week = self._appointment(Appointment.PENDING, 3)
+        self._appointment(Appointment.PENDING, 10)
+        response = self._get(q="Bantay", show="week")
+        self.assertEqual(response.context["active_tab"], "all")
+        self.assertEqual(self._ids(response), [in_week.pk])
+        self.assertContains(
+            response,
+            'Results for <strong class="font-semibold">“Bantay”</strong> '
+            "in all appointments, this week: Nov 2 to Nov 8",
+        )
+
+    def test_search_with_a_period_and_no_match(self):
+        response = self._get(q="Bantai", show="week")
+        self.assertContains(response, "No appointments match “Bantai”")
+        self.assertContains(
+            response, "Check the spelling, pick another period, or clear the search."
+        )
+
+    def test_tab_links_keep_the_period_not_the_search(self):
+        url = reverse("admin_appointments")
+        response = self._get(q="Bantay", show="week")
+        self.assertContains(
+            response, f'href="{url}?status=pending&amp;show=week&amp;from=2026-11-02"'
+        )
+        self.assertNotIn("q=", self._status_nav(self._html(response)))
+
+    def test_clear_search_keeps_the_period(self):
+        url = reverse("admin_appointments")
+        response = self._get(q="Bantay", show="week", from_="2026-11-09")
+        self.assertEqual(
+            response.context["clear_search_query"], "show=week&from=2026-11-09"
+        )
+        self.assertContains(response, f'href="{url}?show=week&amp;from=2026-11-09"')
+        self.assertContains(response, "Clear search")
+        response = self._get(q="Bantay", status="upcoming", show="day")
+        self.assertEqual(
+            response.context["clear_search_query"],
+            "status=upcoming&show=day&from=2026-11-02",
+        )
+
+    def test_search_forms_carry_the_period(self):
+        html = self._html(self._get(show="week", from_="2026-11-12"))
+        forms = re.findall(r'<form [^>]*role="search">.*?</form>', html, re.S)
+        self.assertEqual(len(forms), 2)
+        for form in forms:
+            self.assertIn('placeholder="Search appointments: pet or owner name"', form)
+            self.assertIn('<input type="hidden" name="show" value="week">', form)
+            self.assertIn('<input type="hidden" name="from" value="2026-11-09">', form)
+            self.assertNotIn('name="status"', form)
+            self.assertIn('class="sr-only">Search appointments</label>', form)
+
+    def test_other_admin_pages_keep_the_global_search(self):
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertContains(response, 'id="global-search"')
+        self.assertContains(response, "Find a pet or owner")
+        self.assertNotContains(response, "Search appointments: pet or owner name")
+
+    def test_phone_dropdown_is_labelled_status(self):
+        html = self._html(self._get(show="week"))
+        self.assertIn(
+            '<label for="status-select" class="mb-1.5 block text-base font-medium '
+            'text-gray-800">Status</label>',
+            html,
+        )
+        form = self._form_with(html, "status-select")
+        self.assertIn(
+            '<select id="status-select" name="status" class="input font-semibold" '
+            "data-auto-submit>",
+            form,
+        )
+        self.assertIn('<input type="hidden" name="show" value="week">', form)
+        self.assertIn(
+            '<noscript><button type="submit" class="btn btn-outline">Apply</button>'
+            "</noscript>",
+            form,
+        )
+
+    # ─── Day cards and tabs ───────────────────────────────────────────────────
+
+    def _card_classes(self, html, day):
+        pattern = rf'<section class="([^"]*)" aria-labelledby="day-{day.isoformat()}">'
+        match = re.search(pattern, html)
+        self.assertIsNotNone(match)
+        return match.group(1).split()
+
+    def test_day_cards(self):
+        self._appointment(Appointment.CONFIRMED, 0)
+        self._appointment(Appointment.CONFIRMED, 0, hour=10)
+        self._appointment(Appointment.CONFIRMED, 3)
+        html = self._html(self._get(status="upcoming"))
+        today_card = self._card_classes(html, WALK_IN_DAY)
+        other_card = self._card_classes(html, D(2026, 11, 5))
+        for name in ("border-violet-300", "ring-2", "ring-violet-200"):
+            self.assertIn(name, today_card)
+            self.assertNotIn(name, other_card)
+        self.assertIn("border-gray-200", other_card)
+        self.assertIn(
+            '<h2 id="day-2026-11-02" class="text-xl font-semibold text-gray-900">'
+            "Today, Monday, November 2</h2>",
+            html,
+        )
+        self.assertIn(">Thursday, November 5</h2>", html)
+        self.assertIn('<p class="text-base text-gray-700">2 appointments</p>', html)
+        self.assertIn('<p class="text-base text-gray-700">1 appointment</p>', html)
+        # One table per card with a hidden header; column names once above
+        self.assertEqual(html.count('<table class="hidden w-full table-fixed'), 2)
+        self.assertEqual(html.count('<span class="sr-only">Pet</span></th>'), 2)
+        self.assertEqual(html.count('md:table" aria-hidden="true">'), 1)
+
+    def test_day_card_in_another_year_shows_the_year(self):
+        Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=D(2025, 12, 1),
+            time=datetime.time(9, 0),
+            status=Appointment.COMPLETED,
+        )
+        self.assertContains(
+            self._get(status="completed"), ">Monday, December 1, 2025</h2>"
+        )
+
+    def test_no_solid_violet_on_any_tab(self):
+        self._appointment(Appointment.PENDING, 1)
+        for status in ("pending", "upcoming", "all"):
+            with self.subTest(status=status):
+                nav = self._status_nav(self._html(self._get(status=status)))
+                self.assertNotIn("bg-violet-600", nav)
+                self.assertIn("ring-2 ring-violet-600", nav)
+        self.assertRegex(
+            self._html(self._get(status="upcoming")),
+            r'aria-current="page">Upcoming<span class="[^"]*bg-violet-100 '
+            r"text-violet-800",
+        )
+        # Needs approval's count stays yellow while requests wait
+        self.assertRegex(
+            self._html(self._get(status="pending")),
+            r'aria-current="page">Needs approval<span class="[^"]*bg-yellow-200',
+        )

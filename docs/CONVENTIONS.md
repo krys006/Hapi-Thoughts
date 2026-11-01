@@ -171,10 +171,13 @@ templates/
 │   ├── appointments/
 │   │   ├── list.html
 │   │   ├── list_parts/               ← Includes for list.html (not HTMX partials, so no `_`)
-│   │   │   ├── tabs.html             ← tab links (md+), "Show" dropdown form (phones), unfinished line
-│   │   │   ├── filters.html          ← search form (q, date; never status)
+│   │   │   ├── search_form.html      ← search (q + show/from, never status); top bar md+, page body on phones
+│   │   │   ├── tabs.html             ← tab links (md+), "Status" dropdown form (phones), unfinished line
 │   │   │   ├── unfinished_notice.html
-│   │   │   ├── day_label.html        ← "Today · Saturday, October 31" / "Mon, Nov 2"
+│   │   │   ├── period.html           ← "Show" dropdown, Previous / Next, period label, "Back to …"
+│   │   │   ├── results_line.html     ← "Results for “q” in all appointments…" + Clear search
+│   │   │   ├── day_card.html         ← one card per day: date tile, heading, count, table + phone cards
+│   │   │   ├── columns.html          ← shared <colgroup> so the cards' columns line up
 │   │   │   ├── table_row.html
 │   │   │   ├── phone_card.html
 │   │   │   ├── badges.html           ← status pill + Moved / Walk-in / Date has passed tags
@@ -301,7 +304,7 @@ static/
 │   ├── owner/              ← Pet owner page styles
 │   └── shared/             ← Styles used by both roles (header, clinic info)
 ├── js/
-│   ├── admin/              ← Admin page scripts
+│   ├── admin/              ← Admin page scripts; dialogs.js and auto_submit.js are loaded by layouts/admin.html on every page
 │   ├── owner/              ← Pet owner page scripts
 │   └── shared/             ← Scripts used by both roles
 ├── vendor/
@@ -608,7 +611,7 @@ class AppointmentBookingForm(forms.ModelForm):
 ### Four base templates
 | Base | Used by | What it provides |
 |---|---|---|
-| `layouts/admin.html` | Every admin page: redesigned ones (e.g. `admin/dashboard/index.html`) and ones not redesigned yet, which add their old CSS in `legacy_css` (e.g. `admin/billing/receipt_detail.html`) | Sidebar with count badges and logout, top bar with search ("Find a pet or owner") and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/admin/dialogs.js`, CSRF + `X-Admin-Layout` via `hx-headers`, confirm modal |
+| `layouts/admin.html` | Every admin page: redesigned ones (e.g. `admin/dashboard/index.html`) and ones not redesigned yet, which add their old CSS in `legacy_css` (e.g. `admin/billing/receipt_detail.html`) | Sidebar with count badges and logout, top bar with search ("Find a pet or owner"; the appointments list puts its own search there) and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/admin/dialogs.js`, `static/js/admin/auto_submit.js`, CSRF + `X-Admin-Layout` via `hx-headers`, confirm modal |
 | `layouts/auth.html` | `admin/login.html` | Admin login: standalone card on a violet background, `app.css`, no HTMX |
 | `base_dashboard.html` | Logged-in owner pages (e.g. `owner/pets/list.html`; `shared/clinic_info.html` for owners, which gets its base from the view) | Header with search and bell, role-based sidebar, flash messages, Tailwind + HTMX, CSRF header for HTMX, confirm modal |
 | `base.html` | Standalone auth pages (e.g. `owner/login.html`, `owner/register.html`, password reset, `owner/onboarding/step1.html`) | Bare page with Tailwind + HTMX, no header or sidebar |
@@ -625,7 +628,9 @@ Migrated pages never loop over `messages` (the layout includes
                                          redesigned yet; removed in Slice 7)
 {% block extra_head %}{% endblock %}  ← extra tags in <head>
 {% block topbar_search %}…{% endblock %} ← global search in the top bar; a page
-                                         with its own search empties it
+                                         with its own search overrides it
+                                         (appointments list) or empties it
+                                         (walk-in step 1)
 {% block page_header %}               ← default header, wraps the three below
   {% block page_title %}{% endblock %}
   {% block page_subtitle %}{% endblock %}
@@ -680,6 +685,16 @@ page. Use a native `<dialog>` with data attributes, no inline handlers:
 - Focus goes to the element with `autofocus`.
 - Clicks are handled once on `document`, so dialogs inside HTMX partials
   need no extra wiring.
+
+### Auto-submit (admin layout)
+`layouts/admin.html` also loads `static/js/admin/auto_submit.js`. A control
+with `data-auto-submit` submits its form when it changes (no inline
+handlers). Keep a submit button in `<noscript>` for pages without
+JavaScript. See `admin/appointments/list_parts/period.html`:
+```html
+<select id="period-show" name="show" class="input" data-auto-submit>…</select>
+<noscript><button type="submit" class="btn btn-outline">Apply</button></noscript>
+```
 
 ### Example admin page not redesigned yet
 From `admin/billing/receipt_detail.html`:
@@ -749,6 +764,9 @@ Admin dates are in Manila time (`timezone.localdate()`).
   every other output is unchanged. Never use `|lower` on a date (it would
   give "mon, nov 2"). Leave the argument off at the start of a line or a
   label ("Right now: Today at 9:00 AM").
+- Python helpers that take `today` as an argument use
+  `long_date_on(value, today, style=None)` (same output as `long_date`),
+  e.g. `resolve_period` in `appointments/utils.py`.
 
 ---
 

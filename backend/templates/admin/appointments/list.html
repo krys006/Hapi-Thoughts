@@ -2,8 +2,10 @@
 
 {% block title %}Appointments — Hapi Vet Admin{% endblock %}
 
-{# This page has its own search box, so the top bar shows none #}
-{% block topbar_search %}{% endblock %}
+{# This page's own search replaces "Find a pet or owner" (md up; phones get the same form in the page body) #}
+{% block topbar_search %}
+  {% include "admin/appointments/list_parts/search_form.html" with id_prefix="topbar" form_class="hidden min-w-0 flex-1 items-center gap-3 md:flex" %}
+{% endblock %}
 
 {% block page_title %}Appointments{% endblock %}
 {% block page_subtitle %}Approve requests and keep track of visits.{% endblock %}
@@ -12,49 +14,31 @@
 {% endblock %}
 
 {% block content %}
+  {% include "admin/appointments/list_parts/search_form.html" with id_prefix="page" form_class="mb-4 flex items-center gap-3 md:hidden" %}
   {% include "admin/appointments/list_parts/tabs.html" %}
   {% include "admin/appointments/list_parts/unfinished_notice.html" %}
-  {% include "admin/appointments/list_parts/filters.html" %}
+  {% include "admin/appointments/list_parts/period.html" %}
+  {% include "admin/appointments/list_parts/results_line.html" %}
 
   {% if day_groups %}
-    {# Table from md up #}
-    <div class="hidden overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm md:block">
-      <table class="w-full text-left">
-        <thead class="text-base font-semibold text-gray-700">
-          <tr>
-            <th scope="col" class="px-5 py-3">Time</th>
-            <th scope="col" class="px-5 py-3">Pet</th>
-            <th scope="col" class="px-5 py-3">Owner</th>
-            <th scope="col" class="px-5 py-3">Service</th>
-            <th scope="col" class="px-5 py-3">Status</th>
-            <th scope="col" class="px-5 py-3"><span class="sr-only">Open</span></th>
-          </tr>
-        </thead>
-        {% for day, rows in day_groups %}
-          <tbody>
-            <tr class="bg-gray-50">
-              <th scope="colgroup" colspan="6" class="border-t border-gray-200 px-5 py-2.5 text-base font-semibold text-gray-800">{% include "admin/appointments/list_parts/day_label.html" %} <span class="font-normal text-gray-600">· {{ rows|length }} appointment{{ rows|length|pluralize }}</span></th>
-            </tr>
-            {% for appointment in rows %}
-              {% include "admin/appointments/list_parts/table_row.html" %}
-            {% endfor %}
-          </tbody>
-        {% endfor %}
-      </table>
-      {% include "admin/appointments/list_parts/pager.html" %}
-    </div>
+    {# Column names once above all the day cards (md up); each card's table has its own hidden header for screen readers #}
+    <table class="mb-2 hidden w-full table-fixed text-left md:table" aria-hidden="true">
+      {% include "admin/appointments/list_parts/columns.html" %}
+      <tr class="text-base font-semibold text-gray-800">
+        <td class="px-5">Time</td>
+        <td class="px-5">Pet</td>
+        <td class="px-5">Owner</td>
+        <td class="px-5">Service</td>
+        <td class="px-5">Status</td>
+        <td></td>
+      </tr>
+    </table>
 
-    {# Cards below md #}
-    <div class="space-y-3 md:hidden">
+    <div class="space-y-6">
       {% for day, rows in day_groups %}
-        <h2 class="pt-1 text-base font-semibold text-gray-800">{% include "admin/appointments/list_parts/day_label.html" %}</h2>
-        <ul class="space-y-3">
-          {% for appointment in rows %}
-            <li>{% include "admin/appointments/list_parts/phone_card.html" %}</li>
-          {% endfor %}
-        </ul>
+        {% include "admin/appointments/list_parts/day_card.html" %}
       {% endfor %}
-      <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
+      <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
         {% include "admin/appointments/list_parts/pager.html" %}
       </div>
     </div>

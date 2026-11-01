@@ -2,7 +2,7 @@
   One table row (md and up). The "Open" button is the only link; rows have
   no click handler.
 {% endcomment %}
-<tr class="border-t border-gray-100 hover:bg-violet-50/40">
+<tr class="border-t border-gray-100 first:border-t-0 hover:bg-violet-50/40">
   <td class="px-5 py-4 align-middle"><p class="text-base font-semibold whitespace-nowrap">{{ appointment.time|time:"g:i A" }}</p></td>
   <td class="px-5 py-4">
     <div class="flex items-center gap-3">
