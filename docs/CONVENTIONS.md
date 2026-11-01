@@ -168,6 +168,16 @@ templates/
 │   │   └── _notification_row.html
 │   ├── appointments/
 │   │   ├── list.html
+│   │   ├── list_parts/               ← Includes for list.html (not HTMX partials, so no `_`)
+│   │   │   ├── tabs.html             ← tab links (md+), "Show" dropdown form (phones), unfinished line
+│   │   │   ├── filters.html          ← search form (q, date; never status)
+│   │   │   ├── unfinished_notice.html
+│   │   │   ├── day_label.html        ← "Today · Saturday, October 31" / "Mon, Nov 2"
+│   │   │   ├── table_row.html
+│   │   │   ├── phone_card.html
+│   │   │   ├── badges.html           ← status pill + Moved / Walk-in / Date has passed tags
+│   │   │   ├── pager.html
+│   │   │   └── empty.html
 │   │   ├── detail.html
 │   │   ├── detail_parts/             ← Includes for detail.html (not HTMX partials, so no `_`)
 │   │   │   ├── status_banner.html
@@ -184,7 +194,6 @@ templates/
 │   │   │   ├── cancel_dialog.html
 │   │   │   └── move_dialog.html
 │   │   ├── walkin_form.html
-│   │   ├── _appointment_list_partial.html
 │   │   ├── _calendar_grid.html
 │   │   ├── _calendar_day_panel.html
 │   │   ├── _pet_options.html
@@ -295,6 +304,11 @@ static/
 
 > `backend/staticfiles/` is `collectstatic` output (`STATIC_ROOT`) —
 > never commit it.
+
+> A page migrated to the new layout loses its per-page files. Removed so
+> far: `css/admin/appointments_list.css`, `css/admin/appointment_detail.css`
+> and `js/admin/appointments_list.js` (Slice 3b B5). Other old files still
+> mention them in comments; those comments go when their own pages migrate.
 
 ### Media files (user uploads)
 Upload paths come from the `upload_to` values in the models:

@@ -13,7 +13,7 @@ from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
 from appointments.models import Appointment, ClinicSettings
-from billing.models import BillingReceipt
+from billing.models import BillingReceipt, Service
 from dashboard.templatetags.friendly_dates import friendly_date, long_date
 from medical.models import MedicalRecord
 from notifications.models import Notification
@@ -826,7 +826,10 @@ class AdminListTests(AppointmentTestBase):
         return self.client.get(reverse("admin_appointments"), params)
 
     def _ids(self, response):
-        return [a.pk for a in response.context["appointments"]]
+        return [a.pk for a in response.context["page_obj"].object_list]
+
+    def _html(self, response):
+        return response.content.decode()
 
     def _counts(self, response):
         return {t["id"]: t["count"] for t in response.context["tabs"]}
@@ -955,7 +958,9 @@ class AdminListTests(AppointmentTestBase):
 
     def test_all_tab_flags_moved_originals(self):
         original, new = self._moved()
-        rows = {a.pk: a for a in self._get(status="all").context["appointments"]}
+        rows = {
+            a.pk: a for a in self._get(status="all").context["page_obj"].object_list
+        }
         self.assertEqual(set(rows), {original.pk, new.pk})
         self.assertTrue(rows[original.pk].is_moved)
         self.assertFalse(rows[new.pk].is_moved)
@@ -1049,14 +1054,14 @@ class AdminListTests(AppointmentTestBase):
             )
         first = self._get(q="Bantay", date=day.isoformat())
         self.assertEqual(first.context["page_obj"].paginator.num_pages, 2)
-        self.assertEqual(len(first.context["appointments"]), 25)
+        self.assertEqual(len(first.context["page_obj"].object_list), 25)
         self.assertEqual(first.context["prev_page_query"], "")
         next_query = first.context["next_page_query"]
         for part in ("status=all", "q=Bantay", f"date={day.isoformat()}", "page=2"):
             self.assertIn(part, next_query)
 
         second = self.client.get(reverse("admin_appointments") + next_query)
-        self.assertEqual(len(second.context["appointments"]), 1)
+        self.assertEqual(len(second.context["page_obj"].object_list), 1)
         self.assertEqual(second.context["next_page_query"], "")
         self.assertIn("page=1", second.context["prev_page_query"])
 
@@ -1077,15 +1082,13 @@ class AdminListTests(AppointmentTestBase):
             self._get(), reverse("owner_dashboard"), fetch_redirect_response=False
         )
 
-    def test_htmx_returns_partial(self):
+    def test_htmx_request_gets_the_full_page(self):
+        """The old HX-Request partial is gone; the list never swaps in place."""
         visit = self._appointment(Appointment.PENDING)
         response = self.client.get(
             reverse("admin_appointments"), headers={"HX-Request": "true"}
         )
-        self.assertTemplateUsed(
-            response, "admin/appointments/_appointment_list_partial.html"
-        )
-        self.assertTemplateNotUsed(response, "admin/appointments/list.html")
+        self.assertTemplateUsed(response, "admin/appointments/list.html")
         self.assertEqual(self._ids(response), [visit.pk])
 
     def _create_rows(self, count, start=0):
@@ -1116,3 +1119,247 @@ class AdminListTests(AppointmentTestBase):
         self._create_rows(15, start=5)
         with self.assertNumQueries(len(small.captured_queries)):
             self._get(status="all")
+
+    # ─── Page (template) ──────────────────────────────────────────────────────
+
+    def _active_tabs(self, response):
+        """Labels of the tab links marked as the current page."""
+        # Tab labels follow ">" directly; the sidebar link starts with an icon
+        html = self._html(response)
+        return re.findall(r'aria-current="page">(\w[^<]*)<', html)
+
+    def _service(self, name="Check-up"):
+        return Service.objects.create(service_name=name, status=Service.ACTIVE)
+
+    def test_page_uses_admin_layout_with_one_search_and_one_primary(self):
+        response = self._get()
+        html = self._html(response)
+        self.assertTemplateUsed(response, "layouts/admin.html")
+        self.assertNotContains(response, "Find a pet or owner")
+        self.assertContains(response, 'name="q"', count=1)
+        self.assertEqual(len(re.findall(r"\bbtn-primary\b", html)), 1)
+        self.assertContains(
+            response, f'href="{reverse("admin_walkin_appointment_create")}"'
+        )
+        self.assertContains(response, "New walk-in")
+
+    def test_each_tab_renders_its_rows(self):
+        cases = {
+            "pending": self._appointment(Appointment.PENDING, 1),
+            "upcoming": self._appointment(Appointment.CONFIRMED, 2),
+            "completed": self._appointment(Appointment.COMPLETED, -1),
+            "cancelled": self._appointment(Appointment.CANCELLED, -2),
+            "no_show": self._appointment(Appointment.NO_SHOW, -3),
+        }
+        detail = {
+            tab: reverse("admin_appointment_detail", args=[a.pk])
+            for tab, a in cases.items()
+        }
+        for tab in cases:
+            with self.subTest(tab=tab):
+                response = self._get(status=tab)
+                for other, url in detail.items():
+                    if other == tab:
+                        self.assertContains(response, f'href="{url}"')
+                    else:
+                        self.assertNotContains(response, f'href="{url}"')
+        all_tab = self._get(status="all")
+        for url in detail.values():
+            self.assertContains(all_tab, f'href="{url}"')
+
+    def test_moved_label_under_all_not_under_cancelled(self):
+        self._moved()
+        self.assertContains(self._get(status="all"), ">Moved</span>")
+        self.assertNotContains(self._get(status="cancelled"), ">Moved</span>")
+
+    def test_date_has_passed_and_walk_in_tags(self):
+        self._appointment(Appointment.PENDING, -1)
+        response = self._get(status="pending")
+        self.assertContains(response, "Date has passed")
+        self.assertNotContains(response, ">Walk-in</span>")
+
+        Appointment.objects.update(
+            status=Appointment.CONFIRMED,
+            is_walk_in=True,
+            date=self.today + datetime.timedelta(days=1),
+        )
+        response = self._get(status="upcoming")
+        self.assertContains(response, ">Walk-in</span>")
+        self.assertNotContains(response, "Date has passed")
+
+    def test_no_service_and_today_heading(self):
+        self._appointment(Appointment.CONFIRMED, 0)
+        response = self._get(status="upcoming")
+        self.assertContains(response, "No service picked")
+        heading = f"Today · {date_format(self.today, 'l, F j')}"
+        self.assertContains(response, heading)
+        self.assertContains(response, "· 1 appointment<")
+
+    def test_notice_one_visit_names_it_and_links_to_detail(self):
+        visit = self._appointment(Appointment.CONFIRMED, -2)
+        visit.service = self._service()
+        visit.save()
+        response = self._get(status="upcoming")
+        self.assertContains(response, "1 past visit isn't finished.")
+        self.assertContains(
+            response,
+            f"Bantay's Check-up on {friendly_date(visit.date, 'mid')} "
+            "is still marked Confirmed.",
+        )
+        url = reverse("admin_appointment_detail", args=[visit.pk])
+        self.assertContains(response, f'href="{url}"')
+        self.assertContains(response, "Show it")
+
+    def test_notice_without_service_says_visit(self):
+        self._appointment(Appointment.CONFIRMED, -2)
+        self.assertContains(self._get(), "Bantay's visit on")
+
+    def test_notice_several_visits_links_to_unfinished_tab(self):
+        self._appointment(Appointment.CONFIRMED, -2)
+        self._appointment(Appointment.CONFIRMED, -1)
+        response = self._get(status="pending")
+        self.assertContains(response, "2 past visits aren't finished.")
+        self.assertContains(response, "They are still marked Confirmed.")
+        self.assertContains(response, "?status=unfinished")
+        self.assertContains(response, "Show them")
+
+    def test_notice_hidden_when_searching_and_on_history_tabs(self):
+        self._appointment(Appointment.CONFIRMED, -2)
+        for params in ({"q": "Bantay"}, {"status": "completed"}, {"status": "all"}):
+            with self.subTest(params=params):
+                response = self._get(**params)
+                self.assertNotContains(response, "isn't finished")
+
+    def test_unfinished_tab_has_back_link_and_no_active_tab(self):
+        self._appointment(Appointment.CONFIRMED, -2)
+        response = self._get(status="unfinished")
+        self.assertContains(response, "Past visits still marked Confirmed")
+        self.assertContains(response, "Back to Upcoming")
+        self.assertContains(response, "?status=upcoming")
+        self.assertEqual(self._active_tabs(response), [])
+        self.assertNotContains(response, "isn't finished")
+
+    def test_search_keeps_values_shows_clear_and_all_active(self):
+        visit = self._appointment(Appointment.PENDING, 1)
+        response = self._get(q="Bantay", date=visit.date.isoformat())
+        self.assertContains(response, 'value="Bantay"')
+        self.assertContains(response, f'value="{visit.date.isoformat()}"')
+        self.assertContains(response, "Clear search")
+        self.assertEqual(self._active_tabs(response), ["All"])
+
+    def test_search_form_does_not_send_status(self):
+        html = self._html(self._get())
+        form = re.search(r'<form[^>]*role="search".*?</form>', html, re.S).group(0)
+        self.assertNotIn('name="status"', form)
+        self.assertNotIn("btn-primary", form)
+        self.assertNotIn("Clear search", form)
+
+    def test_empty_search_states(self):
+        response = self._get(q="Bantai")
+        self.assertContains(response, "No appointments match “Bantai”")
+        self.assertContains(response, "Check the spelling")
+        self.assertContains(response, "Clear search")
+        day = self.today + datetime.timedelta(days=5)
+        response = self._get(date=day.isoformat())
+        self.assertContains(response, f"No appointments for {friendly_date(day)}")
+
+    def test_empty_tab_states(self):
+        titles = {
+            "pending": "No requests waiting",
+            "upcoming": "No upcoming visits",
+            "completed": "No completed visits yet",
+            "cancelled": "No cancelled appointments",
+            "no_show": "No missed visits",
+            "all": "No appointments yet",
+            "unfinished": "All past visits are finished",
+        }
+        for tab, title in titles.items():
+            with self.subTest(tab=tab):
+                response = self._get(status=tab)
+                self.assertContains(response, title)
+                self.assertNotContains(response, "Clear search")
+
+    def test_pager_disabled_previous_and_links_keep_params(self):
+        day = self.today + datetime.timedelta(days=2)
+        for i in range(26):
+            Appointment.objects.create(
+                owner=self.owner,
+                pet=self.pet,
+                date=day,
+                time=datetime.time(8 + i // 4, (i % 4) * 15),
+                status=Appointment.PENDING,
+            )
+        response = self._get(q="Bantay")
+        html = self._html(response)
+        self.assertContains(response, "Showing 1–25 of 26")
+        self.assertRegex(html, r'<span class="btn[^"]*" aria-disabled="true">')
+        self.assertNotRegex(html, r"<a [^>]*>[^<]*<svg[^>]*>(?:(?!</a>).)*Previous")
+        next_link = re.search(r'<a href="([^"]+)" class="btn btn-outline">Next', html)
+        self.assertIsNotNone(next_link)
+        for part in ("status=all", "q=Bantay", "page=2"):
+            self.assertIn(part, next_link.group(1))
+
+    def test_one_page_hides_pager_buttons(self):
+        self._appointment(Appointment.PENDING)
+        response = self._get()
+        self.assertContains(response, "Showing all 1")
+        self.assertNotContains(response, "Previous")
+
+    def test_phone_select_lists_six_tabs_with_counts(self):
+        self._appointment(Appointment.PENDING)
+        self._appointment(Appointment.COMPLETED, -1)
+        html = self._html(self._get(status="completed"))
+        select = re.search(r'<select[^>]*name="status".*?</select>', html, re.S)
+        options = re.findall(
+            r'<option value="([^"]+)"( selected)?>([^<]+)<', select.group(0)
+        )
+        self.assertEqual(
+            options,
+            [
+                ("pending", "", "Needs approval (1)"),
+                ("upcoming", "", "Upcoming (0)"),
+                ("completed", " selected", "Completed (1)"),
+                ("cancelled", "", "Cancelled (0)"),
+                ("no_show", "", "No show (0)"),
+                ("all", "", "All (2)"),
+            ],
+        )
+
+    def test_phone_card_is_one_link(self):
+        visit = self._appointment(Appointment.PENDING, 1)
+        visit.service = self._service("Grooming")
+        visit.save()
+        html = self._html(self._get())
+        url = reverse("admin_appointment_detail", args=[visit.pk])
+        card = re.search(rf'<a href="{url}" class="block.*?</a>', html, re.S)
+        self.assertIsNotNone(card)
+        self.assertIn("Bantay · Grooming", card.group(0))
+        self.assertIn("Ana Cruz", card.group(0))
+
+    def test_no_deleted_static_files_or_multiline_links(self):
+        self._appointment(Appointment.PENDING)
+        self._appointment(Appointment.CONFIRMED, -1)
+        html = self._html(self._get(status="all"))
+        for name in (
+            "appointments_list.js",
+            "appointments_list.css",
+            "appointment_detail.css",
+            "css/admin/",
+        ):
+            self.assertNotIn(name, html)
+        self.assertNotRegex(html, r"<a\b[^>]*\n")
+
+    def test_existing_status_links_land_on_a_valid_tab(self):
+        """Dashboard/sidebar links use ?status=pending or no status."""
+        self._appointment(Appointment.PENDING)
+        for status, label in (
+            ("pending", "Needs approval"),
+            ("confirmed", "Upcoming"),
+            ("no_show", "No show"),
+            ("bogus", "Needs approval"),
+            ("", "Needs approval"),
+        ):
+            with self.subTest(status=status):
+                response = self._get(status=status) if status else self._get()
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(self._active_tabs(response), [label])

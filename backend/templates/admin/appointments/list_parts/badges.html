@@ -1,0 +1,18 @@
+{% comment %}
+  Status pill plus tags for one row (table and phone card). A moved
+  original shows a grey "Moved" instead of "Cancelled". "Date has passed"
+  marks a request nobody approved in time.
+{% endcomment %}
+<div class="flex flex-wrap gap-2">
+  {% if appointment.is_moved %}
+    <span class="badge bg-gray-100 text-gray-800">Moved</span>
+  {% else %}
+    {% include "components/status_badge.html" with status=appointment.status label=appointment.get_status_display %}
+  {% endif %}
+  {% if appointment.is_walk_in %}
+    <span class="badge bg-violet-100 text-violet-800">Walk-in</span>
+  {% endif %}
+  {% if appointment.status == "pending" and appointment.date < today %}
+    <span class="badge gap-1 bg-orange-100 text-orange-800">{% include "components/icon.html" with name="triangle-alert" class="size-4 shrink-0" %}Date has passed</span>
+  {% endif %}
+</div>

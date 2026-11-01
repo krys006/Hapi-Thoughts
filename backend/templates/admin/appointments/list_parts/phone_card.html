@@ -1,0 +1,17 @@
+{% load friendly_dates %}
+{% comment %}
+  One appointment as a card (below md). The whole card is one link to the
+  detail page.
+{% endcomment %}
+<a href="{% url 'admin_appointment_detail' appointment.pk %}" class="block rounded-xl border border-gray-200 bg-white p-4 shadow-sm hover:border-violet-300 hover:bg-violet-50">
+  <div class="flex items-start gap-3">
+    {% include "components/pet_avatar.html" with pet=appointment.pet size="sm" %}
+    <div class="min-w-0 flex-1">
+      <p class="text-base font-semibold text-gray-900">{{ appointment.pet.name }} · {% if appointment.service %}{{ appointment.service.service_name }}{% else %}No service picked{% endif %}</p>
+      <p class="text-base text-gray-800">{{ appointment.date|friendly_date }}, {{ appointment.time|time:"g:i A" }}</p>
+      <p class="text-sm text-gray-600">{{ appointment.owner.full_name }}</p>
+      <div class="mt-2">{% include "admin/appointments/list_parts/badges.html" %}</div>
+    </div>
+    {% include "components/icon.html" with name="chevron-right" class="mt-2 size-5 shrink-0 text-gray-600" %}
+  </div>
+</a>

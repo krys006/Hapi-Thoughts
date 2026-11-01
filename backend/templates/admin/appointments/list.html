@@ -1,45 +1,64 @@
 {% extends "layouts/admin.html" %}
 
-{% load static %}
-{% block legacy_css %}
-<style>
-  @import url("{% static 'css/admin/appointment_detail.css' %}") layer(legacy);
-  @import url("{% static 'css/admin/appointments_list.css' %}") layer(legacy);
-</style>
-{% endblock %}
-
 {% block title %}Appointments — Hapi Vet Admin{% endblock %}
 
-{% block page_header %}{% endblock %}
+{# This page has its own search box, so the top bar shows none #}
+{% block topbar_search %}{% endblock %}
 
-{% block content %}
-
-<div class="admin-page">
-
-  <div class="admin-page-header">
-    <h1 class="admin-page-title">Appointments</h1>
-    <a href="{% url 'admin_walkin_appointment_create' %}" class="btn-primary">
-      + Walk-in Appointment
-    </a>
-  </div>
-
-<!-- Status filter tabs -->
-<div class="filter-tabs">
-  <a href="{% url 'admin_appointments' %}" class="filter-tab {% if not status_filter %}filter-tab--active{% endif %}">All <span class="filter-count">{{ counts.all }}</span></a>
-  <a href="{% url 'admin_appointments' %}?status=pending" class="filter-tab {% if status_filter == 'pending' %}filter-tab--active{% endif %}">Pending <span class="filter-count">{{ counts.pending }}</span></a>
-  <a href="{% url 'admin_appointments' %}?status=confirmed" class="filter-tab {% if status_filter == 'confirmed' %}filter-tab--active{% endif %}">Confirmed <span class="filter-count">{{ counts.confirmed }}</span></a>
-  <a href="{% url 'admin_appointments' %}?status=completed" class="filter-tab {% if status_filter == 'completed' %}filter-tab--active{% endif %}">Completed <span class="filter-count">{{ counts.completed }}</span></a>
-  <a href="{% url 'admin_appointments' %}?status=cancelled" class="filter-tab {% if status_filter == 'cancelled' %}filter-tab--active{% endif %}">Cancelled <span class="filter-count">{{ counts.cancelled }}</span></a>
-  <a href="{% url 'admin_appointments' %}?status=no_show" class="filter-tab {% if status_filter == 'no_show' %}filter-tab--active{% endif %}">No Show <span class="filter-count">{{ counts.no_show }}</span></a>
-</div>
-
-  <!-- Appointment list — swappable by HTMX -->
-  {% include 'admin/appointments/_appointment_list_partial.html' %}
-
-</div>
-
+{% block page_title %}Appointments{% endblock %}
+{% block page_subtitle %}Approve requests and keep track of visits.{% endblock %}
+{% block page_actions %}
+  <a href="{% url 'admin_walkin_appointment_create' %}" class="btn btn-primary">{% include "components/icon.html" with name="plus" %}New walk-in</a>
 {% endblock %}
 
-{% block extra_js %}
-  <script src="{% static 'js/admin/appointments_list.js' %}"></script>
+{% block content %}
+  {% include "admin/appointments/list_parts/tabs.html" %}
+  {% include "admin/appointments/list_parts/unfinished_notice.html" %}
+  {% include "admin/appointments/list_parts/filters.html" %}
+
+  {% if day_groups %}
+    {# Table from md up #}
+    <div class="hidden overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm md:block">
+      <table class="w-full text-left">
+        <thead class="text-base font-semibold text-gray-700">
+          <tr>
+            <th scope="col" class="px-5 py-3">Time</th>
+            <th scope="col" class="px-5 py-3">Pet</th>
+            <th scope="col" class="px-5 py-3">Owner</th>
+            <th scope="col" class="px-5 py-3">Service</th>
+            <th scope="col" class="px-5 py-3">Status</th>
+            <th scope="col" class="px-5 py-3"><span class="sr-only">Open</span></th>
+          </tr>
+        </thead>
+        {% for day, rows in day_groups %}
+          <tbody>
+            <tr class="bg-gray-50">
+              <th scope="colgroup" colspan="6" class="border-t border-gray-200 px-5 py-2.5 text-base font-semibold text-gray-800">{% include "admin/appointments/list_parts/day_label.html" %} <span class="font-normal text-gray-600">· {{ rows|length }} appointment{{ rows|length|pluralize }}</span></th>
+            </tr>
+            {% for appointment in rows %}
+              {% include "admin/appointments/list_parts/table_row.html" %}
+            {% endfor %}
+          </tbody>
+        {% endfor %}
+      </table>
+      {% include "admin/appointments/list_parts/pager.html" %}
+    </div>
+
+    {# Cards below md #}
+    <div class="space-y-3 md:hidden">
+      {% for day, rows in day_groups %}
+        <h2 class="pt-1 text-base font-semibold text-gray-800">{% include "admin/appointments/list_parts/day_label.html" %}</h2>
+        <ul class="space-y-3">
+          {% for appointment in rows %}
+            <li>{% include "admin/appointments/list_parts/phone_card.html" %}</li>
+          {% endfor %}
+        </ul>
+      {% endfor %}
+      <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
+        {% include "admin/appointments/list_parts/pager.html" %}
+      </div>
+    </div>
+  {% else %}
+    {% include "admin/appointments/list_parts/empty.html" %}
+  {% endif %}
 {% endblock %}

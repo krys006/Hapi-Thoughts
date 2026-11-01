@@ -196,7 +196,10 @@ Phase 7 — Dashboards & Polish
 ### 3.3 Appointment Management (Admin)
 | Feature | Status |
 |---|---|
-| View all appointments (calendar and list view) | `planned` |
+| View all appointments in a list: status tabs (Needs approval, Upcoming, Completed, Cancelled, No show, All) with counts, grouped by day, 25 per page | `complete` |
+| Search appointments by pet or owner name and by date (searches every status) | `complete` |
+| Notice for past visits still marked Confirmed, with a link to them | `complete` |
+| View all appointments on a calendar page | `planned` |
 | Calendar monthly and weekly view toggle | `complete` |
 | Colored dot indicators on calendar days with appointments | `complete` |
 | Click day to view appointment details in side panel | `planned` |

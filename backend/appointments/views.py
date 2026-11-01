@@ -678,22 +678,12 @@ def admin_appointment_list(request):
 
     rows = filter_appointments(active_tab, today, q, date_filter)
     page_obj = Paginator(rows, LIST_PAGE_SIZE).get_page(request.GET.get("page"))
-    appointments = list(page_obj.object_list)
-
-    # Kept until B5 decides whether the list still swaps in a partial
-    if request.headers.get("HX-Request"):
-        return render(
-            request,
-            "admin/appointments/_appointment_list_partial.html",
-            {"appointments": appointments, "status_filter": active_tab, "today": today},
-        )
 
     page_query = list_querystring(active_tab, q, date_filter)
     context = {
         "active_tab": active_tab,
         "tabs": list_tabs(counts),
-        "appointments": appointments,
-        "day_groups": group_by_day(appointments),
+        "day_groups": group_by_day(page_obj.object_list),
         "page_obj": page_obj,
         "page_query": page_query,
         **paging_links(page_obj, page_query),
@@ -701,6 +691,13 @@ def admin_appointment_list(request):
         "date_filter": date_filter,
         "is_searching": is_searching,
         **unfinished_visits(today, counts["unfinished"]),
+        # The yellow notice belongs on the work tabs, not on search results
+        "show_unfinished_notice": (
+            counts["unfinished"] > 0
+            and not is_searching
+            and active_tab in ("pending", "upcoming")
+        ),
+        # Day headings ("Today · …") and the "Date has passed" tag
         "today": today,
     }
     return render(request, "admin/appointments/list.html", context)

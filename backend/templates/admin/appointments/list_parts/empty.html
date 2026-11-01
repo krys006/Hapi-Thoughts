@@ -1,0 +1,35 @@
+{% load friendly_dates %}
+{% comment %}
+  Empty list: says what was searched (with a way out), or what the open
+  tab would hold. empty_state has no action slot, so Clear search follows it.
+{% endcomment %}
+<div class="rounded-xl border border-gray-200 bg-white pb-4 shadow-sm">
+  {% if is_searching %}
+    {% with day=date_filter|friendly_date:"mid" %}
+      {% if q and date_filter %}
+        {% include "components/empty_state.html" with icon="search" title="No appointments match “"|add:q|add:"” for "|add:day text="Check the spelling, or clear the search to see everything." %}
+      {% elif q %}
+        {% include "components/empty_state.html" with icon="search" title="No appointments match “"|add:q|add:"”" text="Check the spelling, or clear the search to see everything." %}
+      {% else %}
+        {% include "components/empty_state.html" with icon="search" title="No appointments for "|add:day text="Check the date, or clear the search to see everything." %}
+      {% endif %}
+    {% endwith %}
+    <div class="flex justify-center">
+      <a href="{% url 'admin_appointments' %}" class="btn btn-outline font-semibold">{% include "components/icon.html" with name="x" %}Clear search</a>
+    </div>
+  {% elif active_tab == "pending" %}
+    {% include "components/empty_state.html" with icon="inbox" title="No requests waiting" text="New online requests will show up here." %}
+  {% elif active_tab == "upcoming" %}
+    {% include "components/empty_state.html" with icon="calendar" title="No upcoming visits" text="Confirmed visits from today on will show up here." %}
+  {% elif active_tab == "completed" %}
+    {% include "components/empty_state.html" with icon="circle-check" title="No completed visits yet" text="Visits you mark as completed will show up here." %}
+  {% elif active_tab == "cancelled" %}
+    {% include "components/empty_state.html" with icon="calendar-x" title="No cancelled appointments" text="Cancelled and declined appointments will show up here." %}
+  {% elif active_tab == "no_show" %}
+    {% include "components/empty_state.html" with icon="user-x" title="No missed visits" text="Visits you mark as a no-show will show up here." %}
+  {% elif active_tab == "unfinished" %}
+    {% include "components/empty_state.html" with icon="circle-check" title="All past visits are finished" text="Every past visit is marked as completed or as a no-show." %}
+  {% else %}
+    {% include "components/empty_state.html" with icon="calendar" title="No appointments yet" text="Online requests and walk-ins will show up here." %}
+  {% endif %}
+</div>
