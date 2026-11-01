@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
@@ -534,6 +535,15 @@ def _notify_owner(appointment, notification_type, title, message, email_subject)
     )
 
 
+def _related_or_none(obj, name):
+    """A reverse one-to-one (e.g. appointment.medical_record), or None when
+    there isn't one yet."""
+    try:
+        return getattr(obj, name)
+    except ObjectDoesNotExist:
+        return None
+
+
 def _open_dialog(cancel_form, reschedule_form):
     """Which dialog the detail page reopens after a form error, or None."""
     if reschedule_form.is_bound and reschedule_form.errors:
@@ -588,6 +598,8 @@ def _admin_detail_context(
         "cancelled_by_owner": cancelled_by is not None and cancelled_by.is_pet_owner,
         # At most one: a moved appointment is cancelled, so it can't move again
         "moved_to": appointment.rescheduled_to.first(),
+        "medical_record": _related_or_none(appointment, "medical_record"),
+        "receipt": _related_or_none(appointment, "billing_receipt"),
         "open_dialog": _open_dialog(cancel_form, reschedule_form),
     }
     context.update(_reschedule_slot_context(reschedule_form))

@@ -1,0 +1,78 @@
+{% load friendly_dates %}
+{% comment %}
+  Status banner at the top of the appointment detail page: one coloured
+  box per state (see docs/mockups/appointment_detail_v2.html). Pending on
+  a passed date is orange; a moved original is grey, not red.
+{% endcomment %}
+{% if appointment.status == "pending" and date_has_passed %}
+  <div class="mb-6 flex items-start gap-3 rounded-xl border border-orange-300 bg-orange-50 px-5 py-4 text-orange-900">
+    {% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-6 shrink-0" %}
+    <div>
+      <p class="text-lg font-semibold">This date has already passed</p>
+      <p class="mt-0.5 text-base">{{ appointment.owner.full_name }} asked for {{ appointment.date|friendly_date }} at {{ appointment.time|time:"g:i A" }}, but it wasn't approved in time. Move it to another time or decline it.</p>
+    </div>
+  </div>
+{% elif appointment.status == "pending" %}
+  <div class="mb-6 flex items-start gap-3 rounded-xl border border-yellow-300 bg-yellow-50 px-5 py-4 text-yellow-900">
+    {% include "components/icon.html" with name="clock" class="mt-0.5 size-6 shrink-0" %}
+    <div>
+      <p class="text-lg font-semibold">Waiting for your approval</p>
+      <p class="mt-0.5 text-base">{{ appointment.owner.full_name }} asked for {{ appointment.date|friendly_date }} at {{ appointment.time|time:"g:i A" }} online. Approve it, move it to another time, or decline it.</p>
+    </div>
+  </div>
+{% elif appointment.status == "confirmed" %}
+  <div class="mb-6 flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-5 py-4 text-blue-900">
+    {% include "components/icon.html" with name="circle-check" class="mt-0.5 size-6 shrink-0" %}
+    <div>
+      <p class="text-lg font-semibold">Confirmed for {{ appointment.date|friendly_date }} at {{ appointment.time|time:"g:i A" }}</p>
+      {% if can_mark_visit %}
+        <p class="mt-0.5 text-base">After the visit, mark it as completed. If the pet didn't come, mark it as a no-show.</p>
+      {% else %}
+        <p class="mt-0.5 text-base">On the day of the visit, you can mark it as completed, or as a no-show if the pet doesn't come.</p>
+      {% endif %}
+    </div>
+  </div>
+{% elif appointment.status == "completed" %}
+  <div class="mb-6 flex items-start gap-3 rounded-xl border border-green-200 bg-green-50 px-5 py-4 text-green-900">
+    {% include "components/icon.html" with name="circle-check" class="mt-0.5 size-6 shrink-0" %}
+    <div>
+      {% if medical_record and receipt %}
+        <p class="text-lg font-semibold">All done for this visit</p>
+        <p class="mt-0.5 text-base">The medical record and the receipt are both added.</p>
+      {% else %}
+        <p class="text-lg font-semibold">Visit completed</p>
+        {% if medical_record %}
+          <p class="mt-0.5 text-base">The medical record is added. One thing left: create the receipt.</p>
+        {% elif receipt %}
+          <p class="mt-0.5 text-base">The receipt is created. One thing left: add the medical record.</p>
+        {% else %}
+          <p class="mt-0.5 text-base">Next, add the medical record and create the receipt.</p>
+        {% endif %}
+      {% endif %}
+    </div>
+  </div>
+{% elif appointment.status == "cancelled" and moved_to %}
+  <div class="mb-6 flex items-start gap-3 rounded-xl border border-gray-300 bg-gray-100 px-5 py-4 text-gray-900">
+    {% include "components/icon.html" with name="calendar-clock" class="mt-0.5 size-6 shrink-0" %}
+    <div>
+      <p class="text-lg font-semibold">Moved to {{ moved_to.date|long_date }} at {{ moved_to.time|time:"g:i A" }}</p>
+      <p class="mt-0.5 text-base">The clinic moved this appointment to a new time. Use the new appointment from now on.</p>
+    </div>
+  </div>
+{% elif appointment.status == "cancelled" %}
+  <div class="mb-6 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-red-900">
+    {% include "components/icon.html" with name="circle-x" class="mt-0.5 size-6 shrink-0" %}
+    <div>
+      <p class="text-lg font-semibold">{% if cancelled_by_owner %}Cancelled by the owner{% else %}Cancelled by the clinic{% endif %}</p>
+      <p class="mt-0.5 text-base">{{ appointment.get_cancellation_reason_display|default:"No reason given" }}{% if appointment.cancellation_detail %}: “{{ appointment.cancellation_detail }}”{% endif %}</p>
+    </div>
+  </div>
+{% elif appointment.status == "no_show" %}
+  <div class="mb-6 flex items-start gap-3 rounded-xl border border-gray-300 bg-gray-100 px-5 py-4 text-gray-900">
+    {% include "components/icon.html" with name="user-x" class="mt-0.5 size-6 shrink-0" %}
+    <div>
+      <p class="text-lg font-semibold">Marked as a no-show</p>
+      <p class="mt-0.5 text-base">{{ appointment.pet.name }} didn't come on {{ appointment.date|friendly_date }} at {{ appointment.time|time:"g:i A" }}.</p>
+    </div>
+  </div>
+{% endif %}

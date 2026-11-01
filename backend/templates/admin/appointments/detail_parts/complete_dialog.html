@@ -1,0 +1,9 @@
+{% load friendly_dates %}
+<dialog id="complete-dialog" aria-labelledby="complete-dialog-title" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50">
+  <form method="post" action="{% url 'admin_appointment_complete' appointment.pk %}" class="p-6 sm:p-7">
+    {% csrf_token %}
+    <h2 id="complete-dialog-title" class="text-xl font-bold">Mark {{ appointment.pet.name }}'s visit as completed?</h2>
+    <p class="mt-2 text-base text-gray-700">Do this once the visit on <b>{{ appointment.date|friendly_date }} at {{ appointment.time|time:"g:i A" }}</b> is over. It can't be undone.</p>
+    {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, mark as completed" icon="check" %}
+  </form>
+</dialog>

@@ -222,6 +222,8 @@ to needs-approval) and the appointments list.
 - Slice 2 admin login: new `layouts/auth.html`; redesigned admin login (clinic logo/name, large fields, Show password, Caps Lock warning, one generic error); `login.css` retired — Done 2026-11-01
 - Slice 3 appointments (list, detail, walk-in, calendar page) — in progress
   - 3a-2 B1 detail backend: approve refuses past dates; `_notify_owner` helper; reschedule message "moved by the clinic… The new time is confirmed."; detail context flags for the redesign; `?as=buttons` slot partial; `long_date` and `species_icon` filters — Done 2026-11-01
+  - 3a-2 B2 shared components: icon `stroke`, `pet_avatar`, `owner_avatar`, `dialogs.js`, `topbar_search` block — Done 2026-11-01
+  - 3a-2 B3 detail page redesign: `admin/appointments/detail.html` on the new layout (no legacy CSS) with includes in `detail_parts/`; status banner per state, details + internal notes cards, actions card (first on small screens), native dialogs for approve/decline/complete/no-show/cancel/move; move dialog uses `_slot_buttons.html`; dialogs reopen on form errors; context adds `medical_record` and `receipt`; admin form labels ("Reason", "Details", "Reason for the change") and a notes placeholder; `species_icon` matches plurals — Done 2026-11-01. `static/css/admin/appointment_detail.css` stays until B5 (list.html still uses it).
 - Slice 4 pets and owners (incl. the broken `<a>` tags in deletion_requests)
 - Slice 5 medical
 - Slice 6 billing (receipt print must stay a direct child of `<body>`, with no transform/filter on any ancestor)

@@ -119,6 +119,10 @@ Never use per-app template folders.
 - `components/` holds include-only building blocks for the new admin UI
   (see §11). They have no `_` prefix (that prefix means "HTMX partial")
   and never extend a base template.
+- A page that grows too long splits into includes in a `<page>_parts/`
+  folder next to it (e.g. `admin/appointments/detail_parts/`). Same rules
+  as `components/`: no `_` prefix, never extend a base template, and each
+  file loads its own template tag libraries.
 - Owner emails are plain-text templates in `owner/emails/*.txt`.
 
 ```
@@ -165,11 +169,26 @@ templates/
 │   ├── appointments/
 │   │   ├── list.html
 │   │   ├── detail.html
+│   │   ├── detail_parts/             ← Includes for detail.html (not HTMX partials, so no `_`)
+│   │   │   ├── status_banner.html
+│   │   │   ├── details_card.html
+│   │   │   ├── notes_card.html
+│   │   │   ├── actions_card.html
+│   │   │   ├── notify_line.html
+│   │   │   ├── dialog_buttons.html
+│   │   │   ├── dialog_error.html
+│   │   │   ├── approve_dialog.html
+│   │   │   ├── decline_dialog.html
+│   │   │   ├── complete_dialog.html
+│   │   │   ├── no_show_dialog.html
+│   │   │   ├── cancel_dialog.html
+│   │   │   └── move_dialog.html
 │   │   ├── walkin_form.html
 │   │   ├── _appointment_list_partial.html
 │   │   ├── _calendar_grid.html
 │   │   ├── _calendar_day_panel.html
 │   │   ├── _pet_options.html
+│   │   ├── _slot_buttons.html
 │   │   └── _slot_options.html
 │   ├── pets/
 │   │   ├── owners_list.html
@@ -626,6 +645,10 @@ page. Use a native `<dialog>` with data attributes, no inline handlers:
   backdrop and the Escape key.
 - `data-open-on-load` opens the dialog when the page loads, or when an HTMX
   swap brings it in (once per dialog).
+- Give the `<dialog>` `m-auto p-0` (Tailwind's reset removes the browser's
+  centring margin) and put the padding on an inner element, so a click on
+  the padding isn't taken for a click on the backdrop. See
+  `admin/appointments/detail_parts/approve_dialog.html`.
 - Focus goes to the element with `autofocus`.
 - Clicks are handled once on `document`, so dialogs inside HTMX partials
   need no extra wiring.

@@ -1,4 +1,5 @@
 import datetime
+import re
 from unittest import mock
 
 from django.contrib.auth import get_user_model
@@ -11,7 +12,9 @@ from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
 from appointments.models import Appointment, ClinicSettings
-from dashboard.templatetags.friendly_dates import friendly_date
+from billing.models import BillingReceipt
+from dashboard.templatetags.friendly_dates import friendly_date, long_date
+from medical.models import MedicalRecord
 from notifications.models import Notification
 from pets.models import Pet, PetOwner
 
@@ -459,6 +462,222 @@ class DetailContextTests(AppointmentTestBase):
         self.assertEqual(self._context(original)["moved_to"], new)
 
 
+class DetailPageTests(AppointmentTestBase):
+    """What the redesigned detail page shows for each state."""
+
+    def _get(self, appointment):
+        response = self.client.get(
+            reverse("admin_appointment_detail", args=[appointment.pk])
+        )
+        self.assertEqual(response.status_code, 200)
+        return response
+
+    def _completed_with(self, record=False, receipt=False):
+        appointment = self._appointment(Appointment.COMPLETED, days_from_today=0)
+        if record:
+            MedicalRecord.objects.create(
+                pet=self.pet, appointment=appointment, record_date=self.today
+            )
+        if receipt:
+            BillingReceipt.objects.create(
+                appointment=appointment,
+                owner=self.owner,
+                pet=self.pet,
+                receipt_number="R-0001",
+            )
+        return appointment
+
+    def _assert_dialog_open(self, response, dialog_id, is_open=True):
+        opened = re.search(
+            rf'<dialog id="{dialog_id}"[^>]*data-open-on-load',
+            response.content.decode(),
+        )
+        self.assertEqual(bool(opened), is_open)
+
+    def test_pending_approve_only_for_future_dates(self):
+        future = self._get(self._appointment(Appointment.PENDING, days_from_today=2))
+        self.assertContains(future, "Waiting for your approval")
+        self.assertContains(future, 'data-dialog-open="approve-dialog"')
+        self.assertContains(future, 'id="approve-dialog"')
+
+        past = self._get(self._appointment(Appointment.PENDING, days_from_today=-1))
+        self.assertContains(past, "This date has already passed")
+        self.assertNotContains(past, "Approve request")
+        self.assertNotContains(past, 'id="approve-dialog"')
+        self.assertContains(past, "Move to another time")
+        self.assertContains(past, "Decline request")
+
+    def test_confirmed_mark_as_completed_from_the_visit_day(self):
+        future = self._appointment(Appointment.CONFIRMED, days_from_today=2)
+        response = self._get(future)
+        self.assertNotContains(response, 'data-dialog-open="complete-dialog"')
+        self.assertNotContains(response, 'data-dialog-open="no-show-dialog"')
+        day = date_format(future.date, "D, M j")
+        self.assertContains(response, f"“Mark as completed” appears here on {day}.")
+
+        response = self._get(self._appointment(Appointment.CONFIRMED, 0, hour=10))
+        self.assertContains(response, 'data-dialog-open="complete-dialog"')
+        self.assertContains(response, "Pet didn't come (no-show)")
+        self.assertNotContains(response, "appears here on")
+
+    def test_completed_without_record_or_receipt_links_to_create_both(self):
+        appointment = self._completed_with()
+        response = self._get(appointment)
+        record_url = reverse("admin_medical_record_create", args=[self.pet.pk])
+        receipt_url = reverse("admin_receipt_create")
+        self.assertContains(
+            response, f'href="{record_url}?appointment={appointment.pk}"'
+        )
+        self.assertContains(
+            response, f'href="{receipt_url}?appointment={appointment.pk}"'
+        )
+        self.assertContains(response, "Not added yet")
+        self.assertContains(response, "Not created yet")
+        self.assertNotContains(response, "All done for this visit")
+
+    def test_completed_with_both_is_all_done(self):
+        appointment = self._completed_with(record=True, receipt=True)
+        response = self._get(appointment)
+        self.assertContains(response, "All done for this visit")
+        record = appointment.medical_record
+        receipt = appointment.billing_receipt
+        self.assertContains(
+            response,
+            f'href="{reverse("admin_medical_record_detail", args=[record.pk])}"',
+        )
+        self.assertContains(
+            response, f'href="{reverse("admin_receipt_detail", args=[receipt.pk])}"'
+        )
+        self.assertContains(response, "Open medical record")
+        self.assertContains(response, "Open receipt")
+        self.assertNotContains(response, "Add medical record")
+        self.assertNotContains(response, "Create receipt")
+        # Both buttons are outlines: no primary button left
+        self.assertNotContains(response, "btn btn-primary")
+
+    def test_moved_original_links_to_the_new_appointment(self):
+        original = self._appointment(Appointment.CANCELLED)
+        new = Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=self.today + datetime.timedelta(days=10),
+            time=datetime.time(14, 0),
+            status=Appointment.CONFIRMED,
+            rescheduled_from=original,
+        )
+        response = self._get(original)
+        self.assertContains(response, f"Moved to {long_date(new.date)} at 2:00 PM")
+        self.assertContains(
+            response,
+            f'href="{reverse("admin_appointment_detail", args=[new.pk])}"',
+        )
+        self.assertContains(response, "Open the new appointment")
+        self.assertNotContains(response, "Cancelled by the")
+
+    def test_cancelled_banner_says_who_cancelled(self):
+        appointment = self._appointment(Appointment.CANCELLED)
+        appointment.cancellation_reason = Appointment.PET_UNWELL
+        appointment.cancellation_detail = "Fever since Sunday."
+        appointment.cancelled_by = self.owner.user
+        appointment.save()
+        response = self._get(appointment)
+        self.assertContains(response, "Cancelled by the owner")
+        self.assertContains(response, "Pet is Unwell")
+        self.assertContains(response, "Fever since Sunday.")
+        self.assertContains(response, "Nothing more to do")
+        self.assertNotContains(response, "data-dialog-open")
+
+        appointment.cancelled_by = self.admin
+        appointment.save()
+        response = self._get(appointment)
+        self.assertContains(response, "Cancelled by the clinic")
+        self.assertNotContains(response, "Cancelled by the owner")
+
+    def test_footer_email_or_phone(self):
+        appointment = self._appointment(Appointment.PENDING)
+        self.assertContains(self._get(appointment), "Ana Cruz will be notified.")
+
+        self.owner.user.email = ""
+        self.owner.user.save()
+        self.owner.contact_number = "0917 123 4567"
+        self.owner.save()
+        response = self._get(appointment)
+        self.assertContains(
+            response,
+            "Ana Cruz has no email address. " "Call 0917 123 4567 if anything changes.",
+        )
+        self.assertNotContains(response, "will be notified")
+
+        self.owner.contact_number = ""
+        self.owner.save()
+        response = self._get(appointment)
+        self.assertContains(response, "Ana Cruz has no email address.")
+        self.assertNotContains(response, "Call ")
+
+    def _reschedule(self, original, **data):
+        target = self.today + datetime.timedelta(days=5)
+        post = {
+            "date": target.isoformat(),
+            "time": "10:00:00",
+            "reschedule_reason": "The vet is away that day.",
+        }
+        post.update(data)
+        return self._post("admin_appointment_reschedule", original, post)
+
+    def test_reschedule_error_reopens_the_move_dialog(self):
+        original = self._appointment(Appointment.CONFIRMED)
+        Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=self.today + datetime.timedelta(days=5),
+            time=datetime.time(10, 0),
+            status=Appointment.CONFIRMED,
+        )
+        response = self._reschedule(original)
+        self._assert_dialog_open(response, "move-dialog")
+        self._assert_dialog_open(response, "cancel-dialog", is_open=False)
+        self.assertContains(response, "Please correct the errors below.")
+        # The taken time is no longer one of the form's choices
+        self.assertContains(
+            response,
+            "Select a valid choice. 10:00:00 is not one of the available choices.",
+        )
+        self.assertContains(response, "The vet is away that day.</textarea>")
+        target = (self.today + datetime.timedelta(days=5)).isoformat()
+        self.assertContains(response, f'value="{target}"')
+
+    def test_reschedule_error_keeps_the_chosen_time_checked(self):
+        """Missing reason: the picked time is still free, so it stays checked."""
+        original = self._appointment(Appointment.CONFIRMED)
+        response = self._reschedule(original, reschedule_reason="")
+        self._assert_dialog_open(response, "move-dialog")
+        content = response.content.decode()
+        self.assertIn('value="10:00:00" class="sr-only" required checked', content)
+        self.assertEqual(content.count("required checked"), 1)
+
+    def test_cancel_error_reopens_the_cancel_dialog(self):
+        appointment = self._appointment(Appointment.CONFIRMED)
+        response = self._post(
+            "admin_appointment_cancel",
+            appointment,
+            {"cancellation_reason": Appointment.OTHER, "cancellation_detail": ""},
+        )
+        self._assert_dialog_open(response, "cancel-dialog")
+        self._assert_dialog_open(response, "move-dialog", is_open=False)
+        self.assertContains(response, "Please correct the errors below.")
+        self.assertContains(response, "Please provide details when selecting Other.")
+
+    def test_no_dialog_open_on_a_plain_visit(self):
+        response = self._get(self._appointment(Appointment.CONFIRMED))
+        self.assertNotContains(response, "data-open-on-load")
+        self.assertNotContains(response, "Please correct the errors below.")
+
+    def test_loads_no_old_admin_css(self):
+        response = self._get(self._appointment(Appointment.PENDING))
+        self.assertNotContains(response, "css/admin/")
+        self.assertContains(response, "css/app.")
+
+
 class SlotViewTests(AppointmentTestBase):
 
     def _get(self, **params):
@@ -526,3 +745,4 @@ class AccessTests(AppointmentTestBase):
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, "Needs a muzzle")
         self.assertNotContains(response, "Admin Notes")
+        self.assertNotContains(response, "Internal notes")

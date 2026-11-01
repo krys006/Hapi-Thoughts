@@ -24,6 +24,23 @@ class SpeciesIconTests(SimpleTestCase):
             with self.subTest(species=species):
                 self.assertEqual(species_icon(species), icon)
 
+    def test_plurals(self):
+        cases = {
+            "dogs": "dog",
+            "Puppies": "dog",
+            "cats": "cat",
+            "kittens": "cat",
+            "rabbits": "rabbit",
+            "Bunnies": "rabbit",
+            "birds": "bird",
+            "parrots": "bird",
+            "chickens": "bird",
+            "Lovebirds": "bird",
+        }
+        for species, icon in cases.items():
+            with self.subTest(species=species):
+                self.assertEqual(species_icon(species), icon)
+
     def test_mixed_case_and_extra_words(self):
         self.assertEqual(species_icon("Dog (Aspin)"), "dog")
         self.assertEqual(species_icon("PERSIAN CAT"), "cat")

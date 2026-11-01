@@ -1,0 +1,17 @@
+{% comment %}
+  Who hears about a change: the owner is notified, or (no email on file)
+  the clinic should phone them. Used in the actions card and the dialogs.
+  Optional: class (extra classes for the <p>), suffix (e.g. " if you move
+  or cancel it", added before the full stop).
+{% endcomment %}
+{% with owner=appointment.owner %}
+  <p class="flex items-start gap-2 text-sm text-gray-700 {{ class }}">
+    {% if owner_has_email %}
+      {% include "components/icon.html" with name="mail" class="mt-0.5 size-4 shrink-0" %}
+      <span>{{ owner.full_name }} will be notified{{ suffix }}.</span>
+    {% else %}
+      {% include "components/icon.html" with name="phone" class="mt-0.5 size-4 shrink-0" %}
+      <span>{{ owner.full_name }} has no email address.{% if owner.contact_number %} Call {{ owner.contact_number }} if anything changes.{% endif %}</span>
+    {% endif %}
+  </p>
+{% endwith %}

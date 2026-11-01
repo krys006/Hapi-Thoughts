@@ -8,12 +8,25 @@ register = template.Library()
 
 # Icon name (components/icon.html) and the words in Pet.species that pick it.
 # Species is free text, so this matches whole words anywhere in it, ignoring
-# case ("Persian cat" is a cat, "catfish" is not).
+# case ("Persian cat" is a cat, "catfish" is not). Plurals are listed too
+# ("2 puppies").
 SPECIES_ICONS = [
-    ("dog", ("dog", "puppy")),
-    ("cat", ("cat", "kitten")),
-    ("rabbit", ("rabbit", "bunny")),
-    ("bird", ("bird", "parrot", "chicken", "lovebird")),
+    ("dog", ("dog", "dogs", "puppy", "puppies")),
+    ("cat", ("cat", "cats", "kitten", "kittens")),
+    ("rabbit", ("rabbit", "rabbits", "bunny", "bunnies")),
+    (
+        "bird",
+        (
+            "bird",
+            "birds",
+            "parrot",
+            "parrots",
+            "chicken",
+            "chickens",
+            "lovebird",
+            "lovebirds",
+        ),
+    ),
 ]
 SPECIES_PATTERNS = [
     (icon, re.compile(r"\b(?:" + "|".join(words) + r")\b", re.IGNORECASE))
