@@ -32,6 +32,11 @@ urlpatterns = [
         name="admin_walkin_appointment_create",
     ),
     path(
+        "admin/appointments/walk-in/visit/",
+        views.admin_walkin_appointment_visit,
+        name="admin_walkin_appointment_visit",
+    ),
+    path(
         "admin/appointments/<int:pk>/",
         views.admin_appointment_detail,
         name="admin_appointment_detail",

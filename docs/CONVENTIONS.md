@@ -157,7 +157,7 @@ templates/
 │       └── _notification_row.html
 ├── admin/
 │   ├── login.html
-│   ├── walkin_create.html
+│   ├── walkin_create.html            ← walk-in "New owner" (owner + pet, still step 1)
 │   ├── dashboard/
 │   │   ├── index.html
 │   │   ├── _stats.html
@@ -193,7 +193,13 @@ templates/
 │   │   │   ├── no_show_dialog.html
 │   │   │   ├── cancel_dialog.html
 │   │   │   └── move_dialog.html
-│   │   ├── walkin_form.html
+│   │   ├── walkin_find.html          ← walk-in step 1 "Who is it for?" (owner search)
+│   │   ├── walkin_visit.html         ← walk-in step 2 "The visit"
+│   │   ├── walkin_review.html        ← walk-in step 3 "Check and book" (nothing saved yet)
+│   │   ├── walkin_parts/             ← Includes for the walk-in pages (not HTMX partials, so no `_`)
+│   │   │   ├── header.html           ← back link, title, subtitle, steps
+│   │   │   ├── steps.html            ← 1 Who is it for? · 2 The visit · 3 Check and book
+│   │   │   └── step.html
 │   │   ├── _calendar_grid.html
 │   │   ├── _calendar_day_panel.html
 │   │   ├── _pet_options.html
@@ -307,7 +313,8 @@ static/
 
 > A page migrated to the new layout loses its per-page files. Removed so
 > far: `css/admin/appointments_list.css`, `css/admin/appointment_detail.css`
-> and `js/admin/appointments_list.js` (Slice 3b B5). Other old files still
+> and `js/admin/appointments_list.js` (Slice 3b B5), `css/admin/walkin_create.css`
+> (Slice 3c-2). Other old files still
 > mention them in comments; those comments go when their own pages migrate.
 
 ### Media files (user uploads)
@@ -371,8 +378,9 @@ urlpatterns = [
 
 /admin/dashboard/               ← dashboard
 /admin/search/                  ← dashboard (global search)
-/admin/walkin/create/           ← accounts (walk-in owner + pet)
+/admin/walkin/create/           ← accounts (walk-in "New owner": owner + pet)
 /admin/appointments/            ← appointments
+/admin/appointments/walk-in/    ← appointments (walk-in step 1; visit/ is steps 2–3)
 /admin/settings/                ← appointments (clinic settings)
 /admin/pets/  /admin/pets/owners/  ← pets
 /admin/medical/  /admin/vaccinations/  ← medical

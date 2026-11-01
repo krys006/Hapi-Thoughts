@@ -456,48 +456,45 @@ class AdminAppointmentRescheduleForm(forms.Form):
 
 class AdminWalkInAppointmentForm(forms.Form):
     """
-    Admin form — create a walk-in appointment directly as CONFIRMED.
-    Owner and pet are selected from existing records.
+    Admin form — step 2 of a walk-in (the visit), saved directly as
+    CONFIRMED. The owner is chosen in step 1 and passed in; the pet must be
+    one of that owner's non-archived pets.
     """
 
-    owner = forms.ModelChoiceField(
-        queryset=None,  # Set in __init__
-        empty_label="Select a pet owner",
-    )
     pet = forms.ModelChoiceField(
-        queryset=None,  # Set in __init__, filtered by owner via HTMX
-        empty_label="Select a pet",
+        queryset=None,  # Set in __init__ to the owner's pets
+        widget=forms.RadioSelect,
+        empty_label=None,
+        error_messages={"required": "Pick the pet."},
     )
     service = forms.ModelChoiceField(
         queryset=None,  # Set in __init__
-        empty_label="Select a service (optional)",
+        empty_label="No service",
         required=False,
     )
     date = forms.DateField(
         widget=forms.DateInput(attrs={"type": "date"}),
+        help_text="Today is filled in. Pick another day for a phone booking.",
     )
     time = forms.ChoiceField(
         choices=[("", "Select a date first")],
+        error_messages={"required": "Pick a time."},
     )
     reason = forms.CharField(
+        label="Reason for the visit",
         widget=forms.Textarea(attrs={"rows": 3}),
         required=False,
     )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, owner, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        from pets.models import PetOwner, Pet
+        from pets.models import Pet
         from billing.models import Service
 
-        self.fields["owner"].queryset = PetOwner.objects.filter(
-            is_archived=False
-        ).order_by("last_name", "first_name")
-
-        # Start with all non-archived pets — filtered by owner via HTMX
-        self.fields["pet"].queryset = Pet.objects.filter(is_archived=False).order_by(
-            "name"
-        )
+        self.fields["pet"].queryset = Pet.objects.filter(
+            owner=owner, is_archived=False
+        ).order_by("name")
 
         self.fields["service"].queryset = Service.objects.filter(
             status__in=[Service.ACTIVE, Service.UNLISTED]
@@ -526,14 +523,6 @@ class AdminWalkInAppointmentForm(forms.Form):
         cleaned_data = super().clean()
         date = cleaned_data.get("date")
         time_str = cleaned_data.get("time")
-        owner = cleaned_data.get("owner")
-        pet = cleaned_data.get("pet")
-
-        # Verify the selected pet belongs to the selected owner
-        if owner and pet and pet.owner != owner:
-            raise forms.ValidationError(
-                "The selected pet does not belong to this owner."
-            )
 
         if not date or not time_str:
             return cleaned_data
@@ -545,22 +534,36 @@ class AdminWalkInAppointmentForm(forms.Form):
 
         # The time choices already leave out taken slots; check again in
         # case the slot was booked after the choices were built.
-        conflict = (
-            Appointment.objects.filter(
-                date=date,
-                time=time,
-            )
-            .exclude(status=Appointment.CANCELLED)
-            .exists()
-        )
-
-        if conflict:
+        if self._slot_is_booked(date, time):
             raise forms.ValidationError(
                 "This slot is already taken. Please select another time."
             )
 
         cleaned_data["time"] = time
         return cleaned_data
+
+    def _slot_is_booked(self, date, time):
+        return (
+            Appointment.objects.filter(date=date, time=time)
+            .exclude(status=Appointment.CANCELLED)
+            .exists()
+        )
+
+    def slot_was_taken(self):
+        """
+        True when the form failed because someone booked the chosen time
+        after the page was loaded. A taken time is missing from the time
+        choices, so it fails as an invalid choice, not in clean(); this
+        tells it apart from a time that has simply ended.
+        """
+        if self.is_valid():
+            return False
+        date = self.cleaned_data.get("date")
+        try:
+            time = datetime.time.fromisoformat(self.data.get("time", ""))
+        except ValueError:
+            return False
+        return bool(date) and self._slot_is_booked(date, time)
 
     def clean_date(self):
         date = self.cleaned_data.get("date")

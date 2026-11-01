@@ -1,0 +1,113 @@
+{% extends "layouts/admin.html" %}
+{% comment %}
+  Walk-in step 2, "The visit" (admin_walkin_appointment_visit). Posts
+  action=review to the same URL, which shows step 3.
+  Context: owner, form, pets (the owner's non-archived pets),
+  selected_pet, slots / slots_date / date_value / selected_time
+  (walkin_slot_context), taken_message (the chosen time was just booked).
+{% endcomment %}
+
+{% block title %}New walk-in — Hapi Vet Admin{% endblock %}
+
+{% block page_header %}
+  {% include "admin/appointments/walkin_parts/header.html" with title="New walk-in" subtitle="Pick the pet and the time." active=2 %}
+{% endblock %}
+
+{% block content %}
+<div class="grid max-w-4xl gap-6">
+  {% if taken_message %}
+    <div class="flex items-start gap-3 rounded-xl border border-red-300 bg-red-50 px-5 py-4 text-red-900" role="alert">
+      {% include "components/icon.html" with name="triangle-alert" class="size-6 shrink-0" %}
+      <p class="text-base">{{ taken_message }}</p>
+    </div>
+  {% endif %}
+  {% if form.non_field_errors %}
+    <div class="rounded-xl border border-red-300 bg-red-50 px-5 py-4 text-red-900" role="alert">
+      {% for error in form.non_field_errors %}<p class="text-base">{{ error }}</p>{% endfor %}
+    </div>
+  {% endif %}
+
+  <section class="card flex flex-wrap items-center gap-4 px-6 py-4" aria-label="Owner">
+    {% include "components/owner_avatar.html" with owner=owner %}
+    <div class="flex-1">
+      <p class="text-sm text-gray-600">Owner</p>
+      <p class="text-base font-semibold">{{ owner.full_name }}</p>
+      <p class="text-sm text-gray-600">{{ owner.contact_number|default:"No phone number" }}{% if owner.user.email %} · {{ owner.user.email }}{% endif %}</p>
+    </div>
+    <a href="{% url 'admin_walkin_appointment_create' %}" class="inline-flex min-h-11 items-center text-base font-medium text-blue-600 underline underline-offset-2">Change owner</a>
+  </section>
+
+  {% if pets %}
+    <form method="post" action="{% url 'admin_walkin_appointment_visit' %}" class="grid gap-6">
+      {% csrf_token %}
+      <input type="hidden" name="owner" value="{{ owner.pk }}">
+
+      <section class="card p-6">
+        <fieldset>
+          <legend class="mb-3 text-xl font-semibold">Which pet? <span class="text-red-700" aria-hidden="true">*</span></legend>
+          <div class="grid gap-3 sm:grid-cols-2">
+            {% for pet in pets %}
+              <label class="flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border-2 border-gray-200 bg-white px-4 py-3 has-[:checked]:border-violet-600 has-[:checked]:bg-violet-50">
+                <input type="radio" name="pet" value="{{ pet.pk }}" class="size-5 shrink-0 accent-violet-600" required{% if pet.pk|stringformat:"s" == selected_pet %} checked{% endif %}>
+                {% include "components/pet_avatar.html" with pet=pet size="sm" %}
+                <span>
+                  <span class="block text-base font-semibold">{{ pet.name }}</span>
+                  <span class="block text-sm text-gray-600">{{ pet.species|capfirst }}{% if pet.breed %}, {{ pet.breed }}{% endif %}</span>
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+          {% for error in form.pet.errors %}<p class="mt-2 text-sm font-medium text-red-700">{{ error }}</p>{% endfor %}
+          <div class="mt-2">
+            <a href="{% url 'admin_pet_add' owner.pk %}" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="plus" %}Add another pet</a>
+          </div>
+        </fieldset>
+      </section>
+
+      <section class="card p-6" aria-labelledby="when-title">
+        <h2 id="when-title" class="mb-4 text-xl font-semibold">When?</h2>
+        <div class="form-field mb-5 space-y-1.5 sm:max-w-64{% if form.date.errors %} has-error{% endif %}">
+          <label for="walkin-date" class="block text-base font-medium text-gray-800">Date <span class="text-red-700" aria-hidden="true">*</span></label>
+          {# Picking a date reloads the free times below (walk-in rules, large buttons) #}
+          <input type="date" id="walkin-date" name="date" value="{{ date_value }}" required aria-describedby="walkin-date-help" hx-get="{% url 'admin_get_slots_for_date' %}?for=walk_in&amp;as=buttons&amp;selected={{ selected_time|urlencode }}" hx-trigger="change" hx-target="#walkin-slots" hx-swap="innerHTML">
+          <p id="walkin-date-help" class="text-sm text-gray-600">{{ form.date.help_text }}</p>
+          {% for error in form.date.errors %}<p class="text-sm font-medium text-red-700">{{ error }}</p>{% endfor %}
+        </div>
+        <fieldset>
+          <legend class="mb-1.5 text-base font-medium text-gray-800">Time <span class="text-red-700" aria-hidden="true">*</span></legend>
+          <div id="walkin-slots" aria-live="polite">
+            {% if slots is not None %}
+              {% include "admin/appointments/_slot_buttons.html" with slots=slots slots_date=slots_date selected=selected_time %}
+            {% else %}
+              <p class="rounded-lg border border-dashed border-gray-300 px-4 py-5 text-center text-base text-gray-600">Pick a date to see the free times.</p>
+            {% endif %}
+          </div>
+          {% for error in form.time.errors %}<p class="mt-2 text-sm font-medium text-red-700">{{ error }}</p>{% endfor %}
+          <p class="mt-2 text-sm text-gray-600">Times already booked or requested online are not shown.</p>
+        </fieldset>
+      </section>
+
+      <section class="card p-6" aria-labelledby="details-title">
+        <h2 id="details-title" class="mb-4 text-xl font-semibold">Details <span class="text-base font-normal text-gray-600">(optional)</span></h2>
+        <div class="grid gap-5">
+          <div class="sm:max-w-md">{% include "components/form_field.html" with field=form.service %}</div>
+          {% include "components/form_field.html" with field=form.reason %}
+        </div>
+      </section>
+
+      <div class="flex flex-wrap justify-end gap-3">
+        <a href="{% url 'admin_walkin_appointment_create' %}" class="btn btn-outline">Cancel</a>
+        <button type="submit" name="action" value="review" class="btn btn-primary">Review{% include "components/icon.html" with name="arrow-right" %}</button>
+      </div>
+    </form>
+  {% else %}
+    <section class="card p-6">
+      {% include "components/empty_state.html" with icon="paw-print" title="This owner has no pets yet" text="Add the pet first, then start the walk-in again." %}
+      <div class="flex flex-wrap justify-center gap-3">
+        <a href="{% url 'admin_walkin_appointment_create' %}" class="btn btn-outline">Cancel</a>
+        <a href="{% url 'admin_pet_add' owner.pk %}" class="btn btn-outline">{% include "components/icon.html" with name="plus" %}Add a pet for {{ owner.full_name }}</a>
+      </div>
+    </section>
+  {% endif %}
+</div>
+{% endblock %}

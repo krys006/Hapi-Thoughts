@@ -312,7 +312,7 @@ class AdminLoginTests(TestCase):
 
 
 class WalkInOwnerCreateTests(TestCase):
-    """admin_walkin_create: new walk-in owner (and pet), claim email."""
+    """admin_walkin_create: walk-in "New owner" (owner + pet), claim email."""
 
     NO_EMAIL_TAKEN = (
         "Only one owner without an email can be saved for now. "
@@ -343,6 +343,15 @@ class WalkInOwnerCreateTests(TestCase):
     def _messages(self, response):
         return [(m.level_tag, str(m)) for m in get_messages(response.wsgi_request)]
 
+    def _assert_goes_to_visit_step(self, response):
+        owner = PetOwner.objects.get()
+        visit_url = reverse("admin_walkin_appointment_visit")
+        self.assertRedirects(
+            response,
+            f"{visit_url}?owner={owner.pk}&pet={Pet.objects.get().pk}",
+            fetch_redirect_response=False,
+        )
+
     # ─── Access ───────────────────────────────────────────────────────────────
 
     def test_anonymous_goes_to_admin_login(self):
@@ -370,25 +379,43 @@ class WalkInOwnerCreateTests(TestCase):
     def test_creates_owner_pet_and_sends_claim_email(self):
         response = self._post()
         owner = PetOwner.objects.get()
-        self.assertRedirects(
-            response,
-            reverse("admin_owner_detail", args=[owner.pk]),
-            fetch_redirect_response=False,
-        )
+        self._assert_goes_to_visit_step(response)
         self.assertEqual(owner.user.email, "ana@example.com")
         self.assertTrue(owner.user.is_active)
         self.assertEqual(Pet.objects.get().owner, owner)
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["ana@example.com"])
         self.assertEqual(
-            self._messages(response),
-            [
-                (
-                    "success",
-                    "Walk-in account created for Ana Cruz. Pet 'Max' was also "
-                    "added. A claim account email has been sent.",
-                )
-            ],
+            self._messages(response), [("success", "Ana Cruz and Max added.")]
+        )
+
+    def test_success_opens_the_visit_step_with_owner_and_pet_chosen(self):
+        response = self.client.get(self._post()["Location"])
+        self.assertTemplateUsed(response, "admin/appointments/walkin_visit.html")
+        self.assertEqual(response.context["owner"], PetOwner.objects.get())
+        self.assertEqual(response.context["selected_pet"], str(Pet.objects.get().pk))
+
+    def test_pet_is_required(self):
+        for missing in ("pet_name", "species"):
+            with self.subTest(missing=missing):
+                response = self._post(**{missing: ""})
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(missing, response.context["pet_form"].errors)
+                self.assertFalse(PetOwner.objects.exists())
+                self.assertFalse(Pet.objects.exists())
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_page_uses_admin_layout_with_one_primary_and_cancel_to_step_1(self):
+        response = self.client.get(self.url)
+        self.assertTemplateUsed(response, "layouts/admin.html")
+        self.assertContains(response, "Who is it for?")
+        self.assertEqual(
+            len(re.findall(r"\bbtn-primary\b", response.content.decode())), 1
+        )
+        self.assertContains(
+            response,
+            f'<a href="{reverse("admin_walkin_appointment_create")}" '
+            'class="btn btn-outline">Cancel</a>',
         )
 
     def test_mixed_case_email_saved_lowercase(self):
@@ -419,19 +446,12 @@ class WalkInOwnerCreateTests(TestCase):
         ):
             response = self._post()
         owner = PetOwner.objects.get()
-        self.assertRedirects(
-            response,
-            reverse("admin_owner_detail", args=[owner.pk]),
-            fetch_redirect_response=False,
-        )
+        self._assert_goes_to_visit_step(response)
         self.assertEqual(Pet.objects.get().owner, owner)
         self.assertEqual(
             self._messages(response),
             [
-                (
-                    "success",
-                    "Walk-in account created for Ana Cruz. Pet 'Max' was also added.",
-                ),
+                ("success", "Ana Cruz and Max added."),
                 (
                     "warning",
                     "The claim email to ana@example.com could not be sent. The "
@@ -440,16 +460,6 @@ class WalkInOwnerCreateTests(TestCase):
                 ),
             ],
         )
-
-    def test_send_failure_without_pet_says_owner_is_saved(self):
-        with (
-            mock.patch("accounts.utils.send_mail", side_effect=OSError("down")),
-            self.assertLogs("accounts.views", level="ERROR"),
-        ):
-            response = self._post(pet_name="", species="")
-        warning = self._messages(response)[-1]
-        self.assertEqual(warning[0], "warning")
-        self.assertIn("The owner is saved, but", warning[1])
 
     # ─── Save errors ──────────────────────────────────────────────────────────
 
@@ -511,7 +521,13 @@ class WalkInClaimEmailAfterCommitTests(TransactionTestCase):
         with mock.patch("accounts.views.send_claim_email", side_effect=record):
             self.client.post(
                 reverse("admin_walkin_create"),
-                {"first_name": "Ana", "last_name": "Cruz", "email": "ana@example.com"},
+                {
+                    "first_name": "Ana",
+                    "last_name": "Cruz",
+                    "email": "ana@example.com",
+                    "pet_name": "Max",
+                    "species": "dog",
+                },
             )
 
         self.assertEqual(seen, {"in_atomic_block": False, "saved": True})

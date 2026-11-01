@@ -22,17 +22,24 @@ from .forms import (
 
 from .utils import (
     LIST_PAGE_SIZE,
+    WALKIN_SEARCH_LIMIT,
+    create_walkin_appointment,
     filter_appointments,
     get_admin_calendar_context,
     get_available_slots,
+    get_walkin_owner,
     group_by_day,
     list_querystring,
     list_tabs,
     paging_links,
     parse_list_date,
     resolve_list_tab,
+    search_walkin_owners,
     tab_counts,
     unfinished_visits,
+    walkin_initial,
+    walkin_slot_context,
+    walkin_values,
 )
 
 from notifications.utils import notify
@@ -1006,50 +1013,112 @@ def _walk_in_booked_message(appointment):
 @login_required
 def admin_walkin_appointment_create(request):
     """
-    Admin view — create a walk-in appointment directly as CONFIRMED.
+    Admin view — walk-in step 1, "Who is it for?": find the owner (?q=).
+    Each result links to step 2 (admin_walkin_appointment_visit).
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    if request.method == "POST":
-        form = AdminWalkInAppointmentForm(request.POST)
-        if form.is_valid():
-            appointment = Appointment.objects.create(
-                owner=form.cleaned_data["owner"],
-                pet=form.cleaned_data["pet"],
-                service=form.cleaned_data.get("service"),
-                date=form.cleaned_data["date"],
-                time=form.cleaned_data["time"],
-                reason=form.cleaned_data.get("reason", ""),
-                status=Appointment.CONFIRMED,
-                is_walk_in=True,
-            )
-
-            # Absolute date, since the email may be read on another day.
-            # Owners without an email get the in-app notification only.
-            _notify_owner(
-                appointment,
-                "appointment_approved",
-                "Visit booked by the clinic",
-                f"The clinic booked a visit for {appointment.pet.name} on "
-                f"{date_format(appointment.date, 'D, M j')} at "
-                f"{date_format(appointment.time, 'g:i A')}. "
-                "The time is confirmed.",
-                "Visit booked — Hapi Vet",
-            )
-
-            messages.success(request, _walk_in_booked_message(appointment))
-            return redirect("admin_appointment_detail", pk=appointment.pk)
-        else:
-            messages.error(request, "Please correct the errors below.")
-    else:
-        form = AdminWalkInAppointmentForm()
-
+    q = request.GET.get("q", "").strip()
+    owners, is_cut = search_walkin_owners(q)
     return render(
         request,
-        "admin/appointments/walkin_form.html",
-        {"form": form},
+        "admin/appointments/walkin_find.html",
+        {
+            "q": q,
+            "owners": owners,
+            "is_cut": is_cut,
+            "search_limit": WALKIN_SEARCH_LIMIT,
+        },
     )
+
+
+def _taken_message(time_value):
+    """Banner when the chosen time was booked by someone else meanwhile."""
+    try:
+        time = date_format(datetime.time.fromisoformat(time_value), "g:i A")
+    except ValueError:
+        time = "That time"
+    return (
+        f"{time} was just taken. Someone else booked it a moment ago. "
+        "Please pick another time."
+    )
+
+
+def _render_walkin_visit(request, owner, form, taken_message=""):
+    """Step 2 page (the visit); pass a bound form to show its errors."""
+    context = {
+        "owner": owner,
+        "form": form,
+        "pets": form.fields["pet"].queryset,
+        "selected_pet": str(form["pet"].value() or ""),
+        "taken_message": taken_message,
+    }
+    context.update(walkin_slot_context(form))
+    return render(request, "admin/appointments/walkin_visit.html", context)
+
+
+def _render_walkin_review(request, owner, form):
+    """Step 3 page (check and book): a summary, nothing saved yet."""
+    data = form.cleaned_data
+    return render(
+        request,
+        "admin/appointments/walkin_review.html",
+        {
+            "owner": owner,
+            "pet": data["pet"],
+            "date": data["date"],
+            "time": data["time"],
+            "service": data.get("service"),
+            "reason": data.get("reason", ""),
+            "owner_has_email": bool(owner.user.email),
+        },
+    )
+
+
+@login_required
+def admin_walkin_appointment_visit(request):
+    """
+    Admin view — walk-in steps 2 and 3 (?owner=<pk>[&pet=<pk>]).
+    GET shows step 2. POST "action" picks what happens: "review" (the
+    default) shows step 3 when the form is valid, "change" goes back to
+    step 2 with every value kept, "book" checks everything again and saves.
+    """
+    if request.user.role != "admin":
+        return redirect("owner_dashboard")
+
+    params = request.POST if request.method == "POST" else request.GET
+    owner = get_walkin_owner(params.get("owner"))
+    if owner is None:
+        messages.error(request, "That owner could not be found. Please search again.")
+        return redirect("admin_walkin_appointment_create")
+
+    if request.method != "POST":
+        form = AdminWalkInAppointmentForm(owner)
+        form.initial = walkin_initial(form.fields["pet"].queryset, params.get("pet"))
+        return _render_walkin_visit(request, owner, form)
+
+    action = request.POST.get("action", "review")
+    if action == "change":
+        form = AdminWalkInAppointmentForm(owner, initial=walkin_values(request.POST))
+        return _render_walkin_visit(request, owner, form)
+
+    form = AdminWalkInAppointmentForm(owner, request.POST)
+    if form.slot_was_taken():
+        # Everything kept except the time, which must be picked again
+        initial = walkin_values(request.POST, keep_time=False)
+        taken = _taken_message(request.POST.get("time", ""))
+        return _render_walkin_visit(
+            request, owner, AdminWalkInAppointmentForm(owner, initial=initial), taken
+        )
+    if not form.is_valid():
+        return _render_walkin_visit(request, owner, form)
+    if action != "book":
+        return _render_walkin_review(request, owner, form)
+
+    appointment = create_walkin_appointment(owner, form.cleaned_data)
+    messages.success(request, _walk_in_booked_message(appointment))
+    return redirect("admin_appointment_detail", pk=appointment.pk)
 
 
 @login_required

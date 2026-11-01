@@ -1,0 +1,14 @@
+{% comment %}
+  One step of steps.html. Params: number, label, active (the current
+  step). Earlier steps show a check, the current one is bold.
+{% endcomment %}
+<li class="flex items-center gap-2 text-base {% if number == active %}font-semibold text-gray-900{% else %}text-gray-700{% endif %}"{% if number == active %} aria-current="step"{% endif %}>
+  {% if number < active %}
+    <span class="grid size-8 place-content-center rounded-full bg-violet-600 text-white">{% include "components/icon.html" with name="check" class="size-4 shrink-0" %}<span class="sr-only">Done: step {{ number }}</span></span>
+  {% elif number == active %}
+    <span class="grid size-8 place-content-center rounded-full bg-violet-600 text-base font-semibold text-white">{{ number }}</span>
+  {% else %}
+    <span class="grid size-8 place-content-center rounded-full border-2 border-gray-300 bg-white text-base font-semibold text-gray-700">{{ number }}</span>
+  {% endif %}
+  {{ label }}
+</li>

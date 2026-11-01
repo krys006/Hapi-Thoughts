@@ -167,6 +167,8 @@ Phase 7 — Dashboards & Polish
 | Claim email sent after the owner is saved; if sending fails, the owner and pet stay saved and the admin sees a warning (no resend button yet) | `complete` |
 | Only one owner without an email can be saved for now (plain message for a second one; nullable email planned) | `complete` |
 | Admin creates appointment directly as CONFIRMED for walk-in (see 3.5 Walk-in rules) | `complete` |
+| Walk-in in three steps: 1 Who is it for? (search by owner name, pet name or phone, or add a New owner with their pet; the pet is required), 2 The visit (pet, date, time, optional service and reason), 3 Check and book (summary; nothing is saved until "Book walk-in") | `complete` |
+| If the chosen time is booked by someone else meanwhile, step 2 comes back with every other value kept and "{time} was just taken…" | `complete` |
 | Owner is notified in the app (and by email if they have one): "The clinic booked a visit for Max on Mon, Nov 2 at 10:00 AM." | `complete` |
 
 ---
@@ -239,7 +241,7 @@ PENDING or CONFIRMED → CANCELLED
 | Booking limit | 30 days in advance |
 | Same-day booking | Allowed before configurable cutoff time |
 | Slots | One appointment per slot |
-| Walk-in rules (admin) | Date defaults to today (in the 3c-3 form redesign); future dates allowed inside the normal booking window (phone bookings), still saved as walk-ins. Today: no same-day cutoff, the slot in progress and later ones are offered (slot end after the current Manila time). Past dates, blocked dates and closed days have no slots. PENDING requests keep blocking their slot. |
+| Walk-in rules (admin) | Date defaults to today; future dates allowed inside the normal booking window (phone bookings), still saved as walk-ins. Today: no same-day cutoff, the slot in progress and later ones are offered (slot end after the current Manila time). Past dates, blocked dates and closed days have no slots. PENDING requests keep blocking their slot. |
 | Cancellation deadline | Planned, not built: 24 hours, after that requires Admin approval. Today owners can cancel at any time; within 24 hours the owner page only shows a warning. |
 | Appointment type | Derived from service selected |
 | Additional services | Admin adds extras at billing stage |

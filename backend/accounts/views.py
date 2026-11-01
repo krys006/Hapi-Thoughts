@@ -303,37 +303,56 @@ WALKIN_SAVE_FAILED = (
 )
 
 
-def _walkin_saved_message(pet_owner, pet, email, email_sent):
-    """Success message after the walk-in owner (and pet) are saved."""
-    pet_msg = f" Pet '{pet.name}' was also added." if pet else ""
-    if not email:
-        email_msg = " No email provided — account saved without claim link."
-    elif email_sent:
-        email_msg = " A claim account email has been sent."
-    else:
-        email_msg = ""  # the warning explains it
-    return f"Walk-in account created for {pet_owner.full_name}.{pet_msg}{email_msg}"
-
-
-def _claim_email_failed_message(email, pet):
+def _claim_email_failed_message(email):
     """Warning when the claim email can't be sent after saving."""
-    saved = "The owner and pet are saved" if pet else "The owner is saved"
     return (
-        f"The claim email to {email} could not be sent. {saved}, but the "
-        "owner can't set a password until they get this email. There is no "
-        "resend button yet."
+        f"The claim email to {email} could not be sent. The owner and pet are "
+        "saved, but the owner can't set a password until they get this email. "
+        "There is no resend button yet."
     )
+
+
+def _save_walkin_owner(request, owner_form, pet_form):
+    """
+    Saves the walk-in owner and pet in one transaction, then sends the
+    claim email (after the commit) when there is an email. Returns the pet,
+    or None when nothing was saved (the admin sees a plain error; details
+    go to the log, never to the page).
+    """
+    email = owner_form.cleaned_data.get("email") or ""
+    try:
+        with transaction.atomic():
+            pet_owner, pet = create_walkin_owner(owner_form.cleaned_data, pet_form)
+    except IntegrityError:
+        # The atomic block rolled back every write
+        logger.exception("Walk-in owner not saved (integrity error)")
+        messages.error(request, WALKIN_SAVE_FAILED if email else WALKIN_NO_EMAIL_TAKEN)
+        return None
+    except Exception:
+        logger.exception("Walk-in owner not saved")
+        messages.error(request, WALKIN_SAVE_FAILED)
+        return None
+
+    messages.success(request, f"{pet_owner.full_name} and {pet.name} added.")
+    if email:
+        try:
+            send_claim_email(request, pet_owner.user)
+        except Exception:
+            logger.exception("Claim email not sent to walk-in owner")
+            messages.warning(request, _claim_email_failed_message(email))
+    return pet
 
 
 @login_required
 def admin_walkin_create(request):
     """
-    Walk-in client registration — Admin only.
+    Walk-in "New owner" (still step 1 of the walk-in) — Admin only.
 
-    Creates a User + PetOwner record (and optionally a Pet) in a single
-    atomic transaction. If an email is provided, the claim account email
-    (one-time password-set link) is sent after the transaction commits;
-    if sending fails, the records stay saved and the admin sees a warning.
+    Creates a User + PetOwner record and their Pet in a single atomic
+    transaction, then goes to walk-in step 2 with both chosen. If an email
+    is provided, the claim account email (one-time password-set link) is
+    sent after the transaction commits; if sending fails, the records stay
+    saved and the admin sees a warning.
 
     URL: /admin/walkin/create/
     """
@@ -346,37 +365,11 @@ def admin_walkin_create(request):
     if request.method == "POST":
         owner_valid = owner_form.is_valid()
         pet_valid = pet_form.is_valid()
-
         if owner_valid and pet_valid:
-            email = owner_form.cleaned_data.get("email") or ""
-            try:
-                with transaction.atomic():
-                    pet_owner, pet = create_walkin_owner(
-                        owner_form.cleaned_data, pet_form
-                    )
-            except IntegrityError:
-                # The atomic block rolled back every write
-                logger.exception("Walk-in owner not saved (integrity error)")
-                messages.error(
-                    request, WALKIN_SAVE_FAILED if email else WALKIN_NO_EMAIL_TAKEN
-                )
-            except Exception:
-                logger.exception("Walk-in owner not saved")
-                messages.error(request, WALKIN_SAVE_FAILED)
-            else:
-                email_sent = False
-                if email:
-                    try:
-                        send_claim_email(request, pet_owner.user)
-                        email_sent = True
-                    except Exception:
-                        logger.exception("Claim email not sent to walk-in owner")
-                messages.success(
-                    request, _walkin_saved_message(pet_owner, pet, email, email_sent)
-                )
-                if email and not email_sent:
-                    messages.warning(request, _claim_email_failed_message(email, pet))
-                return redirect("admin_owner_detail", pk=pet_owner.pk)
+            pet = _save_walkin_owner(request, owner_form, pet_form)
+            if pet:
+                visit_url = reverse("admin_walkin_appointment_visit")
+                return redirect(f"{visit_url}?owner={pet.owner_id}&pet={pet.pk}")
 
     return render(
         request,

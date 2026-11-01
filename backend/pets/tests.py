@@ -263,3 +263,27 @@ class AdminPetOwnerFormEmailTests(TestCase):
         )
         self.user.refresh_from_db()
         self.assertEqual(self.user.email, "ana@example.com")
+
+
+class AdminOwnerListWalkInButtonTests(TestCase):
+    """The owners list's "+ Register Walk-in Client" is a plain link to the
+    walk-in New owner page (the owners_list.js modal was removed in 3c-2)."""
+
+    def setUp(self):
+        admin = User.objects.create_user(
+            username="admin1", email="admin@example.com", role=User.ADMIN
+        )
+        user = User.objects.create_user(
+            username="ana", email="ana@example.com", role=User.PET_OWNER
+        )
+        PetOwner.objects.create(user=user, first_name="Ana", last_name="Cruz")
+        self.client.force_login(admin)
+
+    def test_button_links_to_the_new_owner_page(self):
+        response = self.client.get(reverse("admin_owner_list"))
+        self.assertContains(
+            response,
+            f'<a href="{reverse("admin_walkin_create")}" class="btn-primary">'
+            "+ Register Walk-in Client</a>",
+            html=True,
+        )

@@ -68,9 +68,9 @@ def generate_walkin_username(first_name, last_name, email=None):
 
 def create_walkin_owner(owner_data, pet_form):
     """
-    Creates the User, PetOwner, optional ContactLink and optional Pet for a
+    Creates the User, PetOwner, optional ContactLink and the Pet for a
     walk-in. Call inside transaction.atomic(). Sends no email.
-    Returns (pet_owner, pet); pet is None when the pet section was empty.
+    Returns (pet_owner, pet).
     """
     email = owner_data.get("email") or ""
     first_name = owner_data["first_name"]
@@ -104,18 +104,16 @@ def create_walkin_owner(owner_data, pet_form):
             url_or_handle=contact_link_value,
         )
 
-    pet = None
-    if pet_form.has_pet_data():
-        pet_data = pet_form.cleaned_data
-        pet = Pet.objects.create(
-            owner=pet_owner,
-            name=pet_data["pet_name"].strip(),
-            species=pet_data["species"],
-            breed=pet_data.get("breed", ""),
-            color=pet_data.get("color", ""),
-            gender=pet_data.get("gender", "unknown") or "unknown",
-            date_of_birth=pet_data.get("date_of_birth") or None,
-            weight=pet_data.get("weight") or None,
-        )
+    pet_data = pet_form.cleaned_data
+    pet = Pet.objects.create(
+        owner=pet_owner,
+        name=pet_data["pet_name"].strip(),
+        species=pet_data["species"],
+        breed=pet_data.get("breed", ""),
+        color=pet_data.get("color", ""),
+        gender=pet_data.get("gender", "unknown") or "unknown",
+        date_of_birth=pet_data.get("date_of_birth") or None,
+        weight=pet_data.get("weight") or None,
+    )
 
     return pet_owner, pet

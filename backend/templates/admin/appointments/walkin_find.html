@@ -1,0 +1,66 @@
+{% extends "layouts/admin.html" %}
+{% comment %}
+  Walk-in step 1, "Who is it for?" (admin_walkin_appointment_create).
+  Find the owner (?q=) or add a new one. No primary button on this step.
+  Context: q, owners (each with active_pets), is_cut, search_limit.
+{% endcomment %}
+
+{% block title %}New walk-in — Hapi Vet Admin{% endblock %}
+
+{# This page has its own search #}
+{% block topbar_search %}{% endblock %}
+
+{% block page_header %}
+  {% include "admin/appointments/walkin_parts/header.html" with title="New walk-in" subtitle="Book a visit for a pet that is here now, or for someone who called." active=1 %}
+{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl">
+  <section class="card mb-6 flex flex-wrap items-center gap-4 border-2 border-violet-300 bg-violet-50 px-5 py-4" aria-labelledby="new-owner-title">
+    <div class="flex-1">
+      <h2 id="new-owner-title" class="text-lg font-semibold text-gray-900">First visit at the clinic?</h2>
+      <p class="text-base text-gray-700">Add the owner and their pet first. It takes a minute.</p>
+    </div>
+    <a href="{% url 'admin_walkin_create' %}" class="btn btn-outline">{% include "components/icon.html" with name="plus" %}New owner</a>
+  </section>
+
+  <form method="get" action="{% url 'admin_walkin_appointment_create' %}" class="mb-4 flex flex-wrap items-end gap-3" role="search">
+    <div class="min-w-0 flex-1 space-y-1.5">
+      <label for="walkin-q" class="block text-base font-medium text-gray-800">Been here before? Find the owner</label>
+      <input type="search" id="walkin-q" name="q" value="{{ q }}" class="input" placeholder="Owner name, pet name or phone" autocomplete="off" autofocus>
+    </div>
+    <button type="submit" class="btn btn-outline">{% include "components/icon.html" with name="search" %}Search</button>
+  </form>
+
+  {% if q %}
+    <section aria-labelledby="results-title">
+      <h2 id="results-title" class="mb-2 text-base text-gray-700">
+        {% if is_cut %}More than {{ search_limit }} owners match “{{ q }}”. Showing the first {{ search_limit }}.{% elif owners %}{{ owners|length }} owner{{ owners|length|pluralize:" matches,s match" }} “{{ q }}”{% else %}No owners match “{{ q }}”.{% endif %}
+      </h2>
+      {% if owners %}
+        <ul class="card overflow-hidden">
+          {% for owner in owners %}
+            <li class="flex flex-wrap items-center gap-4 border-t border-gray-100 px-5 py-4 first:border-t-0">
+              {% include "components/owner_avatar.html" with owner=owner %}
+              <div class="min-w-0 flex-1">
+                <p class="text-base font-semibold">{{ owner.full_name }}</p>
+                <p class="text-sm text-gray-600">{{ owner.contact_number|default:"No phone number" }}</p>
+                {% if owner.active_pets %}
+                  <ul class="mt-1 flex flex-wrap gap-x-4 text-base text-gray-800" aria-label="Pets">
+                    {% for pet in owner.active_pets %}<li>{{ pet.name }}</li>{% endfor %}
+                  </ul>
+                {% else %}
+                  <p class="mt-1 text-base text-gray-600">No pets yet</p>
+                {% endif %}
+              </div>
+              <a href="{% url 'admin_walkin_appointment_visit' %}?owner={{ owner.pk }}" class="btn btn-outline" aria-label="Choose {{ owner.full_name }}">Choose{% include "components/icon.html" with name="arrow-right" %}</a>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="text-base text-gray-700">Check the spelling, or use <b class="font-semibold">New owner</b> above.</p>
+      {% endif %}
+    </section>
+  {% endif %}
+</div>
+{% endblock %}

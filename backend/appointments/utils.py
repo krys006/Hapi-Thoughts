@@ -2,8 +2,12 @@ import datetime
 from itertools import groupby
 from urllib.parse import urlencode
 
-from django.db.models import Count, Exists, OuterRef, Q
+from django.db.models import Count, Exists, OuterRef, Prefetch, Q
 from django.utils import timezone
+from django.utils.dateformat import format as date_format
+
+from notifications.utils import notify
+from pets.models import Pet, PetOwner
 from .models import ClinicSettings, BlockedDate, Appointment
 
 
@@ -435,3 +439,140 @@ def paging_links(page_obj, page_query):
             link(page_obj.next_page_number()) if page_obj.has_next() else ""
         ),
     }
+
+
+# ── Admin walk-in ────────────────────────────────────────────────────────────
+
+WALKIN_SEARCH_LIMIT = 20
+
+
+def search_walkin_owners(q):
+    """
+    Step 1 of the walk-in: (owners, is_cut). Every word in q must match the
+    owner's first name, last name or phone, or the name of one of their
+    non-archived pets (case-insensitive). Archived owners are left out.
+    At most WALKIN_SEARCH_LIMIT owners; is_cut is True when there were more.
+    Each owner gets active_pets (non-archived, by name), prefetched.
+    """
+    words = q.split()
+    if not words:
+        return [], False
+
+    active_pets = Pet.objects.filter(is_archived=False)
+    owners = PetOwner.objects.filter(is_archived=False)
+    for word in words:
+        # A subquery (not a join on pets) keeps one row per owner
+        pet_owner_ids = active_pets.filter(name__icontains=word).values("owner_id")
+        owners = owners.filter(
+            Q(first_name__icontains=word)
+            | Q(last_name__icontains=word)
+            | Q(contact_number__icontains=word)
+            | Q(pk__in=pet_owner_ids)
+        )
+
+    owners = owners.order_by("last_name", "first_name", "pk").prefetch_related(
+        Prefetch("pets", queryset=active_pets.order_by("name"), to_attr="active_pets")
+    )
+    # One extra row tells us whether the list was cut
+    found = list(owners[: WALKIN_SEARCH_LIMIT + 1])
+    return found[:WALKIN_SEARCH_LIMIT], len(found) > WALKIN_SEARCH_LIMIT
+
+
+def get_walkin_owner(value):
+    """The non-archived PetOwner with pk=value (a string from the URL or a
+    form), or None when it is missing, not a number or archived."""
+    try:
+        pk = int(value)
+    except (TypeError, ValueError):
+        return None
+    return (
+        PetOwner.objects.select_related("user").filter(pk=pk, is_archived=False).first()
+    )
+
+
+def walkin_initial(pets, pet_value):
+    """
+    Step 2 initial values: today's date, and the pet from ?pet= when it is
+    one of pets (the owner's non-archived pets), or the only pet. Any other
+    ?pet= is ignored.
+    """
+    pet_ids = {str(pet.pk) for pet in pets}
+    if pet_value in pet_ids:
+        pet = pet_value
+    elif len(pet_ids) == 1:
+        pet = pet_ids.pop()
+    else:
+        pet = ""
+    return {"pet": pet, "date": timezone.localdate()}
+
+
+# Values the review page carries in hidden fields (besides owner and action)
+WALKIN_VALUE_FIELDS = ("pet", "date", "time", "service", "reason")
+
+
+def walkin_values(data, keep_time=True):
+    """The step 2 values from a POST, as initial data for an unbound form
+    ("Change", or a time that was just taken when keep_time is False)."""
+    values = {name: data.get(name, "") for name in WALKIN_VALUE_FIELDS}
+    if not keep_time:
+        values["time"] = ""
+    return values
+
+
+def walkin_slot_context(form):
+    """
+    Free times for step 2, for the form's date: the submitted one when it
+    is valid, else the initial one (today on a first visit). slots is None
+    when there is no usable date (the page asks for one). selected_time
+    keeps the chosen time checked after an error or "Change"; date_value is
+    the date input's value as typed (or today's, as YYYY-MM-DD).
+    """
+    date_value = form["date"].value() or ""
+    if isinstance(date_value, datetime.date):
+        date_value = date_value.isoformat()
+    if form.is_bound:
+        # Checking form.errors first runs validation, which fills cleaned_data
+        date = None if "date" in form.errors else form.cleaned_data.get("date")
+    else:
+        date = form.initial.get("date")
+        if isinstance(date, str):
+            date = parse_list_date(date)
+    return {
+        "slots": get_available_slots(date, walk_in=True) if date else None,
+        "slots_date": date,
+        "date_value": date_value,
+        "selected_time": form["time"].value() or "",
+    }
+
+
+def create_walkin_appointment(owner, cleaned_data):
+    """
+    Saves a walk-in as CONFIRMED and notifies the owner (in the app, and by
+    email per their preferences; owners without an email get the in-app
+    notification only). Returns the appointment.
+    """
+    appointment = Appointment.objects.create(
+        owner=owner,
+        pet=cleaned_data["pet"],
+        service=cleaned_data.get("service"),
+        date=cleaned_data["date"],
+        time=cleaned_data["time"],
+        reason=cleaned_data.get("reason", ""),
+        status=Appointment.CONFIRMED,
+        is_walk_in=True,
+    )
+    # Absolute date, since the email may be read on another day.
+    notify(
+        recipient=owner.user,
+        notification_type="appointment_approved",
+        title="Visit booked by the clinic",
+        message=(
+            f"The clinic booked a visit for {appointment.pet.name} on "
+            f"{date_format(appointment.date, 'D, M j')} at "
+            f"{date_format(appointment.time, 'g:i A')}. The time is confirmed."
+        ),
+        related_appointment=appointment,
+        related_pet=appointment.pet,
+        email_subject="Visit booked — Hapi Vet",
+    )
+    return appointment

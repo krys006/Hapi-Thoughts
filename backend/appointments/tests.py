@@ -1504,15 +1504,19 @@ class WalkInSlotViewTests(FrozenNowTestBase):
         self.assertContains(response, f'{reverse("admin_get_slots_for_date")}?as=')
         self.assertNotContains(response, "for=walk_in")
 
-    def test_walk_in_form_asks_for_walk_in_slots(self):
-        response = self.client.get(reverse("admin_walkin_appointment_create"))
+    def test_walk_in_visit_asks_for_walk_in_slots(self):
+        response = self.client.get(
+            reverse("admin_walkin_appointment_visit"), {"owner": self.owner.pk}
+        )
         self.assertContains(
-            response, f'{reverse("admin_get_slots_for_date")}?for=walk_in"'
+            response,
+            f'{reverse("admin_get_slots_for_date")}?for=walk_in&amp;as=buttons',
         )
 
 
 class WalkInAppointmentCreateTests(FrozenNowTestBase):
-    """admin_walkin_appointment_create. "Now" is Mon, Nov 2, 9:30 AM."""
+    """Walk-in "Book walk-in" (admin_walkin_appointment_visit, action=book).
+    "Now" is Mon, Nov 2, 9:30 AM."""
 
     def _post(self, **overrides):
         data = {
@@ -1521,9 +1525,10 @@ class WalkInAppointmentCreateTests(FrozenNowTestBase):
             "date": WALK_IN_DAY.isoformat(),
             "time": "10:00:00",
             "reason": "Limping",
+            "action": "book",
         }
         data.update(overrides)
-        return self.client.post(reverse("admin_walkin_appointment_create"), data)
+        return self.client.post(reverse("admin_walkin_appointment_visit"), data)
 
     def _assert_refused(self, response, error=None):
         self.assertEqual(response.status_code, 200)
@@ -1589,9 +1594,7 @@ class WalkInAppointmentCreateTests(FrozenNowTestBase):
         )
         other_pet = Pet.objects.create(owner=other, name="Muning", species="Cat")
         response = self._post(pet=other_pet.pk)
-        self._assert_refused(
-            response, "The selected pet does not belong to this owner."
-        )
+        self._assert_refused(response, "Select a valid choice.")
 
     def test_owner_role_refused(self):
         self.client.force_login(self.owner.user)
@@ -1637,3 +1640,417 @@ class WalkInAppointmentCreateTests(FrozenNowTestBase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].subject, "Visit booked — Hapi Vet")
         self.assertNotIn("November 02, 2026", mail.outbox[0].body)
+
+
+# ─── Walk-in flow (Slice 3c-2) ────────────────────────────────────────────────
+
+
+class WalkInFlowTestBase(FrozenNowTestBase):
+    """Walk-in steps. "Now" is Mon, Nov 2, 9:30 AM; owner Ana Cruz has Bantay."""
+
+    STEP_1 = "admin_walkin_appointment_create"
+    VISIT = "admin_walkin_appointment_visit"
+
+    def _owner(self, first, last, phone="", pets=(), archived=False):
+        n = User.objects.count()
+        user = User.objects.create_user(
+            username=f"user{n}", email=f"user{n}@example.com", role=User.PET_OWNER
+        )
+        owner = PetOwner.objects.create(
+            user=user,
+            first_name=first,
+            last_name=last,
+            contact_number=phone,
+            is_archived=archived,
+        )
+        for name in pets:
+            Pet.objects.create(owner=owner, name=name, species="Dog")
+        return owner
+
+    def _visit(self, **params):
+        return self.client.get(reverse(self.VISIT), params)
+
+    def _post_visit(self, **overrides):
+        data = {
+            "owner": self.owner.pk,
+            "pet": self.pet.pk,
+            "date": WALK_IN_DAY.isoformat(),
+            "time": "10:00:00",
+            "service": "",
+            "reason": "Second anti-rabies shot.",
+            "action": "review",
+        }
+        data.update(overrides)
+        return self.client.post(reverse(self.VISIT), data)
+
+    def _primary_buttons(self, response):
+        return len(re.findall(r"\bbtn-primary\b", response.content.decode()))
+
+
+class WalkInOwnerSearchTests(WalkInFlowTestBase):
+    """search_walkin_owners, through step 1 (?q=)."""
+
+    def _names(self, q):
+        response = self.client.get(reverse(self.STEP_1), {"q": q})
+        return [owner.full_name for owner in response.context["owners"]]
+
+    def test_matches_owner_name(self):
+        self._owner("Rosa", "Dela Cruz")
+        self._owner("Liza", "Reyes")
+        self.assertEqual(self._names("cruz"), ["Ana Cruz", "Rosa Dela Cruz"])
+
+    def test_matches_pet_name(self):
+        self._owner("Liza", "Reyes", pets=["Brownie"])
+        self.assertEqual(self._names("brown"), ["Liza Reyes"])
+
+    def test_matches_phone(self):
+        self._owner("Liza", "Reyes", phone="09171234567")
+        self.assertEqual(self._names("0917123"), ["Liza Reyes"])
+
+    def test_every_word_must_match(self):
+        self._owner("Rosa", "Dela Cruz", pets=["Max"])
+        self._owner("Ben", "Reyes", pets=["Max"])
+        self.assertEqual(self._names("max cruz"), ["Rosa Dela Cruz"])
+
+    def test_case_insensitive(self):
+        self.assertEqual(self._names("ANA bAnTaY"), ["Ana Cruz"])
+
+    def test_archived_owner_left_out(self):
+        self._owner("Carla", "Cruz", archived=True)
+        self.assertEqual(self._names("cruz"), ["Ana Cruz"])
+
+    def test_archived_pet_neither_matches_nor_shows(self):
+        owner = self._owner("Liza", "Reyes", pets=["Brownie", "Max"])
+        Pet.objects.filter(owner=owner, name="Brownie").update(is_archived=True)
+        self.assertEqual(self._names("brownie"), [])
+        response = self.client.get(reverse(self.STEP_1), {"q": "liza"})
+        self.assertEqual(
+            [pet.name for pet in response.context["owners"][0].active_pets], ["Max"]
+        )
+        self.assertNotContains(response, "Brownie")
+
+    def test_capped_at_20_with_a_note(self):
+        for i in range(21):
+            self._owner(f"Owner{i:02}", "Santos")
+        response = self.client.get(reverse(self.STEP_1), {"q": "santos"})
+        self.assertEqual(len(response.context["owners"]), 20)
+        self.assertTrue(response.context["is_cut"])
+        self.assertContains(response, "Showing the first 20.")
+
+    def test_no_note_when_not_cut(self):
+        response = self.client.get(reverse(self.STEP_1), {"q": "cruz"})
+        self.assertFalse(response.context["is_cut"])
+        self.assertNotContains(response, "Showing the first")
+
+    def test_empty_q_shows_no_results_list(self):
+        for q in ("", "   "):
+            with self.subTest(q=q):
+                response = self.client.get(reverse(self.STEP_1), {"q": q})
+                self.assertEqual(response.context["owners"], [])
+                self.assertNotContains(response, 'id="results-title"')
+                self.assertContains(response, "First visit at the clinic?")
+                self.assertContains(
+                    response, f'href="{reverse("admin_walkin_create")}"'
+                )
+
+    def test_query_count_flat_as_owners_grow(self):
+        def count_queries():
+            with CaptureQueriesContext(connection) as queries:
+                self.client.get(reverse(self.STEP_1), {"q": "santos"})
+            return len(queries)
+
+        for i in range(3):
+            self._owner(f"A{i}", "Santos", pets=["Max", "Muning"])
+        few = count_queries()
+        for i in range(10):
+            self._owner(f"B{i}", "Santos", pets=["Max", "Muning"])
+        self.assertEqual(count_queries(), few)
+
+
+class WalkInStepOneTests(WalkInFlowTestBase):
+    """Step 1 page: "Who is it for?"."""
+
+    def test_page_layout(self):
+        response = self.client.get(reverse(self.STEP_1))
+        self.assertTemplateUsed(response, "layouts/admin.html")
+        self.assertContains(response, "Who is it for?")
+        self.assertContains(response, "Been here before? Find the owner")
+        # The top-bar search is emptied on this step only
+        self.assertNotContains(response, 'id="global-search"')
+        self.assertEqual(self._primary_buttons(response), 0)
+
+    def test_result_links_to_step_2(self):
+        response = self.client.get(reverse(self.STEP_1), {"q": "ana"})
+        self.assertContains(response, f'{reverse(self.VISIT)}?owner={self.owner.pk}"')
+        self.assertContains(response, "1 owner matches “ana”")
+
+
+class WalkInVisitStepTests(WalkInFlowTestBase):
+    """Step 2 page: "The visit" (GET)."""
+
+    def _assert_back_to_step_1(self, response):
+        self.assertRedirects(
+            response, reverse(self.STEP_1), fetch_redirect_response=False
+        )
+        self.assertEqual(
+            self._messages(response),
+            ["That owner could not be found. Please search again."],
+        )
+
+    def test_bad_owner_goes_back_to_step_1(self):
+        for params in ({}, {"owner": "abc"}, {"owner": "99999"}):
+            with self.subTest(params=params):
+                # A fresh session per subtest: redirects aren't followed, so
+                # the previous subtest's message would still be queued
+                self.client = self.client_class()
+                self.client.force_login(self.admin)
+                self._assert_back_to_step_1(self._visit(**params))
+
+    def test_archived_owner_goes_back_to_step_1(self):
+        owner = self._owner("Carla", "Cruz", pets=["Max"], archived=True)
+        self._assert_back_to_step_1(self._visit(owner=owner.pk))
+
+    def test_page_layout(self):
+        response = self._visit(owner=self.owner.pk)
+        self.assertTemplateUsed(response, "admin/appointments/walkin_visit.html")
+        self.assertContains(response, "The visit")
+        self.assertContains(response, 'id="global-search"')
+        self.assertEqual(self._primary_buttons(response), 1)
+        self.assertContains(response, 'name="action" value="review"')
+
+    def test_pet_param_preselects(self):
+        muning = Pet.objects.create(owner=self.owner, name="Muning", species="Cat")
+        response = self._visit(owner=self.owner.pk, pet=muning.pk)
+        self.assertEqual(response.context["selected_pet"], str(muning.pk))
+        self.assertRegex(
+            response.content.decode(), rf'name="pet" value="{muning.pk}"[^>]* checked'
+        )
+
+    def test_pet_of_another_owner_ignored(self):
+        Pet.objects.create(owner=self.owner, name="Muning", species="Cat")
+        other = self._owner("Ben", "Reyes", pets=["Max"])
+        response = self._visit(owner=self.owner.pk, pet=other.pets.get().pk)
+        self.assertEqual(response.context["selected_pet"], "")
+        self.assertNotContains(response, "Max")
+
+    def test_archived_pet_ignored_and_not_listed(self):
+        archived = Pet.objects.create(
+            owner=self.owner, name="Muning", species="Cat", is_archived=True
+        )
+        response = self._visit(owner=self.owner.pk, pet=archived.pk)
+        # Bantay is now the only pet, so it is picked instead
+        self.assertEqual(response.context["selected_pet"], str(self.pet.pk))
+        self.assertNotContains(response, "Muning")
+
+    def test_only_pet_preselected(self):
+        response = self._visit(owner=self.owner.pk)
+        self.assertEqual(response.context["selected_pet"], str(self.pet.pk))
+
+    def test_two_pets_none_preselected(self):
+        Pet.objects.create(owner=self.owner, name="Muning", species="Cat")
+        response = self._visit(owner=self.owner.pk)
+        self.assertEqual(response.context["selected_pet"], "")
+
+    def test_owner_with_no_pets(self):
+        owner = self._owner("Liza", "Reyes")
+        response = self._visit(owner=owner.pk)
+        self.assertContains(response, "This owner has no pets yet")
+        self.assertContains(
+            response, f'href="{reverse("admin_pet_add", args=[owner.pk])}"'
+        )
+        self.assertNotContains(response, 'name="action"')
+        self.assertEqual(self._primary_buttons(response), 0)
+
+    def test_date_defaults_to_today(self):
+        response = self._visit(owner=self.owner.pk)
+        self.assertEqual(response.context["date_value"], "2026-11-02")
+        self.assertContains(response, 'name="date" value="2026-11-02"')
+
+    def test_slot_buttons_rendered_on_load(self):
+        response = self._visit(owner=self.owner.pk)
+        self.assertTemplateUsed(response, "admin/appointments/_slot_buttons.html")
+        self.assertContains(response, "Free times today, Monday, November 2")
+        # Walk-in rules: the 9:00 slot in progress is offered, 8:00 has ended
+        self.assertContains(response, 'type="radio" name="time" value="09:00:00"')
+        self.assertNotContains(response, 'value="08:00:00"')
+        self.assertContains(response, ">Time <span")
+
+
+class WalkInReviewTests(WalkInFlowTestBase):
+    """Step 2 POST, action=review: step 3 (nothing saved) or step 2 errors."""
+
+    def test_valid_post_shows_summary_and_saves_nothing(self):
+        response = self._post_visit()
+        self.assertTemplateUsed(response, "admin/appointments/walkin_review.html")
+        self.assertFalse(Appointment.objects.exists())
+        self.assertContains(response, "Check and book")
+        self.assertContains(response, "Today, Monday, November 2 at 10:00 AM")
+        self.assertContains(response, "Bantay")
+        self.assertContains(response, "Second anti-rabies shot.")
+        self.assertContains(response, ">Confirmed</span>")
+        self.assertContains(response, ">Walk-in</span>")
+        self.assertEqual(self._primary_buttons(response), 1)
+        for name, value in (
+            ("owner", self.owner.pk),
+            ("pet", self.pet.pk),
+            ("date", "2026-11-02"),
+            ("time", "10:00:00"),
+            ("reason", "Second anti-rabies shot."),
+        ):
+            self.assertContains(
+                response, f'<input type="hidden" name="{name}" value="{value}">'
+            )
+        self.assertContains(response, 'name="action" value="book"')
+        self.assertContains(response, 'name="action" value="change"')
+
+    def test_review_is_the_default_action(self):
+        response = self._post_visit(action="")
+        self.assertTemplateUsed(response, "admin/appointments/walkin_review.html")
+        self.assertFalse(Appointment.objects.exists())
+
+    def test_summary_shows_service_and_phone(self):
+        service = Service.objects.create(
+            service_name="Vaccination", status=Service.ACTIVE
+        )
+        PetOwner.objects.filter(pk=self.owner.pk).update(contact_number="0920 444")
+        response = self._post_visit(service=service.pk)
+        self.assertContains(response, "Vaccination")
+        self.assertContains(response, "Ana Cruz · 0920 444")
+        self.assertContains(
+            response, f'<input type="hidden" name="service" value="{service.pk}">'
+        )
+
+    def test_notify_line_with_email(self):
+        response = self._post_visit()
+        self.assertContains(response, "Ana Cruz will get an email about this visit.")
+
+    def test_notify_line_without_email(self):
+        User.objects.filter(pk=self.owner.user.pk).update(email="")
+        PetOwner.objects.filter(pk=self.owner.pk).update(contact_number="0917 555 0101")
+        response = self._post_visit()
+        self.assertContains(
+            response,
+            "Ana Cruz has no email. Tell them the time in person or call "
+            "0917 555 0101.",
+        )
+
+    def test_notify_line_without_email_or_phone(self):
+        User.objects.filter(pk=self.owner.user.pk).update(email="")
+        response = self._post_visit()
+        self.assertContains(
+            response, "Ana Cruz has no email. Tell them the time in person."
+        )
+
+    def test_invalid_post_shows_step_2_with_errors_and_values(self):
+        response = self._post_visit(time="", reason="Limping")
+        self.assertTemplateUsed(response, "admin/appointments/walkin_visit.html")
+        self.assertFalse(Appointment.objects.exists())
+        self.assertIn("Pick a time.", response.context["form"].errors["time"])
+        self.assertContains(response, "Pick a time.")
+        self.assertContains(response, "Limping")
+        self.assertContains(response, 'name="date" value="2026-11-02"')
+        self.assertEqual(response.context["selected_pet"], str(self.pet.pk))
+
+    def test_invalid_post_keeps_the_chosen_time(self):
+        response = self._post_visit(pet="")
+        self.assertIn("Pick the pet.", response.context["form"].errors["pet"])
+        self.assertRegex(
+            response.content.decode(), r'name="time" value="10:00:00"[^>]* checked'
+        )
+
+    def test_bad_owner_goes_back_to_step_1(self):
+        response = self._post_visit(owner="99999")
+        self.assertRedirects(
+            response, reverse(self.STEP_1), fetch_redirect_response=False
+        )
+        self.assertFalse(Appointment.objects.exists())
+
+
+class WalkInChangeAndBookTests(WalkInFlowTestBase):
+    """Step 3 buttons: "Change" (action=change) and "Book walk-in"."""
+
+    def test_change_keeps_every_value(self):
+        service = Service.objects.create(
+            service_name="Vaccination", status=Service.ACTIVE
+        )
+        response = self._post_visit(action="change", service=service.pk)
+        self.assertTemplateUsed(response, "admin/appointments/walkin_visit.html")
+        self.assertFalse(response.context["form"].is_bound)
+        self.assertEqual(response.context["selected_pet"], str(self.pet.pk))
+        self.assertEqual(response.context["selected_time"], "10:00:00")
+        html = response.content.decode()
+        self.assertRegex(html, r'name="time" value="10:00:00"[^>]* checked')
+        self.assertRegex(html, rf'<option value="{service.pk}" selected>')
+        self.assertContains(response, "Second anti-rabies shot.")
+        self.assertContains(response, 'name="date" value="2026-11-02"')
+        self.assertFalse(Appointment.objects.exists())
+
+    def test_book_saves_and_redirects_with_the_flash(self):
+        response = self._post_visit(action="book")
+        appointment = Appointment.objects.get()
+        self.assertRedirects(
+            response,
+            reverse("admin_appointment_detail", args=[appointment.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(appointment.status, Appointment.CONFIRMED)
+        self.assertTrue(appointment.is_walk_in)
+        self.assertEqual(appointment.owner, self.owner)
+        self.assertEqual(appointment.reason, "Second anti-rabies shot.")
+        self.assertEqual(
+            self._messages(response), ["Walk-in booked for Bantay today at 10:00 AM."]
+        )
+
+    def test_book_when_the_slot_was_taken(self):
+        other = self._owner("Ben", "Reyes", pets=["Max"])
+        taken = Appointment.objects.create(
+            owner=other,
+            pet=other.pets.get(),
+            date=WALK_IN_DAY,
+            time=datetime.time(10, 0),
+            status=Appointment.PENDING,
+        )
+        response = self._post_visit(action="book", reason="Limping")
+        self.assertTemplateUsed(response, "admin/appointments/walkin_visit.html")
+        self.assertEqual(list(Appointment.objects.all()), [taken])
+        self.assertContains(
+            response,
+            "10:00 AM was just taken. Someone else booked it a moment ago. "
+            "Please pick another time.",
+        )
+        self.assertNotContains(response, "Select a valid choice")
+        self.assertEqual(response.context["selected_time"], "")
+        self.assertEqual(response.context["selected_pet"], str(self.pet.pk))
+        self.assertContains(response, "Limping")
+        self.assertContains(response, 'name="date" value="2026-11-02"')
+
+    def test_book_rechecks_everything(self):
+        """A time that has ended is refused, but not as 'just taken'."""
+        response = self._post_visit(action="book", time="08:00:00")
+        self.assertFalse(Appointment.objects.exists())
+        self.assertIn("time", response.context["form"].errors)
+        self.assertEqual(response.context["taken_message"], "")
+
+
+class WalkInAccessTests(WalkInFlowTestBase):
+    """Owners are refused on every walk-in step."""
+
+    def test_owner_role_refused_on_every_step(self):
+        self.client.force_login(self.owner.user)
+        visit = reverse(self.VISIT)
+        requests = (
+            ("get", reverse(self.STEP_1), {"q": "ana"}),
+            ("get", visit, {"owner": self.owner.pk}),
+            ("post", visit, {"owner": self.owner.pk, "action": "review"}),
+            ("post", visit, {"owner": self.owner.pk, "action": "change"}),
+            ("post", visit, {"owner": self.owner.pk, "action": "book"}),
+            ("get", reverse("admin_walkin_create"), {}),
+            ("post", reverse("admin_walkin_create"), {}),
+        )
+        for method, url, data in requests:
+            with self.subTest(method=method, url=url, data=data):
+                response = getattr(self.client, method)(url, data)
+                self.assertRedirects(
+                    response, reverse("owner_dashboard"), fetch_redirect_response=False
+                )
+        self.assertFalse(Appointment.objects.exists())

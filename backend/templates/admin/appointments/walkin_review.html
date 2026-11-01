@@ -1,0 +1,77 @@
+{% extends "layouts/admin.html" %}
+{% load friendly_dates %}
+{% comment %}
+  Walk-in step 3, "Check and book" (admin_walkin_appointment_visit after a
+  valid action=review). Nothing is saved yet: every value is in hidden
+  fields. "Change" (action=change) goes back to step 2 with the values
+  kept; "Book walk-in" (action=book) checks everything again and saves.
+  Context: owner, pet, date, time, service, reason, owner_has_email.
+{% endcomment %}
+
+{% block title %}Check and book — Hapi Vet Admin{% endblock %}
+
+{% block page_header %}
+  {% include "admin/appointments/walkin_parts/header.html" with title="Check and book" subtitle="Nothing is saved until you press Book walk-in." active=3 %}
+{% endblock %}
+
+{% block content %}
+<form method="post" action="{% url 'admin_walkin_appointment_visit' %}" class="grid max-w-3xl gap-6">
+  {% csrf_token %}
+  <input type="hidden" name="owner" value="{{ owner.pk }}">
+  <input type="hidden" name="pet" value="{{ pet.pk }}">
+  <input type="hidden" name="date" value="{{ date|date:'Y-m-d' }}">
+  <input type="hidden" name="time" value="{{ time|time:'H:i:s' }}">
+  <input type="hidden" name="service" value="{{ service.pk|default:'' }}">
+  <input type="hidden" name="reason" value="{{ reason }}">
+
+  <section class="card p-6" aria-labelledby="review-pet">
+    <div class="mb-4 flex items-center gap-4">
+      {% include "components/pet_avatar.html" with pet=pet size="lg" %}
+      <div>
+        <h2 id="review-pet" class="text-xl font-semibold">{{ pet.name }}</h2>
+        <p class="text-base text-gray-600">{{ pet.species|capfirst }}{% if pet.breed %}, {{ pet.breed }}{% endif %}</p>
+      </div>
+    </div>
+    <dl>
+      <div class="grid gap-1 border-t border-gray-100 py-3 first:border-t-0 sm:grid-cols-[10rem_1fr] sm:gap-4">
+        <dt class="text-base text-gray-600">When</dt>
+        <dd class="text-lg font-semibold text-gray-900">{{ date|long_date }} at {{ time|time:"g:i A" }}</dd>
+      </div>
+      <div class="grid gap-1 border-t border-gray-100 py-3 sm:grid-cols-[10rem_1fr] sm:gap-4">
+        <dt class="text-base text-gray-600">Owner</dt>
+        <dd class="text-base font-medium text-gray-900">{{ owner.full_name }}{% if owner.contact_number %} · {{ owner.contact_number }}{% endif %}</dd>
+      </div>
+      <div class="grid gap-1 border-t border-gray-100 py-3 sm:grid-cols-[10rem_1fr] sm:gap-4">
+        <dt class="text-base text-gray-600">Service</dt>
+        <dd class="text-base font-medium text-gray-900">{{ service.service_name|default:"No service" }}</dd>
+      </div>
+      <div class="grid gap-1 border-t border-gray-100 py-3 sm:grid-cols-[10rem_1fr] sm:gap-4">
+        <dt class="text-base text-gray-600">Reason</dt>
+        <dd class="text-base font-medium text-gray-900">{{ reason|default:"No reason given"|linebreaksbr }}</dd>
+      </div>
+      <div class="grid gap-1 border-t border-gray-100 py-3 sm:grid-cols-[10rem_1fr] sm:gap-4">
+        <dt class="text-base text-gray-600">Status</dt>
+        <dd class="flex flex-wrap gap-2">
+          {% include "components/status_badge.html" with status="confirmed" label="Confirmed" %}
+          <span class="badge bg-violet-100 text-violet-800">Walk-in</span>
+        </dd>
+      </div>
+    </dl>
+  </section>
+
+  <p class="flex items-start gap-2 text-base text-gray-800">
+    {% if owner_has_email %}
+      {% include "components/icon.html" with name="mail" class="mt-0.5 size-5 shrink-0 text-gray-600" %}
+      <span>{{ owner.full_name }} will get an email about this visit.</span>
+    {% else %}
+      {% include "components/icon.html" with name="phone" class="mt-0.5 size-5 shrink-0 text-gray-600" %}
+      <span>{{ owner.full_name }} has no email. Tell them the time in person{% if owner.contact_number %} or call {{ owner.contact_number }}{% endif %}.</span>
+    {% endif %}
+  </p>
+
+  <div class="flex flex-wrap justify-end gap-3">
+    <button type="submit" name="action" value="change" class="btn btn-outline" formnovalidate>{% include "components/icon.html" with name="arrow-left" %}Change</button>
+    <button type="submit" name="action" value="book" class="btn btn-primary">{% include "components/icon.html" with name="check" %}Book walk-in</button>
+  </div>
+</form>
+{% endblock %}
