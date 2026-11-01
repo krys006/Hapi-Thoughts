@@ -5,6 +5,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.utils import timezone
+from django.utils.cache import patch_vary_headers
 from django.utils.dateformat import format as date_format
 
 from .models import ClinicSettings, BlockedDate, Appointment
@@ -22,6 +23,7 @@ from .forms import (
 
 from .utils import (
     LIST_PAGE_SIZE,
+    WALKIN_PAGE_SIZE,
     WALKIN_SEARCH_LIMIT,
     create_walkin_appointment,
     filter_appointments,
@@ -35,9 +37,11 @@ from .utils import (
     parse_list_date,
     resolve_list_tab,
     search_walkin_owners,
+    slot_in_progress,
     tab_counts,
     unfinished_visits,
     walkin_initial,
+    walkin_owner_list,
     walkin_slot_context,
     walkin_values,
 )
@@ -1012,49 +1016,72 @@ def _walk_in_booked_message(appointment):
     return f"Walk-in booked for {appointment.pet.name} {on}{_when(appointment)}."
 
 
+def _is_owner_results_swap(request):
+    """True for the filter-as-you-type request from step 1's search box,
+    which only needs the results. A history restore (or a request without
+    HTMX) gets the full page."""
+    headers = request.headers
+    return (
+        bool(headers.get("HX-Request"))
+        and headers.get("HX-Target") == "owner-results"
+        and not headers.get("HX-History-Restore-Request")
+    )
+
+
 @login_required
 def admin_walkin_appointment_create(request):
     """
-    Admin view — walk-in step 1, "Who is it for?": find the owner (?q=).
-    Each result links to step 2 (admin_walkin_appointment_visit).
+    Admin view — walk-in step 1, "Who is it for?". With no ?q= every
+    non-archived owner is listed (first name A to Z, WALKIN_PAGE_SIZE per
+    page); with ?q= the search results (no pager). Each owner links to
+    step 2 (admin_walkin_appointment_visit). The search box filters as you
+    type: those HTMX requests get only _walkin_owner_results.html.
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
     q = request.GET.get("q", "").strip()
-    owners, is_cut = search_walkin_owners(q)
-    return render(
-        request,
-        "admin/appointments/walkin_find.html",
-        {
-            "q": q,
-            "owners": owners,
-            "is_cut": is_cut,
-            "search_limit": WALKIN_SEARCH_LIMIT,
-        },
+    context = {"q": q, "search_limit": WALKIN_SEARCH_LIMIT, "page_obj": None}
+    if q:
+        context["owners"], context["is_cut"] = search_walkin_owners(q)
+    else:
+        paginator = Paginator(walkin_owner_list(), WALKIN_PAGE_SIZE)
+        page_obj = paginator.get_page(request.GET.get("page"))
+        context.update(
+            owners=page_obj.object_list,
+            owner_count=paginator.count,
+            page_obj=page_obj,
+            **paging_links(page_obj, ""),
+        )
+
+    template = (
+        "admin/appointments/_walkin_owner_results.html"
+        if _is_owner_results_swap(request)
+        else "admin/appointments/walkin_find.html"
     )
+    response = render(request, template, context)
+    # The same URL answers with the partial or the full page
+    patch_vary_headers(response, ["HX-Request"])
+    return response
 
 
-def _taken_message(time_value):
-    """Banner when the chosen time was booked by someone else meanwhile."""
+def _taken_time(time_value):
+    """The time that was just booked by someone else, for the step 2 banner
+    ("10:00 AM was just taken.")."""
     try:
-        time = date_format(datetime.time.fromisoformat(time_value), "g:i A")
+        return date_format(datetime.time.fromisoformat(time_value), "g:i A")
     except ValueError:
-        time = "That time"
-    return (
-        f"{time} was just taken. Someone else booked it a moment ago. "
-        "Please pick another time."
-    )
+        return "That time"
 
 
-def _render_walkin_visit(request, owner, form, taken_message=""):
+def _render_walkin_visit(request, owner, form, taken_time=""):
     """Step 2 page (the visit); pass a bound form to show its errors."""
     context = {
         "owner": owner,
         "form": form,
         "pets": form.fields["pet"].queryset,
         "selected_pet": str(form["pet"].value() or ""),
-        "taken_message": taken_message,
+        "taken_time": taken_time,
     }
     context.update(walkin_slot_context(form))
     return render(request, "admin/appointments/walkin_visit.html", context)
@@ -1109,7 +1136,7 @@ def admin_walkin_appointment_visit(request):
     if form.slot_was_taken():
         # Everything kept except the time, which must be picked again
         initial = walkin_values(request.POST, keep_time=False)
-        taken = _taken_message(request.POST.get("time", ""))
+        taken = _taken_time(request.POST.get("time", ""))
         return _render_walkin_visit(
             request, owner, AdminWalkInAppointmentForm(owner, initial=initial), taken
         )
@@ -1160,7 +1187,7 @@ def admin_get_slots_for_date(request):
     Used in admin forms (walk-in, reschedule).
     ?for=walk_in uses the walk-in rules (see get_available_slots); without
     it (the Move dialog) the Move rules: no same-day cutoff, only slots
-    that haven't started.
+    that haven't started. Only walk-ins get now_slot (the "Now" label).
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
@@ -1170,12 +1197,15 @@ def admin_get_slots_for_date(request):
     date_str = request.GET.get("date", "")
     date = None
     slots = []
+    now_slot = None
 
     if date_str:
         try:
             date = datetime.date.fromisoformat(date_str)
             walk_in = request.GET.get("for") == "walk_in"
             slots = get_available_slots(date, walk_in=walk_in, move=not walk_in)
+            if walk_in:
+                now_slot = slot_in_progress(date)
         except ValueError:
             pass
 
@@ -1191,6 +1221,7 @@ def admin_get_slots_for_date(request):
         {
             "slots": slots,
             "slots_date": date,
+            "now_slot": now_slot,
             "selected": request.GET.get("selected", ""),
         },
     )

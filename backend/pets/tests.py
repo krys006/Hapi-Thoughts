@@ -287,3 +287,63 @@ class AdminOwnerListWalkInButtonTests(TestCase):
             "+ Register Walk-in Client</a>",
             html=True,
         )
+
+
+class BookWalkInLinkTests(TestCase):
+    """Owner and pet detail pages link to walk-in step 2 with the owner
+    (and pet) chosen, skipping step 1. Hidden when archived."""
+
+    def setUp(self):
+        admin = User.objects.create_user(
+            username="admin1", email="admin@example.com", role=User.ADMIN
+        )
+        user = User.objects.create_user(
+            username="ana", email="ana@example.com", role=User.PET_OWNER
+        )
+        self.owner = PetOwner.objects.create(
+            user=user, first_name="Ana", last_name="Cruz"
+        )
+        self.pet = Pet.objects.create(owner=self.owner, name="Bantay", species="Dog")
+        self.client.force_login(admin)
+        self.visit_url = reverse("admin_walkin_appointment_visit")
+
+    def _owner_page(self):
+        return self.client.get(reverse("admin_owner_detail", args=[self.owner.pk]))
+
+    def _pet_page(self):
+        return self.client.get(reverse("admin_pet_detail", args=[self.pet.pk]))
+
+    def _owner_link(self):
+        return (
+            f'<a href="{self.visit_url}?owner={self.owner.pk}" '
+            'class="btn-secondary">Book walk-in</a>'
+        )
+
+    def _pet_link(self):
+        return (
+            f'<a href="{self.visit_url}?owner={self.owner.pk}&amp;pet={self.pet.pk}" '
+            'class="btn-secondary">Book walk-in</a>'
+        )
+
+    def test_owner_page_links_to_the_visit_step(self):
+        # Exact raw match: owner_detail.html has a stray </div> (Slice 4),
+        # so the page is not valid HTML for html=True
+        self.assertContains(self._owner_page(), self._owner_link())
+
+    def test_pet_page_links_to_the_visit_step_with_the_pet(self):
+        self.assertContains(self._pet_page(), self._pet_link(), html=True)
+
+    def test_archived_owner_has_no_link(self):
+        self.owner.is_archived = True
+        self.owner.save()
+        for response in (self._owner_page(), self._pet_page()):
+            with self.subTest(url=response.wsgi_request.path):
+                self.assertEqual(response.status_code, 200)
+                self.assertNotContains(response, "Book walk-in")
+
+    def test_archived_pet_has_no_link(self):
+        self.pet.is_archived = True
+        self.pet.save()
+        response = self._pet_page()
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Book walk-in")

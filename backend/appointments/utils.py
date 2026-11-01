@@ -60,18 +60,8 @@ def get_available_slots(date, walk_in=False, move=False):
     if BlockedDate.objects.filter(date=date).exists():
         return []
 
-    # Generate all possible slots between opening and closing time
-    slots = []
+    slots = _day_slots(clinic, date)
     slot_delta = datetime.timedelta(minutes=clinic.slot_duration_minutes)
-
-    # Convert TimeField values to datetime for arithmetic
-    opening_dt = datetime.datetime.combine(date, clinic.opening_time)
-    closing_dt = datetime.datetime.combine(date, clinic.closing_time)
-
-    current = opening_dt
-    while current + slot_delta <= closing_dt:
-        slots.append(current.time())
-        current += slot_delta
 
     if date == today and walk_in:
         # Walk-ins: keep slots that end after now (naive, like opening_dt)
@@ -96,6 +86,43 @@ def get_available_slots(date, walk_in=False, move=False):
     slots = [s for s in slots if s not in booked_times]
 
     return slots
+
+
+def _day_slots(clinic, date):
+    """Every slot start time between opening and closing time on date."""
+    slots = []
+    slot_delta = datetime.timedelta(minutes=clinic.slot_duration_minutes)
+
+    # Convert TimeField values to datetime for arithmetic
+    opening_dt = datetime.datetime.combine(date, clinic.opening_time)
+    closing_dt = datetime.datetime.combine(date, clinic.closing_time)
+
+    current = opening_dt
+    while current + slot_delta <= closing_dt:
+        slots.append(current.time())
+        current += slot_delta
+    return slots
+
+
+def slot_in_progress(date):
+    """
+    The start time of the slot running right now (start <= now < end,
+    Manila time), or None when date isn't today, the clinic is closed at
+    this moment or there are no clinic settings. Walk-in step 2 labels
+    that slot "Now"; the Move dialog never asks.
+    """
+    clinic = ClinicSettings.objects.first()
+    now = timezone.localtime()
+    if not clinic or date != now.date():
+        return None
+
+    slot_delta = datetime.timedelta(minutes=clinic.slot_duration_minutes)
+    now_naive = now.replace(tzinfo=None)  # naive, like the slot times
+    for slot in _day_slots(clinic, date):
+        start = datetime.datetime.combine(date, slot)
+        if start <= now_naive < start + slot_delta:
+            return slot
+    return None
 
 
 def _slot_open_today(clinic, date, slot, now, move=False):
@@ -413,10 +440,11 @@ def list_querystring(tab, q, date):
 
 
 def paging_links(page_obj, page_query):
-    """ "?…&page=N" for the previous and next pages, or "" when there is none."""
+    """ "?…&page=N" (or "?page=N" with an empty page_query) for the previous
+    and next pages, or "" when there is none."""
 
     def link(number):
-        return f"?{page_query}&page={number}"
+        return f"?{page_query}&page={number}" if page_query else f"?page={number}"
 
     return {
         "prev_page_query": (
@@ -431,6 +459,21 @@ def paging_links(page_obj, page_query):
 # ── Admin walk-in ────────────────────────────────────────────────────────────
 
 WALKIN_SEARCH_LIMIT = 20
+WALKIN_PAGE_SIZE = 25
+
+
+def _walkin_owner_rows(owners):
+    """owners sorted A to Z by first name (then last name), each with
+    active_pets (non-archived, by name) prefetched."""
+    active_pets = Pet.objects.filter(is_archived=False).order_by("name")
+    return owners.order_by("first_name", "last_name", "pk").prefetch_related(
+        Prefetch("pets", queryset=active_pets, to_attr="active_pets")
+    )
+
+
+def walkin_owner_list():
+    """Step 1 with no search: every non-archived owner, first name A to Z."""
+    return _walkin_owner_rows(PetOwner.objects.filter(is_archived=False))
 
 
 def search_walkin_owners(q):
@@ -438,8 +481,8 @@ def search_walkin_owners(q):
     Step 1 of the walk-in: (owners, is_cut). Every word in q must match the
     owner's first name, last name or phone, or the name of one of their
     non-archived pets (case-insensitive). Archived owners are left out.
-    At most WALKIN_SEARCH_LIMIT owners; is_cut is True when there were more.
-    Each owner gets active_pets (non-archived, by name), prefetched.
+    At most WALKIN_SEARCH_LIMIT owners, first name A to Z; is_cut is True
+    when there were more. Each owner gets active_pets, prefetched.
     """
     words = q.split()
     if not words:
@@ -457,9 +500,7 @@ def search_walkin_owners(q):
             | Q(pk__in=pet_owner_ids)
         )
 
-    owners = owners.order_by("last_name", "first_name", "pk").prefetch_related(
-        Prefetch("pets", queryset=active_pets.order_by("name"), to_attr="active_pets")
-    )
+    owners = _walkin_owner_rows(owners)
     # One extra row tells us whether the list was cut
     found = list(owners[: WALKIN_SEARCH_LIMIT + 1])
     return found[:WALKIN_SEARCH_LIMIT], len(found) > WALKIN_SEARCH_LIMIT
@@ -512,7 +553,8 @@ def walkin_slot_context(form):
     is valid, else the initial one (today on a first visit). slots is None
     when there is no usable date (the page asks for one). selected_time
     keeps the chosen time checked after an error or "Change"; date_value is
-    the date input's value as typed (or today's, as YYYY-MM-DD).
+    the date input's value as typed (or today's, as YYYY-MM-DD). now_slot
+    is the slot in progress (labelled "Now"), or None.
     """
     date_value = form["date"].value() or ""
     if isinstance(date_value, datetime.date):
@@ -527,6 +569,7 @@ def walkin_slot_context(form):
     return {
         "slots": get_available_slots(date, walk_in=True) if date else None,
         "slots_date": date,
+        "now_slot": slot_in_progress(date) if date else None,
         "date_value": date_value,
         "selected_time": form["time"].value() or "",
     }

@@ -2,7 +2,7 @@
   Walk-in step indicator: 1 Who is it for? · 2 The visit · 3 Check and book.
   Usage: {% include "admin/appointments/walkin_parts/steps.html" with active=2 %}
 {% endcomment %}
-<ol class="mb-6 flex flex-wrap gap-3" aria-label="Steps">
+<ol class="mb-6 flex flex-wrap gap-x-3 gap-y-2" aria-label="Steps">
   {% include "admin/appointments/walkin_parts/step.html" with number=1 label="Who is it for?" %}
   {% include "admin/appointments/walkin_parts/step.html" with number=2 label="The visit" %}
   {% include "admin/appointments/walkin_parts/step.html" with number=3 label="Check and book" %}

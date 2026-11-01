@@ -4,7 +4,8 @@
   action=review to the same URL, which shows step 3.
   Context: owner, form, pets (the owner's non-archived pets),
   selected_pet, slots / slots_date / date_value / selected_time
-  (walkin_slot_context), taken_message (the chosen time was just booked).
+  now_slot (walkin_slot_context), taken_time ("10:00 AM" when the chosen
+  time was just booked by someone else).
 {% endcomment %}
 
 {% block title %}New walk-in — Hapi Vet Admin{% endblock %}
@@ -15,15 +16,16 @@
 
 {% block content %}
 <div class="grid max-w-4xl gap-6">
-  {% if taken_message %}
+  {% if taken_time %}
     <div class="flex items-start gap-3 rounded-xl border border-red-300 bg-red-50 px-5 py-4 text-red-900" role="alert">
       {% include "components/icon.html" with name="triangle-alert" class="size-6 shrink-0" %}
-      <p class="text-base">{{ taken_message }}</p>
+      <p class="text-base"><b class="font-semibold">{{ taken_time }} was just taken.</b> Someone else booked it a moment ago. Please pick another time. Everything else you entered is kept.</p>
     </div>
   {% endif %}
   {% if form.non_field_errors %}
-    <div class="rounded-xl border border-red-300 bg-red-50 px-5 py-4 text-red-900" role="alert">
-      {% for error in form.non_field_errors %}<p class="text-base">{{ error }}</p>{% endfor %}
+    <div class="flex items-start gap-3 rounded-xl border border-red-300 bg-red-50 px-5 py-4 text-red-900" role="alert">
+      {% include "components/icon.html" with name="triangle-alert" class="size-6 shrink-0" %}
+      <div>{% for error in form.non_field_errors %}<p class="text-base">{{ error }}</p>{% endfor %}</div>
     </div>
   {% endif %}
 
@@ -57,7 +59,7 @@
               </label>
             {% endfor %}
           </div>
-          {% for error in form.pet.errors %}<p class="mt-2 text-sm font-medium text-red-700">{{ error }}</p>{% endfor %}
+          {% for error in form.pet.errors %}<p class="mt-2 flex items-start gap-1 text-sm font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-4 shrink-0" %}{{ error }}</p>{% endfor %}
           <div class="mt-2">
             <a href="{% url 'admin_pet_add' owner.pk %}" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="plus" %}Add another pet</a>
           </div>
@@ -71,19 +73,23 @@
           {# Picking a date reloads the free times below (walk-in rules, large buttons) #}
           <input type="date" id="walkin-date" name="date" value="{{ date_value }}" required aria-describedby="walkin-date-help" hx-get="{% url 'admin_get_slots_for_date' %}?for=walk_in&amp;as=buttons&amp;selected={{ selected_time|urlencode }}" hx-trigger="change" hx-target="#walkin-slots" hx-swap="innerHTML">
           <p id="walkin-date-help" class="text-sm text-gray-600">{{ form.date.help_text }}</p>
-          {% for error in form.date.errors %}<p class="text-sm font-medium text-red-700">{{ error }}</p>{% endfor %}
+          {% for error in form.date.errors %}<p class="flex items-start gap-1 text-sm font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-4 shrink-0" %}{{ error }}</p>{% endfor %}
         </div>
         <fieldset>
           <legend class="mb-1.5 text-base font-medium text-gray-800">Time <span class="text-red-700" aria-hidden="true">*</span></legend>
           <div id="walkin-slots" aria-live="polite">
             {% if slots is not None %}
-              {% include "admin/appointments/_slot_buttons.html" with slots=slots slots_date=slots_date selected=selected_time %}
+              {% include "admin/appointments/_slot_buttons.html" with slots=slots slots_date=slots_date selected=selected_time now_slot=now_slot %}
             {% else %}
               <p class="rounded-lg border border-dashed border-gray-300 px-4 py-5 text-center text-base text-gray-600">Pick a date to see the free times.</p>
             {% endif %}
           </div>
-          {% for error in form.time.errors %}<p class="mt-2 text-sm font-medium text-red-700">{{ error }}</p>{% endfor %}
-          <p class="mt-2 text-sm text-gray-600">Times already booked or requested online are not shown.</p>
+          {# A time error takes the place of the help line, as in the mockup #}
+          {% if form.time.errors %}
+            {% for error in form.time.errors %}<p class="mt-2 flex items-start gap-1 text-sm font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-4 shrink-0" %}{{ error }}</p>{% endfor %}
+          {% else %}
+            <p class="mt-2 text-sm text-gray-600">Times already booked or requested online are not shown.</p>
+          {% endif %}
         </fieldset>
       </section>
 

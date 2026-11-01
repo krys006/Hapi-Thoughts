@@ -50,6 +50,8 @@
     <div class="admin-detail-actions">
       <a href="{% url 'admin_owner_edit' owner.pk %}" class="btn-primary">Edit</a>
       {% if not owner.is_archived %}
+        <!-- Walk-in step 2 with this owner chosen (skips "Who is it for?") -->
+        <a href="{% url 'admin_walkin_appointment_visit' %}?owner={{ owner.pk }}" class="btn-secondary">Book walk-in</a>
         <form method="post" action="{% url 'admin_owner_archive' owner.pk %}">
           {% csrf_token %}
           <button type="submit" class="btn-danger-outline">Archive Account</button>

@@ -4,7 +4,8 @@
   admin_get_slots_for_date?as=buttons, and included by the detail page.
   Context: slots (list of times), slots_date (the day they are for, or
   None before a date is picked: no heading), selected ("HH:MM:SS" or "")
-  to check one.
+  to check one, now_slot (walk-ins only: the slot in progress, labelled
+  "Now"; the Move dialog never passes it).
 {% endcomment %}
 {% if slots_date %}
   {% with mid=slots_date|long_date:"mid" %}
@@ -16,9 +17,10 @@
   <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
     {% for slot in slots %}
       {% with value=slot|time:"H:i:s" %}
-        <label class="flex min-h-12 cursor-pointer items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-base font-medium text-gray-800 hover:bg-violet-50 has-[:checked]:border-violet-600 has-[:checked]:bg-violet-600 has-[:checked]:text-white has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-violet-400 has-[:focus-visible]:ring-offset-2">
+        <label class="group flex min-h-12 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-gray-300 bg-white px-3 py-1 text-base font-semibold text-gray-800 hover:bg-violet-50 has-[:checked]:border-violet-600 has-[:checked]:bg-violet-600 has-[:checked]:text-white has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-violet-400 has-[:focus-visible]:ring-offset-2">
           <input type="radio" name="time" value="{{ value }}" class="sr-only" required{% if value == selected %} checked{% endif %}>
           {{ slot|time:"g:i A" }}
+          {% if now_slot and slot == now_slot %}<span class="text-sm font-medium text-gray-600 group-has-[:checked]:text-violet-100">Now</span>{% endif %}
         </label>
       {% endwith %}
     {% endfor %}

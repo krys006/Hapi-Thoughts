@@ -68,6 +68,10 @@
     {% if not pet.is_archived %}
       <div class="admin-detail-actions">
         <a href="{% url 'admin_pet_edit' pet.pk %}" class="btn-primary">Edit Pet</a>
+        {% if not pet.owner.is_archived %}
+          <!-- Walk-in step 2 with this owner and pet chosen (skips "Who is it for?") -->
+          <a href="{% url 'admin_walkin_appointment_visit' %}?owner={{ pet.owner.pk }}&amp;pet={{ pet.pk }}" class="btn-secondary">Book walk-in</a>
+        {% endif %}
       </div>
     {% endif %}
 
