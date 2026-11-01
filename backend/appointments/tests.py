@@ -7,7 +7,8 @@ from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
 from django.core import mail
 from django.db import DatabaseError, connection
-from django.test import TestCase
+from django.core.paginator import Paginator
+from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -17,6 +18,7 @@ from appointments.models import Appointment, BlockedDate, ClinicSettings
 from appointments.utils import (
     get_available_slots,
     is_slot_available,
+    paging_links,
     slot_in_progress,
 )
 from billing.models import BillingReceipt, Service
@@ -1892,12 +1894,15 @@ class WalkInOwnerSearchTests(WalkInFlowTestBase):
         self.assertFalse(response.context["is_cut"])
         self.assertNotContains(response, "Showing the first")
 
-    def test_empty_q_shows_no_results_list(self):
+    def test_empty_q_lists_every_owner(self):
+        """No search: the full owner list (since the 3c-3 follow-up), with
+        the New owner banner still there."""
         for q in ("", "   "):
             with self.subTest(q=q):
                 response = self.client.get(reverse(self.STEP_1), {"q": q})
-                self.assertEqual(response.context["owners"], [])
-                self.assertNotContains(response, 'id="results-title"')
+                self.assertEqual(list(response.context["owners"]), [self.owner])
+                self.assertContains(response, 'id="results-title"')
+                self.assertContains(response, "All pet owners (1)")
                 self.assertContains(response, "First visit at the clinic?")
                 self.assertContains(
                     response, f'href="{reverse("admin_walkin_create")}"'
@@ -1924,7 +1929,11 @@ class WalkInStepOneTests(WalkInFlowTestBase):
         response = self.client.get(reverse(self.STEP_1))
         self.assertTemplateUsed(response, "layouts/admin.html")
         self.assertContains(response, "Who is it for?")
-        self.assertContains(response, "Been here before? Find the owner")
+        self.assertContains(
+            response, "Been to the clinic before? Find the owner below</label>"
+        )
+        self.assertNotContains(response, "Been here before?")
+        self.assertNotContains(response, "The list gets shorter as you type.")
         # The top-bar search is emptied on this step only
         self.assertNotContains(response, 'id="global-search"')
         self.assertEqual(self._primary_buttons(response), 0)
@@ -2370,3 +2379,229 @@ class WalkInSidebarTests(WalkInFlowTestBase):
     def test_owner_pages_still_highlight_pet_owners(self):
         response = self.client.get(reverse("admin_owner_list"))
         self.assertEqual(self._current_nav(response), ["Pet owners"])
+
+
+# ─── Walk-in step 1 owner list (3c-3 follow-up) ───────────────────────────────
+
+
+class PagingLinksTests(SimpleTestCase):
+    """paging_links: the pager's Previous/Next links."""
+
+    def _page(self, number):
+        return Paginator(list(range(60)), 25).get_page(number)
+
+    def test_empty_page_query_gives_plain_page_links(self):
+        self.assertEqual(
+            paging_links(self._page(2), ""),
+            {"prev_page_query": "?page=1", "next_page_query": "?page=3"},
+        )
+
+    def test_page_query_comes_first(self):
+        self.assertEqual(
+            paging_links(self._page(2), "status=all"),
+            {
+                "prev_page_query": "?status=all&page=1",
+                "next_page_query": "?status=all&page=3",
+            },
+        )
+
+    def test_no_link_past_either_end(self):
+        self.assertEqual(paging_links(self._page(1), "")["prev_page_query"], "")
+        self.assertEqual(paging_links(self._page(3), "")["next_page_query"], "")
+
+
+class WalkInOwnerListTests(WalkInFlowTestBase):
+    """Step 1 with no search: every non-archived owner, first name A to Z,
+    25 per page. Ana Cruz (with Bantay) exists from setUp."""
+
+    def _get(self, **params):
+        return self.client.get(reverse(self.STEP_1), params)
+
+    def _names(self, response):
+        return [owner.full_name for owner in response.context["owners"]]
+
+    def test_listed_by_first_name_without_archived(self):
+        self._owner("Zed", "Abad")
+        self._owner("Ben", "Reyes")
+        self._owner("Ana", "Abad")  # same first name: last name decides
+        self._owner("Carla", "Bautista", archived=True)
+        response = self._get()
+        self.assertEqual(
+            self._names(response), ["Ana Abad", "Ana Cruz", "Ben Reyes", "Zed Abad"]
+        )
+        self.assertNotContains(response, "Carla")
+        self.assertContains(response, "All pet owners (4)</h2>")
+        self.assertContains(response, "A to Z by first name")
+
+    def test_25_per_page_and_the_rest_on_page_2(self):
+        for i in range(30):
+            self._owner(f"Owner{i:02}", "Santos")  # 31 owners with Ana Cruz
+        first = self._get()
+        self.assertEqual(len(first.context["owners"]), 25)
+        self.assertEqual(self._names(first)[0], "Ana Cruz")
+        self.assertContains(first, "All pet owners (31)")
+        self.assertContains(first, "Showing 1–25 of 31")
+        self.assertContains(first, 'href="?page=2"')
+        second = self._get(page="2")
+        self.assertEqual(
+            self._names(second), [f"Owner{i:02} Santos" for i in range(24, 30)]
+        )
+        self.assertContains(second, "Showing 26–31 of 31")
+        self.assertContains(second, 'href="?page=1"')
+
+    def test_bad_page_falls_back(self):
+        for i in range(30):
+            self._owner(f"Owner{i:02}", "Santos")
+        for page, expected in (("abc", 1), ("0", 2), ("99", 2), ("-1", 2)):
+            with self.subTest(page=page):
+                response = self._get(page=page)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.context["page_obj"].number, expected)
+
+    def test_owner_with_no_pets_still_listed(self):
+        self._owner("Liza", "Reyes")
+        response = self._get()
+        self.assertIn("Liza Reyes", self._names(response))
+        self.assertContains(response, "No pets yet")
+
+    def test_cards_show_pets_phone_and_choose(self):
+        self._owner("Liza", "Reyes", phone="0917 123 4567", pets=["Brownie"])
+        response = self._get()
+        self.assertContains(response, "0917 123 4567")
+        self.assertContains(response, "No phone number")  # Ana Cruz
+        self.assertContains(response, "Brownie</li>")
+        self.assertContains(response, f'{reverse(self.VISIT)}?owner={self.owner.pk}"')
+
+    def test_query_count_flat_as_owners_grow(self):
+        for i in range(3):
+            self._owner(f"A{i}", "Santos", pets=["Max", "Muning"])
+        with CaptureQueriesContext(connection) as few:
+            self._get()
+        for i in range(20):
+            self._owner(f"B{i}", "Santos", pets=["Max", "Muning"])
+        with self.assertNumQueries(len(few.captured_queries)):
+            self._get()
+
+    def test_no_owners_at_all(self):
+        PetOwner.objects.all().delete()
+        response = self._get()
+        self.assertContains(response, "All pet owners (0)</h2>")
+        self.assertContains(response, "No pet owners yet")
+        self.assertContains(response, "Use New owner above to add the first one.")
+        self.assertNotContains(response, 'aria-label="Pages"')
+
+
+class WalkInStepOneSearchPageTests(WalkInFlowTestBase):
+    """Step 1 while searching: first-name order, no pager, empty state,
+    Clear search, live regions."""
+
+    def test_results_sorted_by_first_name(self):
+        self._owner("Zed", "Acruz")
+        self._owner("Ben", "Cruzado")
+        response = self.client.get(reverse(self.STEP_1), {"q": "cruz"})
+        self.assertEqual(
+            [owner.full_name for owner in response.context["owners"]],
+            ["Ana Cruz", "Ben Cruzado", "Zed Acruz"],
+        )
+        self.assertContains(response, "3 owners match “cruz”")
+
+    def test_no_pager_while_searching(self):
+        for i in range(30):
+            self._owner(f"Owner{i:02}", "Santos")
+        response = self.client.get(reverse(self.STEP_1), {"q": "santos"})
+        self.assertIsNone(response.context["page_obj"])
+        self.assertNotContains(response, 'aria-label="Pages"')
+        self.assertNotContains(response, "All pet owners")
+        self.assertContains(response, "Showing the first 20.")
+
+    def test_no_match_empty_state(self):
+        response = self.client.get(reverse(self.STEP_1), {"q": "zzz"})
+        self.assertContains(
+            response,
+            '<p class="text-lg font-semibold text-gray-900" aria-live="polite">'
+            "No owner matches “zzz”</p>",
+        )
+        self.assertContains(
+            response,
+            "Check the spelling, or use New owner above if this is their first visit.",
+        )
+
+    def test_clear_search_only_with_q(self):
+        clear = (
+            f'<a href="{reverse(self.STEP_1)}" class="inline-flex min-h-11 '
+            "items-center gap-2 text-base font-medium text-blue-600 underline "
+            'underline-offset-2">'
+        )
+        with_q = self.client.get(reverse(self.STEP_1), {"q": "ana"})
+        self.assertContains(with_q, clear)
+        self.assertContains(with_q, "Clear search</a>")
+        for params in ({}, {"q": "  "}):
+            with self.subTest(params=params):
+                response = self.client.get(reverse(self.STEP_1), params)
+                self.assertNotContains(response, "Clear search")
+
+    def test_live_regions_are_the_heading_and_match_line_only(self):
+        for params in ({}, {"q": "ana"}):
+            with self.subTest(params=params):
+                html = self.client.get(reverse(self.STEP_1), params).content.decode()
+                self.assertEqual(html.count('aria-live="polite"'), 1)
+                self.assertRegex(html, r'<h2 id="results-title"[^>]*aria-live="polite"')
+                self.assertNotRegex(html, r'id="owner-results"[^>]*aria-live')
+
+
+class WalkInStepOneHtmxTests(WalkInFlowTestBase):
+    """Filter as you type: the HTMX request for #owner-results gets only
+    the partial; everything else gets the full page."""
+
+    PARTIAL = "admin/appointments/_walkin_owner_results.html"
+    SWAP = {"HTTP_HX_REQUEST": "true", "HTTP_HX_TARGET": "owner-results"}
+
+    def _get(self, params=None, **headers):
+        return self.client.get(reverse(self.STEP_1), params or {"q": "ana"}, **headers)
+
+    def _assert_full_page(self, response):
+        self.assertTemplateUsed(response, "layouts/admin.html")
+        self.assertTemplateUsed(response, self.PARTIAL)
+        self.assertContains(response, 'aria-label="Admin"')  # sidebar nav
+        self.assertContains(response, 'id="walkin-q"')
+
+    def test_swap_request_gets_only_the_partial(self):
+        for params in ({"q": "ana"}, {"q": ""}):
+            with self.subTest(params=params):
+                response = self._get(params, **self.SWAP)
+                self.assertTemplateUsed(response, self.PARTIAL)
+                self.assertTemplateNotUsed(response, "layouts/admin.html")
+                self.assertTemplateNotUsed(
+                    response, "admin/appointments/walkin_find.html"
+                )
+                self.assertNotContains(response, 'aria-label="Admin"')
+                # The input is outside the swap target, so typing keeps focus
+                self.assertNotContains(response, 'id="walkin-q"')
+                self.assertContains(response, "Ana Cruz")
+
+    def test_history_restore_gets_the_full_page(self):
+        response = self._get(**self.SWAP, HTTP_HX_HISTORY_RESTORE_REQUEST="true")
+        self._assert_full_page(response)
+
+    def test_other_htmx_target_gets_the_full_page(self):
+        response = self._get(HTTP_HX_REQUEST="true", HTTP_HX_TARGET="main")
+        self._assert_full_page(response)
+
+    def test_no_htmx_gets_the_full_page(self):
+        self._assert_full_page(self._get())
+
+    def test_response_varies_on_hx_request(self):
+        for headers in ({}, self.SWAP):
+            with self.subTest(headers=headers):
+                self.assertIn("HX-Request", self._get(**headers)["Vary"])
+
+    def test_search_box_filters_as_you_type(self):
+        response = self._get()
+        self.assertContains(
+            response,
+            f'hx-get="{reverse(self.STEP_1)}" '
+            'hx-trigger="input changed delay:500ms, search" '
+            'hx-target="#owner-results" hx-replace-url="true"',
+        )
+        self.assertNotContains(response, "hx-push-url")
+        self.assertContains(response, '<div id="owner-results">')

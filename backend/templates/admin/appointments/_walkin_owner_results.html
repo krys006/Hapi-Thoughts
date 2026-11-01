@@ -1,0 +1,68 @@
+{% load pet_display %}
+{% comment %}
+  Walk-in step 1 results, under the search box. Included by
+  walkin_find.html, and returned alone by admin_walkin_appointment_create
+  for the filter-as-you-type HTMX request (target #owner-results).
+  Context: q, owners (each with active_pets), is_cut, search_limit; with no
+  q also owner_count, page_obj, prev_page_query, next_page_query (pager).
+  The heading, match line and empty-state title are the live regions.
+{% endcomment %}
+{% if q %}
+  <div class="mb-3 flex justify-end">
+    <a href="{% url 'admin_walkin_appointment_create' %}" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="x" %}Clear search</a>
+  </div>
+{% endif %}
+
+<section aria-labelledby="results-title">
+  {% if q %}
+    {% if owners %}
+      <h2 id="results-title" class="mb-2 text-base text-gray-700" aria-live="polite">{% if is_cut %}More than {{ search_limit }} owners match “{{ q }}”. Showing the first {{ search_limit }}.{% else %}{{ owners|length }} owner{{ owners|length|pluralize:" matches,s match" }} “{{ q }}”{% endif %}</h2>
+    {% else %}
+      <h2 id="results-title" class="sr-only">Search results</h2>
+    {% endif %}
+  {% else %}
+    <div class="mb-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+      <h2 id="results-title" class="text-lg font-semibold text-gray-900" aria-live="polite">All pet owners ({{ owner_count }})</h2>
+      <p class="text-sm text-gray-600">A to Z by first name</p>
+    </div>
+  {% endif %}
+
+  {% if owners %}
+    <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      <ul>
+        {% for owner in owners %}
+          <li class="flex flex-wrap items-center gap-4 border-t border-gray-100 px-5 py-4 first:border-t-0">
+            {% include "components/owner_avatar.html" with owner=owner size="sm" %}
+            <div class="min-w-0 flex-1">
+              <p class="text-base font-semibold text-gray-900">{{ owner.full_name }}</p>
+              <p class="text-sm text-gray-600">{{ owner.contact_number|default:"No phone number" }}</p>
+              {% if owner.active_pets %}
+                <ul class="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-base text-gray-800" aria-label="Pets">
+                  {% for pet in owner.active_pets %}
+                    <li class="inline-flex items-center gap-1.5">{% include "components/icon.html" with name=pet.species|species_icon class="size-5 shrink-0 text-violet-600" stroke="1.5" %}{{ pet.name }}</li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <p class="mt-1 text-base text-gray-600">No pets yet</p>
+              {% endif %}
+            </div>
+            <a href="{% url 'admin_walkin_appointment_visit' %}?owner={{ owner.pk }}" class="btn btn-outline font-semibold" aria-label="Choose {{ owner.full_name }}">Choose{% include "components/icon.html" with name="arrow-right" %}</a>
+          </li>
+        {% endfor %}
+      </ul>
+      {% if page_obj %}
+        {% include "admin/appointments/list_parts/pager.html" %}
+      {% endif %}
+    </div>
+  {% elif q %}
+    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+      {% with title="No owner matches “"|add:q|add:"”" %}
+        {% include "components/empty_state.html" with icon="search" title=title text="Check the spelling, or use New owner above if this is their first visit." live=True %}
+      {% endwith %}
+    </div>
+  {% else %}
+    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+      {% include "components/empty_state.html" with icon="users" title="No pet owners yet" text="Use New owner above to add the first one." %}
+    </div>
+  {% endif %}
+</section>

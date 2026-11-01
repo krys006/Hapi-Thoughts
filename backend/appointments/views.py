@@ -5,6 +5,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.utils import timezone
+from django.utils.cache import patch_vary_headers
 from django.utils.dateformat import format as date_format
 
 from .models import ClinicSettings, BlockedDate, Appointment
@@ -22,6 +23,7 @@ from .forms import (
 
 from .utils import (
     LIST_PAGE_SIZE,
+    WALKIN_PAGE_SIZE,
     WALKIN_SEARCH_LIMIT,
     create_walkin_appointment,
     filter_appointments,
@@ -39,6 +41,7 @@ from .utils import (
     tab_counts,
     unfinished_visits,
     walkin_initial,
+    walkin_owner_list,
     walkin_slot_context,
     walkin_values,
 )
@@ -1013,27 +1016,53 @@ def _walk_in_booked_message(appointment):
     return f"Walk-in booked for {appointment.pet.name} {on}{_when(appointment)}."
 
 
+def _is_owner_results_swap(request):
+    """True for the filter-as-you-type request from step 1's search box,
+    which only needs the results. A history restore (or a request without
+    HTMX) gets the full page."""
+    headers = request.headers
+    return (
+        bool(headers.get("HX-Request"))
+        and headers.get("HX-Target") == "owner-results"
+        and not headers.get("HX-History-Restore-Request")
+    )
+
+
 @login_required
 def admin_walkin_appointment_create(request):
     """
-    Admin view — walk-in step 1, "Who is it for?": find the owner (?q=).
-    Each result links to step 2 (admin_walkin_appointment_visit).
+    Admin view — walk-in step 1, "Who is it for?". With no ?q= every
+    non-archived owner is listed (first name A to Z, WALKIN_PAGE_SIZE per
+    page); with ?q= the search results (no pager). Each owner links to
+    step 2 (admin_walkin_appointment_visit). The search box filters as you
+    type: those HTMX requests get only _walkin_owner_results.html.
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
     q = request.GET.get("q", "").strip()
-    owners, is_cut = search_walkin_owners(q)
-    return render(
-        request,
-        "admin/appointments/walkin_find.html",
-        {
-            "q": q,
-            "owners": owners,
-            "is_cut": is_cut,
-            "search_limit": WALKIN_SEARCH_LIMIT,
-        },
+    context = {"q": q, "search_limit": WALKIN_SEARCH_LIMIT, "page_obj": None}
+    if q:
+        context["owners"], context["is_cut"] = search_walkin_owners(q)
+    else:
+        paginator = Paginator(walkin_owner_list(), WALKIN_PAGE_SIZE)
+        page_obj = paginator.get_page(request.GET.get("page"))
+        context.update(
+            owners=page_obj.object_list,
+            owner_count=paginator.count,
+            page_obj=page_obj,
+            **paging_links(page_obj, ""),
+        )
+
+    template = (
+        "admin/appointments/_walkin_owner_results.html"
+        if _is_owner_results_swap(request)
+        else "admin/appointments/walkin_find.html"
     )
+    response = render(request, template, context)
+    # The same URL answers with the partial or the full page
+    patch_vary_headers(response, ["HX-Request"])
+    return response
 
 
 def _taken_time(time_value):

@@ -440,10 +440,11 @@ def list_querystring(tab, q, date):
 
 
 def paging_links(page_obj, page_query):
-    """ "?…&page=N" for the previous and next pages, or "" when there is none."""
+    """ "?…&page=N" (or "?page=N" with an empty page_query) for the previous
+    and next pages, or "" when there is none."""
 
     def link(number):
-        return f"?{page_query}&page={number}"
+        return f"?{page_query}&page={number}" if page_query else f"?page={number}"
 
     return {
         "prev_page_query": (
@@ -458,6 +459,21 @@ def paging_links(page_obj, page_query):
 # ── Admin walk-in ────────────────────────────────────────────────────────────
 
 WALKIN_SEARCH_LIMIT = 20
+WALKIN_PAGE_SIZE = 25
+
+
+def _walkin_owner_rows(owners):
+    """owners sorted A to Z by first name (then last name), each with
+    active_pets (non-archived, by name) prefetched."""
+    active_pets = Pet.objects.filter(is_archived=False).order_by("name")
+    return owners.order_by("first_name", "last_name", "pk").prefetch_related(
+        Prefetch("pets", queryset=active_pets, to_attr="active_pets")
+    )
+
+
+def walkin_owner_list():
+    """Step 1 with no search: every non-archived owner, first name A to Z."""
+    return _walkin_owner_rows(PetOwner.objects.filter(is_archived=False))
 
 
 def search_walkin_owners(q):
@@ -465,8 +481,8 @@ def search_walkin_owners(q):
     Step 1 of the walk-in: (owners, is_cut). Every word in q must match the
     owner's first name, last name or phone, or the name of one of their
     non-archived pets (case-insensitive). Archived owners are left out.
-    At most WALKIN_SEARCH_LIMIT owners; is_cut is True when there were more.
-    Each owner gets active_pets (non-archived, by name), prefetched.
+    At most WALKIN_SEARCH_LIMIT owners, first name A to Z; is_cut is True
+    when there were more. Each owner gets active_pets, prefetched.
     """
     words = q.split()
     if not words:
@@ -484,9 +500,7 @@ def search_walkin_owners(q):
             | Q(pk__in=pet_owner_ids)
         )
 
-    owners = owners.order_by("last_name", "first_name", "pk").prefetch_related(
-        Prefetch("pets", queryset=active_pets.order_by("name"), to_attr="active_pets")
-    )
+    owners = _walkin_owner_rows(owners)
     # One extra row tells us whether the list was cut
     found = list(owners[: WALKIN_SEARCH_LIMIT + 1])
     return found[:WALKIN_SEARCH_LIMIT], len(found) > WALKIN_SEARCH_LIMIT

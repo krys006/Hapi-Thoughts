@@ -195,7 +195,7 @@ templates/
 │   │   │   ├── no_show_dialog.html
 │   │   │   ├── cancel_dialog.html
 │   │   │   └── move_dialog.html
-│   │   ├── walkin_find.html          ← walk-in step 1 "Who is it for?" (owner search)
+│   │   ├── walkin_find.html          ← walk-in step 1 "Who is it for?" (owner list + search)
 │   │   ├── walkin_visit.html         ← walk-in step 2 "The visit"
 │   │   ├── walkin_review.html        ← walk-in step 3 "Check and book" (nothing saved yet)
 │   │   ├── walkin_parts/             ← Includes for the walk-in pages (not HTMX partials, so no `_`)
@@ -206,7 +206,8 @@ templates/
 │   │   ├── _calendar_day_panel.html
 │   │   ├── _pet_options.html
 │   │   ├── _slot_buttons.html
-│   │   └── _slot_options.html
+│   │   ├── _slot_options.html
+│   │   └── _walkin_owner_results.html ← step 1 owner list / search results (filter as you type)
 │   ├── pets/
 │   │   ├── owners_list.html
 │   │   ├── owner_detail.html
@@ -821,7 +822,7 @@ The main admin user is an elderly vet. Every migrated admin page follows these:
 | `form_field.html` | `{% include "components/form_field.html" with field=form.email %}`. Label, control, help text, errors (red text with the `triangle-alert` icon). Needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple field uses it. |
 | `status_badge.html` | `{% include "components/status_badge.html" with status=obj.status label=obj.get_status_display %}` |
 | `flash_messages.html` | Rendered once by the admin layout; pages must not loop over `messages`. |
-| `empty_state.html` | `{% include "components/empty_state.html" with icon="calendar" title="No appointments on this day" text="Pick another date on the calendar." %}` |
+| `empty_state.html` | `{% include "components/empty_state.html" with icon="calendar" title="No appointments on this day" text="Pick another date on the calendar." %}`. Optional `live=True` makes the title a polite live region (results that change as you type). |
 
 ### Status badge convention
 Use `components/status_badge.html`. Colours: pending yellow, confirmed blue,
