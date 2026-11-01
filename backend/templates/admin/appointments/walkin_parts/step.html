@@ -1,6 +1,7 @@
 {% comment %}
   One step of steps.html. Params: number, label, active (the current
-  step). Earlier steps show a check, the current one is bold.
+  step). Earlier steps show a check, the current one is bold. Steps 1
+  and 2 end with a connector line (hidden on phones, where steps wrap).
 {% endcomment %}
 <li class="flex items-center gap-2 text-base {% if number == active %}font-semibold text-gray-900{% else %}text-gray-700{% endif %}"{% if number == active %} aria-current="step"{% endif %}>
   {% if number < active %}
@@ -11,4 +12,5 @@
     <span class="grid size-8 place-content-center rounded-full border-2 border-gray-300 bg-white text-base font-semibold text-gray-700">{{ number }}</span>
   {% endif %}
   {{ label }}
+  {% if number < 3 %}<span class="mx-1 hidden h-px w-10 bg-gray-300 sm:block" aria-hidden="true"></span>{% endif %}
 </li>

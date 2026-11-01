@@ -1,7 +1,9 @@
 {% extends "layouts/admin.html" %}
+{% load pet_display %}
 {% comment %}
   Walk-in step 1, "Who is it for?" (admin_walkin_appointment_create).
-  Find the owner (?q=) or add a new one. No primary button on this step.
+  Find the owner (?q=) or add a new one. No primary button on this step:
+  "New owner" is violet-outlined, Search and Choose are plain outlines.
   Context: q, owners (each with active_pets), is_cut, search_limit.
 {% endcomment %}
 
@@ -16,20 +18,24 @@
 
 {% block content %}
 <div class="max-w-3xl">
-  <section class="card mb-6 flex flex-wrap items-center gap-4 border-2 border-violet-300 bg-violet-50 px-5 py-4" aria-labelledby="new-owner-title">
-    <div class="flex-1">
+  <section class="mb-6 flex flex-wrap items-center gap-4 rounded-xl border-2 border-violet-300 bg-violet-50 px-5 py-4" aria-labelledby="new-owner-title">
+    <span class="grid size-12 shrink-0 place-content-center rounded-xl bg-violet-600 text-white">{% include "components/icon.html" with name="user-plus" class="size-6 shrink-0" %}</span>
+    <div class="min-w-0 flex-1">
       <h2 id="new-owner-title" class="text-lg font-semibold text-gray-900">First visit at the clinic?</h2>
       <p class="text-base text-gray-700">Add the owner and their pet first. It takes a minute.</p>
     </div>
-    <a href="{% url 'admin_walkin_create' %}" class="btn btn-outline">{% include "components/icon.html" with name="plus" %}New owner</a>
+    <a href="{% url 'admin_walkin_create' %}" class="btn min-h-12 border-2 border-violet-600 bg-white px-5 font-semibold text-violet-700 hover:bg-violet-100">{% include "components/icon.html" with name="plus" %}New owner</a>
   </section>
 
   <form method="get" action="{% url 'admin_walkin_appointment_create' %}" class="mb-4 flex flex-wrap items-end gap-3" role="search">
     <div class="min-w-0 flex-1 space-y-1.5">
       <label for="walkin-q" class="block text-base font-medium text-gray-800">Been here before? Find the owner</label>
-      <input type="search" id="walkin-q" name="q" value="{{ q }}" class="input" placeholder="Owner name, pet name or phone" autocomplete="off" autofocus>
+      <div class="relative">
+        {% include "components/icon.html" with name="search" class="pointer-events-none absolute top-1/2 left-3.5 size-5 shrink-0 -translate-y-1/2 text-gray-600" %}
+        <input type="search" id="walkin-q" name="q" value="{{ q }}" class="input min-h-12 pl-11" placeholder="Owner name, pet name or phone" autocomplete="off" autofocus>
+      </div>
     </div>
-    <button type="submit" class="btn btn-outline">{% include "components/icon.html" with name="search" %}Search</button>
+    <button type="submit" class="btn btn-outline min-h-12 font-semibold">{% include "components/icon.html" with name="search" %}Search</button>
   </form>
 
   {% if q %}
@@ -38,22 +44,24 @@
         {% if is_cut %}More than {{ search_limit }} owners match “{{ q }}”. Showing the first {{ search_limit }}.{% elif owners %}{{ owners|length }} owner{{ owners|length|pluralize:" matches,s match" }} “{{ q }}”{% else %}No owners match “{{ q }}”.{% endif %}
       </h2>
       {% if owners %}
-        <ul class="card overflow-hidden">
+        <ul class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
           {% for owner in owners %}
             <li class="flex flex-wrap items-center gap-4 border-t border-gray-100 px-5 py-4 first:border-t-0">
-              {% include "components/owner_avatar.html" with owner=owner %}
+              {% include "components/owner_avatar.html" with owner=owner size="sm" %}
               <div class="min-w-0 flex-1">
-                <p class="text-base font-semibold">{{ owner.full_name }}</p>
+                <p class="text-base font-semibold text-gray-900">{{ owner.full_name }}</p>
                 <p class="text-sm text-gray-600">{{ owner.contact_number|default:"No phone number" }}</p>
                 {% if owner.active_pets %}
-                  <ul class="mt-1 flex flex-wrap gap-x-4 text-base text-gray-800" aria-label="Pets">
-                    {% for pet in owner.active_pets %}<li>{{ pet.name }}</li>{% endfor %}
+                  <ul class="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-base text-gray-800" aria-label="Pets">
+                    {% for pet in owner.active_pets %}
+                      <li class="inline-flex items-center gap-1.5">{% include "components/icon.html" with name=pet.species|species_icon class="size-5 shrink-0 text-violet-600" stroke="1.5" %}{{ pet.name }}</li>
+                    {% endfor %}
                   </ul>
                 {% else %}
                   <p class="mt-1 text-base text-gray-600">No pets yet</p>
                 {% endif %}
               </div>
-              <a href="{% url 'admin_walkin_appointment_visit' %}?owner={{ owner.pk }}" class="btn btn-outline" aria-label="Choose {{ owner.full_name }}">Choose{% include "components/icon.html" with name="arrow-right" %}</a>
+              <a href="{% url 'admin_walkin_appointment_visit' %}?owner={{ owner.pk }}" class="btn btn-outline font-semibold" aria-label="Choose {{ owner.full_name }}">Choose{% include "components/icon.html" with name="arrow-right" %}</a>
             </li>
           {% endfor %}
         </ul>

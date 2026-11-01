@@ -21,8 +21,8 @@
 <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-2" aria-label="Admin">
   <p class="px-3 pb-1 pt-1 text-sm font-semibold text-violet-800">Daily work</p>
   {% include "layouts/admin_nav_link.html" with url_name="admin_dashboard" label="Dashboard" icon="house" match="admin_dashboard" %}
-  {% include "layouts/admin_nav_link.html" with url_name="admin_appointments" label="Appointments" icon="calendar" match="admin_appointment" also="admin_walkin_appointment" count=shell.pending_appointments %}
-  {% include "layouts/admin_nav_link.html" with url_name="admin_owner_list" label="Pet owners" icon="users" match="admin_owner" also="admin_walkin_create" %}
+  {% include "layouts/admin_nav_link.html" with url_name="admin_appointments" label="Appointments" icon="calendar" match="admin_appointment" also="admin_walkin" count=shell.pending_appointments %}
+  {% include "layouts/admin_nav_link.html" with url_name="admin_owner_list" label="Pet owners" icon="users" match="admin_owner" %}
   {% include "layouts/admin_nav_link.html" with url_name="admin_pet_list" label="Pets" icon="paw-print" match="admin_pet" also="admin_deletion" count=shell.pending_deletions %}
 
   <p class="px-3 pb-1 pt-5 text-sm font-semibold text-violet-800">Records</p>

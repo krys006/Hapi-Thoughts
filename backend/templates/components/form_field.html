@@ -14,7 +14,7 @@
       <span>{{ field.label }}</span>
     </label>
     {% if field.help_text %}<p class="mt-1 text-sm text-gray-600">{{ field.help_text }}</p>{% endif %}
-    {% for error in field.errors %}<p class="mt-1 text-sm font-medium text-red-700">{{ error }}</p>{% endfor %}
+    {% for error in field.errors %}<p class="mt-1 flex items-start gap-1 text-sm font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-4 shrink-0" %}{{ error }}</p>{% endfor %}
   </div>
 {% else %}
   <div class="form-field space-y-1.5{% if field.errors %} has-error{% endif %}">
@@ -23,6 +23,6 @@
     </label>
     {{ field }}
     {% if field.help_text %}<p class="text-sm text-gray-600">{{ field.help_text }}</p>{% endif %}
-    {% for error in field.errors %}<p class="text-sm font-medium text-red-700">{{ error }}</p>{% endfor %}
+    {% for error in field.errors %}<p class="flex items-start gap-1 text-sm font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-4 shrink-0" %}{{ error }}</p>{% endfor %}
   </div>
 {% endif %}

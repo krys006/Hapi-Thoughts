@@ -60,18 +60,8 @@ def get_available_slots(date, walk_in=False, move=False):
     if BlockedDate.objects.filter(date=date).exists():
         return []
 
-    # Generate all possible slots between opening and closing time
-    slots = []
+    slots = _day_slots(clinic, date)
     slot_delta = datetime.timedelta(minutes=clinic.slot_duration_minutes)
-
-    # Convert TimeField values to datetime for arithmetic
-    opening_dt = datetime.datetime.combine(date, clinic.opening_time)
-    closing_dt = datetime.datetime.combine(date, clinic.closing_time)
-
-    current = opening_dt
-    while current + slot_delta <= closing_dt:
-        slots.append(current.time())
-        current += slot_delta
 
     if date == today and walk_in:
         # Walk-ins: keep slots that end after now (naive, like opening_dt)
@@ -96,6 +86,43 @@ def get_available_slots(date, walk_in=False, move=False):
     slots = [s for s in slots if s not in booked_times]
 
     return slots
+
+
+def _day_slots(clinic, date):
+    """Every slot start time between opening and closing time on date."""
+    slots = []
+    slot_delta = datetime.timedelta(minutes=clinic.slot_duration_minutes)
+
+    # Convert TimeField values to datetime for arithmetic
+    opening_dt = datetime.datetime.combine(date, clinic.opening_time)
+    closing_dt = datetime.datetime.combine(date, clinic.closing_time)
+
+    current = opening_dt
+    while current + slot_delta <= closing_dt:
+        slots.append(current.time())
+        current += slot_delta
+    return slots
+
+
+def slot_in_progress(date):
+    """
+    The start time of the slot running right now (start <= now < end,
+    Manila time), or None when date isn't today, the clinic is closed at
+    this moment or there are no clinic settings. Walk-in step 2 labels
+    that slot "Now"; the Move dialog never asks.
+    """
+    clinic = ClinicSettings.objects.first()
+    now = timezone.localtime()
+    if not clinic or date != now.date():
+        return None
+
+    slot_delta = datetime.timedelta(minutes=clinic.slot_duration_minutes)
+    now_naive = now.replace(tzinfo=None)  # naive, like the slot times
+    for slot in _day_slots(clinic, date):
+        start = datetime.datetime.combine(date, slot)
+        if start <= now_naive < start + slot_delta:
+            return slot
+    return None
 
 
 def _slot_open_today(clinic, date, slot, now, move=False):
@@ -512,7 +539,8 @@ def walkin_slot_context(form):
     is valid, else the initial one (today on a first visit). slots is None
     when there is no usable date (the page asks for one). selected_time
     keeps the chosen time checked after an error or "Change"; date_value is
-    the date input's value as typed (or today's, as YYYY-MM-DD).
+    the date input's value as typed (or today's, as YYYY-MM-DD). now_slot
+    is the slot in progress (labelled "Now"), or None.
     """
     date_value = form["date"].value() or ""
     if isinstance(date_value, datetime.date):
@@ -527,6 +555,7 @@ def walkin_slot_context(form):
     return {
         "slots": get_available_slots(date, walk_in=True) if date else None,
         "slots_date": date,
+        "now_slot": slot_in_progress(date) if date else None,
         "date_value": date_value,
         "selected_time": form["time"].value() or "",
     }

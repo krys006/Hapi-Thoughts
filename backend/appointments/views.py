@@ -35,6 +35,7 @@ from .utils import (
     parse_list_date,
     resolve_list_tab,
     search_walkin_owners,
+    slot_in_progress,
     tab_counts,
     unfinished_visits,
     walkin_initial,
@@ -1035,26 +1036,23 @@ def admin_walkin_appointment_create(request):
     )
 
 
-def _taken_message(time_value):
-    """Banner when the chosen time was booked by someone else meanwhile."""
+def _taken_time(time_value):
+    """The time that was just booked by someone else, for the step 2 banner
+    ("10:00 AM was just taken.")."""
     try:
-        time = date_format(datetime.time.fromisoformat(time_value), "g:i A")
+        return date_format(datetime.time.fromisoformat(time_value), "g:i A")
     except ValueError:
-        time = "That time"
-    return (
-        f"{time} was just taken. Someone else booked it a moment ago. "
-        "Please pick another time."
-    )
+        return "That time"
 
 
-def _render_walkin_visit(request, owner, form, taken_message=""):
+def _render_walkin_visit(request, owner, form, taken_time=""):
     """Step 2 page (the visit); pass a bound form to show its errors."""
     context = {
         "owner": owner,
         "form": form,
         "pets": form.fields["pet"].queryset,
         "selected_pet": str(form["pet"].value() or ""),
-        "taken_message": taken_message,
+        "taken_time": taken_time,
     }
     context.update(walkin_slot_context(form))
     return render(request, "admin/appointments/walkin_visit.html", context)
@@ -1109,7 +1107,7 @@ def admin_walkin_appointment_visit(request):
     if form.slot_was_taken():
         # Everything kept except the time, which must be picked again
         initial = walkin_values(request.POST, keep_time=False)
-        taken = _taken_message(request.POST.get("time", ""))
+        taken = _taken_time(request.POST.get("time", ""))
         return _render_walkin_visit(
             request, owner, AdminWalkInAppointmentForm(owner, initial=initial), taken
         )
@@ -1160,7 +1158,7 @@ def admin_get_slots_for_date(request):
     Used in admin forms (walk-in, reschedule).
     ?for=walk_in uses the walk-in rules (see get_available_slots); without
     it (the Move dialog) the Move rules: no same-day cutoff, only slots
-    that haven't started.
+    that haven't started. Only walk-ins get now_slot (the "Now" label).
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
@@ -1170,12 +1168,15 @@ def admin_get_slots_for_date(request):
     date_str = request.GET.get("date", "")
     date = None
     slots = []
+    now_slot = None
 
     if date_str:
         try:
             date = datetime.date.fromisoformat(date_str)
             walk_in = request.GET.get("for") == "walk_in"
             slots = get_available_slots(date, walk_in=walk_in, move=not walk_in)
+            if walk_in:
+                now_slot = slot_in_progress(date)
         except ValueError:
             pass
 
@@ -1191,6 +1192,7 @@ def admin_get_slots_for_date(request):
         {
             "slots": slots,
             "slots_date": date,
+            "now_slot": now_slot,
             "selected": request.GET.get("selected", ""),
         },
     )

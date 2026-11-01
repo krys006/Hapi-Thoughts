@@ -14,7 +14,11 @@ from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
 from appointments.models import Appointment, BlockedDate, ClinicSettings
-from appointments.utils import get_available_slots, is_slot_available
+from appointments.utils import (
+    get_available_slots,
+    is_slot_available,
+    slot_in_progress,
+)
 from billing.models import BillingReceipt, Service
 from dashboard.templatetags.friendly_dates import friendly_date, long_date
 from medical.models import MedicalRecord
@@ -2161,8 +2165,9 @@ class WalkInChangeAndBookTests(WalkInFlowTestBase):
         self.assertEqual(list(Appointment.objects.all()), [taken])
         self.assertContains(
             response,
-            "10:00 AM was just taken. Someone else booked it a moment ago. "
-            "Please pick another time.",
+            '<b class="font-semibold">10:00 AM was just taken.</b> '
+            "Someone else booked it a moment ago. Please pick another time. "
+            "Everything else you entered is kept.",
         )
         self.assertNotContains(response, "Select a valid choice")
         self.assertEqual(response.context["selected_time"], "")
@@ -2175,7 +2180,7 @@ class WalkInChangeAndBookTests(WalkInFlowTestBase):
         response = self._post_visit(action="book", time="08:00:00")
         self.assertFalse(Appointment.objects.exists())
         self.assertIn("time", response.context["form"].errors)
-        self.assertEqual(response.context["taken_message"], "")
+        self.assertEqual(response.context["taken_time"], "")
 
 
 class WalkInAccessTests(WalkInFlowTestBase):
@@ -2200,3 +2205,168 @@ class WalkInAccessTests(WalkInFlowTestBase):
                     response, reverse("owner_dashboard"), fetch_redirect_response=False
                 )
         self.assertFalse(Appointment.objects.exists())
+
+
+# ─── Walk-in design pass (Slice 3c-3) ─────────────────────────────────────────
+
+
+class SlotInProgressTests(FrozenNowTestBase):
+    """slot_in_progress: the slot with start <= now < end, today only.
+    Clinic: 8:00-17:00, hourly slots; "now" is Mon, Nov 2, 9:30 AM."""
+
+    def test_slot_in_progress(self):
+        self.assertEqual(slot_in_progress(WALK_IN_DAY), datetime.time(9, 0))
+
+    def test_a_slot_is_in_progress_from_its_start(self):
+        self.freeze(_manila(10, 0))
+        self.assertEqual(slot_in_progress(WALK_IN_DAY), datetime.time(10, 0))
+
+    def test_not_today(self):
+        for day in (
+            WALK_IN_DAY - datetime.timedelta(days=1),
+            WALK_IN_DAY + datetime.timedelta(days=1),
+        ):
+            with self.subTest(day=day):
+                self.assertIsNone(slot_in_progress(day))
+
+    def test_before_opening(self):
+        self.freeze(_manila(7, 59))
+        self.assertIsNone(slot_in_progress(WALK_IN_DAY))
+
+    def test_after_closing(self):
+        for now in (_manila(17, 0), _manila(17, 30)):
+            with self.subTest(now=now):
+                self.freeze(now)
+                self.assertIsNone(slot_in_progress(WALK_IN_DAY))
+
+    def test_follows_the_clinic_slots(self):
+        """90-minute slots start at 8:00, 9:30, 11:00…, so at 10:00 the
+        slot in progress is 9:30 (the same slots get_available_slots uses)."""
+        clinic = ClinicSettings.objects.get()
+        clinic.slot_duration_minutes = 90
+        clinic.save()
+        self.freeze(_manila(10, 0))
+        self.assertEqual(slot_in_progress(WALK_IN_DAY), datetime.time(9, 30))
+        self.assertIn(
+            datetime.time(9, 30), get_available_slots(WALK_IN_DAY, walk_in=True)
+        )
+
+    def test_no_slot_in_progress_in_a_gap_at_closing(self):
+        """Closing at 16:30 with hourly slots: the last slot is 15:00-16:00,
+        so from 16:00 to 16:30 no slot is in progress."""
+        clinic = ClinicSettings.objects.get()
+        clinic.closing_time = datetime.time(16, 30)
+        clinic.save()
+        self.freeze(_manila(16, 15))
+        self.assertIsNone(slot_in_progress(WALK_IN_DAY))
+
+    def test_no_clinic_settings(self):
+        ClinicSettings.objects.all().delete()
+        self.assertIsNone(slot_in_progress(WALK_IN_DAY))
+
+
+class NowLabelTests(WalkInFlowTestBase):
+    """The "Now" label on the slot in progress: walk-in step 2 and the
+    walk-in slot view only, never the Move dialog. "Now" is 9:30 AM."""
+
+    NOW_LABEL = re.compile(r'<span class="[^"]*">Now</span>')
+
+    def _slots(self, **params):
+        params.setdefault("date", WALK_IN_DAY.isoformat())
+        params.setdefault("as", "buttons")
+        return self.client.get(reverse("admin_get_slots_for_date"), params)
+
+    def _labelled_now(self, response):
+        """The time values whose button carries the "Now" label."""
+        buttons = re.findall(
+            r'value="(\d\d:\d\d:\d\d)"(.*?)</label>', response.content.decode(), re.S
+        )
+        return [value for value, rest in buttons if self.NOW_LABEL.search(rest)]
+
+    def test_visit_step_labels_the_slot_in_progress(self):
+        response = self._visit(owner=self.owner.pk)
+        self.assertEqual(response.context["now_slot"], datetime.time(9, 0))
+        self.assertEqual(self._labelled_now(response), ["09:00:00"])
+        self.assertEqual(len(self.NOW_LABEL.findall(response.content.decode())), 1)
+
+    def test_walk_in_slot_view_labels_the_slot_in_progress(self):
+        response = self._slots(**{"for": "walk_in"})
+        self.assertEqual(response.context["now_slot"], datetime.time(9, 0))
+        self.assertEqual(self._labelled_now(response), ["09:00:00"])
+
+    def test_walk_in_slot_view_other_day_has_no_label(self):
+        day = WALK_IN_DAY + datetime.timedelta(days=1)
+        response = self._slots(**{"for": "walk_in", "date": day.isoformat()})
+        self.assertIsNone(response.context["now_slot"])
+        self.assertContains(response, 'value="09:00:00"')
+        self.assertNotRegex(response.content.decode(), self.NOW_LABEL)
+
+    def test_move_slot_view_has_no_label(self):
+        """Without ?for=walk_in (the Move dialog) there is no "Now", even at
+        a time when the walk-in view shows one."""
+        self.freeze(_manila(9, 0))
+        response = self._slots()
+        self.assertIsNone(response.context["now_slot"])
+        self.assertContains(response, 'value="10:00:00"')
+        self.assertNotRegex(response.content.decode(), self.NOW_LABEL)
+        walk_in = self._slots(**{"for": "walk_in"})
+        self.assertEqual(self._labelled_now(walk_in), ["09:00:00"])
+
+    def test_move_dialog_after_an_error_has_no_label(self):
+        """The Move dialog reopens with today's free times after a form
+        error; they never carry the label."""
+        appointment = self._appointment(Appointment.CONFIRMED)
+        response = self.client.post(
+            reverse("admin_appointment_reschedule", args=[appointment.pk]),
+            {"date": WALK_IN_DAY.isoformat(), "time": "", "reschedule_reason": ""},
+            follow=True,
+        )
+        self.assertContains(response, 'id="move-slots"')
+        self.assertContains(response, 'value="10:00:00"')
+        self.assertNotRegex(response.content.decode(), self.NOW_LABEL)
+
+    def test_booked_slot_in_progress_puts_the_label_nowhere(self):
+        """The 9:00 slot in progress is already booked, so it is not offered,
+        and no other slot gets the label."""
+        other = self._owner("Ben", "Reyes", pets=["Max"])
+        Appointment.objects.create(
+            owner=other,
+            pet=other.pets.get(),
+            date=WALK_IN_DAY,
+            time=datetime.time(9, 0),
+            status=Appointment.CONFIRMED,
+        )
+        for response in (
+            self._visit(owner=self.owner.pk),
+            self._slots(**{"for": "walk_in"}),
+        ):
+            with self.subTest(url=response.wsgi_request.path):
+                self.assertNotContains(response, 'value="09:00:00"')
+                self.assertContains(response, 'value="10:00:00"')
+                self.assertNotRegex(response.content.decode(), self.NOW_LABEL)
+
+
+class WalkInSidebarTests(WalkInFlowTestBase):
+    """Every walk-in page highlights Appointments in the sidebar, and only
+    Appointments (the New owner page used to highlight Pet owners)."""
+
+    def _current_nav(self, response):
+        html = response.content.decode()
+        return re.findall(
+            r'aria-current="page">.*?<span class="flex-1">([^<]+)</span>', html, re.S
+        )
+
+    def test_walk_in_pages_highlight_appointments(self):
+        pages = (
+            reverse(self.STEP_1),
+            f"{reverse(self.VISIT)}?owner={self.owner.pk}",
+            reverse("admin_walkin_create"),
+        )
+        for url in pages:
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertEqual(self._current_nav(response), ["Appointments"])
+
+    def test_owner_pages_still_highlight_pet_owners(self):
+        response = self.client.get(reverse("admin_owner_list"))
+        self.assertEqual(self._current_nav(response), ["Pet owners"])
