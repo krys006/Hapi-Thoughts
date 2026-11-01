@@ -1,6 +1,6 @@
 # HANDOFF.md — Hapi Vet Project State
 
-> Last updated: 2026-11-01, after Slice 2 of the admin UI overhaul
+> Last updated: 2026-11-01, after Slice 3b B4 (appointments list backend)
 > (post-break audit: 2026-10-16).
 > §3–§5 describe the verified state as of those dates. Anything marked
 > "(unverified)" could not be confirmed from the code.
@@ -224,6 +224,8 @@ to needs-approval) and the appointments list.
   - 3a-2 B1 detail backend: approve refuses past dates; `_notify_owner` helper; reschedule message "moved by the clinic… The new time is confirmed."; detail context flags for the redesign; `?as=buttons` slot partial; `long_date` and `species_icon` filters — Done 2026-11-01
   - 3a-2 B2 shared components: icon `stroke`, `pet_avatar`, `owner_avatar`, `dialogs.js`, `topbar_search` block — Done 2026-11-01
   - 3a-2 B3 detail page redesign: `admin/appointments/detail.html` on the new layout (no legacy CSS) with includes in `detail_parts/`; status banner per state, details + internal notes cards, actions card (first on small screens), native dialogs for approve/decline/complete/no-show/cancel/move; move dialog uses `_slot_buttons.html`; dialogs reopen on form errors; context adds `medical_record` and `receipt`; admin form labels ("Reason", "Details", "Reason for the change") and a notes placeholder; `species_icon` matches plurals — Done 2026-11-01. `static/css/admin/appointment_detail.css` stays until B5 (list.html still uses it).
+  - 3b B4 list backend: `admin_appointment_list` rewritten on helpers in `appointments/utils.py` (`tab_counts`, `resolve_list_tab`, `filter_appointments`, `parse_list_date`, `group_by_day`, `list_tabs`, `unfinished_visits`, `list_querystring`, `paging_links`). Tabs `pending` ("Needs approval"), `upcoming` (CONFIRMED from today; `confirmed` is an alias), `completed`, `cancelled` (excludes moved originals), `no_show`, `all`, plus hidden `unfinished` (CONFIRMED before today). Default tab: pending when any exist, else upcoming; unknown values fall back to it. `?q=` (every word matches pet name or owner first/last name) and `?date=` search every status and show "All"; a bad date is ignored. Work tabs sort oldest first, history tabs newest first; 25 per page. Tab counts are one aggregate query, unaffected by search. Rows carry `is_moved` (an Exists subquery) for the "Moved" label. Context for B5: `active_tab`, `tabs`, `day_groups`, `page_obj`, `page_query`, `prev_page_query`/`next_page_query`, `q`, `date_filter` (a date), `is_searching`, `unfinished_count`, `unfinished_visit` (only when exactly one). `appointments` and the HX-Request partial are kept for the old template — Done 2026-11-01. The old `list.html` still renders but its tabs/counts look off until B5.
+  - 3b B5 list template redesign — next
 - Slice 4 pets and owners (incl. the broken `<a>` tags in deletion_requests)
 - Slice 5 medical
 - Slice 6 billing (receipt print must stay a direct child of `<body>`, with no transform/filter on any ancestor)
@@ -245,7 +247,7 @@ to needs-approval) and the appointments list.
 - Admin sidebar has no logout link [frontend] → UI overhaul Slice 1 — Done 2026-11-01
 - Logout accepts GET; convert to POST form (low priority) [both]
 - Pricing on booking page: bring over commit 8b45d23 from backend-dev (no migration) [both]
-- UTC dates: remaining `timezone.now().date()` in booking/slot logic and other views — `appointments/utils.py` `get_available_slots`, `is_slot_available`, `get_available_dates`; `appointments/views.py` `owner_appointment_list`, `admin_appointment_list`; `dashboard/views.py` `_get_owner_dashboard_context`; `billing/views.py:203`, `:368`; `medical/views.py:87`, `:318`; plus `appointments/forms.py` (`AdminAppointmentRescheduleForm.clean_date` done 2026-11-01), `pets/forms.py`, both `models.py` files and `send_reminders.py` → use `timezone.localdate()`, with tests for the same-day cutoff [backend]
+- UTC dates: remaining `timezone.now().date()` in booking/slot logic and other views — `appointments/utils.py` `get_available_slots`, `is_slot_available`, `get_available_dates`; `appointments/views.py` `owner_appointment_list` (`admin_appointment_list` done 2026-11-01); `dashboard/views.py` `_get_owner_dashboard_context`; `billing/views.py:203`, `:368`; `medical/views.py:87`, `:318`; plus `appointments/forms.py` (`AdminAppointmentRescheduleForm.clean_date` done 2026-11-01), `pets/forms.py`, both `models.py` files and `send_reminders.py` → use `timezone.localdate()`, with tests for the same-day cutoff [backend]
 - ClinicSettings is fetched two ways: `get_or_create(pk=1)` on the settings page vs `.first()` everywhere else — add one helper [backend]
 - Admin reschedule uses owner booking limits (30-day window, same-day cutoff); same-day slots aren't filtered by the current time [backend]
 - Reschedule notification uses type `appointment_approved` (follows the owner's status-email preference) [backend]

@@ -1,5 +1,8 @@
 import datetime
-from django.db.models import Count
+from itertools import groupby
+from urllib.parse import urlencode
+
+from django.db.models import Count, Exists, OuterRef, Q
 from django.utils import timezone
 from .models import ClinicSettings, BlockedDate, Appointment
 
@@ -261,4 +264,156 @@ def get_admin_calendar_context(view, date_str):
         "calendar_next_date": next_date,
         "calendar_today_date": today,
         "calendar_period_label": period_label,
+    }
+
+
+# ── Admin appointments list ──────────────────────────────────────────────────
+
+LIST_PAGE_SIZE = 25
+
+# Visible tabs, in display order: (id used in ?status=, label)
+LIST_TABS = [
+    ("pending", "Needs approval"),
+    ("upcoming", "Upcoming"),
+    ("completed", "Completed"),
+    ("cancelled", "Cancelled"),
+    ("no_show", "No show"),
+    ("all", "All"),
+]
+# "unfinished" has no tab button; the yellow notice links to it.
+_LIST_TAB_IDS = {tab_id for tab_id, _ in LIST_TABS} | {"unfinished"}
+_LIST_TAB_ALIASES = {"confirmed": "upcoming"}
+# Work queues read oldest first; history tabs read newest first.
+_ASCENDING_TABS = {"pending", "upcoming", "unfinished"}
+
+
+def _tab_filters(today):
+    """One Q per tab. Needs the is_moved annotation (see _with_moved_flag)."""
+    return {
+        "pending": Q(status=Appointment.PENDING),
+        "upcoming": Q(status=Appointment.CONFIRMED, date__gte=today),
+        "unfinished": Q(status=Appointment.CONFIRMED, date__lt=today),
+        "completed": Q(status=Appointment.COMPLETED),
+        # Moved originals are cancelled too, but only "all" shows them.
+        "cancelled": Q(status=Appointment.CANCELLED, is_moved=False),
+        "no_show": Q(status=Appointment.NO_SHOW),
+        "all": Q(),
+    }
+
+
+def _with_moved_flag(queryset):
+    """
+    Adds is_moved: True when an admin reschedule replaced this row.
+    A subquery (not a join on rescheduled_to) keeps one row per appointment.
+    """
+    return queryset.annotate(
+        is_moved=Exists(Appointment.objects.filter(rescheduled_from=OuterRef("pk")))
+    )
+
+
+def tab_counts(today):
+    """
+    Totals for every tab (plus "unfinished") in one aggregate query.
+    Search does not change them. "pending" matches the sidebar badge.
+    """
+    counts = {
+        tab: Count("pk", filter=tab_filter or None)
+        for tab, tab_filter in _tab_filters(today).items()
+    }
+    return _with_moved_flag(Appointment.objects.all()).aggregate(**counts)
+
+
+def resolve_list_tab(status, counts):
+    """
+    Turns ?status= into a tab id. "confirmed" is an alias of "upcoming".
+    Missing or unknown values open "pending" when requests are waiting,
+    otherwise "upcoming".
+    """
+    status = _LIST_TAB_ALIASES.get(status, status)
+    if status in _LIST_TAB_IDS:
+        return status
+    return "pending" if counts["pending"] else "upcoming"
+
+
+def parse_list_date(value):
+    """?date= as a date, or None when missing or not YYYY-MM-DD."""
+    try:
+        return datetime.date.fromisoformat(value) if value else None
+    except ValueError:
+        return None
+
+
+def filter_appointments(tab, today, q="", date=None):
+    """
+    Rows for one tab, sorted for that tab. Every word in q must match the
+    pet name or the owner's first or last name (case-insensitive).
+    """
+    rows = _with_moved_flag(
+        Appointment.objects.select_related("pet", "owner", "owner__user", "service")
+    ).filter(_tab_filters(today)[tab])
+
+    for word in q.split():
+        rows = rows.filter(
+            Q(pet__name__icontains=word)
+            | Q(owner__first_name__icontains=word)
+            | Q(owner__last_name__icontains=word)
+        )
+    if date:
+        rows = rows.filter(date=date)
+
+    # pk breaks ties (e.g. a cancelled row and a new one in the same slot),
+    # so pages never repeat or skip a row.
+    if tab in _ASCENDING_TABS:
+        return rows.order_by("date", "time", "pk")
+    return rows.order_by("-date", "-time", "-pk")
+
+
+def list_tabs(counts):
+    """The visible tabs as dicts (id, label, count), in display order."""
+    return [
+        {"id": tab_id, "label": label, "count": counts[tab_id]}
+        for tab_id, label in LIST_TABS
+    ]
+
+
+def unfinished_visits(today, count):
+    """
+    Context for the yellow notice about confirmed visits whose date has
+    passed. count comes from tab_counts; the visit itself is fetched only
+    when there is exactly one, so the notice can name it.
+    """
+    visit = None
+    if count == 1:
+        visit = (
+            Appointment.objects.filter(status=Appointment.CONFIRMED, date__lt=today)
+            .select_related("pet", "service")
+            .first()
+        )
+    return {"unfinished_count": count, "unfinished_visit": visit}
+
+
+def group_by_day(rows):
+    """[(date, [rows])] in the rows' own order. Rows must be sorted by date."""
+    return [(day, list(day_rows)) for day, day_rows in groupby(rows, lambda a: a.date)]
+
+
+def list_querystring(tab, q, date):
+    """status/q/date as a query string (no "?"), skipping empty values."""
+    params = {"status": tab, "q": q, "date": date.isoformat() if date else ""}
+    return urlencode({key: value for key, value in params.items() if value})
+
+
+def paging_links(page_obj, page_query):
+    """ "?…&page=N" for the previous and next pages, or "" when there is none."""
+
+    def link(number):
+        return f"?{page_query}&page={number}"
+
+    return {
+        "prev_page_query": (
+            link(page_obj.previous_page_number()) if page_obj.has_previous() else ""
+        ),
+        "next_page_query": (
+            link(page_obj.next_page_number()) if page_obj.has_next() else ""
+        ),
     }

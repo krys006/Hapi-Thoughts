@@ -5,8 +5,9 @@ from unittest import mock
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
 from django.core import mail
-from django.db import DatabaseError
+from django.db import DatabaseError, connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
@@ -746,3 +747,317 @@ class AccessTests(AppointmentTestBase):
         self.assertNotContains(response, "Needs a muzzle")
         self.assertNotContains(response, "Admin Notes")
         self.assertNotContains(response, "Internal notes")
+
+
+class AdminListTests(AppointmentTestBase):
+
+    def setUp(self):
+        super().setUp()
+        owner_user = User.objects.create_user(
+            username="owner2",
+            email="owner2@example.com",
+            password="unused-pass-123",
+            role=User.PET_OWNER,
+            is_onboarded=True,
+        )
+        self.owner2 = PetOwner.objects.create(
+            user=owner_user, first_name="Liza", last_name="Santos"
+        )
+        self.pet2 = Pet.objects.create(owner=self.owner2, name="Kitty", species="Cat")
+
+    # ─── Helpers ──────────────────────────────────────────────────────────────
+
+    def _get(self, **params):
+        return self.client.get(reverse("admin_appointments"), params)
+
+    def _ids(self, response):
+        return [a.pk for a in response.context["appointments"]]
+
+    def _counts(self, response):
+        return {t["id"]: t["count"] for t in response.context["tabs"]}
+
+    def _other(self, status, days_from_today=3, hour=9):
+        """An appointment for the second owner's pet (Kitty, Liza Santos)."""
+        return Appointment.objects.create(
+            owner=self.owner2,
+            pet=self.pet2,
+            date=self.today + datetime.timedelta(days=days_from_today),
+            time=datetime.time(hour, 0),
+            status=status,
+        )
+
+    def _moved(self):
+        """An admin reschedule: cancelled original + new confirmed row."""
+        original = self._appointment(Appointment.CANCELLED, 2)
+        new = Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=self.today + datetime.timedelta(days=4),
+            time=datetime.time(10, 0),
+            status=Appointment.CONFIRMED,
+            rescheduled_from=original,
+        )
+        return original, new
+
+    # ─── Tabs ─────────────────────────────────────────────────────────────────
+
+    def test_pending_tab_oldest_first(self):
+        later = self._appointment(Appointment.PENDING, 5, 9)
+        second = self._appointment(Appointment.PENDING, 2, 10)
+        first = self._appointment(Appointment.PENDING, 2, 9)
+        self._appointment(Appointment.CONFIRMED, 1)
+        response = self._get(status="pending")
+        self.assertEqual(response.context["active_tab"], "pending")
+        self.assertEqual(self._ids(response), [first.pk, second.pk, later.pk])
+
+    def test_upcoming_tab_is_confirmed_from_today(self):
+        later = self._appointment(Appointment.CONFIRMED, 3)
+        today = self._appointment(Appointment.CONFIRMED, 0)
+        self._appointment(Appointment.CONFIRMED, -1)  # unfinished
+        self._appointment(Appointment.PENDING, 1)
+        response = self._get(status="upcoming")
+        self.assertEqual(self._ids(response), [today.pk, later.pk])
+
+    def test_confirmed_is_alias_of_upcoming(self):
+        visit = self._appointment(Appointment.CONFIRMED, 1)
+        self._appointment(Appointment.PENDING, 1, 10)
+        response = self._get(status="confirmed")
+        self.assertEqual(response.context["active_tab"], "upcoming")
+        self.assertEqual(self._ids(response), [visit.pk])
+
+    def test_history_tabs_newest_first(self):
+        for status in (
+            Appointment.COMPLETED,
+            Appointment.CANCELLED,
+            Appointment.NO_SHOW,
+        ):
+            with self.subTest(status=status):
+                older = self._appointment(status, -5)
+                newer = self._appointment(status, -1)
+                response = self._get(status=status)
+                self.assertEqual(response.context["active_tab"], status)
+                self.assertEqual(self._ids(response), [newer.pk, older.pk])
+
+    def test_all_tab_has_every_status_newest_first(self):
+        past = self._appointment(Appointment.COMPLETED, -2)
+        pending = self._appointment(Appointment.PENDING, 1)
+        future = self._appointment(Appointment.CONFIRMED, 6)
+        response = self._get(status="all")
+        self.assertEqual(self._ids(response), [future.pk, pending.pk, past.pk])
+
+    def test_unknown_status_falls_back_to_default(self):
+        pending = self._appointment(Appointment.PENDING)
+        response = self._get(status="bogus")
+        self.assertEqual(response.context["active_tab"], "pending")
+        self.assertEqual(self._ids(response), [pending.pk])
+
+    def test_default_tab_is_pending_when_requests_wait(self):
+        self._appointment(Appointment.PENDING)
+        self._appointment(Appointment.CONFIRMED, 1)
+        self.assertEqual(self._get().context["active_tab"], "pending")
+
+    def test_default_tab_is_upcoming_when_no_requests(self):
+        visit = self._appointment(Appointment.CONFIRMED, 1)
+        response = self._get()
+        self.assertEqual(response.context["active_tab"], "upcoming")
+        self.assertEqual(self._ids(response), [visit.pk])
+
+    def test_tabs_in_display_order_with_counts(self):
+        self._appointment(Appointment.PENDING)
+        self._appointment(Appointment.COMPLETED, -1)
+        tabs = self._get().context["tabs"]
+        self.assertEqual(
+            [(t["id"], t["label"], t["count"]) for t in tabs],
+            [
+                ("pending", "Needs approval", 1),
+                ("upcoming", "Upcoming", 0),
+                ("completed", "Completed", 1),
+                ("cancelled", "Cancelled", 0),
+                ("no_show", "No show", 0),
+                ("all", "All", 2),
+            ],
+        )
+
+    def test_day_groups_follow_page_order(self):
+        a = self._appointment(Appointment.PENDING, 1, 9)
+        b = self._appointment(Appointment.PENDING, 1, 11)
+        c = self._appointment(Appointment.PENDING, 3, 9)
+        groups = self._get(status="pending").context["day_groups"]
+        self.assertEqual(
+            [(day, [r.pk for r in rows]) for day, rows in groups],
+            [(a.date, [a.pk, b.pk]), (c.date, [c.pk])],
+        )
+
+    # ─── Moved originals ──────────────────────────────────────────────────────
+
+    def test_cancelled_tab_excludes_moved_originals(self):
+        self._moved()
+        cancelled = self._appointment(Appointment.CANCELLED, 1)
+        response = self._get(status="cancelled")
+        self.assertEqual(self._ids(response), [cancelled.pk])
+        self.assertEqual(self._counts(response)["cancelled"], 1)
+        self.assertEqual(self._counts(response)["all"], 3)
+
+    def test_all_tab_flags_moved_originals(self):
+        original, new = self._moved()
+        rows = {a.pk: a for a in self._get(status="all").context["appointments"]}
+        self.assertEqual(set(rows), {original.pk, new.pk})
+        self.assertTrue(rows[original.pk].is_moved)
+        self.assertFalse(rows[new.pk].is_moved)
+
+    # ─── Unfinished visits ────────────────────────────────────────────────────
+
+    def test_unfinished_tab_and_count(self):
+        older = self._appointment(Appointment.CONFIRMED, -3)
+        newer = self._appointment(Appointment.CONFIRMED, -1)
+        self._appointment(Appointment.CONFIRMED, 0)
+        self._appointment(Appointment.PENDING, -1)
+        response = self._get(status="unfinished")
+        self.assertEqual(response.context["active_tab"], "unfinished")
+        self.assertEqual(self._ids(response), [older.pk, newer.pk])
+        self.assertEqual(response.context["unfinished_count"], 2)
+        self.assertIsNone(response.context["unfinished_visit"])
+
+    def test_single_unfinished_visit_is_named(self):
+        visit = self._appointment(Appointment.CONFIRMED, -2)
+        response = self._get()
+        self.assertEqual(response.context["unfinished_count"], 1)
+        self.assertEqual(response.context["unfinished_visit"], visit)
+
+    # ─── Search ───────────────────────────────────────────────────────────────
+
+    def test_search_one_word_all_statuses(self):
+        done = self._appointment(Appointment.COMPLETED, -2)
+        pending = self._appointment(Appointment.PENDING, 1)
+        self._other(Appointment.PENDING, 1, 10)
+        response = self._get(status="pending", q="bantay")
+        self.assertEqual(response.context["active_tab"], "all")
+        self.assertTrue(response.context["is_searching"])
+        self.assertEqual(self._ids(response), [pending.pk, done.pk])
+
+    def test_search_matches_owner_names(self):
+        kitty = self._other(Appointment.PENDING)
+        self._appointment(Appointment.PENDING, 1)
+        for q in ("Liza", "SANTOS"):
+            with self.subTest(q=q):
+                self.assertEqual(self._ids(self._get(q=q)), [kitty.pk])
+
+    def test_search_every_word_must_match(self):
+        bantay = self._appointment(Appointment.PENDING)
+        self._other(Appointment.PENDING, 1)
+        self.assertEqual(self._ids(self._get(q="Bantay cruz")), [bantay.pk])
+        self.assertEqual(self._ids(self._get(q="Bantay santos")), [])
+
+    def test_date_filter(self):
+        on_day = self._appointment(Appointment.COMPLETED, -2)
+        self._appointment(Appointment.COMPLETED, -3)
+        response = self._get(date=on_day.date.isoformat())
+        self.assertEqual(response.context["active_tab"], "all")
+        self.assertEqual(response.context["date_filter"], on_day.date)
+        self.assertEqual(self._ids(response), [on_day.pk])
+
+    def test_bad_date_is_ignored(self):
+        pending = self._appointment(Appointment.PENDING)
+        response = self._get(date="31/10/2026")
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context["date_filter"])
+        self.assertFalse(response.context["is_searching"])
+        self.assertEqual(response.context["active_tab"], "pending")
+        self.assertEqual(self._ids(response), [pending.pk])
+
+    def test_counts_ignore_search(self):
+        self._appointment(Appointment.PENDING)
+        self._other(Appointment.PENDING, 1)
+        counts = self._counts(self._get(q="kitty"))
+        self.assertEqual(counts["pending"], 2)
+        self.assertEqual(counts["all"], 2)
+
+    def test_pending_count_matches_sidebar_badge(self):
+        self._appointment(Appointment.PENDING)
+        self._other(Appointment.PENDING, 1)
+        self._moved()
+        response = self._get(status="all")
+        self.assertEqual(self._counts(response)["pending"], 2)
+        self.assertEqual(response.context["shell"].pending_appointments, 2)
+
+    # ─── Paging ───────────────────────────────────────────────────────────────
+
+    def test_pagination_keeps_params(self):
+        day = self.today + datetime.timedelta(days=2)
+        for i in range(26):
+            Appointment.objects.create(
+                owner=self.owner,
+                pet=self.pet,
+                date=day,
+                time=datetime.time(8 + i // 4, (i % 4) * 15),
+                status=Appointment.PENDING,
+            )
+        first = self._get(q="Bantay", date=day.isoformat())
+        self.assertEqual(first.context["page_obj"].paginator.num_pages, 2)
+        self.assertEqual(len(first.context["appointments"]), 25)
+        self.assertEqual(first.context["prev_page_query"], "")
+        next_query = first.context["next_page_query"]
+        for part in ("status=all", "q=Bantay", f"date={day.isoformat()}", "page=2"):
+            self.assertIn(part, next_query)
+
+        second = self.client.get(reverse("admin_appointments") + next_query)
+        self.assertEqual(len(second.context["appointments"]), 1)
+        self.assertEqual(second.context["next_page_query"], "")
+        self.assertIn("page=1", second.context["prev_page_query"])
+
+    def test_bad_page_is_ignored(self):
+        """Like Paginator.get_page: not a number → page 1, too high → last."""
+        self._appointment(Appointment.PENDING)
+        for page in ("abc", "99"):
+            with self.subTest(page=page):
+                response = self._get(page=page)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.context["page_obj"].number, 1)
+
+    # ─── Access and performance ───────────────────────────────────────────────
+
+    def test_owner_is_redirected(self):
+        self.client.force_login(self.owner.user)
+        self.assertRedirects(
+            self._get(), reverse("owner_dashboard"), fetch_redirect_response=False
+        )
+
+    def test_htmx_returns_partial(self):
+        visit = self._appointment(Appointment.PENDING)
+        response = self.client.get(
+            reverse("admin_appointments"), headers={"HX-Request": "true"}
+        )
+        self.assertTemplateUsed(
+            response, "admin/appointments/_appointment_list_partial.html"
+        )
+        self.assertTemplateNotUsed(response, "admin/appointments/list.html")
+        self.assertEqual(self._ids(response), [visit.pk])
+
+    def _create_rows(self, count, start=0):
+        """count pending rows, each with its own owner, user and pet."""
+        for i in range(start, start + count):
+            owner_user = User.objects.create_user(
+                username=f"perf{i}",
+                email=f"perf{i}@example.com",
+                password="unused-pass-123",
+                role=User.PET_OWNER,
+            )
+            owner = PetOwner.objects.create(
+                user=owner_user, first_name=f"Own{i}", last_name="Er"
+            )
+            pet = Pet.objects.create(owner=owner, name=f"Pet{i}", species="Dog")
+            Appointment.objects.create(
+                owner=owner,
+                pet=pet,
+                date=self.today + datetime.timedelta(days=1 + i),
+                time=datetime.time(9, 0),
+                status=Appointment.PENDING,
+            )
+
+    def test_query_count_is_flat(self):
+        self._create_rows(5)
+        with CaptureQueriesContext(connection) as small:
+            self._get(status="all")
+        self._create_rows(15, start=5)
+        with self.assertNumQueries(len(small.captured_queries)):
+            self._get(status="all")

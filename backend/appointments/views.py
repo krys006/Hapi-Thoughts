@@ -2,6 +2,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.core.exceptions import ObjectDoesNotExist
+from django.core.paginator import Paginator
 from django.db import transaction
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
@@ -19,7 +20,20 @@ from .forms import (
     AdminWalkInAppointmentForm,
 )
 
-from .utils import get_available_slots, get_admin_calendar_context
+from .utils import (
+    LIST_PAGE_SIZE,
+    filter_appointments,
+    get_admin_calendar_context,
+    get_available_slots,
+    group_by_day,
+    list_querystring,
+    list_tabs,
+    paging_links,
+    parse_list_date,
+    resolve_list_tab,
+    tab_counts,
+    unfinished_visits,
+)
 
 from notifications.utils import notify
 from dashboard.templatetags.friendly_dates import friendly_date
@@ -645,55 +659,49 @@ def _reschedule_appointment(appointment, form, user):
 @login_required
 def admin_appointment_list(request):
     """
-    Admin view — list all appointments with status filter.
-    Supports filtering by status via GET parameter.
+    Admin view — appointments list with status tabs, search and paging.
+    A search (?q= or ?date=) looks in every status and shows the "All" tab.
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    status_filter = request.GET.get("status", "")
-    today = timezone.now().date()
+    today = timezone.localdate()
+    q = request.GET.get("q", "").strip()
+    date_filter = parse_list_date(request.GET.get("date", ""))
+    is_searching = bool(q or date_filter)
+    counts = tab_counts(today)
+    active_tab = (
+        "all" if is_searching else resolve_list_tab(request.GET.get("status"), counts)
+    )
 
-    appointments = Appointment.objects.select_related(
-        "owner", "pet", "service"
-    ).order_by("-date", "-time")
+    rows = filter_appointments(active_tab, today, q, date_filter)
+    page_obj = Paginator(rows, LIST_PAGE_SIZE).get_page(request.GET.get("page"))
+    appointments = list(page_obj.object_list)
 
-    if status_filter:
-        appointments = appointments.filter(status=status_filter)
-
-    # Counts for filter badges
-    counts = {
-        "all": Appointment.objects.count(),
-        "pending": Appointment.objects.filter(status=Appointment.PENDING).count(),
-        "confirmed": Appointment.objects.filter(status=Appointment.CONFIRMED).count(),
-        "completed": Appointment.objects.filter(status=Appointment.COMPLETED).count(),
-        "cancelled": Appointment.objects.filter(status=Appointment.CANCELLED).count(),
-        "no_show": Appointment.objects.filter(status=Appointment.NO_SHOW).count(),
-    }
-
-    # Check if this is an HTMX request — return partial only
+    # Kept until B5 decides whether the list still swaps in a partial
     if request.headers.get("HX-Request"):
         return render(
             request,
             "admin/appointments/_appointment_list_partial.html",
-            {
-                "appointments": appointments,
-                "status_filter": status_filter,
-                "today": today,
-            },
+            {"appointments": appointments, "status_filter": active_tab, "today": today},
         )
 
-    return render(
-        request,
-        "admin/appointments/list.html",
-        {
-            "appointments": appointments,
-            "status_filter": status_filter,
-            "counts": counts,
-            "today": today,
-            "status_choices": Appointment.STATUS_CHOICES,
-        },
-    )
+    page_query = list_querystring(active_tab, q, date_filter)
+    context = {
+        "active_tab": active_tab,
+        "tabs": list_tabs(counts),
+        "appointments": appointments,
+        "day_groups": group_by_day(appointments),
+        "page_obj": page_obj,
+        "page_query": page_query,
+        **paging_links(page_obj, page_query),
+        "q": q,
+        "date_filter": date_filter,
+        "is_searching": is_searching,
+        **unfinished_visits(today, counts["unfinished"]),
+        "today": today,
+    }
+    return render(request, "admin/appointments/list.html", context)
 
 
 @login_required
