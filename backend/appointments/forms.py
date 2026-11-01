@@ -513,7 +513,8 @@ class AdminWalkInAppointmentForm(forms.Form):
                     pass
 
         if submitted_date:
-            slots = get_available_slots(submitted_date)
+            # Walk-in rules: no same-day cutoff, the slot in progress is kept
+            slots = get_available_slots(submitted_date, walk_in=True)
             if slots:
                 self.fields["time"].choices = [("", "Select a time")] + [
                     (s.strftime("%H:%M:%S"), s.strftime("%I:%M %p")) for s in slots
@@ -542,9 +543,8 @@ class AdminWalkInAppointmentForm(forms.Form):
         except ValueError:
             raise forms.ValidationError("Invalid time slot selected.")
 
-        # Walk-ins bypass same-day cutoff but still check slot conflicts
-        from .models import Appointment
-
+        # The time choices already leave out taken slots; check again in
+        # case the slot was booked after the choices were built.
         conflict = (
             Appointment.objects.filter(
                 date=date,
@@ -566,7 +566,13 @@ class AdminWalkInAppointmentForm(forms.Form):
         date = self.cleaned_data.get("date")
         if not date:
             return date
-        today = timezone.now().date()
+        clinic = ClinicSettings.objects.first()
+        today = timezone.localdate()
         if date < today:
             raise forms.ValidationError("Cannot create an appointment in the past.")
+        if clinic and date > today + datetime.timedelta(days=clinic.booking_limit_days):
+            raise forms.ValidationError(
+                f"Bookings are only allowed up to "
+                f"{clinic.booking_limit_days} days in advance."
+            )
         return date

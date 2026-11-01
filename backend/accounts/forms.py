@@ -111,9 +111,12 @@ class WalkInOwnerForm(forms.Form):
     )
 
     def clean_email(self):
-        email = self.cleaned_data.get("email")
-        if email and User.objects.filter(email=email).exists():
-            raise forms.ValidationError("An account with this email already exists.")
+        # Saved lowercase; the check ignores case so "Ana@x.com" matches "ana@x.com"
+        email = (self.cleaned_data.get("email") or "").strip().lower()
+        if email and User.objects.filter(email__iexact=email).exists():
+            raise forms.ValidationError(
+                "This email is already used by another account."
+            )
         return email
 
 

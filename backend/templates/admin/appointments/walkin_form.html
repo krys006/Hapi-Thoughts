@@ -94,7 +94,7 @@
         name="date"
         id="{{ form.date.id_for_label }}"
         value="{{ form.date.value|default:'' }}"
-        hx-get="{% url 'admin_get_slots_for_date' %}"
+        hx-get="{% url 'admin_get_slots_for_date' %}?for=walk_in"
         hx-target="#id_walkin_time"
         hx-swap="innerHTML"
         hx-trigger="change"

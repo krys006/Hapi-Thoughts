@@ -2,18 +2,13 @@
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.tokens import default_token_generator
-from django.core.mail import send_mail
 from django.db.models import Q
 from django.shortcuts import (
     get_object_or_404,
     redirect,
     render,
 )
-from django.template.loader import render_to_string
 from django.utils import timezone
-from django.utils.encoding import force_bytes
-from django.utils.http import urlsafe_base64_encode
 
 from .forms import (
     AdminOwnerEmailForm,
@@ -31,6 +26,7 @@ from .models import (
     PetOwner,
 )
 
+from accounts.utils import send_claim_email
 from notifications.models import NotificationPreference
 
 from medical.models import MedicalRecord, Vaccination
@@ -683,7 +679,7 @@ def admin_owner_edit(request, pk):
                 # If email is being added for the first time, activate the account
                 if not old_email and new_email:
                     owner.user.is_active = True
-                    _send_claim_email_for_owner(request, owner.user)
+                    send_claim_email(request, owner.user)
                 owner.user.save()
 
             messages.success(
@@ -794,7 +790,7 @@ def admin_owner_add_email(request, pk):
         owner.user.save()
 
         # Send claim account email
-        _send_claim_email_for_owner(request, owner.user)
+        send_claim_email(request, owner.user)
 
         messages.success(
             request,
@@ -810,36 +806,6 @@ def admin_owner_add_email(request, pk):
             "owner": owner,
             "form": form,
         },
-    )
-
-
-def _send_claim_email_for_owner(request, user):
-    """
-    Sends the claim account email for walk-in owners when email is added.
-    Shared by both the walk-in create flow and the add-email flow.
-    """
-    uid = urlsafe_base64_encode(force_bytes(user.pk))
-    token = default_token_generator.make_token(user)
-
-    claim_link = request.build_absolute_uri(f"/reset-password/{uid}/{token}/")
-
-    subject = render_to_string("owner/emails/claim_account_subject.txt", {}).strip()
-
-    body = render_to_string(
-        "owner/emails/claim_account_body.txt",
-        {
-            "user": user,
-            "claim_link": claim_link,
-            "clinic_name": "Hapi Tutz Vet. Supplies",
-        },
-    )
-
-    send_mail(
-        subject=subject,
-        message=body,
-        from_email=None,
-        recipient_list=[user.email],
-        fail_silently=False,
     )
 
 

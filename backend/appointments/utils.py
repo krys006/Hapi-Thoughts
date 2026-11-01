@@ -7,7 +7,7 @@ from django.utils import timezone
 from .models import ClinicSettings, BlockedDate, Appointment
 
 
-def get_available_slots(date):
+def get_available_slots(date, walk_in=False):
     """
     Returns a list of available time slots for a given date.
 
@@ -16,7 +16,12 @@ def get_available_slots(date):
     2. The date is not blocked (BlockedDate)
     3. The date is within the booking window (today → today + booking_limit_days)
     4. The slot is not already taken by a non-cancelled appointment
+       (PENDING requests block it too)
     5. For today: only slots after the same_day_cutoff_time are shown
+
+    walk_in=True (admin walk-in form): "today" is Manila time and rule 5 is
+    replaced by "the slot hasn't ended yet", so the slot in progress and
+    later ones are offered. Rules 1-4 are the same.
 
     Returns a list of datetime.time objects.
     Returns an empty list if the date is unavailable for any reason.
@@ -27,7 +32,12 @@ def get_available_slots(date):
     if not clinic:
         return []
 
-    today = timezone.now().date()
+    if walk_in:
+        # One read of the clock, so the date and time always agree
+        now = timezone.localtime()
+        today = now.date()
+    else:
+        today = timezone.now().date()
 
     # Date is in the past
     if date < today:
@@ -58,8 +68,16 @@ def get_available_slots(date):
         slots.append(current.time())
         current += slot_delta
 
-    # For today — filter out slots at or before the same-day cutoff time
-    if date == today:
+    if date == today and walk_in:
+        # Walk-ins: keep slots that end after now (naive, like opening_dt)
+        now_naive = now.replace(tzinfo=None)
+        slots = [
+            s
+            for s in slots
+            if datetime.datetime.combine(date, s) + slot_delta > now_naive
+        ]
+    elif date == today:
+        # For today — filter out slots at or before the same-day cutoff time
         slots = [s for s in slots if s > clinic.same_day_cutoff_time]
 
     # Remove slots already taken by active (non-cancelled) appointments

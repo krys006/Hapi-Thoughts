@@ -1,6 +1,7 @@
 import datetime
 import re
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
@@ -12,7 +13,8 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
-from appointments.models import Appointment, ClinicSettings
+from appointments.models import Appointment, BlockedDate, ClinicSettings
+from appointments.utils import get_available_slots
 from billing.models import BillingReceipt, Service
 from dashboard.templatetags.friendly_dates import friendly_date, long_date
 from medical.models import MedicalRecord
@@ -1363,3 +1365,275 @@ class AdminListTests(AppointmentTestBase):
                 response = self._get(status=status) if status else self._get()
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(self._active_tabs(response), [label])
+
+
+# ─── Walk-ins (Slice 3c-1) ────────────────────────────────────────────────────
+
+MANILA = ZoneInfo("Asia/Manila")
+# Monday, November 2, 2026 (Manila): "today" in the walk-in tests below.
+WALK_IN_DAY = datetime.date(2026, 11, 2)
+
+
+def _manila(hour, minute=0, day=WALK_IN_DAY):
+    """An aware datetime on day at hour:minute, Manila time."""
+    return datetime.datetime(day.year, day.month, day.day, hour, minute, tzinfo=MANILA)
+
+
+class FrozenNowTestBase(AppointmentTestBase):
+    """AppointmentTestBase with "now" fixed at NOW (Manila) for every test."""
+
+    NOW = _manila(9, 30)
+
+    def setUp(self):
+        self.freeze(self.NOW)
+        super().setUp()
+
+    def freeze(self, now):
+        patcher = mock.patch("django.utils.timezone.now", return_value=now)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _hours(self, slots):
+        return [s.hour for s in slots]
+
+
+class WalkInSlotTests(FrozenNowTestBase):
+    """get_available_slots(walk_in=True). Clinic: 8:00-17:00, hourly slots."""
+
+    def test_today_offers_the_slot_in_progress_and_later(self):
+        slots = get_available_slots(WALK_IN_DAY, walk_in=True)
+        self.assertEqual(self._hours(slots), [9, 10, 11, 12, 13, 14, 15, 16])
+
+    def test_a_slot_that_just_ended_is_not_offered(self):
+        self.freeze(_manila(10, 0))
+        slots = get_available_slots(WALK_IN_DAY, walk_in=True)
+        self.assertEqual(slots[0], datetime.time(10, 0))
+
+    def test_after_closing_offers_none(self):
+        self.freeze(_manila(17, 30))
+        self.assertEqual(get_available_slots(WALK_IN_DAY, walk_in=True), [])
+
+    def test_future_date_offers_the_full_day(self):
+        day = WALK_IN_DAY + datetime.timedelta(days=3)
+        slots = get_available_slots(day, walk_in=True)
+        self.assertEqual(self._hours(slots), list(range(8, 17)))
+
+    def test_past_and_beyond_window_offer_none(self):
+        for day in (
+            WALK_IN_DAY - datetime.timedelta(days=1),
+            WALK_IN_DAY + datetime.timedelta(days=31),
+        ):
+            with self.subTest(day=day):
+                self.assertEqual(get_available_slots(day, walk_in=True), [])
+
+    def test_blocked_date_offers_none(self):
+        BlockedDate.objects.create(date=WALK_IN_DAY, reason="Holiday")
+        self.assertEqual(get_available_slots(WALK_IN_DAY, walk_in=True), [])
+
+    def test_closed_day_offers_none(self):
+        clinic = ClinicSettings.objects.get()
+        clinic.working_days = [1, 2, 3, 4, 5]  # closed on Mondays
+        clinic.save()
+        self.assertEqual(get_available_slots(WALK_IN_DAY, walk_in=True), [])
+
+    def test_pending_request_keeps_its_slot(self):
+        Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=WALK_IN_DAY,
+            time=datetime.time(11, 0),
+            status=Appointment.PENDING,
+        )
+        slots = get_available_slots(WALK_IN_DAY, walk_in=True)
+        self.assertNotIn(datetime.time(11, 0), slots)
+        self.assertIn(datetime.time(12, 0), slots)
+
+
+class OwnerSlotsUnchangedTests(FrozenNowTestBase):
+    """The default (owner) rules: today only offers slots after the 15:00
+    cutoff, whatever the time is."""
+
+    def test_today_morning_offers_only_slots_after_the_cutoff(self):
+        self.assertEqual(self._hours(get_available_slots(WALK_IN_DAY)), [16])
+
+    def test_today_after_the_cutoff_still_offers_the_same_slots(self):
+        self.freeze(_manila(15, 30))
+        self.assertEqual(self._hours(get_available_slots(WALK_IN_DAY)), [16])
+
+    def test_future_date_offers_the_full_day(self):
+        day = WALK_IN_DAY + datetime.timedelta(days=3)
+        self.assertEqual(self._hours(get_available_slots(day)), list(range(8, 17)))
+
+    def test_owner_slot_view_uses_the_owner_rules(self):
+        self.client.force_login(self.owner.user)
+        response = self.client.get(
+            reverse("owner_get_slots"), {"date": WALK_IN_DAY.isoformat()}
+        )
+        self.assertContains(response, 'value="16:00:00"')
+        self.assertNotContains(response, 'value="09:00:00"')
+
+
+class WalkInSlotViewTests(FrozenNowTestBase):
+    """admin_get_slots_for_date with and without ?for=walk_in."""
+
+    def _get(self, **params):
+        params.setdefault("date", WALK_IN_DAY.isoformat())
+        return self.client.get(reverse("admin_get_slots_for_date"), params)
+
+    def test_options_for_walk_in(self):
+        response = self._get(**{"for": "walk_in"})
+        self.assertContains(response, '<option value="09:00:00">9:00 AM</option>')
+        self.assertNotContains(response, '"08:00:00"')
+
+    def test_buttons_for_walk_in(self):
+        response = self._get(**{"for": "walk_in", "as": "buttons"})
+        self.assertContains(response, 'type="radio" name="time" value="09:00:00"')
+
+    def test_default_keeps_the_cutoff(self):
+        for params in ({}, {"as": "buttons"}):
+            with self.subTest(params=params):
+                response = self._get(**params)
+                self.assertNotContains(response, '"09:00:00"')
+                self.assertContains(response, '"16:00:00"')
+
+    def test_move_dialog_uses_the_default_rules(self):
+        appointment = self._appointment(Appointment.PENDING)
+        response = self.client.get(
+            reverse("admin_appointment_detail", args=[appointment.pk])
+        )
+        self.assertContains(response, f'{reverse("admin_get_slots_for_date")}?as=')
+        self.assertNotContains(response, "for=walk_in")
+
+    def test_walk_in_form_asks_for_walk_in_slots(self):
+        response = self.client.get(reverse("admin_walkin_appointment_create"))
+        self.assertContains(
+            response, f'{reverse("admin_get_slots_for_date")}?for=walk_in"'
+        )
+
+
+class WalkInAppointmentCreateTests(FrozenNowTestBase):
+    """admin_walkin_appointment_create. "Now" is Mon, Nov 2, 9:30 AM."""
+
+    def _post(self, **overrides):
+        data = {
+            "owner": self.owner.pk,
+            "pet": self.pet.pk,
+            "date": WALK_IN_DAY.isoformat(),
+            "time": "10:00:00",
+            "reason": "Limping",
+        }
+        data.update(overrides)
+        return self.client.post(reverse("admin_walkin_appointment_create"), data)
+
+    def _assert_refused(self, response, error=None):
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Appointment.objects.exists())
+        if error:
+            self.assertIn(error, str(response.context["form"].errors))
+
+    def test_creates_a_confirmed_walk_in_today(self):
+        response = self._post()
+        appointment = Appointment.objects.get()
+        self.assertRedirects(
+            response,
+            reverse("admin_appointment_detail", args=[appointment.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(appointment.status, Appointment.CONFIRMED)
+        self.assertTrue(appointment.is_walk_in)
+        self.assertEqual(appointment.time, datetime.time(10, 0))
+
+    def test_today_before_the_cutoff_is_allowed(self):
+        """The slot in progress (9:00 at 9:30) can be booked."""
+        self._post(time="09:00:00")
+        self.assertEqual(Appointment.objects.get().time, datetime.time(9, 0))
+
+    def test_future_date_in_the_window_is_allowed(self):
+        day = WALK_IN_DAY + datetime.timedelta(days=3)
+        self._post(date=day.isoformat())
+        appointment = Appointment.objects.get()
+        self.assertEqual(appointment.date, day)
+        self.assertTrue(appointment.is_walk_in)
+
+    def test_past_date_refused(self):
+        day = WALK_IN_DAY - datetime.timedelta(days=1)
+        response = self._post(date=day.isoformat())
+        self._assert_refused(response, "Cannot create an appointment in the past.")
+
+    def test_date_beyond_the_window_refused(self):
+        day = WALK_IN_DAY + datetime.timedelta(days=31)
+        response = self._post(date=day.isoformat())
+        self._assert_refused(response, "only allowed up to 30 days in advance")
+
+    def test_slot_that_ended_refused(self):
+        self._assert_refused(self._post(time="08:00:00"))
+
+    def test_slot_conflict_refused(self):
+        taken = Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=WALK_IN_DAY,
+            time=datetime.time(10, 0),
+            status=Appointment.PENDING,
+        )
+        response = self._post()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(list(Appointment.objects.all()), [taken])
+
+    def test_pet_of_another_owner_refused(self):
+        other_user = User.objects.create_user(
+            username="other", email="other@example.com", role=User.PET_OWNER
+        )
+        other = PetOwner.objects.create(
+            user=other_user, first_name="Ben", last_name="Reyes"
+        )
+        other_pet = Pet.objects.create(owner=other, name="Muning", species="Cat")
+        response = self._post(pet=other_pet.pk)
+        self._assert_refused(
+            response, "The selected pet does not belong to this owner."
+        )
+
+    def test_owner_role_refused(self):
+        self.client.force_login(self.owner.user)
+        response = self._post()
+        self.assertRedirects(
+            response, reverse("owner_dashboard"), fetch_redirect_response=False
+        )
+        self.assertFalse(Appointment.objects.exists())
+
+    def test_flash_message_today(self):
+        response = self._post()
+        self.assertEqual(
+            self._messages(response), ["Walk-in booked for Bantay today at 10:00 AM."]
+        )
+
+    def test_flash_message_tomorrow(self):
+        day = WALK_IN_DAY + datetime.timedelta(days=1)
+        response = self._post(date=day.isoformat())
+        self.assertEqual(
+            self._messages(response),
+            ["Walk-in booked for Bantay tomorrow at 10:00 AM."],
+        )
+
+    def test_flash_message_later_day(self):
+        day = WALK_IN_DAY + datetime.timedelta(days=3)
+        response = self._post(date=day.isoformat())
+        self.assertEqual(
+            self._messages(response),
+            ["Walk-in booked for Bantay on Thu, Nov 5 at 10:00 AM."],
+        )
+
+    def test_owner_notification_and_email(self):
+        self._post()
+        notification = Notification.objects.get(recipient=self.owner.user)
+        self.assertEqual(notification.notification_type, "appointment_approved")
+        self.assertEqual(notification.title, "Visit booked by the clinic")
+        self.assertEqual(
+            notification.message,
+            "The clinic booked a visit for Bantay on Mon, Nov 2 at 10:00 AM. "
+            "The time is confirmed.",
+        )
+        self.assertEqual(notification.related_appointment, Appointment.objects.get())
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].subject, "Visit booked — Hapi Vet")
+        self.assertNotIn("November 02, 2026", mail.outbox[0].body)

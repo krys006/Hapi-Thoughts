@@ -1,5 +1,6 @@
 import datetime
 import re
+from unittest import mock
 
 from allauth.core.exceptions import ImmediateHttpResponse
 from allauth.socialaccount.models import SocialAccount, SocialLogin
@@ -7,7 +8,9 @@ from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
-from django.test import RequestFactory, TestCase
+from django.core import mail
+from django.db import connection
+from django.test import RequestFactory, TestCase, TransactionTestCase
 from django.urls import reverse
 
 from accounts.adapters import (
@@ -18,6 +21,7 @@ from accounts.adapters import (
     CustomSocialAccountAdapter,
 )
 from appointments.models import ClinicSettings
+from pets.models import Pet, PetOwner
 
 User = get_user_model()
 
@@ -305,3 +309,209 @@ class AdminLoginTests(TestCase):
             response, reverse("admin_dashboard"), fetch_redirect_response=False
         )
         self.assertEqual(self.client.session["_auth_user_id"], str(admin.pk))
+
+
+class WalkInOwnerCreateTests(TestCase):
+    """admin_walkin_create: new walk-in owner (and pet), claim email."""
+
+    NO_EMAIL_TAKEN = (
+        "Only one owner without an email can be saved for now. "
+        "Please add an email address for this owner."
+    )
+
+    def setUp(self):
+        self.url = reverse("admin_walkin_create")
+        self.admin = User.objects.create_user(
+            username="admin1",
+            email="admin@example.com",
+            password="admin-pass-123",
+            role=User.ADMIN,
+        )
+        self.client.force_login(self.admin)
+
+    def _post(self, **overrides):
+        data = {
+            "first_name": "Ana",
+            "last_name": "Cruz",
+            "email": "ana@example.com",
+            "pet_name": "Max",
+            "species": "dog",
+        }
+        data.update(overrides)
+        return self.client.post(self.url, data)
+
+    def _messages(self, response):
+        return [(m.level_tag, str(m)) for m in get_messages(response.wsgi_request)]
+
+    # ─── Access ───────────────────────────────────────────────────────────────
+
+    def test_anonymous_goes_to_admin_login(self):
+        """The login middleware catches /admin/* first; @login_required on
+        the view is the second guard."""
+        self.client.logout()
+        response = self.client.get(self.url)
+        self.assertRedirects(
+            response, reverse("admin_login"), fetch_redirect_response=False
+        )
+
+    def test_owner_role_refused(self):
+        owner = User.objects.create_user(
+            username="owner1", email="owner@example.com", role=User.PET_OWNER
+        )
+        self.client.force_login(owner)
+        response = self._post(email="new@example.com")
+        self.assertRedirects(
+            response, reverse("owner_dashboard"), fetch_redirect_response=False
+        )
+        self.assertFalse(PetOwner.objects.exists())
+
+    # ─── Saving ───────────────────────────────────────────────────────────────
+
+    def test_creates_owner_pet_and_sends_claim_email(self):
+        response = self._post()
+        owner = PetOwner.objects.get()
+        self.assertRedirects(
+            response,
+            reverse("admin_owner_detail", args=[owner.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(owner.user.email, "ana@example.com")
+        self.assertTrue(owner.user.is_active)
+        self.assertEqual(Pet.objects.get().owner, owner)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["ana@example.com"])
+        self.assertEqual(
+            self._messages(response),
+            [
+                (
+                    "success",
+                    "Walk-in account created for Ana Cruz. Pet 'Max' was also "
+                    "added. A claim account email has been sent.",
+                )
+            ],
+        )
+
+    def test_mixed_case_email_saved_lowercase(self):
+        self._post(email="  Ana.Cruz@Example.COM ")
+        self.assertEqual(PetOwner.objects.get().user.email, "ana.cruz@example.com")
+
+    def test_duplicate_email_in_another_case_refused(self):
+        User.objects.create_user(
+            username="ana", email="ana@example.com", role=User.PET_OWNER
+        )
+        response = self._post(email="ANA@Example.com")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.context["owner_form"].errors["email"],
+            ["This email is already used by another account."],
+        )
+        self.assertFalse(PetOwner.objects.exists())
+        self.assertEqual(len(mail.outbox), 0)
+
+    # ─── Claim email fails ────────────────────────────────────────────────────
+
+    def test_send_failure_keeps_owner_and_pet_and_warns(self):
+        with (
+            mock.patch(
+                "accounts.utils.send_mail", side_effect=OSError("smtp secret 535")
+            ),
+            self.assertLogs("accounts.views", level="ERROR"),
+        ):
+            response = self._post()
+        owner = PetOwner.objects.get()
+        self.assertRedirects(
+            response,
+            reverse("admin_owner_detail", args=[owner.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(Pet.objects.get().owner, owner)
+        self.assertEqual(
+            self._messages(response),
+            [
+                (
+                    "success",
+                    "Walk-in account created for Ana Cruz. Pet 'Max' was also added.",
+                ),
+                (
+                    "warning",
+                    "The claim email to ana@example.com could not be sent. The "
+                    "owner and pet are saved, but the owner can't set a password "
+                    "until they get this email. There is no resend button yet.",
+                ),
+            ],
+        )
+
+    def test_send_failure_without_pet_says_owner_is_saved(self):
+        with (
+            mock.patch("accounts.utils.send_mail", side_effect=OSError("down")),
+            self.assertLogs("accounts.views", level="ERROR"),
+        ):
+            response = self._post(pet_name="", species="")
+        warning = self._messages(response)[-1]
+        self.assertEqual(warning[0], "warning")
+        self.assertIn("The owner is saved, but", warning[1])
+
+    # ─── Save errors ──────────────────────────────────────────────────────────
+
+    def test_second_owner_without_email_shows_plain_message(self):
+        self._post(email="", first_name="Ben")
+        self.assertEqual(PetOwner.objects.count(), 1)
+
+        with self.assertLogs("accounts.views", level="ERROR") as logs:
+            response = self._post(email="", first_name="Carla")
+
+        self.assertEqual(response.status_code, 200)
+        # [0] is the first owner's success message, not shown until now
+        self.assertEqual(self._messages(response)[1:], [("error", self.NO_EMAIL_TAKEN)])
+        self.assertContains(response, "Only one owner without an email")
+        for raw in ("IntegrityError", "duplicate key", "Error:"):
+            self.assertNotContains(response, raw)
+        self.assertIn("IntegrityError", "\n".join(logs.output))
+        self.assertEqual(PetOwner.objects.count(), 1)
+        self.assertEqual(Pet.objects.count(), 1)
+
+    def test_unexpected_error_shows_plain_message(self):
+        with (
+            mock.patch(
+                "accounts.views.create_walkin_owner",
+                side_effect=RuntimeError("boom secret detail"),
+            ),
+            self.assertLogs("accounts.views", level="ERROR"),
+        ):
+            response = self._post()
+        self.assertEqual(
+            self._messages(response),
+            [
+                (
+                    "error",
+                    "Something went wrong, so this owner was not saved. "
+                    "Please try again.",
+                )
+            ],
+        )
+        self.assertNotContains(response, "boom secret detail")
+        self.assertEqual(len(mail.outbox), 0)
+
+
+class WalkInClaimEmailAfterCommitTests(TransactionTestCase):
+    """The claim email goes out only after the owner is committed.
+    (TestCase wraps every test in a transaction, so it can't show this.)"""
+
+    def test_claim_email_sent_after_commit(self):
+        admin = User.objects.create_user(
+            username="admin1", email="admin@example.com", role=User.ADMIN
+        )
+        self.client.force_login(admin)
+        seen = {}
+
+        def record(request, user):
+            seen["in_atomic_block"] = connection.in_atomic_block
+            seen["saved"] = User.objects.filter(pk=user.pk).exists()
+
+        with mock.patch("accounts.views.send_claim_email", side_effect=record):
+            self.client.post(
+                reverse("admin_walkin_create"),
+                {"first_name": "Ana", "last_name": "Cruz", "email": "ana@example.com"},
+            )
+
+        self.assertEqual(seen, {"in_atomic_block": False, "saved": True})

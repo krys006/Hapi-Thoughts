@@ -996,6 +996,13 @@ def admin_appointment_reschedule(request, pk):
     return redirect("admin_appointment_detail", pk=pk)
 
 
+def _walk_in_booked_message(appointment):
+    """'Walk-in booked for Max today at 10:00 AM.' / '… on Mon, Nov 2 at …'."""
+    days_away = abs((appointment.date - timezone.localdate()).days)
+    on = "" if days_away <= 1 else "on "  # today/tomorrow/yesterday need no "on"
+    return f"Walk-in booked for {appointment.pet.name} {on}{_when(appointment)}."
+
+
 @login_required
 def admin_walkin_appointment_create(request):
     """
@@ -1018,27 +1025,20 @@ def admin_walkin_appointment_create(request):
                 is_walk_in=True,
             )
 
-            # Notify pet owner of their walk-in appointment if they have an email
-            if appointment.owner.user.email and appointment.owner.user.is_active:
-                notify(
-                    recipient=appointment.owner.user,
-                    notification_type="appointment_approved",
-                    title="Walk-in Appointment Created",
-                    message=(
-                        f"A walk-in appointment has been created for "
-                        f"{appointment.pet.name} on "
-                        f"{appointment.date.strftime('%B %d, %Y')} "
-                        f"at {appointment.time.strftime('%I:%M %p')}."
-                    ),
-                    related_appointment=appointment,
-                    related_pet=appointment.pet,
-                    email_subject="Appointment Created — Hapi Vet",
-                )
-
-            messages.success(
-                request,
-                f"Walk-in appointment created for {appointment.pet.name}.",
+            # Absolute date, since the email may be read on another day.
+            # Owners without an email get the in-app notification only.
+            _notify_owner(
+                appointment,
+                "appointment_approved",
+                "Visit booked by the clinic",
+                f"The clinic booked a visit for {appointment.pet.name} on "
+                f"{date_format(appointment.date, 'D, M j')} at "
+                f"{date_format(appointment.time, 'g:i A')}. "
+                "The time is confirmed.",
+                "Visit booked — Hapi Vet",
             )
+
+            messages.success(request, _walk_in_booked_message(appointment))
             return redirect("admin_appointment_detail", pk=appointment.pk)
         else:
             messages.error(request, "Please correct the errors below.")
@@ -1087,6 +1087,8 @@ def admin_get_slots_for_date(request):
     """
     HTMX view — returns slot <option> elements for a selected date.
     Used in admin forms (walk-in, reschedule).
+    ?for=walk_in uses the walk-in rules (see get_available_slots); the
+    Move dialog leaves it out and keeps the default rules.
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
@@ -1100,7 +1102,9 @@ def admin_get_slots_for_date(request):
     if date_str:
         try:
             date = datetime.date.fromisoformat(date_str)
-            slots = get_available_slots(date)
+            slots = get_available_slots(
+                date, walk_in=request.GET.get("for") == "walk_in"
+            )
         except ValueError:
             pass
 

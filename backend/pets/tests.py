@@ -1,8 +1,14 @@
+from django.contrib.auth import get_user_model
+from django.core import mail
 from django.template.loader import render_to_string
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
+from django.urls import reverse
 
+from pets.forms import AdminOwnerEmailForm
 from pets.models import Pet, PetOwner
 from pets.templatetags.pet_display import species_icon
+
+User = get_user_model()
 
 
 class SpeciesIconTests(SimpleTestCase):
@@ -154,3 +160,106 @@ class OwnerAvatarTests(SimpleTestCase):
         owner = PetOwner(first_name="Ana", last_name="Cruz")
         self.assertIn("size-10 text-base", self._avatar(owner, "sm"))
         self.assertIn("size-8 text-sm", self._avatar(owner, "xs"))
+
+
+class AdminOwnerEmailFormTests(TestCase):
+    """AdminOwnerEmailForm (add an email to a walk-in owner) and its view."""
+
+    def setUp(self):
+        self.walk_in = User.objects.create_user(
+            username="walkin", email="", role=User.PET_OWNER, is_active=False
+        )
+        self.owner = PetOwner.objects.create(
+            user=self.walk_in, first_name="Ana", last_name="Cruz"
+        )
+
+    def _form(self, email):
+        return AdminOwnerEmailForm({"email": email}, current_user=self.walk_in)
+
+    def test_mixed_case_email_cleaned_lowercase(self):
+        form = self._form(" Ana.Cruz@Example.COM ")
+        self.assertTrue(form.is_valid())
+        self.assertEqual(form.cleaned_data["email"], "ana.cruz@example.com")
+
+    def test_duplicate_email_in_another_case_refused(self):
+        User.objects.create_user(
+            username="ana", email="ana@example.com", role=User.PET_OWNER
+        )
+        form = self._form("ANA@example.com")
+        self.assertFalse(form.is_valid())
+        self.assertEqual(
+            form.errors["email"], ["This email is already used by another account."]
+        )
+
+    def test_view_saves_lowercase_and_sends_claim_email(self):
+        admin = User.objects.create_user(
+            username="admin1", email="admin@example.com", role=User.ADMIN
+        )
+        self.client.force_login(admin)
+        self.client.post(
+            reverse("admin_owner_add_email", args=[self.owner.pk]),
+            {"email": "Ana@Example.com"},
+        )
+        self.walk_in.refresh_from_db()
+        self.assertEqual(self.walk_in.email, "ana@example.com")
+        self.assertTrue(self.walk_in.is_active)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["ana@example.com"])
+
+
+class AdminPetOwnerFormEmailTests(TestCase):
+    """AdminPetOwnerForm email (owner edit page)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="ana", email="ana@example.com", role=User.PET_OWNER
+        )
+        self.owner = PetOwner.objects.create(
+            user=self.user, first_name="Ana", last_name="Cruz"
+        )
+        admin = User.objects.create_user(
+            username="admin1", email="admin@example.com", role=User.ADMIN
+        )
+        self.client.force_login(admin)
+
+    def _post(self, email):
+        return self.client.post(
+            reverse("admin_owner_edit", args=[self.owner.pk]),
+            {
+                "first_name": "Ana",
+                "last_name": "Cruz",
+                "contact_number": "09171234567",
+                "barangay": "Amoingon",
+                "city_municipality": "Boac",
+                "province": "Marinduque",
+                "email": email,
+            },
+        )
+
+    def test_mixed_case_email_saved_lowercase(self):
+        response = self._post(" Ana.Cruz@Example.COM ")
+        self.assertRedirects(
+            response,
+            reverse("admin_owner_detail", args=[self.owner.pk]),
+            fetch_redirect_response=False,
+        )
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, "ana.cruz@example.com")
+
+    def test_own_email_in_another_case_is_not_a_duplicate(self):
+        self._post("ANA@example.com")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, "ana@example.com")
+
+    def test_duplicate_email_in_another_case_refused(self):
+        User.objects.create_user(
+            username="ben", email="ben@example.com", role=User.PET_OWNER
+        )
+        response = self._post("BEN@Example.com")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.context["form"].errors["email"],
+            ["This email is already used by another account."],
+        )
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, "ana@example.com")

@@ -1,4 +1,4 @@
-import uuid
+import logging
 
 from django.conf import settings as django_settings
 from django.contrib import messages
@@ -15,9 +15,8 @@ from django.urls import reverse, reverse_lazy
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.shortcuts import redirect, render
-from django.template.loader import render_to_string
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import (
     urlsafe_base64_decode,
@@ -25,12 +24,13 @@ from django.utils.http import (
 )
 
 from accounts.forms import WalkInOwnerForm, WalkInPetForm
+from accounts.utils import create_walkin_owner, send_claim_email
 from appointments.models import ClinicSettings
-from pets.models import ContactLink, Pet, PetOwner
 
 from .forms import PetOwnerRegistrationForm
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 # ─── Role-based redirect helper ───────────────────────────────────────────────
 
@@ -292,40 +292,52 @@ class HapiVetPasswordResetView(auth_views.PasswordResetView):
 # Walk-in client registration
 # ---------------------------------------------------------------------------
 
+# Second owner saved without an email: User.email is unique, so a second
+# email="" row fails (nullable email is planned, see HANDOFF backlog).
+WALKIN_NO_EMAIL_TAKEN = (
+    "Only one owner without an email can be saved for now. "
+    "Please add an email address for this owner."
+)
+WALKIN_SAVE_FAILED = (
+    "Something went wrong, so this owner was not saved. Please try again."
+)
 
-def _generate_username(first_name, last_name, email=None):
-    """
-    Generates a unique username for a walk-in account.
-    Uses email prefix if available, otherwise firstname_lastname.
-    Appends a short hex suffix if the base username is already taken.
-    """
-    if email:
-        base = email.split("@")[0].lower()
+
+def _walkin_saved_message(pet_owner, pet, email, email_sent):
+    """Success message after the walk-in owner (and pet) are saved."""
+    pet_msg = f" Pet '{pet.name}' was also added." if pet else ""
+    if not email:
+        email_msg = " No email provided — account saved without claim link."
+    elif email_sent:
+        email_msg = " A claim account email has been sent."
     else:
-        base = f"{first_name.lower()}_{last_name.lower()}"
-
-    # Strip spaces just in case
-    base = base.replace(" ", "_")
-    username = base
-
-    while User.objects.filter(username=username).exists():
-        username = f"{base}_{uuid.uuid4().hex[:4]}"
-
-    return username
+        email_msg = ""  # the warning explains it
+    return f"Walk-in account created for {pet_owner.full_name}.{pet_msg}{email_msg}"
 
 
+def _claim_email_failed_message(email, pet):
+    """Warning when the claim email can't be sent after saving."""
+    saved = "The owner and pet are saved" if pet else "The owner is saved"
+    return (
+        f"The claim email to {email} could not be sent. {saved}, but the "
+        "owner can't set a password until they get this email. There is no "
+        "resend button yet."
+    )
+
+
+@login_required
 def admin_walkin_create(request):
     """
     Walk-in client registration — Admin only.
 
     Creates a User + PetOwner record (and optionally a Pet) in a single
-    atomic transaction. If an email is provided, sends a claim account
-    email with a one-time password-set link.
+    atomic transaction. If an email is provided, the claim account email
+    (one-time password-set link) is sent after the transaction commits;
+    if sending fails, the records stay saved and the admin sees a warning.
 
     URL: /admin/walkin/create/
     """
-    # Role guard
-    if not request.user.is_authenticated or request.user.role != "admin":
+    if request.user.role != "admin":
         return redirect("owner_dashboard")
 
     owner_form = WalkInOwnerForm(request.POST or None)
@@ -336,86 +348,35 @@ def admin_walkin_create(request):
         pet_valid = pet_form.is_valid()
 
         if owner_valid and pet_valid:
+            email = owner_form.cleaned_data.get("email") or ""
             try:
                 with transaction.atomic():
-                    owner_data = owner_form.cleaned_data
-                    pet_data = pet_form.cleaned_data
-
-                    email = owner_data.get("email") or ""
-                    first_name = owner_data["first_name"]
-                    last_name = owner_data["last_name"]
-
-                    # --- Create User ---
-                    username = _generate_username(first_name, last_name, email or None)
-                    user = User(
-                        username=username,
-                        email=email,
-                        role="pet_owner",
-                        # Walk-in accounts with no email are inactive until
-                        # email is provided and claimed.
-                        is_active=bool(email),
-                        is_onboarded=True,  # Admin-created — skip onboarding
+                    pet_owner, pet = create_walkin_owner(
+                        owner_form.cleaned_data, pet_form
                     )
-                    # Set an unusable password — owner sets their own via claim link
-                    user.set_unusable_password()
-                    user.save()
-
-                    # --- Create PetOwner ---
-                    pet_owner = PetOwner.objects.create(
-                        user=user,
-                        first_name=first_name,
-                        last_name=last_name,
-                        contact_number=owner_data.get("contact_number", ""),
-                    )
-
-                    # --- Create ContactLink if provided ---
-                    contact_link_value = owner_data.get("contact_link", "").strip()
-                    if contact_link_value:
-                        ContactLink.objects.create(
-                            owner=pet_owner,
-                            platform="Facebook",
-                            url_or_handle=contact_link_value,
-                        )
-
-                    # --- Create Pet if pet section was filled in ---
-                    pet = None
-                    if pet_form.has_pet_data():
-                        pet = Pet.objects.create(
-                            owner=pet_owner,
-                            name=pet_data["pet_name"].strip(),
-                            species=pet_data["species"],
-                            breed=pet_data.get("breed", ""),
-                            color=pet_data.get("color", ""),
-                            gender=pet_data.get("gender", "unknown") or "unknown",
-                            date_of_birth=pet_data.get("date_of_birth") or None,
-                            weight=pet_data.get("weight") or None,
-                        )
-
-                    # --- Send claim account email if email was provided ---
-                    if email:
-                        _send_claim_account_email(request, user)
-
-                # Build success message
-                pet_created_msg = f" Pet '{pet.name}' was also added." if pet else ""
-                email_msg = (
-                    " A claim account email has been sent."
-                    if email
-                    else " No email provided — account saved without claim link."
-                )
-                messages.success(
-                    request,
-                    f"Walk-in account created for {first_name} {last_name}."
-                    f"{pet_created_msg}{email_msg}",
-                )
-                return redirect("admin_owner_detail", pk=pet_owner.pk)
-
-            except Exception as e:
-                # Catch-all — the atomic block already rolled back any DB writes
+            except IntegrityError:
+                # The atomic block rolled back every write
+                logger.exception("Walk-in owner not saved (integrity error)")
                 messages.error(
-                    request,
-                    f"Something went wrong while creating the account. "
-                    f"Please try again. (Error: {e})",
+                    request, WALKIN_SAVE_FAILED if email else WALKIN_NO_EMAIL_TAKEN
                 )
+            except Exception:
+                logger.exception("Walk-in owner not saved")
+                messages.error(request, WALKIN_SAVE_FAILED)
+            else:
+                email_sent = False
+                if email:
+                    try:
+                        send_claim_email(request, pet_owner.user)
+                        email_sent = True
+                    except Exception:
+                        logger.exception("Claim email not sent to walk-in owner")
+                messages.success(
+                    request, _walkin_saved_message(pet_owner, pet, email, email_sent)
+                )
+                if email and not email_sent:
+                    messages.warning(request, _claim_email_failed_message(email, pet))
+                return redirect("admin_owner_detail", pk=pet_owner.pk)
 
     return render(
         request,
@@ -424,40 +385,4 @@ def admin_walkin_create(request):
             "owner_form": owner_form,
             "pet_form": pet_form,
         },
-    )
-
-
-def _send_claim_account_email(request, user):
-    """
-    Sends a 'claim your account' email to a newly registered walk-in user.
-    Reuses Django's default_token_generator (same mechanism as password reset)
-    but with a different template and subject line.
-    """
-    uid = urlsafe_base64_encode(force_bytes(user.pk))
-    token = default_token_generator.make_token(user)
-
-    # Build the claim link — points to Django's built-in password reset confirm view
-    # You can swap this for a custom view later if needed
-    claim_link = request.build_absolute_uri(f"/reset-password/{uid}/{token}/")
-
-    subject = render_to_string(
-        "owner/emails/claim_account_subject.txt",
-        {},
-    ).strip()
-
-    body = render_to_string(
-        "owner/emails/claim_account_body.txt",
-        {
-            "user": user,
-            "claim_link": claim_link,
-            "clinic_name": "Hapi Tutz Vet. Supplies",
-        },
-    )
-
-    send_mail(
-        subject=subject,
-        message=body,
-        from_email=None,  # Uses DEFAULT_FROM_EMAIL from settings
-        recipient_list=[user.email],
-        fail_silently=False,
     )

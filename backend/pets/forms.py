@@ -288,17 +288,20 @@ class AdminPetOwnerForm(forms.ModelForm):
             self.fields["email"].initial = self.current_user.email
 
     def clean_email(self):
-        email = self.cleaned_data.get("email", "").strip()
+        # Saved lowercase; the check ignores case so "Ana@x.com" matches "ana@x.com"
+        email = self.cleaned_data.get("email", "").strip().lower()
         if not email:
             return email
         from django.contrib.auth import get_user_model
 
         User = get_user_model()
-        qs = User.objects.filter(email=email)
+        qs = User.objects.filter(email__iexact=email)
         if self.current_user:
             qs = qs.exclude(pk=self.current_user.pk)
         if qs.exists():
-            raise forms.ValidationError("An account with this email already exists.")
+            raise forms.ValidationError(
+                "This email is already used by another account."
+            )
         return email
 
 
@@ -398,14 +401,17 @@ class AdminOwnerEmailForm(forms.Form):
         self.current_user = current_user
 
     def clean_email(self):
-        email = self.cleaned_data.get("email")
+        # Saved lowercase; the check ignores case so "Ana@x.com" matches "ana@x.com"
+        email = self.cleaned_data.get("email", "").strip().lower()
         from django.contrib.auth import get_user_model
 
         User = get_user_model()
         # Check uniqueness but exclude the current user
-        qs = User.objects.filter(email=email)
+        qs = User.objects.filter(email__iexact=email)
         if self.current_user:
             qs = qs.exclude(pk=self.current_user.pk)
         if qs.exists():
-            raise forms.ValidationError("An account with this email already exists.")
+            raise forms.ValidationError(
+                "This email is already used by another account."
+            )
         return email
