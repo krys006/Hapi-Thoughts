@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Appointments list v2</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: "Segoe UI", system-ui, sans-serif; }
+</style>
+</head>
+<body class="bg-gray-200 text-gray-900 antialiased">
+
+<!-- State switcher (mockup tool only) -->
+<header class="sticky top-0 z-10 border-b border-gray-300 bg-white/95 px-6 py-3 backdrop-blur">
+  <p class="mb-2 text-sm font-semibold text-gray-700">Appointments list v2 · pick a state</p>
+  <div id="switcher" class="flex flex-wrap gap-2"></div>
+</header>
+
+<div class="overflow-x-auto p-6">
+  <div id="caption" class="mb-4 max-w-[1280px] rounded-xl border border-violet-200 bg-violet-50 p-4 text-base text-gray-800"></div>
+  <div id="stage"></div>
+  <p class="mt-3 text-sm text-gray-600">Desktop frame is 1280 px wide: a 1920×1080 screen at 150% zoom. “Today” in this mockup is Saturday, October 31.</p>
+</div>
+
+<script>
+// ---------- Icons (Lucide) ----------
+const P = {
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  home:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  calDays:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/>',
+  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  fileText:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  syringe:'<path d="m18 2 4 4"/><path d="m17 7 3-3"/><path d="M19 9 8.7 19.3c-1 1-2.5 1-3.4 0l-.6-.6c-1-1-1-2.5 0-3.4L15 5"/><path d="m9 11 4 4"/><path d="m5 19-3 3"/><path d="m14 4 6 6"/>',
+  book:'<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  settings:'<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+  logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
+  search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  arrowRight:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  chevLeft:'<path d="m15 18-6-6 6-6"/>',
+  chevRight:'<path d="m9 18 6-6-6-6"/>',
+  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  menu:'<path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/>',
+  image:'<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+  dog:'<path d="M11.25 16.25h1.5L12 17z"/><path d="M16 14v.5"/><path d="M4.42 11.247A13.152 13.152 0 0 0 4 14.556C4 18.728 7.582 21 12 21s8-2.272 8-6.444a11.702 11.702 0 0 0-.493-3.309"/><path d="M8 14v.5"/><path d="M8.5 8.5c-.384 1.05-1.083 2.028-2.344 2.5-1.931.722-3.576-.297-3.656-1-.113-.994 1.177-6.53 4-7 1.923-.321 3.651.845 3.651 2.235A7.497 7.497 0 0 1 14 5.277c0-1.39 1.844-2.598 3.767-2.277 2.823.47 4.113 6.006 4 7-.08.703-1.725 1.722-3.656 1-1.261-.472-1.855-1.45-2.239-2.5"/>',
+  cat:'<path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z"/><path d="M8 14v.5"/><path d="M16 14v.5"/><path d="M11.25 16.25h1.5L12 17l-.75-.75Z"/>',
+  bird:'<path d="M16 7h.01"/><path d="M3.4 18H12a8 8 0 0 0 8-8V7a4 4 0 0 0-7.28-2.3L2 20"/><path d="m20 7 2 .5-2 .5"/><path d="M10 18v3"/><path d="M14 17.75V21"/><path d="M7 18a6 6 0 0 0 3.84-10.61"/>'
+};
+const ic = (n, c = 'size-5 shrink-0') =>
+  `<svg class="${c}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+const outline = (n, c) =>
+  `<svg class="${c}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// ---------- Shell (same as detail v2) ----------
+const navLink = (i, l, active = false, badge = '') =>
+  `<a class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base ${active ? 'bg-white font-semibold text-violet-800 shadow-sm ring-1 ring-violet-200' : 'text-gray-800'}">${ic(i)}<span class="flex-1">${l}</span>${badge ? `<span class="rounded-full bg-violet-600 px-2 text-sm font-semibold text-white">${badge}</span>` : ''}</a>`;
+const group = t => `<p class="px-3 pb-1 pt-4 text-sm font-semibold text-violet-800">${t}</p>`;
+const sidebar = () => `
+<aside class="flex w-72 shrink-0 flex-col border-r border-violet-200 bg-violet-100">
+  <div class="flex items-center gap-3 border-b border-violet-200 px-5 py-4">
+    <span class="grid size-10 shrink-0 place-content-center rounded-lg bg-violet-600 text-white">${ic('paw')}</span>
+    <div><p class="text-base font-semibold">Hapi Tutz Vet Supplies</p><p class="text-sm text-gray-700">Admin</p></div>
+  </div>
+  <nav class="flex-1 px-3 pb-3 pt-1">
+    ${group('Daily work')}<div class="space-y-1">${navLink('home','Dashboard')}${navLink('calendar','Appointments',true,4)}${navLink('users','Pet owners')}${navLink('paw','Pets',false,1)}</div>
+    ${group('Records')}<div class="space-y-1">${navLink('fileText','Medical records')}${navLink('syringe','Vaccinations')}${navLink('book','Health library')}</div>
+    ${group('Clinic')}<div class="space-y-1">${navLink('receipt','Billing')}${navLink('settings','Clinic settings')}</div>
+  </nav>
+  <div class="border-t border-violet-200 px-3 py-3">${navLink('logout','Log out')}</div>
+</aside>`;
+// List pages hide the global search ({% block topbar_search %}{% endblock %}), so there is one search box per screen
+const topbar = (globalSearch = false) => `
+<div class="flex min-h-[4.25rem] items-center gap-4 border-b border-gray-200 bg-white px-8 py-3">
+  ${globalSearch ? `<span class="flex min-h-11 w-[26rem] items-center gap-3 rounded-lg border border-gray-300 bg-white px-4 text-base text-gray-600">${ic('search')}Find a pet or owner</span>` : ''}
+  <span class="flex-1"></span>
+  <span class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800">${ic('bell')}Notifications<span class="rounded-full bg-red-600 px-2 text-sm font-semibold text-white">1</span></span>
+</div>`;
+const shell = body => `
+<div class="relative flex min-h-[720px] w-[1280px] overflow-hidden rounded-xl border border-gray-300 bg-gray-50 shadow-sm">
+  ${sidebar()}
+  <div class="flex min-w-0 flex-1 flex-col">${topbar()}<main class="flex-1 p-8">${body}</main></div>
+</div>`;
+
+// ---------- Pictures (same rules as detail v2) ----------
+const petPic = (species, photo = false) => photo
+  ? `<span class="grid size-10 shrink-0 place-content-center rounded-xl bg-gradient-to-br from-stone-300 to-stone-500 text-white ring-1 ring-black/10">${ic('image','size-5 shrink-0')}</span>`
+  : `<span class="grid size-10 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-600 ring-1 ring-violet-200">${outline(species,'size-6 shrink-0')}</span>`;
+const initials = n => { const p = n.trim().split(/\s+/); return (p[0][0] + (p.length > 1 ? p[p.length-1][0] : '')).toUpperCase(); };
+const ownerPic = n => `<span class="grid size-8 shrink-0 place-content-center rounded-full bg-violet-50 text-sm font-semibold tracking-wide text-violet-700 ring-1 ring-violet-200">${initials(n)}</span>`;
+
+// ---------- Badges ----------
+const BADGE = {
+  pending:['bg-yellow-100 text-yellow-800','Pending'],
+  confirmed:['bg-blue-100 text-blue-800','Confirmed'],
+  completed:['bg-green-100 text-green-800','Completed'],
+  cancelled:['bg-red-100 text-red-800','Cancelled'],
+  noshow:['bg-gray-100 text-gray-800','No show']
+};
+const badge = s => `<span class="inline-flex rounded-full px-3 py-1 text-sm font-semibold ${BADGE[s][0]}">${BADGE[s][1]}</span>`;
+const walkin = `<span class="inline-flex rounded-full bg-violet-100 px-3 py-1 text-sm font-semibold text-violet-800">Walk-in</span>`;
+const passed = `<span class="inline-flex items-center gap-1 rounded-full bg-orange-100 px-3 py-1 text-sm font-semibold text-orange-800">${ic('alert','size-4 shrink-0')}Date has passed</span>`;
+
+// ---------- Page parts ----------
+const pageHead = `
+<div class="mb-6 flex flex-wrap items-start gap-4">
+  <div class="flex-1"><h1 class="text-2xl font-bold">Appointments</h1><p class="mt-1 text-base text-gray-600">Approve requests and keep track of visits.</p></div>
+  <span class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800">${ic('calDays')}Calendar</span>
+  <span class="inline-flex min-h-11 items-center gap-2 rounded-lg bg-violet-600 px-4 text-base font-semibold text-white">${ic('plus')}New walk-in</span>
+</div>`;
+
+const TABS = [
+  ['pending','Needs approval',4,'yellow'],
+  ['upcoming','Upcoming',6,''],
+  ['completed','Completed',27,''],
+  ['cancelled','Cancelled',3,''],
+  ['noshow','No show',1,''],
+  ['all','All',42,'']
+];
+const tabs = active => `
+<nav class="mb-4 flex flex-wrap gap-2" aria-label="Filter by status">
+  ${TABS.map(([id, label, n, tone]) => {
+    const on = id === active;
+    const count = on ? 'bg-white/25 text-white'
+      : tone === 'yellow' ? 'bg-yellow-200 text-yellow-900' : 'bg-gray-100 text-gray-800';
+    return `<a class="inline-flex min-h-12 items-center gap-2 rounded-lg px-4 text-base ${on ? 'bg-violet-600 font-semibold text-white' : 'border border-gray-300 bg-white font-medium text-gray-800'}">${label}<span class="rounded-full px-2 text-sm font-semibold ${count}">${n}</span></a>`;
+  }).join('')}
+</nav>`;
+
+const filters = (q = '', date = '') => `
+<form class="mb-4 flex flex-wrap items-end gap-3">
+  <label class="flex-1"><span class="mb-1.5 block text-base font-medium text-gray-800">Search appointments</span>
+    <span class="flex min-h-12 items-center gap-3 rounded-lg border ${q ? 'border-violet-400' : 'border-gray-300'} bg-white px-4 text-base ${q ? 'text-gray-900' : 'text-gray-500'}">${ic('search','size-5 shrink-0 text-gray-600')}${q || 'For example: Brownie or Liza Cruz'}</span></label>
+  <label><span class="mb-1.5 block text-base font-medium text-gray-800">Date</span>
+    <span class="flex min-h-12 w-52 items-center justify-between rounded-lg border ${date ? 'border-violet-400 text-gray-900' : 'border-gray-300 text-gray-500'} bg-white px-4 text-base">${date || 'mm/dd/yyyy'}${ic('calendar','size-5 shrink-0 text-gray-600')}</span></label>
+  <span class="inline-flex min-h-12 items-center gap-2 rounded-lg border border-gray-300 bg-white px-5 text-base font-semibold text-gray-800">${ic('search')}Search</span>
+  ${q || date ? `<span class="inline-flex min-h-12 items-center gap-2 px-2 text-base font-medium text-blue-600 underline underline-offset-2">${ic('x')}Clear search</span>` : ''}
+</form>`;
+
+const attention = `
+<div class="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-yellow-300 bg-yellow-50 px-5 py-4 text-yellow-900">
+  ${ic('alert','size-6 shrink-0')}
+  <p class="flex-1 text-base"><b>1 past visit isn't finished.</b> Shelly's check-up on Thu, Oct 29 is still marked Confirmed. Mark it as completed or as a no-show.</p>
+  <span class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-yellow-400 bg-white px-4 text-base font-semibold text-yellow-900">Show it${ic('arrowRight')}</span>
+</div>`;
+
+// One table row
+const row = r => `
+<tr class="border-t border-gray-100 hover:bg-violet-50/40">
+  <td class="px-5 py-4 align-middle"><p class="text-base font-semibold whitespace-nowrap">${r.time}</p></td>
+  <td class="px-5 py-4"><div class="flex items-center gap-3">${petPic(r.species, r.photo)}<div><p class="text-base font-semibold">${r.pet}</p><p class="text-sm text-gray-600">${r.kind}</p></div></div></td>
+  <td class="px-5 py-4"><div class="flex items-center gap-3">${ownerPic(r.owner)}<div><p class="text-base">${r.owner}</p><p class="text-sm text-gray-600">${r.phone}</p></div></div></td>
+  <td class="px-5 py-4 text-base">${r.service || '<span class="text-gray-600">No service picked</span>'}</td>
+  <td class="px-5 py-4"><div class="flex flex-wrap gap-2">${badge(r.status)}${r.walkin ? walkin : ''}${r.passed ? passed : ''}</div></td>
+  <td class="px-5 py-4 text-right"><span class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-semibold text-gray-800">Open${ic('arrowRight')}</span></td>
+</tr>`;
+const dayHeader = (label, count) => `
+<tr class="bg-gray-50"><td colspan="6" class="border-t border-gray-200 px-5 py-2.5 text-base font-semibold text-gray-800">${label} <span class="font-normal text-gray-600">· ${count} ${count === 1 ? 'appointment' : 'appointments'}</span></td></tr>`;
+const table = (groups, footer) => `
+<div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+  <table class="w-full text-left">
+    <thead class="bg-white text-base font-semibold text-gray-700">
+      <tr><th class="px-5 py-3">Time</th><th class="px-5 py-3">Pet</th><th class="px-5 py-3">Owner</th><th class="px-5 py-3">Service</th><th class="px-5 py-3">Status</th><th class="px-5 py-3"><span class="sr-only">Open</span></th></tr>
+    </thead>
+    <tbody>${groups.map(([label, rows]) => dayHeader(label, rows.length) + rows.map(row).join('')).join('')}</tbody>
+  </table>
+  ${footer}
+</div>`;
+const pager = (text, prev = false, next = false) => `
+<div class="flex flex-wrap items-center gap-3 border-t border-gray-200 px-5 py-3">
+  <p class="flex-1 text-base text-gray-700">${text}</p>
+  <span class="inline-flex min-h-11 items-center gap-1 rounded-lg border px-4 text-base font-medium ${prev ? 'border-gray-300 bg-white text-gray-800' : 'border-gray-200 bg-gray-50 text-gray-500'}">${ic('chevLeft')}Previous</span>
+  <span class="inline-flex min-h-11 items-center gap-1 rounded-lg border px-4 text-base font-medium ${next ? 'border-gray-300 bg-white text-gray-800' : 'border-gray-200 bg-gray-50 text-gray-500'}">Next${ic('chevRight')}</span>
+</div>`;
+
+// ---------- Sample data ----------
+const A = {
+  kitty:   { time:'9:30 AM', pet:'Kitty', species:'cat', kind:'Cat, Puspin', owner:'Rosa Santos', phone:'0919 876 5432', service:'Check-up', status:'pending', passed:true },
+  brownie: { time:'2:00 PM', pet:'Brownie', species:'dog', photo:true, kind:'Dog, Aspin', owner:'Liza Cruz', phone:'0917 123 4567', service:'Grooming', status:'pending' },
+  kitkat:  { time:'9:30 AM', pet:'Kitkat', species:'cat', kind:'Cat, Persian', owner:'Paolo Santos', phone:'0915 333 2211', service:'Check-up', status:'pending' },
+  max:     { time:'1:00 PM', pet:'Max', species:'dog', kind:'Dog, Labrador', owner:'Rosa Dela Cruz', phone:'0920 444 7788', service:'Vaccination', status:'pending' },
+  ming:    { time:'10:00 AM', pet:'Mingming', species:'cat', kind:'Cat, Puspin', owner:'Jose Mendoza', phone:'0916 101 2020', service:'Vaccination', status:'confirmed' },
+  choco:   { time:'11:00 AM', pet:'Choco', species:'dog', kind:'Dog, Shih Tzu', owner:'Ana Villanueva', phone:'0918 555 0101', service:'Deworming', status:'confirmed', walkin:true },
+  luna:    { time:'2:00 PM', pet:'Luna', species:'cat', kind:'Cat, Siamese', owner:'Carlo Bautista', phone:'0921 909 1122', service:'Follow-up', status:'confirmed' },
+  bantay:  { time:'9:00 AM', pet:'Bantay', species:'dog', kind:'Dog, Aspin', owner:'Maria Reyes', phone:'0927 222 3344', service:'Check-up', status:'confirmed' },
+  kiwi:    { time:'3:00 PM', pet:'Kiwi', species:'bird', kind:'Bird, Lovebird', owner:'Paolo Santos', phone:'0915 333 2211', service:'Check-up', status:'confirmed' },
+  browny:  { time:'9:00 AM', pet:'Browny', species:'dog', kind:'Dog, Aspin', owner:'Krys Test', phone:'0912 000 1111', service:'', status:'confirmed' },
+  bantayDone: { time:'9:00 AM', pet:'Bantay', species:'dog', kind:'Dog, Aspin', owner:'Maria Reyes', phone:'0927 222 3344', service:'Check-up', status:'completed' }
+};
+
+// ---------- Phone ----------
+function phoneCard(r, day) {
+  return `<a class="block rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+    <div class="flex items-start gap-3">${petPic(r.species, r.photo)}
+      <div class="min-w-0 flex-1">
+        <p class="text-base font-semibold">${r.pet} · ${r.service || 'No service picked'}</p>
+        <p class="text-base text-gray-800">${day}, ${r.time}</p>
+        <p class="text-sm text-gray-600">${r.owner}</p>
+        <div class="mt-2 flex flex-wrap gap-2">${badge(r.status)}${r.walkin ? walkin : ''}${r.passed ? passed : ''}</div>
+      </div>
+      ${ic('chevRight','mt-2 size-5 shrink-0 text-gray-600')}
+    </div></a>`;
+}
+function phoneView() {
+  return `<div class="w-[390px] overflow-hidden rounded-[2rem] border-8 border-gray-800 bg-gray-50 shadow-lg">
+    <div class="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-3">
+      <span class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 px-3 text-base font-medium">${ic('menu')}Menu</span>
+      <span class="flex-1 truncate text-base font-semibold">Hapi Tutz Vet</span>
+      <span class="inline-flex min-h-11 items-center rounded-lg border border-gray-300 px-3">${ic('bell')}</span>
+    </div>
+    <div class="space-y-4 p-4">
+      <div class="flex items-center gap-3"><h1 class="flex-1 text-2xl font-bold">Appointments</h1>
+        <span class="inline-flex min-h-11 items-center gap-1 rounded-lg bg-violet-600 px-3 text-base font-semibold text-white">${ic('plus')}Walk-in</span></div>
+      <label class="block"><span class="mb-1.5 block text-base font-medium">Show</span>
+        <span class="flex min-h-12 items-center justify-between rounded-lg border border-gray-300 bg-white px-4 text-base font-semibold">Needs approval (4)${ic('chevRight','size-5 shrink-0 rotate-90 text-gray-600')}</span></label>
+      <label class="block"><span class="mb-1.5 block text-base font-medium">Search appointments</span>
+        <span class="flex min-h-12 items-center gap-3 rounded-lg border border-gray-300 bg-white px-4 text-base text-gray-500">${ic('search','size-5 shrink-0 text-gray-600')}Pet or owner name</span></label>
+      <p class="pt-1 text-base font-semibold text-gray-800">Thu, Oct 29</p>
+      ${phoneCard(A.kitty, 'Thu, Oct 29')}
+      <p class="pt-1 text-base font-semibold text-gray-800">Mon, Nov 2</p>
+      ${phoneCard(A.brownie, 'Mon, Nov 2')}
+      <p class="pt-1 text-base font-semibold text-gray-800">Tue, Nov 3</p>
+      ${phoneCard(A.kitkat, 'Tue, Nov 3')}
+    </div></div>`;
+}
+
+// ---------- States ----------
+const states = [
+  {
+    id: 'approval', label: '1 · Needs approval',
+    caption: `<b>One search box per screen:</b> this page hides the top-bar search, and its own box is labelled “Search appointments”. Other pages keep the top-bar box, renamed “Find a pet or owner”. <br><b>Needs approval tab.</b> Requests are grouped by day, oldest first, so a request whose date has passed (Kitty) sits on top with an orange “Date has passed” tag. The yellow count on the tab matches the sidebar badge. <b>Decision:</b> should this tab open by default when there are requests waiting?`,
+    html: shell(pageHead + tabs('pending') + filters() +
+      table([
+        ['Thu, Oct 29', [A.kitty]],
+        ['Mon, Nov 2', [A.brownie]],
+        ['Tue, Nov 3', [A.kitkat]],
+        ['Wed, Nov 4', [A.max]]
+      ], pager('Showing all 4 requests')))
+  },
+  {
+    id: 'upcoming', label: '2 · Upcoming',
+    caption: `<b>Upcoming tab</b> (confirmed visits from today onward). “Today” comes first. The yellow notice catches confirmed visits in the past that were never marked as completed or no-show; without it they would vanish from every working list. Only walk-ins get a tag; the old “Online” column is gone.`,
+    html: shell(pageHead + tabs('upcoming') + attention + filters() +
+      table([
+        ['Today · Saturday, October 31', [A.ming, A.choco, A.luna]],
+        ['Mon, Nov 2', [A.bantay, A.kiwi]],
+        ['Tue, Nov 3', [A.browny]]
+      ], pager('Showing all 6 upcoming visits')))
+  },
+  {
+    id: 'search', label: '3 · Search results',
+    caption: `<b>After a search.</b> The boxes keep what was typed, and a plain “Clear search” link appears. Searching looks in the open tab only. <b>Decision:</b> or should a search always switch to “All”, so nothing is missed?`,
+    html: shell(pageHead + tabs('all') + filters('Bantay', '') +
+      table([
+        ['Mon, Nov 2', [A.bantay]],
+        ['Sat, Oct 31', [A.bantayDone]]
+      ], pager('2 appointments match “Bantay”')))
+  },
+  {
+    id: 'empty', label: '4 · Nothing found',
+    caption: `<b>Empty result.</b> Uses <code>components/empty_state.html</code>. It says what was searched and gives one obvious way out.`,
+    html: shell(pageHead + tabs('all') + filters('Bantai', '') + `
+      <div class="flex flex-col items-center rounded-xl border border-gray-200 bg-white px-6 py-14 text-center shadow-sm">
+        <span class="grid size-16 place-content-center rounded-2xl bg-violet-50 text-violet-600 ring-1 ring-violet-200">${outline('paw','size-9 shrink-0')}</span>
+        <h2 class="mt-4 text-xl font-semibold">No appointments match “Bantai”</h2>
+        <p class="mt-1 text-base text-gray-600">Check the spelling, or clear the search to see everything.</p>
+        <span class="mt-5 inline-flex min-h-12 items-center gap-2 rounded-lg border border-gray-300 bg-white px-5 text-base font-semibold text-gray-800">${ic('x')}Clear search</span>
+      </div>`)
+  },
+  {
+    id: 'phone', label: '5 · Phone',
+    caption: `<b>Phone width.</b> The table becomes cards, each a large tappable area. The tabs become one “Show” dropdown, because six tabs don't fit and sideways scrolling is easy to miss.`,
+    html: phoneView()
+  }
+];
+
+// ---------- Switcher ----------
+const sw = document.getElementById('switcher');
+function show(id) {
+  const s = states.find(x => x.id === id);
+  document.getElementById('stage').innerHTML = s.html;
+  document.getElementById('caption').innerHTML = s.caption;
+  [...sw.children].forEach(b => {
+    const on = b.dataset.id === id;
+    b.className = 'min-h-11 rounded-lg px-4 text-base font-medium ' +
+      (on ? 'bg-violet-600 text-white' : 'border border-gray-300 bg-white text-gray-800 hover:bg-gray-50');
+  });
+}
+states.forEach(s => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.dataset.id = s.id; b.textContent = s.label;
+  b.onclick = () => show(s.id);
+  sw.appendChild(b);
+});
+show('approval');
+</script>
+</body>
+</html>

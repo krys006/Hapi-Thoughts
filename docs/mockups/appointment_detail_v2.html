@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Appointment detail v2</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: "Segoe UI", system-ui, sans-serif; }
+</style>
+</head>
+<body class="bg-gray-200 text-gray-900 antialiased">
+
+<!-- State switcher (mockup tool only, not part of the design) -->
+<header class="sticky top-0 z-10 border-b border-gray-300 bg-white/95 px-6 py-3 backdrop-blur">
+  <p class="mb-2 text-sm font-semibold text-gray-700">Appointment detail v2 · pick a state</p>
+  <div id="switcher" class="flex flex-wrap gap-2"></div>
+</header>
+
+<div class="overflow-x-auto p-6">
+  <div id="caption" class="mb-4 max-w-[1280px] rounded-xl border border-violet-200 bg-violet-50 p-4 text-base text-gray-800"></div>
+  <div id="stage"></div>
+  <p class="mt-3 text-sm text-gray-600">Desktop frame is 1280 px wide: a 1920×1080 screen at 150% zoom.</p>
+</div>
+
+<script>
+// ---------- Icons (Lucide shapes, same set as components/icon.html) ----------
+const P = {
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  home:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  fileText:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  syringe:'<path d="m18 2 4 4"/><path d="m17 7 3-3"/><path d="M19 9 8.7 19.3c-1 1-2.5 1-3.4 0l-.6-.6c-1-1-1-2.5 0-3.4L15 5"/><path d="m9 11 4 4"/><path d="m5 19-3 3"/><path d="m14 4 6 6"/>',
+  book:'<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  settings:'<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+  logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
+  search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  arrowLeft:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  circleCheck:'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  calClock:'<path d="M16 14v2.2l1.6 1"/><path d="M16 2v3"/><path d="M21 7.338V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h2.338"/><path d="M3 9h5.859"/><path d="M8 2v3"/><circle cx="16" cy="16" r="6"/>',
+  circleX:'<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
+  userX:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" x2="22" y1="8" y2="13"/><line x1="22" x2="17" y1="8" y2="13"/>',
+  calX:'<path d="M8 2v3"/><path d="M16 2v3"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="m14 13-4 4"/><path d="m10 13 4 4"/>',
+  filePlus:'<path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M9 15h6"/><path d="M12 18v-6"/>',
+  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  lock:'<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  mail:'<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
+  phone:'<path d="M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384"/>',
+  menu:'<path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/>',
+  arrowRight:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  dog:'<path d="M11.25 16.25h1.5L12 17z"/><path d="M16 14v.5"/><path d="M4.42 11.247A13.152 13.152 0 0 0 4 14.556C4 18.728 7.582 21 12 21s8-2.272 8-6.444a11.702 11.702 0 0 0-.493-3.309"/><path d="M8 14v.5"/><path d="M8.5 8.5c-.384 1.05-1.083 2.028-2.344 2.5-1.931.722-3.576-.297-3.656-1-.113-.994 1.177-6.53 4-7 1.923-.321 3.651.845 3.651 2.235A7.497 7.497 0 0 1 14 5.277c0-1.39 1.844-2.598 3.767-2.277 2.823.47 4.113 6.006 4 7-.08.703-1.725 1.722-3.656 1-1.261-.472-1.855-1.45-2.239-2.5"/>',
+  cat:'<path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z"/><path d="M8 14v.5"/><path d="M16 14v.5"/><path d="M11.25 16.25h1.5L12 17l-.75-.75Z"/>',
+  rabbit:'<path d="M13 16a3 3 0 0 1 2.24 5"/><path d="M18 12h.01"/><path d="M18 21h-8a4 4 0 0 1-4-4 7 7 0 0 1 7-7h.2L9.6 6.4a1 1 0 1 1 2.8-2.8L15.8 7h.2c3.3 0 6 2.7 6 6v1a2 2 0 0 1-2 2h-1a3 3 0 0 0-3 3"/><path d="M20 8.54V4a2 2 0 1 0-4 0v3"/><path d="M7.612 12.524a3 3 0 1 0-1.6 4.3"/>',
+  bird:'<path d="M16 7h.01"/><path d="M3.4 18H12a8 8 0 0 0 8-8V7a4 4 0 0 0-7.28-2.3L2 20"/><path d="m20 7 2 .5-2 .5"/><path d="M10 18v3"/><path d="M14 17.75V21"/><path d="M7 18a6 6 0 0 0 3.84-10.61"/>',
+  image:'<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>'
+};
+// Thin-stroke variant for the pet placeholders
+const outline = (n, c) =>
+  `<svg class="${c}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+const ic = (n, c = 'size-5 shrink-0') =>
+  `<svg class="${c}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// ---------- Shell: Option B sidebar + top bar ----------
+const navLink = (i, l, active = false, badge = '') =>
+  `<a class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base ${active ? 'bg-white font-semibold text-violet-800 shadow-sm ring-1 ring-violet-200' : 'text-gray-800'}">${ic(i)}<span class="flex-1">${l}</span>${badge ? `<span class="rounded-full bg-violet-600 px-2 text-sm font-semibold text-white">${badge}</span>` : ''}</a>`;
+const group = t => `<p class="px-3 pb-1 pt-4 text-sm font-semibold text-violet-800">${t}</p>`;
+const sidebar = () => `
+<aside class="flex w-72 shrink-0 flex-col border-r border-violet-200 bg-violet-100">
+  <div class="flex items-center gap-3 border-b border-violet-200 px-5 py-4">
+    <span class="grid size-10 shrink-0 place-content-center rounded-lg bg-violet-600 text-white">${ic('paw')}</span>
+    <div><p class="text-base font-semibold">Hapi Tutz Vet Supplies</p><p class="text-sm text-gray-700">Admin</p></div>
+  </div>
+  <nav class="flex-1 px-3 pb-3 pt-1">
+    ${group('Daily work')}<div class="space-y-1">${navLink('home','Dashboard')}${navLink('calendar','Appointments',true,5)}${navLink('users','Pet owners')}${navLink('paw','Pets',false,1)}</div>
+    ${group('Records')}<div class="space-y-1">${navLink('fileText','Medical records')}${navLink('syringe','Vaccinations')}${navLink('book','Health library')}</div>
+    ${group('Clinic')}<div class="space-y-1">${navLink('receipt','Billing')}${navLink('settings','Clinic settings')}</div>
+  </nav>
+  <div class="border-t border-violet-200 px-3 py-3">${navLink('logout','Log out')}</div>
+</aside>`;
+const topbar = () => `
+<div class="flex items-center gap-4 border-b border-gray-200 bg-white px-8 py-3">
+  <span class="flex min-h-11 w-[26rem] items-center gap-3 rounded-lg border border-gray-300 bg-white px-4 text-base text-gray-600">${ic('search')}Find a pet or owner</span>
+  <span class="flex-1"></span>
+  <span class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800">${ic('bell')}Notifications<span class="rounded-full bg-red-600 px-2 text-sm font-semibold text-white">1</span></span>
+</div>`;
+const shell = (body, overlay = '') => `
+<div class="relative flex min-h-[720px] w-[1280px] overflow-hidden rounded-xl border border-gray-300 bg-gray-50 shadow-sm">
+  ${sidebar()}
+  <div class="flex min-w-0 flex-1 flex-col">${topbar()}<main class="flex-1 p-8">${body}</main></div>
+  ${overlay}
+</div>`;
+
+// ---------- Page parts ----------
+const walkinTag = `<span class="rounded-full bg-violet-100 px-3 py-1 text-sm font-semibold text-violet-800">Walk-in</span>`;
+// Pet photo: Pet.photo when uploaded, otherwise a species outline picked from the free-text species
+const pets = { Brownie: 'dog', Kitty: 'cat', Choco: 'dog', Bantay: 'dog', Max: 'dog' };
+const hasPhoto = { Brownie: true };
+const sizes = {
+  lg: { box: 'size-16 rounded-2xl', icon: 'size-9 shrink-0' },
+  sm: { box: 'size-10 rounded-xl', icon: 'size-6 shrink-0' }
+};
+// Grey block with a picture icon = stand-in for a real uploaded photo
+const photoStandIn = (size = 'lg') =>
+  `<span class="grid ${sizes[size].box} shrink-0 place-content-center bg-gradient-to-br from-stone-300 to-stone-500 text-white ring-1 ring-black/10">${ic('image', size === 'lg' ? 'size-7 shrink-0' : 'size-5 shrink-0')}</span>`;
+const placeholder = (species, size = 'lg', label = '') =>
+  `<span class="grid ${sizes[size].box} shrink-0 place-content-center bg-violet-50 text-violet-600 ring-1 ring-violet-200" role="img" aria-label="${label}">${outline(species, sizes[size].icon)}</span>`;
+// Owner picture: PetOwner.profile_photo when uploaded, otherwise initials in a circle
+const ownerSizes = {
+  sm: 'size-10 text-base',
+  xs: 'size-8 text-sm'
+};
+const initials = name => {
+  const parts = name.trim().split(/\s+/);
+  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+};
+const ownerAvatar = (name, size = 'xs') =>
+  `<span class="grid ${ownerSizes[size]} shrink-0 place-content-center rounded-full bg-violet-50 font-semibold tracking-wide text-violet-700 ring-1 ring-violet-200" role="img" aria-label="${name}">${initials(name)}</span>`;
+const ownerPhotoStandIn = (size = 'xs') =>
+  `<span class="grid ${ownerSizes[size]} shrink-0 place-content-center rounded-full bg-gradient-to-br from-stone-300 to-stone-500 text-white ring-1 ring-black/10">${ic('image', size === 'sm' ? 'size-5 shrink-0' : 'size-4 shrink-0')}</span>`;
+const ownerCell = (name, phone) =>
+  `<span class="inline-flex flex-wrap items-center gap-3">${ownerAvatar(name, 'xs')}<span>${link(name)} · ${phone}</span></span>`;
+
+const avatar = name => hasPhoto[name]
+  ? photoStandIn('lg')
+  : placeholder(pets[name] || 'paw', 'lg', `No photo of ${name} yet`);
+const head = (title, tag = '') => `
+<a class="mb-2 inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600">${ic('arrowLeft')}Back to appointments</a>
+<div class="mb-5 flex flex-wrap items-center gap-4">${avatar(title.split(' · ')[0])}<h1 class="text-2xl font-bold">${title}</h1>${tag}</div>`;
+
+const tones = {
+  yellow:'border-yellow-300 bg-yellow-50 text-yellow-900',
+  orange:'border-orange-300 bg-orange-50 text-orange-900',
+  blue:'border-blue-200 bg-blue-50 text-blue-900',
+  green:'border-green-200 bg-green-50 text-green-900',
+  red:'border-red-200 bg-red-50 text-red-900',
+  gray:'border-gray-300 bg-gray-100 text-gray-900'
+};
+const banner = (t, i, h, p) => `
+<div class="mb-6 flex items-start gap-3 rounded-xl border px-5 py-4 ${tones[t]}">${ic(i, 'mt-0.5 size-6 shrink-0')}
+  <div><p class="text-lg font-semibold">${h}</p><p class="mt-0.5 text-base">${p}</p></div></div>`;
+
+const link = t => `<a class="font-medium text-blue-600 underline underline-offset-2">${t}</a>`;
+const muted = t => `<span class="text-gray-600">${t}</span>`;
+const details = (rows, stacked = false) => `
+<section class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+  <h2 class="mb-2 text-xl font-semibold">Appointment details</h2>
+  <dl class="divide-y divide-gray-100">
+    ${rows.map(([t, d]) => stacked
+      ? `<div class="py-3"><dt class="text-sm text-gray-600">${t}</dt><dd class="mt-0.5 text-base text-gray-900">${d}</dd></div>`
+      : `<div class="grid grid-cols-[10rem_1fr] gap-3 py-3"><dt class="text-base text-gray-600">${t}</dt><dd class="text-base text-gray-900">${d}</dd></div>`).join('')}
+  </dl>
+</section>`;
+
+const notes = (v = '', saved = '') => `
+<section class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+  <div class="mb-1 flex flex-wrap items-center gap-3"><h2 class="text-xl font-semibold">Internal notes</h2>
+    <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 text-sm font-medium text-gray-800">${ic('lock','size-4 shrink-0')}Clinic only</span></div>
+  <p class="mb-3 text-base text-gray-600">Only the clinic can see these. The pet owner never sees them.</p>
+  <textarea class="block min-h-28 w-full rounded-lg border border-gray-300 p-3 text-base" placeholder="For example: nervous with strangers, use a muzzle.">${v}</textarea>
+  <div class="mt-3 flex flex-wrap items-center gap-3">
+    <span class="inline-flex min-h-11 items-center rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800">Save notes</span>
+    ${saved ? `<span class="text-sm text-gray-600">Last saved ${saved}</span>` : ''}
+  </div>
+</section>`;
+
+const B = {
+  primary:'bg-violet-600 text-white',
+  outline:'border border-gray-300 bg-white text-gray-800',
+  danger:'border border-red-300 bg-white text-red-700'
+};
+const btn = (k, i, l) => `<span class="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg px-4 text-base font-semibold ${B[k]}">${ic(i)}${l}</span>`;
+const divider = `<hr class="!my-4 border-gray-200">`;
+const hint = (i, t) => `<p class="flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-3 text-sm text-gray-700">${ic(i,'mt-0.5 size-4 shrink-0')}<span>${t}</span></p>`;
+const foot = (i, t) => `<p class="mt-4 flex items-start gap-2 border-t border-gray-100 pt-4 text-sm text-gray-700">${ic(i,'mt-0.5 size-4 shrink-0')}<span>${t}</span></p>`;
+const actions = (title, items, footer = '') => `
+<section class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+  <h2 class="mb-4 text-xl font-semibold">${title}</h2>
+  <div class="space-y-3">${items.join('')}</div>${footer}
+</section>`;
+const grid = (left, right) => `<div class="grid grid-cols-[minmax(0,1fr)_20rem] items-start gap-6"><div class="space-y-6">${left}</div><div>${right}</div></div>`;
+
+// ---------- Sample data ----------
+const brownie = [
+  ['Pet', `${link('Brownie')} · Dog, Aspin`],
+  ['Owner', ownerCell('Liza Cruz', '0917 123 4567')],
+  ['Service', 'Grooming'],
+  ['Date and time', 'Monday, November 2, 2026 at 2:00 PM'],
+  ['Reason for visit', 'Bath and nail trim, getting itchy lately.'],
+  ['Booked', 'Sat, Oct 31 at 3:48 PM, online by the owner']
+];
+const kitty = [
+  ['Pet', `${link('Kitty')} · Cat, Puspin`],
+  ['Owner', ownerCell('Rosa Santos', '0919 876 5432')],
+  ['Service', 'Check-up'],
+  ['Date and time', 'Thursday, October 29, 2026 at 9:30 AM'],
+  ['Reason for visit', 'Not eating well for two days.'],
+  ['Booked', 'Tue, Oct 27 at 8:12 PM, online by the owner']
+];
+const choco = [
+  ['Pet', `${link('Choco')} · Dog, Shih Tzu`],
+  ['Owner', ownerCell('Ana Villanueva', '0918 555 0101')],
+  ['Service', 'Deworming'],
+  ['Date and time', 'Today, Saturday, October 31 at 11:00 AM'],
+  ['Reason for visit', 'Routine deworming.'],
+  ['Booked', 'Today, 10:52 AM, walk-in added by the clinic']
+];
+const bantay = [
+  ['Pet', `${link('Bantay')} · Dog, Aspin`],
+  ['Owner', ownerCell('Maria Reyes', '0927 222 3344')],
+  ['Service', 'Check-up'],
+  ['Date and time', 'Today, Saturday, October 31 at 9:00 AM'],
+  ['Reason for visit', 'Limping on the back left leg.'],
+  ['Booked', 'Thu, Oct 29 at 6:05 PM, online by the owner'],
+  ['Medical record', `${link('Open medical record')} ${muted('· added Today, 9:40 AM')}`],
+  ['Receipt', muted('Not created yet')]
+];
+const max = [
+  ['Pet', `${link('Max')} · Dog, Labrador`],
+  ['Owner', ownerCell('Rosa Dela Cruz', '0920 444 7788')],
+  ['Service', 'Vaccination'],
+  ['Date and time', 'Wednesday, November 4, 2026 at 1:00 PM'],
+  ['Reason for visit', 'Yearly rabies shot.'],
+  ['Booked', 'Fri, Oct 30 at 7:20 PM, online by the owner'],
+  ['Declined', 'Today, 9:15 AM'],
+  ['Message to owner', '“We\'re fully booked that afternoon. Could you pick another day?”']
+];
+
+// ---------- Pages ----------
+const pendingPage = () => shell(
+  head('Brownie · Grooming') +
+  banner('yellow', 'clock', 'Waiting for your approval',
+    'Liza Cruz asked for Mon, Nov 2 at 2:00 PM online. Approve it, move it to another time, or decline it.') +
+  grid(details(brownie) + notes(),
+    actions('What would you like to do?', [
+      btn('primary','check','Approve request'),
+      btn('outline','calClock','Move to another time'),
+      divider,
+      btn('danger','circleX','Decline request')
+    ], foot('mail', 'Liza Cruz gets an email whichever you choose.')))
+);
+
+const states = [
+  {
+    id: 'pending', label: '1 · Pending',
+    caption: `<b>Pending request.</b> Changes from v1: “Suggest another time” is now <b>“Move to another time”</b>, Decline sits below a divider, and the email line only shows when the owner has an email address. <b>Pet photo</b> next to the title (the grey picture block stands in for a real uploaded photo). Pets without a photo get a species outline; see state 2 (cat) and state 4 (dog), or state 11 for the full set.`,
+    html: pendingPage()
+  },
+  {
+    id: 'past', label: '2 · Pending, date passed',
+    caption: `<b>New state.</b> The request date has passed, so <b>Approve is hidden</b> and Move becomes the main button. Needs a small backend check plus a test so Approve is also refused on the server. <b>Decision:</b> do you want this?`,
+    html: shell(
+      head('Kitty · Check-up') +
+      banner('orange', 'alert', 'This date has already passed',
+        'Rosa Santos asked for Thu, Oct 29 at 9:30 AM, but it wasn\'t approved in time. Move it to another time or decline it.') +
+      grid(details(kitty) + notes(),
+        actions('What would you like to do?', [
+          btn('primary','calClock','Move to another time'),
+          divider,
+          btn('danger','circleX','Decline request')
+        ], foot('mail', 'Rosa Santos gets an email whichever you choose.'))))
+  },
+  {
+    id: 'future', label: '3 · Confirmed, later date',
+    caption: `<b>Confirmed, not today.</b> “Mark as completed” and “No-show” are <b>hidden</b> until the visit day (the backend already refuses them). A grey hint says when they appear, so the vet isn't left wondering where they went.`,
+    html: shell(
+      head('Brownie · Grooming') +
+      banner('blue', 'circleCheck', 'Confirmed for Mon, Nov 2 at 2:00 PM',
+        'On the day of the visit, you can mark it as completed, or as a no-show if the pet doesn\'t come.') +
+      grid(details(brownie) + notes('Nervous with strangers. Use a muzzle for nail trim.', 'Today, 10:15 AM'),
+        actions('What would you like to do?', [
+          hint('info', '“Mark as completed” appears here on Mon, Nov 2.'),
+          btn('outline','calClock','Move to another time'),
+          divider,
+          btn('danger','calX','Cancel appointment')
+        ], foot('mail', 'Liza Cruz gets an email if you move or cancel it.'))))
+  },
+  {
+    id: 'today', label: '4 · Confirmed today (walk-in)',
+    caption: `<b>Confirmed for today, walk-in, owner has no email.</b> Walk-in tag next to the title. With no email on file, the footer says so and shows the phone number instead.`,
+    html: shell(
+      head('Choco · Deworming', walkinTag) +
+      banner('blue', 'circleCheck', 'Confirmed for today at 11:00 AM',
+        'After the visit, mark it as completed. If the pet didn\'t come, mark it as a no-show.') +
+      grid(details(choco) + notes(),
+        actions('What would you like to do?', [
+          btn('primary','check','Mark as completed'),
+          btn('outline','userX','Pet didn\'t come (no-show)'),
+          divider,
+          btn('outline','calClock','Move to another time'),
+          btn('danger','calX','Cancel appointment')
+        ], foot('phone', 'Ana Villanueva has no email address, so no email is sent. Call 0918 555 0101 if anything changes.'))))
+  },
+  {
+    id: 'completed', label: '5 · Completed',
+    caption: `<b>Completed, medical record added, no receipt yet.</b> The details list shows what's linked. The main button is whatever is still missing. When both exist, both buttons become “Open …” and the banner says “All done for this visit”.`,
+    html: shell(
+      head('Bantay · Check-up') +
+      banner('green', 'circleCheck', 'Completed today',
+        'The medical record is added. One thing left: create the receipt.') +
+      grid(details(bantay) + notes(),
+        actions('Next steps', [
+          btn('primary','receipt','Create receipt'),
+          btn('outline','fileText','Open medical record')
+        ], foot('info', 'The receipt is linked to this visit automatically.'))))
+  },
+  {
+    id: 'declined', label: '6 · Declined / cancelled',
+    caption: `<b>Read-only.</b> No action buttons. The message sent to the owner is shown in the details. Notes can still be edited. Cancelled uses the same layout with a red banner (“Cancelled by the owner” or “by the clinic”, plus the reason); no-show uses a grey banner.`,
+    html: shell(
+      head('Max · Vaccination') +
+      banner('red', 'circleX', 'Declined by the clinic',
+        'This request was declined today at 9:15 AM. Rosa Dela Cruz was emailed.') +
+      grid(details(max) + notes(),
+        actions('Nothing more to do', [
+          hint('info', 'Declined and cancelled appointments can\'t be changed. To see Max again, add a walk-in or ask the owner to book online.')
+        ])))
+  },
+  {
+    id: 'approve', label: '7 · Dialog: Approve',
+    caption: `<b>Every status change asks first.</b> The ring shows where keyboard focus starts: on <b>“Go back”</b>, the safe choice. Escape and clicking outside also close it.`,
+    html: shell(
+      head('Brownie · Grooming') +
+      banner('yellow','clock','Waiting for your approval','Liza Cruz asked for Mon, Nov 2 at 2:00 PM online. Approve it, move it to another time, or decline it.') +
+      grid(details(brownie) + notes(), actions('What would you like to do?', [btn('primary','check','Approve request'), btn('outline','calClock','Move to another time'), divider, btn('danger','circleX','Decline request')])),
+      dialogBox(`
+        <h2 class="text-xl font-bold">Approve Brownie's request?</h2>
+        <p class="mt-2 text-base text-gray-700">Grooming on <b>Mon, Nov 2 at 2:00 PM</b>. Liza Cruz will get an email saying it's confirmed.</p>
+        ${dialogButtons('Yes, approve request','bg-violet-600','check')}`))
+  },
+  {
+    id: 'decline', label: '8 · Dialog: Decline',
+    caption: `<b>Decline with an optional message</b> (500 characters max). The message is added to the owner's email and shown on this page afterwards.`,
+    html: shell(
+      head('Brownie · Grooming') +
+      banner('yellow','clock','Waiting for your approval','Liza Cruz asked for Mon, Nov 2 at 2:00 PM online. Approve it, move it to another time, or decline it.') +
+      grid(details(brownie) + notes(), actions('What would you like to do?', [btn('primary','check','Approve request'), btn('outline','calClock','Move to another time'), divider, btn('danger','circleX','Decline request')])),
+      dialogBox(`
+        <h2 class="text-xl font-bold">Decline Brownie's request?</h2>
+        <p class="mt-2 text-base text-gray-700">Grooming on <b>Mon, Nov 2 at 2:00 PM</b>. Liza Cruz will get an email saying it wasn't confirmed.</p>
+        <label class="mt-5 block text-base font-medium text-gray-800">Message to the owner <span class="font-normal text-gray-600">(optional)</span></label>
+        <textarea class="mt-1.5 block min-h-24 w-full rounded-lg border border-gray-300 p-3 text-base">We're fully booked that afternoon. Could you pick another day?</textarea>
+        <p class="mt-1 text-sm text-gray-600">62 of 500 characters</p>
+        ${dialogButtons('Yes, decline request','bg-red-600','circleX')}`))
+  },
+  {
+    id: 'move', label: '9 · Dialog: Move',
+    caption: `<b>Move to another time.</b> <b>Decision:</b> free times as <b>big buttons</b> instead of a dropdown (easier to read and click). The chosen date is repeated in words under the date box. <b>To verify in the audit:</b> when a <i>pending</i> request is moved, does it stay pending or become confirmed? The wording here is neutral until we know.`,
+    html: shell(
+      head('Brownie · Grooming') +
+      banner('blue','circleCheck','Confirmed for Mon, Nov 2 at 2:00 PM','On the day of the visit, you can mark it as completed, or as a no-show if the pet doesn\'t come.') +
+      grid(details(brownie) + notes(), actions('What would you like to do?', [btn('outline','calClock','Move to another time'), divider, btn('danger','calX','Cancel appointment')])),
+      dialogBox(moveDialog(false), 'max-w-2xl'))
+  },
+  {
+    id: 'moveerr', label: '10 · Dialog: Move with error',
+    caption: `<b>Error after saving.</b> The dialog reopens by itself with the message at the top and under the date box. The date and reason the vet typed are kept.`,
+    html: shell(
+      head('Brownie · Grooming') +
+      banner('blue','circleCheck','Confirmed for Mon, Nov 2 at 2:00 PM','On the day of the visit, you can mark it as completed, or as a no-show if the pet doesn\'t come.') +
+      grid(details(brownie) + notes(), actions('What would you like to do?', [btn('outline','calClock','Move to another time'), divider, btn('danger','calX','Cancel appointment')])),
+      dialogBox(moveDialog(true), 'max-w-2xl'))
+  },
+  {
+    id: 'placeholders', label: '11 · Pet & owner pictures',
+    caption: `<b>Default pictures when no photo is uploaded.</b> <b>Pets:</b> thin species outline on a light violet <b>rounded square</b>, picked by matching words in the free-text species. <b>Owners:</b> initials on the same light violet tile, but in a <b>circle</b>, so people and pets are never confused. Two initials (first + last name), one letter if there's only one name. An uploaded photo always wins for both.`,
+    html: placeholderSheet()
+  },
+  {
+    id: 'phone', label: '12 · Phone',
+    caption: `<b>Phone width.</b> The actions card moves <b>above</b> the details, so the buttons are the first thing the vet sees. The sidebar becomes a “Menu” button.`,
+    html: phoneView()
+  }
+];
+
+// ---------- Dialog helpers ----------
+function dialogBox(inner, width = 'max-w-lg') {
+  return `<div class="absolute inset-0 flex items-start justify-center bg-gray-900/50 p-8 pt-20">
+    <div class="w-full ${width} rounded-2xl bg-white p-7 shadow-xl">${inner}</div></div>`;
+}
+function dialogButtons(ok, color, icon) {
+  return `<div class="mt-6 flex flex-wrap justify-end gap-3">
+    <span class="inline-flex min-h-12 items-center rounded-lg border border-gray-300 bg-white px-5 text-base font-semibold text-gray-800 ring-2 ring-violet-400 ring-offset-2">Go back</span>
+    <span class="inline-flex min-h-12 items-center gap-2 rounded-lg px-5 text-base font-semibold text-white ${color}">${ic(icon)}${ok}</span></div>`;
+}
+function moveDialog(err) {
+  const slots = ['9:00 AM','9:30 AM','10:00 AM','10:30 AM','1:00 PM','1:30 PM','3:00 PM','3:30 PM'];
+  const times = err
+    ? `<p class="rounded-lg border border-dashed border-gray-300 px-4 py-5 text-center text-base text-gray-600">Pick a valid date to see the free times.</p>`
+    : `<div class="grid grid-cols-4 gap-2">${slots.map(s => `<span class="inline-flex min-h-12 items-center justify-center rounded-lg border text-base font-medium ${s === '10:30 AM' ? 'border-violet-600 bg-violet-600 text-white' : 'border-gray-300 bg-white text-gray-800'}">${s === '10:30 AM' ? ic('check','size-4 shrink-0 mr-1') : ''}${s}</span>`).join('')}</div>`;
+  return `
+    <h2 class="text-xl font-bold">Move Brownie to another time</h2>
+    <p class="mt-1 text-base text-gray-700">Right now: <b>Mon, Nov 2 at 2:00 PM</b> · Grooming</p>
+    ${err ? `<div class="mt-4 flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-base text-red-900">${ic('alert','mt-0.5 size-5 shrink-0')}<p>Please correct the errors below.</p></div>` : ''}
+    <label class="mt-5 block text-base font-medium text-gray-800">New date</label>
+    <span class="mt-1.5 flex min-h-12 w-64 items-center justify-between rounded-lg border ${err ? 'border-red-600' : 'border-gray-300'} px-4 text-lg">${err ? '10/31/2026' : '11/03/2026'}${ic('calendar','size-5 shrink-0 text-gray-600')}</span>
+    ${err ? `<p class="mt-1.5 text-base font-medium text-red-700">Cannot reschedule to a past date.</p>`
+          : `<p class="mt-1.5 text-base text-gray-700">Tuesday, November 3, 2026</p>`}
+    <p class="mt-5 text-base font-medium text-gray-800">Free times${err ? '' : ' on Tue, Nov 3'}</p>
+    <div class="mt-1.5">${times}</div>
+    <label class="mt-5 block text-base font-medium text-gray-800">Reason for the change</label>
+    <textarea class="mt-1.5 block min-h-20 w-full rounded-lg border border-gray-300 p-3 text-base">The vet is away on Monday afternoon.</textarea>
+    <p class="mt-4 flex items-start gap-2 text-sm text-gray-700">${ic('mail','mt-0.5 size-4 shrink-0')}Liza Cruz will get an email with the new date and time.</p>
+    ${dialogButtons('Move appointment','bg-violet-600','calClock')}`;
+}
+
+// ---------- Placeholder reference sheet ----------
+function placeholderSheet() {
+  const rows = [
+    ['dog', 'Dog', '“dog”, “puppy”'],
+    ['cat', 'Cat', '“cat”, “kitten”'],
+    ['rabbit', 'Rabbit', '“rabbit”, “bunny”'],
+    ['bird', 'Bird', '“bird”, “parrot”, “chicken”, “lovebird”'],
+    ['paw', 'Anything else', 'hamster, turtle, goat, blank…']
+  ];
+  const card = ([i, name, match]) => `
+    <div class="flex items-center gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+      ${placeholder(i, 'lg', name)}${placeholder(i, 'sm', name)}
+      <div><p class="text-lg font-semibold">${name}</p><p class="text-base text-gray-600">Species contains ${match}</p></div>
+    </div>`;
+  const listRow = (pic, pet, owner, time) => `
+    <li class="flex items-center gap-4 py-3">${pic}
+      <div class="flex-1"><p class="text-base font-medium">${pet}</p><p class="text-sm text-gray-600">${owner}</p></div>
+      <span class="text-base text-gray-600">${time}</span></li>`;
+  return `<div class="w-[1280px] space-y-6 rounded-xl border border-gray-300 bg-gray-50 p-8">
+    <div class="grid grid-cols-2 gap-4">${rows.map(card).join('')}
+      <div class="flex items-center gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        ${photoStandIn('lg')}${photoStandIn('sm')}
+        <div><p class="text-lg font-semibold">Uploaded photo</p><p class="text-base text-gray-600">Always wins. Cropped to a square, never stretched.</p></div>
+      </div>
+    </div>
+    <section class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <h2 class="text-xl font-semibold">Owners: initials in a circle</h2>
+      <p class="mt-1 text-base text-gray-600">40 px for lists and the owner pages, 32 px inside the appointment details.</p>
+      <div class="mt-4 flex flex-wrap gap-6">
+        ${[['Liza Cruz'], ['Rosa Dela Cruz'], ['Ana Villanueva'], ['Krys']].map(([n]) => `
+          <div class="flex items-center gap-3">${ownerAvatar(n, 'sm')}${ownerAvatar(n, 'xs')}
+            <div><p class="text-base font-medium">${n}</p><p class="text-sm text-gray-600">Shows “${initials(n)}”</p></div></div>`).join('')}
+        <div class="flex items-center gap-3">${ownerPhotoStandIn('sm')}${ownerPhotoStandIn('xs')}
+          <div><p class="text-base font-medium">Uploaded photo</p><p class="text-sm text-gray-600">Always wins</p></div></div>
+      </div>
+    </section>
+    <section class="max-w-xl rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <h2 class="text-xl font-semibold">How pets look in a list (40 px)</h2>
+      <ul class="mt-2 divide-y divide-gray-100">
+        ${listRow(photoStandIn('sm'), 'Brownie · Grooming', 'Liza Cruz', '2:00 PM')}
+        ${listRow(placeholder('cat','sm','Cat'), 'Kitty · Check-up', 'Rosa Santos', '9:30 AM')}
+        ${listRow(placeholder('dog','sm','Dog'), 'Choco · Deworming', 'Ana Villanueva', '11:00 AM')}
+        ${listRow(placeholder('bird','sm','Bird'), 'Kiwi · Check-up', 'Paolo Santos', '3:00 PM')}
+        ${listRow(placeholder('paw','sm','Pet'), 'Shelly · Check-up', 'Jose Mendoza', '3:30 PM')}
+      </ul>
+    </section>
+  </div>`;
+}
+
+// ---------- Phone view ----------
+function phoneView() {
+  return `<div class="w-[390px] overflow-hidden rounded-[2rem] border-8 border-gray-800 bg-gray-50 shadow-lg">
+    <div class="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-3">
+      <span class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 px-3 text-base font-medium">${ic('menu')}Menu</span>
+      <span class="flex-1 truncate text-base font-semibold">Hapi Tutz Vet</span>
+      <span class="inline-flex min-h-11 items-center rounded-lg border border-gray-300 px-3 text-gray-800">${ic('bell')}</span>
+    </div>
+    <div class="space-y-5 p-4">
+      <div>${head('Choco · Deworming', walkinTag)}</div>
+      <div class="-mt-5">${banner('blue','circleCheck','Confirmed for today at 11:00 AM','After the visit, mark it as completed. If the pet didn\'t come, mark it as a no-show.')}</div>
+      <div class="-mt-5">${actions('What would you like to do?', [
+          btn('primary','check','Mark as completed'),
+          btn('outline','userX','Pet didn\'t come (no-show)'),
+          divider,
+          btn('outline','calClock','Move to another time'),
+          btn('danger','calX','Cancel appointment')
+        ], foot('phone','No email on file. Call 0918 555 0101 if anything changes.'))}</div>
+      ${details(choco, true)}
+      ${notes()}
+    </div></div>`;
+}
+
+// ---------- Switcher ----------
+const sw = document.getElementById('switcher');
+function show(id) {
+  const s = states.find(x => x.id === id);
+  document.getElementById('stage').innerHTML = s.html;
+  document.getElementById('caption').innerHTML = s.caption;
+  [...sw.children].forEach(b => {
+    const on = b.dataset.id === id;
+    b.className = 'min-h-11 rounded-lg px-4 text-base font-medium ' +
+      (on ? 'bg-violet-600 text-white' : 'border border-gray-300 bg-white text-gray-800 hover:bg-gray-50');
+  });
+}
+states.forEach(s => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.dataset.id = s.id; b.textContent = s.label;
+  b.onclick = () => show(s.id);
+  sw.appendChild(b);
+});
+show('pending');
+</script>
+</body>
+</html>
