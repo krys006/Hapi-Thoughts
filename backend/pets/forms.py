@@ -3,8 +3,6 @@
 from django import forms
 from django.forms import formset_factory
 
-from .models import ContactLink, Pet, PetOwner
-
 from .models import ContactLink, Pet, PetDeletionRequest, PetOwner
 
 
@@ -122,10 +120,8 @@ class PetForm(forms.ModelForm):
         ]
         widgets = {
             "name": forms.TextInput(attrs={"placeholder": "Pet's name"}),
-            # NOTE for frontend teammate:
-            # species and breed are plain text inputs for now.
-            # Phase 7 will upgrade these to a cascading dropdown with HTMX.
-            # Do not wire up JS dropdowns yet — keep as text inputs.
+            # species and breed are plain text inputs; a cascading
+            # dropdown is planned for later.
             "species": forms.TextInput(attrs={"placeholder": "e.g. Dog, Cat, Bird"}),
             "breed": forms.TextInput(
                 attrs={"placeholder": "e.g. Aspin, Persian (optional)"}
@@ -193,7 +189,9 @@ class PetDeletionRequestForm(forms.ModelForm):
             "reason_detail": forms.Textarea(
                 attrs={
                     "rows": 3,
-                    "placeholder": "Please describe the reason (required if Other is selected)",
+                    "placeholder": (
+                        "Please describe the reason (required if Other is selected)"
+                    ),
                 }
             ),
         }
@@ -291,6 +289,12 @@ class AdminPetOwnerForm(forms.ModelForm):
         # Saved lowercase; the check ignores case so "Ana@x.com" matches "ana@x.com"
         email = self.cleaned_data.get("email", "").strip().lower()
         if not email:
+            # Once added, an email can be changed but not cleared
+            if self.current_user and self.current_user.email:
+                raise forms.ValidationError(
+                    "An email can't be removed once added. "
+                    "Type a new email to change it."
+                )
             return email
         from django.contrib.auth import get_user_model
 

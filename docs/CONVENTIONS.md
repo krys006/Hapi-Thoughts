@@ -392,6 +392,7 @@ urlpatterns = [
 /admin/appointments/walk-in/    ← appointments (walk-in step 1; visit/ is steps 2–3)
 /admin/settings/                ← appointments (clinic settings)
 /admin/pets/  /admin/pets/owners/  ← pets
+/admin/pets/owners/<pk>/resend-link/  ← pets (POST: send the set-password link again)
 /admin/medical/  /admin/vaccinations/  ← medical
 /admin/billing/  /admin/services/  ← billing
 /admin/health/                  ← health

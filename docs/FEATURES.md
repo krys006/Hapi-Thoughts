@@ -130,10 +130,10 @@ Phase 7 — Dashboards & Polish
 | Registration number | Optional | Government-issued |
 | Name | Required | — |
 | Species | Required | Dropdown + custom input |
-| Breed | Required | Cascading dropdown based on species + custom input |
+| Breed | Optional | Cascading dropdown based on species + custom input |
 | Color | Optional | — |
 | Gender | Required | Male / Female / Unknown |
-| Date of birth | Required | — |
+| Date of birth | Optional | Can't be in the future |
 | Age | Auto | Calculated from date of birth |
 | Weight | Optional | In kg |
 
@@ -145,6 +145,8 @@ Phase 7 — Dashboards & Polish
 | Filter pet owners | `complete` |
 | View individual pet owner profile and their pets | `complete` |
 | Create pet owner account manually (for walk-ins) | `complete` |
+| Add owner without booking a visit (owners list; no pet, no appointment; set-password link sent if an email is given) | `complete` |
+| Resend the set-password link (owner has an email but no password yet) | `complete` |
 | Edit pet owner details | `complete` |
 | Archive pet owner account (soft delete) | `complete` |
 | Restore archived pet owner account | `complete` |
@@ -164,7 +166,7 @@ Phase 7 — Dashboards & Polish
 | Pet owner receives one-time link to set their own password | `complete` |
 | If no email provided — account saved, claim email sent when email is added later | `complete` |
 | Emails saved lowercase; an email already used by another account (in any letter case) is refused | `complete` |
-| Claim email sent after the owner is saved; if sending fails, the owner and pet stay saved and the admin sees a warning (no resend button yet) | `complete` |
+| Claim email sent after the owner is saved; if sending fails, the owner and pet stay saved and the admin sees a warning (resend from the owner page) | `complete` |
 | Only one owner without an email can be saved for now (plain message for a second one; nullable email planned) | `complete` |
 | Admin creates appointment directly as CONFIRMED for walk-in (see 3.5 Walk-in rules) | `complete` |
 | Walk-in in three steps: 1 Who is it for? (search by owner name, pet name or phone, or add a New owner with their pet; the pet is required), 2 The visit (pet, date, time, optional service and reason), 3 Check and book (summary; nothing is saved until "Book walk-in") | `complete` |

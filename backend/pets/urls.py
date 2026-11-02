@@ -132,4 +132,9 @@ urlpatterns = [
         views.admin_owner_add_email,
         name="admin_owner_add_email",
     ),
+    path(
+        "admin/pets/owners/<int:pk>/resend-link/",
+        views.admin_owner_resend_link,
+        name="admin_owner_resend_link",
+    ),
 ]
