@@ -1286,8 +1286,26 @@ class DashboardMarkupTests(DashboardV5TestBase):
 
     # Needs approval
 
-    def test_needs_approval_absent_without_requests(self, _now):
-        self.assertNotIn("Needs approval", self._html())
+    def test_needs_approval_shown_without_requests(self, _now):
+        card = _part(self._html(), 'id="needs-approval-title"')
+        self.assertIn("Needs approval", card)
+        self.assertIn("None waiting", card)
+        self.assertIn(
+            "No visit requests to review right now. "
+            "New requests from pet owners will show up here.",
+            card,
+        )
+        self.assertNotIn("Review", card)
+        self.assertNotIn("<a ", card)
+        self.assertNotIn("border-yellow-300", card)
+
+    def test_needs_approval_with_one_request(self, _now):
+        self._booking(PICKED_DAY, 9, Appointment.PENDING)
+        card = _part(self._html(), 'id="needs-approval-title"')
+        self.assertIn("1 waiting", card)
+        self.assertIn("border-yellow-300", card)
+        self.assertIn(">Review</a>", card)
+        self.assertNotIn("None waiting", card)
 
     def test_needs_approval_lists_every_request(self, _now):
         past = self._booking(CAL_TODAY - timedelta(days=2), 9, Appointment.PENDING)
@@ -1406,6 +1424,14 @@ class DashboardMarkupTests(DashboardV5TestBase):
         self.assertIn("ring-2 ring-inset ring-violet-600", picked)
         self.assertIn('?date=2026-11-05" hx-target="#day-schedule"', picked)
         self.assertIn('<input type="hidden" name="day" value="2026-11-05">', calendar)
+
+    def test_calendar_has_no_legend(self, _now):
+        self._booking(CAL_TODAY, 9, Appointment.CONFIRMED)
+        self._booking(PICKED_DAY, 9, Appointment.PENDING)
+        calendar = self._calendar(self._html())
+        self.assertNotIn("Has a request waiting", calendar)
+        self.assertNotIn("Visits</span>", calendar)
+        self.assertNotIn("border-t", calendar)
 
     def test_today_button_colour(self, _now):
         home = self._today_button(self._html())

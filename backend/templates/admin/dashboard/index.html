@@ -15,9 +15,7 @@
   {# Left: requests and the day's schedule. Right: the calendar that switches the schedule, then recent activity. Stacks below lg. #}
   <div class="grid gap-6 lg:grid-cols-3 lg:items-start">
     <div class="space-y-6 lg:col-span-2">
-      {% if pending_requests %}
-        {% include "admin/dashboard/dashboard_parts/needs_approval.html" %}
-      {% endif %}
+      {% include "admin/dashboard/dashboard_parts/needs_approval.html" %}
       {# aria-live sits on this wrapper because the card inside is swapped out #}
       <div aria-live="polite">
         {% include "admin/dashboard/_day_schedule.html" %}

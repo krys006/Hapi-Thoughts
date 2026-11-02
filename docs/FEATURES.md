@@ -454,7 +454,7 @@ PENDING or CONFIRMED → CANCELLED
 | Month calendar: month dropdown (3 months back to the end of the booking window), Today button, count per day (yellow when a request is waiting) | `complete` |
 | Click a day to load it into the schedule | `complete` |
 | Stat cards refresh every 60 seconds | `complete` |
-| Needs approval list (every waiting request) | `complete` |
+| Needs approval list (every waiting request; says so when none are waiting) | `complete` |
 | Today's schedule with the next visit marked | `complete` |
 | Recent activity (3 newest notifications) | `complete` |
 | Global search across pet owners, pets, appointments, medical records | `complete` |
