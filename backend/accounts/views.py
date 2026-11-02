@@ -24,7 +24,12 @@ from django.utils.http import (
 )
 
 from accounts.forms import WalkInOwnerForm, WalkInPetForm
-from accounts.utils import create_walkin_owner, send_claim_email
+from accounts.utils import (
+    WALKIN_NO_EMAIL_TAKEN,
+    WALKIN_SAVE_FAILED,
+    create_walkin_owner,
+    send_claim_email,
+)
 from appointments.models import ClinicSettings
 
 from .forms import PetOwnerRegistrationForm
@@ -292,23 +297,13 @@ class HapiVetPasswordResetView(auth_views.PasswordResetView):
 # Walk-in client registration
 # ---------------------------------------------------------------------------
 
-# Second owner saved without an email: User.email is unique, so a second
-# email="" row fails (nullable email is planned, see HANDOFF backlog).
-WALKIN_NO_EMAIL_TAKEN = (
-    "Only one owner without an email can be saved for now. "
-    "Please add an email address for this owner."
-)
-WALKIN_SAVE_FAILED = (
-    "Something went wrong, so this owner was not saved. Please try again."
-)
-
 
 def _claim_email_failed_message(email):
     """Warning when the claim email can't be sent after saving."""
     return (
         f"The claim email to {email} could not be sent. The owner and pet are "
         "saved, but the owner can't set a password until they get this email. "
-        "There is no resend button yet."
+        "Use Send the link again on the owner page later."
     )
 
 

@@ -1,0 +1,34 @@
+{# "Account": can the owner log in, and what the clinic can do about it (account_state from pets/utils.py) #}
+<section class="card" aria-labelledby="account-title">
+  <h2 id="account-title" class="mb-4 text-xl font-semibold">Account</h2>
+  {% if account_state == "active" %}
+    <p class="flex items-start gap-2 text-base text-gray-800">
+      {% include "components/icon.html" with name="circle-check" class="mt-0.5 size-5 shrink-0 text-green-700" %}
+      <span>{{ owner.full_name }} can log in and book online.</span>
+    </p>
+  {% elif account_state == "no_email" %}
+    <p class="flex items-start gap-2 text-base text-gray-800">
+      {% include "components/icon.html" with name="lock" class="mt-0.5 size-5 shrink-0 text-gray-600" %}
+      <span>{{ owner.full_name }} can't log in yet. Add an email and we'll send a link to set a password.</span>
+    </p>
+    <div class="mt-4">
+      <a href="{% url 'admin_owner_add_email' owner.pk %}" class="btn btn-outline min-h-12 w-full font-semibold">{% include "components/icon.html" with name="mail" %}Add email</a>
+    </div>
+  {% elif account_state == "unclaimed" %}
+    <p class="flex items-start gap-2 text-base text-gray-800">
+      {% include "components/icon.html" with name="clock" class="mt-0.5 size-5 shrink-0 text-yellow-700" %}
+      <span class="min-w-0 wrap-anywhere">{{ owner.full_name }} hasn't set a password yet. The link was sent to <b>{{ owner.user.email }}</b>.</span>
+    </p>
+    <div class="mt-4">
+      <button type="button" class="btn btn-outline min-h-12 w-full font-semibold" data-dialog-open="resend-dialog" aria-haspopup="dialog">
+        {% include "components/icon.html" with name="send" %}
+        Send the link again
+      </button>
+    </div>
+  {% else %}
+    <p class="flex items-start gap-2 text-base text-gray-800">
+      {% include "components/icon.html" with name="lock" class="mt-0.5 size-5 shrink-0 text-gray-600" %}
+      <span>Archived accounts can't log in.</span>
+    </p>
+  {% endif %}
+</section>

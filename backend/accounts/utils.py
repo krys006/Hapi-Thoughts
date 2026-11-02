@@ -66,21 +66,27 @@ def generate_walkin_username(first_name, last_name, email=None):
     return username
 
 
-def create_walkin_owner(owner_data, pet_form):
-    """
-    Creates the User, PetOwner, optional ContactLink and the Pet for a
-    walk-in. Call inside transaction.atomic(). Sends no email.
-    Returns (pet_owner, pet).
-    """
-    email = owner_data.get("email") or ""
-    first_name = owner_data["first_name"]
-    last_name = owner_data["last_name"]
+# Second owner saved without an email: User.email is unique, so a second
+# email="" row fails (nullable email is planned, see HANDOFF backlog).
+WALKIN_NO_EMAIL_TAKEN = (
+    "Only one owner without an email can be saved for now. "
+    "Please add an email address for this owner."
+)
+WALKIN_SAVE_FAILED = (
+    "Something went wrong, so this owner was not saved. Please try again."
+)
 
+
+def create_owner_user(first_name, last_name, email=""):
+    """
+    Creates the User for an owner the clinic adds (walk-in New owner or
+    Add owner). Call inside transaction.atomic(). Sends no email.
+    """
     user = User(
         username=generate_walkin_username(first_name, last_name, email or None),
         email=email,
         role=User.PET_OWNER,
-        # Walk-in accounts with no email are inactive until
+        # Accounts with no email are inactive until
         # email is provided and claimed.
         is_active=bool(email),
         is_onboarded=True,  # Admin-created — skip onboarding
@@ -88,6 +94,18 @@ def create_walkin_owner(owner_data, pet_form):
     # Unusable password — the owner sets their own via the claim link
     user.set_unusable_password()
     user.save()
+    return user
+
+
+def create_walkin_owner(owner_data, pet_form):
+    """
+    Creates the User, PetOwner, optional ContactLink and the Pet for a
+    walk-in. Call inside transaction.atomic(). Sends no email.
+    Returns (pet_owner, pet).
+    """
+    first_name = owner_data["first_name"]
+    last_name = owner_data["last_name"]
+    user = create_owner_user(first_name, last_name, owner_data.get("email") or "")
 
     pet_owner = PetOwner.objects.create(
         user=user,

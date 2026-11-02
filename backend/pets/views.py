@@ -1,7 +1,11 @@
 # pets/views.py
 
+import copy
+import logging
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import IntegrityError
 from django.db.models import Q
 from django.shortcuts import (
     get_object_or_404,
@@ -26,10 +30,27 @@ from .models import (
     PetOwner,
 )
 
-from accounts.utils import send_claim_email
-from notifications.models import NotificationPreference
+from .utils import (
+    barangay_choices,
+    create_owner,
+    owner_account_state,
+    owner_detail_context,
+    owner_list_context,
+)
+
+from accounts.utils import (
+    WALKIN_NO_EMAIL_TAKEN,
+    WALKIN_SAVE_FAILED,
+    send_claim_email,
+)
 
 from medical.models import MedicalRecord, Vaccination
+
+logger = logging.getLogger(__name__)
+
+CLAIM_LINK_NOT_SENT = (
+    "Email saved, but the link couldn't be sent. Use Send the link again later."
+)
 
 
 def _require_pet_owner(request):
@@ -530,6 +551,26 @@ def _require_admin(request):
     return None
 
 
+def _refuse_archived(request, owner, message):
+    """Redirect to the owner page with message when the owner is archived,
+    or None if ok."""
+    if owner.is_archived:
+        messages.error(request, message)
+        return redirect("admin_owner_detail", pk=owner.pk)
+    return None
+
+
+def _send_claim_link(request, user):
+    """Sends the set-password link. Returns False when sending fails; the
+    error goes to the log, never to the page."""
+    try:
+        send_claim_email(request, user)
+    except Exception:
+        logger.exception("Claim email not sent to user %s", user.pk)
+        return False
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Admin — Pet Owner List
 # ---------------------------------------------------------------------------
@@ -541,36 +582,10 @@ def admin_owner_list(request):
     if guard:
         return guard
 
-    # Search and filter
-    search_query = request.GET.get("search", "").strip()
-    status_filter = request.GET.get("status", "active")
-
-    owners = PetOwner.objects.select_related("user").all()
-
-    # Apply status filter
-    if status_filter == "archived":
-        owners = owners.filter(is_archived=True)
-    else:
-        # Default to active
-        owners = owners.filter(is_archived=False)
-
-    # Apply search — matches first name, last name, or email
-    if search_query:
-        owners = owners.filter(
-            Q(first_name__icontains=search_query)
-            | Q(last_name__icontains=search_query)
-            | Q(user__email__icontains=search_query)
-        )
-
     return render(
         request,
         "admin/pets/owners_list.html",
-        {
-            "owners": owners,
-            "search_query": search_query,
-            "status_filter": status_filter,
-            "total_count": owners.count(),
-        },
+        owner_list_context(request.GET),
     )
 
 
@@ -585,7 +600,7 @@ def admin_owner_detail(request, pk):
     if guard:
         return guard
 
-    owner = get_object_or_404(PetOwner, pk=pk)
+    owner = get_object_or_404(PetOwner.objects.select_related("user"), pk=pk)
     pets = Pet.objects.filter(owner=owner, is_archived=False)
     archived_pets = Pet.objects.filter(owner=owner, is_archived=True)
     contact_links = owner.contact_links.all()
@@ -602,54 +617,121 @@ def admin_owner_detail(request, pk):
         {
             "owner": owner,
             "pets": pets,
+            "active_pets": pets,
             "archived_pets": archived_pets,
             "contact_links": contact_links,
             "pending_deletions": pending_deletions,
+            **owner_detail_context(owner, timezone.localdate()),
         },
     )
 
 
 # ---------------------------------------------------------------------------
-# Admin — Create Pet Owner
+# Admin — Add owner (no booking)
 # ---------------------------------------------------------------------------
+
+
+def _save_new_owner(request, form):
+    """
+    Saves the owner (User + PetOwner, one transaction), then sends the
+    set-password link after the commit when there is an email. Returns the
+    owner, or None when nothing was saved (plain message on the page,
+    details in the log).
+    """
+    email = form.cleaned_data.get("email") or ""
+    try:
+        owner = create_owner(form)
+    except IntegrityError:
+        # The atomic block rolled back every write
+        logger.exception("Owner not saved (integrity error)")
+        messages.error(request, WALKIN_SAVE_FAILED if email else WALKIN_NO_EMAIL_TAKEN)
+        return None
+    except Exception:
+        logger.exception("Owner not saved")
+        messages.error(request, WALKIN_SAVE_FAILED)
+        return None
+
+    if not email:
+        messages.success(request, f"{owner.full_name} added.")
+    elif _send_claim_link(request, owner.user):
+        messages.success(
+            request,
+            f"{owner.full_name} added. We sent a link to {email} "
+            "so they can set a password.",
+        )
+    else:
+        messages.success(request, f"{owner.full_name} added.")
+        messages.warning(request, CLAIM_LINK_NOT_SENT)
+    return owner
 
 
 @login_required
 def admin_owner_create(request):
+    """
+    Add owner from the owners list: a User + PetOwner with no pet and no
+    appointment (the walk-in New owner page is for booking a visit).
+    """
     guard = _require_admin(request)
     if guard:
         return guard
 
-    if request.method == "POST":
-        form = AdminPetOwnerForm(request.POST, request.FILES)
-        if form.is_valid():
-            # Note: this creates a PetOwner record only.
-            # Full walk-in flow (User account + appointment) is in Phase 2.5.
-            # For now Admin can create the profile details only.
-            owner = form.save(commit=False)
-            owner.save()
-            messages.success(
-                request,
-                f"{owner.full_name} has been added.",
-            )
+    form = AdminPetOwnerForm(request.POST or None, request.FILES or None)
+    if request.method == "POST" and form.is_valid():
+        owner = _save_new_owner(request, form)
+        if owner:
             return redirect("admin_owner_detail", pk=owner.pk)
-    else:
-        form = AdminPetOwnerForm()
 
     return render(
         request,
         "admin/pets/owner_form.html",
         {
             "form": form,
-            "form_title": "Add Pet Owner",
-            "submit_label": "Create Owner",
+            "form_title": "Add owner",
+            "submit_label": "Add owner",
         },
+    )
+
+
+@login_required
+def admin_address_barangays(request):
+    """
+    HTMX: the Barangay <option> list for ?town= (the owner form's Town
+    select sends its own value as ?address_town=, which works too).
+    A plain GET gets the same partial.
+    """
+    guard = _require_admin(request)
+    if guard:
+        return guard
+
+    town = request.GET.get("town", request.GET.get("address_town", ""))
+    return render(
+        request,
+        "admin/pets/_barangay_options.html",
+        {"options": barangay_choices(town)},
     )
 
 
 # ---------------------------------------------------------------------------
 # Admin — Edit Pet Owner
 # ---------------------------------------------------------------------------
+
+
+def _save_owner_email(request, user, new_email):
+    """
+    Saves the email from the owner edit form to the User (it's not on
+    PetOwner). A first email activates the account and sends the
+    set-password link; the user is saved before sending, so a send error
+    can't lose the email.
+    """
+    old_email = user.email
+    if new_email == old_email:
+        return
+    user.email = new_email
+    if not old_email:
+        user.is_active = True
+    user.save()
+    if not old_email and not _send_claim_link(request, user):
+        messages.warning(request, CLAIM_LINK_NOT_SENT)
 
 
 @login_required
@@ -659,6 +741,15 @@ def admin_owner_edit(request, pk):
         return guard
 
     owner = get_object_or_404(PetOwner, pk=pk)
+    refused = _refuse_archived(
+        request, owner, "Restore the account first to change their details."
+    )
+    if refused:
+        return refused
+
+    # A failed POST writes the typed values onto the form's instance; the
+    # header, Cancel link and photo show the saved owner from this copy
+    saved_owner = copy.copy(owner)
 
     if request.method == "POST":
         form = AdminPetOwnerForm(
@@ -669,19 +760,7 @@ def admin_owner_edit(request, pk):
         )
         if form.is_valid():
             form.save()
-
-            # Save email to User model separately — it's not on PetOwner
-            new_email = form.cleaned_data.get("email", "").strip()
-            old_email = owner.user.email
-
-            if new_email != old_email:
-                owner.user.email = new_email
-                # If email is being added for the first time, activate the account
-                if not old_email and new_email:
-                    owner.user.is_active = True
-                    send_claim_email(request, owner.user)
-                owner.user.save()
-
+            _save_owner_email(request, owner.user, form.cleaned_data["email"])
             messages.success(
                 request,
                 f"{owner.full_name}'s details have been updated.",
@@ -698,9 +777,9 @@ def admin_owner_edit(request, pk):
         "admin/pets/owner_form.html",
         {
             "form": form,
-            "owner": owner,
-            "form_title": f"Edit {owner.full_name}",
-            "submit_label": "Save Changes",
+            "owner": saved_owner,
+            "form_title": "Edit details",
+            "submit_label": "Save changes",
         },
     )
 
@@ -744,10 +823,13 @@ def admin_owner_restore(request, pk):
 
     if request.method == "POST":
         owner.restore()
-        messages.success(
-            request,
-            f"{owner.full_name}'s account has been restored.",
-        )
+        message = f"{owner.full_name}'s account has been restored."
+        if not owner.user.email:
+            message += (
+                " They still can't log in until they have an email"
+                " and set a password."
+            )
+        messages.success(request, message)
         return redirect("admin_owner_detail", pk=owner.pk)
 
     return redirect("admin_owner_detail", pk=owner.pk)
@@ -758,18 +840,26 @@ def admin_owner_restore(request, pk):
 # ---------------------------------------------------------------------------
 
 
+@login_required
 def admin_owner_add_email(request, pk):
     """
     Adds an email address to a walk-in owner account that was created
     without one. Activates the account and sends the claim email.
 
-    Only accessible when owner.user.email is blank.
+    Only accessible when owner.user.email is blank and the owner is not
+    archived.
     URL: /admin/pets/owners/<pk>/add-email/
     """
-    if not request.user.is_authenticated or request.user.role != "admin":
-        return redirect("owner_dashboard")
+    guard = _require_admin(request)
+    if guard:
+        return guard
 
     owner = get_object_or_404(PetOwner, pk=pk)
+    refused = _refuse_archived(
+        request, owner, "Restore the account first to add an email."
+    )
+    if refused:
+        return refused
 
     # Guard: if email already exists, nothing to do here
     if owner.user.email:
@@ -784,19 +874,19 @@ def admin_owner_add_email(request, pk):
     if request.method == "POST" and form.is_valid():
         email = form.cleaned_data["email"]
 
-        # Update the User record
+        # Update the User record before sending, so a send error keeps it
         owner.user.email = email
         owner.user.is_active = True  # Activate — was inactive without email
         owner.user.save()
 
-        # Send claim account email
-        send_claim_email(request, owner.user)
-
-        messages.success(
-            request,
-            f"Email added for {owner.full_name}. "
-            f"A claim account email has been sent to {email}.",
-        )
+        if _send_claim_link(request, owner.user):
+            messages.success(
+                request,
+                f"Email added for {owner.full_name}. We sent a link to "
+                f"{email} so they can set a password.",
+            )
+        else:
+            messages.warning(request, CLAIM_LINK_NOT_SENT)
         return redirect("admin_owner_detail", pk=pk)
 
     return render(
@@ -810,6 +900,40 @@ def admin_owner_add_email(request, pk):
 
 
 # ---------------------------------------------------------------------------
+# Admin — resend the set-password link
+# ---------------------------------------------------------------------------
+
+
+@login_required
+def admin_owner_resend_link(request, pk):
+    """
+    Sends the set-password (claim) link again, for an owner who has an
+    email but has not set a password yet. POST only; a GET sends nothing.
+
+    URL: /admin/pets/owners/<pk>/resend-link/
+    """
+    guard = _require_admin(request)
+    if guard:
+        return guard
+
+    owner = get_object_or_404(PetOwner.objects.select_related("user"), pk=pk)
+    if request.method != "POST":
+        return redirect("admin_owner_detail", pk=owner.pk)
+
+    user = owner.user
+    if owner_account_state(owner) != "unclaimed":
+        messages.info(request, "This owner doesn't need a new link.")
+    elif _send_claim_link(request, user):
+        messages.success(request, f"Sent the link again to {user.email}.")
+    else:
+        messages.warning(
+            request,
+            "The email couldn't be sent. Check the address, or try again later.",
+        )
+    return redirect("admin_owner_detail", pk=owner.pk)
+
+
+# ---------------------------------------------------------------------------
 # Admin — Add Pet (to existing owner)
 # ---------------------------------------------------------------------------
 
@@ -820,13 +944,18 @@ def admin_pet_add(request, owner_pk):
     Admin manually adds a pet to an existing pet owner account.
     Redirects to the owner detail page after successful creation.
 
-    URL: /admin/pets/owners/<owner_pk>/add-pet/
+    URL: /admin/pets/add/<owner_pk>/
     """
     guard = _require_admin(request)
     if guard:
         return guard
 
     owner = get_object_or_404(PetOwner, pk=owner_pk)
+    refused = _refuse_archived(
+        request, owner, "Restore the account first to add a pet."
+    )
+    if refused:
+        return refused
 
     if request.method == "POST":
         form = AdminPetForm(request.POST, request.FILES)

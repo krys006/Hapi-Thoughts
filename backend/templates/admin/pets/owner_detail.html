@@ -1,189 +1,42 @@
 {% extends "layouts/admin.html" %}
 
-{% load static %}
-{% block legacy_css %}
-<style>
-  @import url("{% static 'css/admin/owner_detail.css' %}") layer(legacy);
-</style>
-{% endblock %}
-
 {% block title %}{{ owner.full_name }} — Hapi Vet Admin{% endblock %}
 
-{% block page_header %}{% endblock %}
+{% block page_header %}
+  {% include "admin/pets/owner_detail_parts/header.html" %}
+{% endblock %}
 
 {% block content %}
-
-<div class="admin-page">
-
-  <a href="{% url 'admin_owner_list' %}" class="back-link">← Back to Pet Owners</a>
-
-  <!-- Archived warning banner -->
+  {% for deletion in pending_deletions %}
+    {% include "admin/pets/owner_detail_parts/deletion_banner.html" %}
+  {% endfor %}
   {% if owner.is_archived %}
-    <div class="archived-banner">
-      <p class="archived-banner-text">This account is archived. The owner cannot log in.</p>
-      <form method="post" action="{% url 'admin_owner_restore' owner.pk %}">
-        {% csrf_token %}
-        <button type="submit" class="btn-primary">Restore Account</button>
-      </form>
-    </div>
+    {% include "admin/pets/owner_detail_parts/archived_banner.html" %}
   {% endif %}
 
-  <!-- Owner header -->
-  <div class="admin-detail-header">
-
-    <div class="admin-avatar-large-wrapper">
-      {% if owner.profile_photo %}
-        <img src="{{ owner.profile_photo.url }}" alt="{{ owner.full_name }}" class="admin-avatar-large" />
-      {% else %}
-        <div class="admin-avatar-initials-large">
-          {{ owner.first_name|first|upper }}{{ owner.last_name|first|upper }}
-        </div>
-      {% endif %}
+  {# Actions come first in the page, so on small screens they sit above the details #}
+  <div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+    <div class="space-y-6 lg:sticky lg:top-24 lg:col-start-2 lg:row-start-1">
+      {% include "admin/pets/owner_detail_parts/actions_card.html" %}
+      {% include "admin/pets/owner_detail_parts/account_card.html" %}
     </div>
-
-    <div class="admin-detail-header-info">
-      <h1 class="admin-detail-name">{{ owner.full_name }}</h1>
-      <p class="admin-detail-email">{{ owner.user.email }}</p>
-      <p class="admin-detail-since">Member since {{ owner.date_registered|date:"F Y" }}</p>
+    <div class="space-y-6 lg:col-start-1 lg:row-start-1">
+      {% include "admin/pets/owner_detail_parts/contact_card.html" %}
+      {% include "admin/pets/owner_detail_parts/pets_card.html" %}
+      {% include "admin/pets/owner_detail_parts/visits_card.html" %}
     </div>
-
-    <div class="admin-detail-actions">
-      <a href="{% url 'admin_owner_edit' owner.pk %}" class="btn-primary">Edit</a>
-      {% if not owner.is_archived %}
-        <!-- Walk-in step 2 with this owner chosen (skips "Who is it for?") -->
-        <a href="{% url 'admin_walkin_appointment_visit' %}?owner={{ owner.pk }}" class="btn-secondary">Book walk-in</a>
-        <form method="post" action="{% url 'admin_owner_archive' owner.pk %}">
-          {% csrf_token %}
-          <button type="submit" class="btn-danger-outline">Archive Account</button>
-        </form>
-      {% endif %}
-    </div>
-
   </div>
 
-  <div class="admin-detail-content">
-
-    <!-- Left column — owner info -->
-    <div class="admin-detail-left">
-
-      <div class="admin-detail-section">
-        <h3 class="admin-detail-section-title">Contact Information</h3>
-
-        <div class="admin-detail-field">
-          <span class="admin-detail-label">Contact Number</span>
-          <span class="admin-detail-value">{{ owner.contact_number|default:"Not provided" }}</span>
-        </div>
-
-      <div class="admin-detail-field">
-        <span class="admin-detail-label">Email</span>
-        {% if owner.user.email %}
-          <span class="admin-detail-value">{{ owner.user.email }}</span>
-        {% else %}
-          <span class="admin-detail-empty">No email provided</span>
-          <a href="{% url 'admin_owner_add_email' owner.pk %}" class="admin-table-link">Add Email</a>
-        {% endif %}
-      </div>
-
-      </div>
-
-      <div class="admin-detail-section">
-        <h3 class="admin-detail-section-title">Address</h3>
-        {% if owner.full_address %}
-          <p class="admin-detail-value">{{ owner.full_address }}</p>
-        {% else %}
-          <p class="admin-detail-empty">No address provided.</p>
-        {% endif %}
-      </div>
-
-      <div class="admin-detail-section">
-        <h3 class="admin-detail-section-title">Social / Contact Links</h3>
-        {% if contact_links %}
-          <ul class="admin-links-list">
-            {% for link in contact_links %}
-              <li class="admin-link-item">
-                <span class="admin-link-platform">{{ link.platform }}</span>
-                <span class="admin-link-handle">{{ link.url_or_handle }}</span>
-              </li>
-            {% endfor %}
-          </ul>
-        {% else %}
-          <p class="admin-detail-empty">No links added.</p>
-        {% endif %}
-      </div>
-
-      {% if pending_deletions %}
-        <div class="admin-detail-section">
-          <h3 class="admin-detail-section-title">Pending Deletion Requests</h3>
-          <ul class="admin-deletion-list">
-            {% for req in pending_deletions %}
-              <li class="admin-deletion-item">
-                <span class="admin-deletion-pet">{{ req.pet.name }}</span>
-                <span class="admin-deletion-reason">{{ req.get_reason_display }}</span>
-                <a href="{% url 'admin_deletion_requests' %}" class="admin-table-link">Review</a>
-              </li>
-            {% endfor %}
-          </ul>
-        </div>
-      {% endif %}
-
-    </div>
-
-    <!-- Right column — pets -->
-    <div class="admin-detail-right">
-
-        <div class="admin-section-header">
-          <h3 class="admin-detail-section-title">Pets ({{ pets.count }})</h3>
-          <div class="admin-section-header-actions">
-            <a href="{% url 'admin_pet_add' owner.pk %}" class="admin-table-link">+ Add Pet</a>
-            <a href="{% url 'admin_pet_list' %}?owner={{ owner.pk }}" class="admin-table-link">View All</a>
-          </div>
-        </div>
-
-        {% if pets %}
-          <div class="admin-pets-grid">
-            {% for pet in pets %}
-              <div class="admin-pet-card">
-
-                <div class="pet-avatar-wrapper">
-                  {% if pet.photo %}
-                    <img src="{{ pet.photo.url }}" alt="{{ pet.name }}" class="pet-avatar-photo" />
-                  {% else %}
-                    <div class="pet-avatar-initials">{{ pet.name|first|upper }}</div>
-                  {% endif %}
-                </div>
-
-                <p class="admin-pet-card-name">{{ pet.name }}</p>
-                <p class="admin-pet-card-species">{{ pet.species }}</p>
-                <a href="{% url 'admin_pet_detail' pet.pk %}" class="admin-table-link">View</a>
-
-              </div>
-            {% endfor %}
-          </div>
-        {% else %}
-          <p class="admin-detail-empty">No active pets.</p>
-        {% endif %}
-
-      </div>
-
-      {% if archived_pets %}
-        <div class="admin-detail-section">
-          <h3 class="admin-detail-section-title">Archived Pets ({{ archived_pets.count }})</h3>
-          <ul class="admin-archived-pets-list">
-            {% for pet in archived_pets %}
-              <li class="admin-archived-pet-item">
-                <span>{{ pet.name }}</span>
-                <span class="admin-detail-empty">{{ pet.species }}</span>
-                <a href="{% url 'admin_pet_detail' pet.pk %}" class="admin-table-link">View</a>
-              </li>
-            {% endfor %}
-          </ul>
-        </div>
-      {% endif %}
-
-    </div>
-
-  </div>
-
-</div>
-
+  {% comment %}
+    Only the dialogs whose buttons the page shows: archive (not archived),
+    restore (archived), resend (email but no password set yet).
+  {% endcomment %}
+  {% if owner.is_archived %}
+    {% include "admin/pets/owner_detail_parts/restore_dialog.html" %}
+  {% else %}
+    {% include "admin/pets/owner_detail_parts/archive_dialog.html" %}
+  {% endif %}
+  {% if can_resend %}
+    {% include "admin/pets/owner_detail_parts/resend_dialog.html" %}
+  {% endif %}
 {% endblock %}

@@ -1,50 +1,23 @@
 {% extends "layouts/admin.html" %}
 
-{% block title %}Add Email — {{ owner.full_name }} — Hapi Vet Admin{% endblock %}
+{% block title %}Add email — {{ owner.full_name }} — Hapi Vet Admin{% endblock %}
 
 {% block page_header %}{% endblock %}
 
 {% block content %}
+<div class="mx-auto max-w-xl">
+  {% include "admin/pets/owner_form_parts/header.html" with title="Add email" subtitle=owner.full_name %}
 
-<div class="admin-page">
-
-  <a href="{% url 'admin_owner_detail' owner.pk %}" class="back-link">← Back to {{ owner.full_name }}</a>
-
-  <div class="admin-form-header">
-    <h1 class="admin-form-title">Add Email Address</h1>
-    <p class="admin-form-subtitle">
-      Adding an email will activate this account and send
-      {{ owner.full_name }} a link to set their password.
-    </p>
-  </div>
-
-  <form method="post" class="admin-form">
+  <form method="post" class="card" novalidate>
     {% csrf_token %}
-
-    <div class="admin-form-section">
-
-      <div class="form-section">
-        <label class="form-label" for="{{ form.email.id_for_label }}">
-          Email Address <span class="required-tag">*</span>
-        </label>
-        {{ form.email }}
-        {% if form.email.errors %}
-          <p class="form-error">{{ form.email.errors.0 }}</p>
-        {% endif %}
-        <p class="form-hint">
-          A claim account email will be sent to this address automatically.
-        </p>
-      </div>
-
+    <p class="flex items-start gap-3 rounded-lg bg-violet-50 px-4 py-3 text-base text-gray-800">{% include "components/icon.html" with name="mail" class="mt-0.5 size-5 shrink-0 text-violet-700" %}<span>We'll send {{ owner.full_name }} a link to set a password. After that they can log in, book visits online and see their pets' records.</span></p>
+    <div class="mt-5">
+      {% include "components/form_field.html" with field=form.email %}
     </div>
-
-    <div class="form-actions">
-      <a href="{% url 'admin_owner_detail' owner.pk %}" class="btn-secondary">Cancel</a>
-      <button type="submit" class="btn-primary">Save and Send Claim Email</button>
+    <div class="mt-6">
+      {% url 'admin_owner_detail' owner.pk as cancel_url %}
+      {% include "admin/pets/owner_form_parts/buttons.html" with cancel_url=cancel_url label="Add email and send link" icon="send" %}
     </div>
-
   </form>
-
 </div>
-
 {% endblock %}

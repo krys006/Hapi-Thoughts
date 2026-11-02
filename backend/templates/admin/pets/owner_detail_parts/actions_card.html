@@ -1,0 +1,30 @@
+{% comment %}
+  Right-hand actions card (same buttons as the appointment page). Book
+  walk-in is the one primary button; an archived owner only gets Restore.
+  The red outline opens the archive dialog, whose "Yes" button is solid red.
+{% endcomment %}
+<section class="card" aria-labelledby="actions-title">
+  <h2 id="actions-title" class="mb-4 text-xl font-semibold">What would you like to do?</h2>
+  <div class="space-y-3">
+    {% if owner.is_archived %}
+      <button type="button" class="btn btn-primary min-h-12 w-full font-semibold" data-dialog-open="restore-dialog" aria-haspopup="dialog">
+        {% include "components/icon.html" with name="rotate-ccw" %}
+        Restore account
+      </button>
+      <p class="flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-3 text-sm text-gray-700">
+        {% include "components/icon.html" with name="info" class="mt-0.5 size-4 shrink-0" %}
+        <span>Restore the account to book visits, add pets or change details.</span>
+      </p>
+    {% else %}
+      {# Walk-in step 2 with this owner chosen (skips "Who is it for?") #}
+      <a href="{% url 'admin_walkin_appointment_visit' %}?owner={{ owner.pk }}" class="btn btn-primary min-h-12 w-full font-semibold">{% include "components/icon.html" with name="calendar" %}Book walk-in</a>
+      <a href="{% url 'admin_pet_add' owner.pk %}" class="btn btn-outline min-h-12 w-full font-semibold">{% include "components/icon.html" with name="plus" %}Add pet</a>
+      <a href="{% url 'admin_owner_edit' owner.pk %}" class="btn btn-outline min-h-12 w-full font-semibold">{% include "components/icon.html" with name="pencil" %}Edit details</a>
+      <hr class="my-4! border-gray-200">
+      <button type="button" class="btn min-h-12 w-full border border-red-300 bg-white font-semibold text-red-700 hover:bg-red-50" data-dialog-open="archive-dialog" aria-haspopup="dialog">
+        {% include "components/icon.html" with name="archive" %}
+        Archive owner
+      </button>
+    {% endif %}
+  </div>
+</section>

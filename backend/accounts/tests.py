@@ -456,7 +456,8 @@ class WalkInOwnerCreateTests(TestCase):
                     "warning",
                     "The claim email to ana@example.com could not be sent. The "
                     "owner and pet are saved, but the owner can't set a password "
-                    "until they get this email. There is no resend button yet.",
+                    "until they get this email. Use Send the link again on the "
+                    "owner page later.",
                 ),
             ],
         )

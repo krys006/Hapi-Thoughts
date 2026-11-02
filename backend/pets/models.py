@@ -1,6 +1,6 @@
 # pets/models.py
 
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 
@@ -56,20 +56,24 @@ class PetOwner(models.Model):
         return ", ".join(part for part in parts if part.strip())
 
     def archive(self):
-        """Soft-delete this owner and deactivate their user account."""
-        self.is_archived = True
-        self.archived_at = timezone.now()
-        self.save()
-        self.user.is_active = False
-        self.user.save()
+        """Soft-delete this owner and deactivate their user account.
+        Their pets and appointments are left as they are."""
+        with transaction.atomic():
+            self.is_archived = True
+            self.archived_at = timezone.now()
+            self.save()
+            self.user.is_active = False
+            self.user.save()
 
     def restore(self):
-        """Restore an archived owner and reactivate their user account."""
-        self.is_archived = False
-        self.archived_at = None
-        self.save()
-        self.user.is_active = True
-        self.user.save()
+        """Restore an archived owner. The user account is active again only
+        when it has an email (a walk-in without one stays inactive)."""
+        with transaction.atomic():
+            self.is_archived = False
+            self.archived_at = None
+            self.save()
+            self.user.is_active = bool(self.user.email)
+            self.user.save()
 
 
 class ContactLink(models.Model):

@@ -1,0 +1,10 @@
+{% load friendly_dates %}
+{# One yellow banner per pending deletion request (deletion = a PetDeletionRequest) #}
+<div class="mb-6 flex flex-wrap items-start gap-3 rounded-xl border border-yellow-300 bg-yellow-50 px-5 py-4 text-yellow-900">
+  {% include "components/icon.html" with name="clock" class="mt-0.5 size-6 shrink-0" %}
+  <div class="min-w-0 flex-1">
+    <p class="text-lg font-semibold">Deletion request waiting</p>
+    <p class="mt-0.5 text-base">{{ owner.first_name }} asked to remove <b>{{ deletion.pet.name }}</b> on {{ deletion.created_at|friendly_date:"mid" }}. Reason: {{ deletion.get_reason_display|lower }}. Open {{ deletion.pet.name }} to approve or reject it.</p>
+  </div>
+  <a href="{% url 'admin_pet_detail' deletion.pet.pk %}" class="btn border border-yellow-400 bg-white font-semibold text-yellow-900 hover:bg-yellow-100">Review {{ deletion.pet.name }}{% include "components/icon.html" with name="arrow-right" %}</a>
+</div>

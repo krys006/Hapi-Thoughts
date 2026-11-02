@@ -1,0 +1,10 @@
+{# Name and contact: the email's help text depends on the page (set in AdminPetOwnerForm) #}
+<section class="card" aria-labelledby="name-contact-title">
+  <h2 id="name-contact-title" class="text-xl font-semibold text-gray-900">Name and contact</h2>
+  <div class="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-2">
+    {% include "components/form_field.html" with field=form.first_name %}
+    {% include "components/form_field.html" with field=form.last_name %}
+    {% include "components/form_field.html" with field=form.contact_number optional=True %}
+    {% include "components/form_field.html" with field=form.email optional=form.email_optional %}
+  </div>
+</section>

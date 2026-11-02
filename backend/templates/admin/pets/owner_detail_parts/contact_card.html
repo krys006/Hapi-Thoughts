@@ -1,0 +1,35 @@
+{% comment %}
+  "Contact details" card. Label and value side by side from sm up,
+  label above the value on phones. Missing values in gray.
+{% endcomment %}
+<section class="card" aria-labelledby="contact-title">
+  <h2 id="contact-title" class="mb-2 text-xl font-semibold">Contact details</h2>
+  <dl class="divide-y divide-gray-100">
+    <div class="grid gap-1 py-3 sm:grid-cols-[11rem_1fr] sm:gap-3">
+      <dt class="flex items-center gap-2 text-base text-gray-600">{% include "components/icon.html" with name="phone" class="size-5 shrink-0 text-gray-500" %}Phone</dt>
+      <dd class="text-base text-gray-900">{% if owner.contact_number %}{{ owner.contact_number }}{% else %}<span class="text-gray-600">No phone number</span>{% endif %}</dd>
+    </div>
+    <div class="grid gap-1 py-3 sm:grid-cols-[11rem_1fr] sm:gap-3">
+      <dt class="flex items-center gap-2 text-base text-gray-600">{% include "components/icon.html" with name="mail" class="size-5 shrink-0 text-gray-500" %}Email</dt>
+      <dd class="min-w-0 text-base text-gray-900 wrap-anywhere">{% if owner.user.email %}{{ owner.user.email }}{% else %}<span class="text-gray-600">No email</span>{% endif %}</dd>
+    </div>
+    <div class="grid gap-1 py-3 sm:grid-cols-[11rem_1fr] sm:gap-3">
+      <dt class="flex items-center gap-2 text-base text-gray-600">{% include "components/icon.html" with name="map-pin" class="size-5 shrink-0 text-gray-500" %}Address</dt>
+      <dd class="text-base text-gray-900">{% if owner.full_address %}{{ owner.full_address }}{% else %}<span class="text-gray-600">No address</span>{% endif %}</dd>
+    </div>
+    <div class="grid gap-1 py-3 sm:grid-cols-[11rem_1fr] sm:gap-3">
+      <dt class="flex items-center gap-2 text-base text-gray-600">{% include "components/icon.html" with name="link" class="size-5 shrink-0 text-gray-500" %}Other contacts</dt>
+      <dd class="min-w-0 text-base text-gray-900 wrap-anywhere">
+        {% if contact_links %}
+          <ul>
+            {% for link in contact_links %}
+              <li>{{ link.platform }}: {{ link.url_or_handle }}</li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <span class="text-gray-600">None</span>
+        {% endif %}
+      </dd>
+    </div>
+  </dl>
+</section>

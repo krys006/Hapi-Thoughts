@@ -88,7 +88,7 @@ One-to-one relationship with User.
 | Field | Type | Options | Notes |
 |---|---|---|---|
 | `id` | AutoField | PK | Auto |
-| `user` | OneToOneField | User, on_delete=CASCADE | Links to auth account |
+| `user` | OneToOneField | User, on_delete=CASCADE, related_name='petowner' | Links to auth account |
 | `first_name` | CharField | max_length=50 | — |
 | `last_name` | CharField | max_length=50 | — |
 | `contact_number` | CharField | max_length=20, blank=True | — |
@@ -103,12 +103,20 @@ One-to-one relationship with User.
 | `created_at` | DateTimeField | auto_now_add=True | — |
 | `updated_at` | DateTimeField | auto_now=True | — |
 
+**Meta:** `ordering = ["last_name", "first_name"]`
+
 **Rules:**
 - Archived owners have `is_archived = True` and `user.is_active = False`
-- Restoring sets both back to False/True respectively
+- `archive()` and `restore()` each run in one transaction; neither touches the owner's pets or appointments
+- Restoring sets `is_archived = False`, clears `archived_at` and sets `user.is_active = bool(user.email)`: an owner without an email (walk-in) stays inactive until an email is added
 - Address belongs to owner — pets inherit it implicitly
 - Profile photo is optional — initials avatar generated in UI if not uploaded
 - Full address is generated dynamically via a `full_address` model property
+- Address dropdowns (Slice 4a-4): no fields changed. For a Marinduque address
+  picked on the admin owner form, `province` is "Marinduque" and
+  `barangay` / `city_municipality` hold the PSA spellings from
+  `pets/data/psgc_marinduque.json`; other provinces are typed text (title
+  case). A form with no address saves all four fields as "".
 
 ---
 
@@ -119,7 +127,7 @@ Multiple links allowed per owner.
 | Field | Type | Options | Notes |
 |---|---|---|---|
 | `id` | AutoField | PK | Auto |
-| `owner` | ForeignKey | PetOwner, on_delete=CASCADE | — |
+| `owner` | ForeignKey | PetOwner, on_delete=CASCADE, related_name='contact_links' | — |
 | `platform` | CharField | max_length=50 | e.g. Facebook, Instagram |
 | `url_or_handle` | CharField | max_length=255 | URL or username |
 | `created_at` | DateTimeField | auto_now_add=True | — |
@@ -133,14 +141,14 @@ Each pet belongs to exactly one PetOwner.
 | Field | Type | Options | Notes |
 |---|---|---|---|
 | `id` | AutoField | PK | Auto |
-| `owner` | ForeignKey | PetOwner, on_delete=CASCADE | — |
+| `owner` | ForeignKey | PetOwner, on_delete=CASCADE, related_name='pets' | — |
 | `name` | CharField | max_length=50 | Required |
 | `species` | CharField | max_length=50 | Dropdown + custom input |
 | `breed` | CharField | max_length=50, blank=True | Cascading dropdown + custom input |
 | `color` | CharField | max_length=50, blank=True | — |
-| `gender` | CharField | max_length=10, choices=GENDER_CHOICES | Male / Female / Unknown |
+| `gender` | CharField | max_length=10, choices=GENDER_CHOICES, default=UNKNOWN | Male / Female / Unknown |
 | `date_of_birth` | DateField | null=True, blank=True | Age calculated from this |
-| `weight` | DecimalField | max_digits=6, decimal_places=2, null=True | In kg |
+| `weight` | DecimalField | max_digits=6, decimal_places=2, null=True, blank=True | In kg |
 | `registration_number` | CharField | max_length=100, blank=True | Government-issued, optional |
 | `photo` | ImageField | upload_to='pets/', blank=True, null=True | Optional |
 | `is_archived` | BooleanField | default=False | Soft delete after Admin approves deletion request |
@@ -154,6 +162,8 @@ MALE = 'male'
 FEMALE = 'female'
 UNKNOWN = 'unknown'
 ```
+
+**Meta:** `ordering = ["name"]`
 
 **Rules:**
 - Age is calculated dynamically from `date_of_birth` — not stored
@@ -169,12 +179,12 @@ Tracks pet deletion requests from pet owners pending Admin approval.
 | Field | Type | Options | Notes |
 |---|---|---|---|
 | `id` | AutoField | PK | Auto |
-| `pet` | ForeignKey | Pet, on_delete=CASCADE | — |
-| `requested_by` | ForeignKey | User, on_delete=CASCADE | Pet owner who requested |
+| `pet` | ForeignKey | Pet, on_delete=CASCADE, related_name='deletion_requests' | — |
+| `requested_by` | ForeignKey | User, on_delete=CASCADE, related_name='pet_deletion_requests' | Pet owner who requested |
 | `reason` | CharField | max_length=50, choices=REASON_CHOICES | Predefined reason |
 | `reason_detail` | TextField | blank=True | Used when reason is 'other' |
-| `status` | CharField | max_length=20, choices=STATUS_CHOICES | PENDING / APPROVED / REJECTED |
-| `reviewed_by` | ForeignKey | User, null=True, on_delete=SET_NULL | Admin who reviewed |
+| `status` | CharField | max_length=20, choices=STATUS_CHOICES, default=PENDING | PENDING / APPROVED / REJECTED |
+| `reviewed_by` | ForeignKey | User, null=True, blank=True, on_delete=SET_NULL, related_name='reviewed_deletion_requests' | Admin who reviewed |
 | `reviewed_at` | DateTimeField | null=True, blank=True | — |
 | `created_at` | DateTimeField | auto_now_add=True | — |
 
@@ -193,8 +203,10 @@ APPROVED = 'approved'
 REJECTED = 'rejected'
 ```
 
+**Meta:** `ordering = ["-created_at"]`
+
 **Rules:**
-- No deletion allowed — preserved as audit trail
+- No deletion allowed — preserved as audit trail. Not true yet: when the owner cancels a pending request (`owner_pet_cancel_delete_request`) the row is deleted; the fix (a CANCELLED status) is planned in HANDOFF §5 SCHEMA CHANGES
 - Admin approves → pet is soft deleted (`is_archived = True`)
 - Admin rejects → pet remains active, request closed
 

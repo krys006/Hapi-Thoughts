@@ -22,6 +22,7 @@ Hapi-Thoughts/                  ← GitHub repo root
 │   │   └── asgi.py
 │   ├── accounts/               ← user auth and onboarding
 │   ├── pets/                   ← pet owners and pets
+│   │   └── data/               ← psgc_marinduque.json: Marinduque towns + barangays from the PSA PSGC file (refresh yearly)
 │   ├── appointments/           ← scheduling and booking
 │   ├── medical/                ← medical records and vaccinations
 │   ├── billing/                ← services, receipts, billing
@@ -110,7 +111,7 @@ Never use per-app template folders.
 - `base_dashboard.html` is the base for logged-in owner pages (header,
   bell, sidebar, flash messages). No admin page uses it.
 - `layouts/admin.html` is the base for every admin page (see §10). Pages
-  not redesigned yet (e.g. `admin/pets/owner_detail.html`) import their old
+  not redesigned yet (e.g. `admin/pets/pet_detail.html`) import their old
   `static/css/admin/` file in the `legacy_css` block, inside the `legacy`
   cascade layer.
 - `layouts/auth.html` is the base for the admin login: a standalone card
@@ -216,8 +217,36 @@ templates/
 │   │   └── _walkin_owner_results.html ← step 1 owner list / search results (filter as you type)
 │   ├── pets/
 │   │   ├── owners_list.html
+│   │   ├── owners_list_parts/        ← Includes for owners_list.html (not HTMX partials, so no `_`; the pager is appointments' list_parts/pager.html)
+│   │   │   ├── search_form.html      ← search (q, + status on Archived); top bar md+, page body on phones
+│   │   │   ├── tabs.html             ← Active / Archived links with counts (every width; keep q, drop page)
+│   │   │   ├── list_head.html        ← "Active owners (N)" / "Archived owners (N)" + sort order
+│   │   │   ├── results_line.html     ← "N owners match “q” in active owners" + Clear search
+│   │   │   ├── archived_note.html    ← gray note on the Archived tab
+│   │   │   ├── row.html
+│   │   │   └── empty.html
 │   │   ├── owner_detail.html
-│   │   ├── owner_form.html
+│   │   ├── owner_detail_parts/       ← Includes for owner_detail.html (not HTMX partials, so no `_`; dialogs reuse appointments' detail_parts/dialog_buttons.html)
+│   │   │   ├── header.html           ← back link, avatar lg, name + Archived pill, "Pet owner since"
+│   │   │   ├── deletion_banner.html  ← one yellow banner per pending deletion request
+│   │   │   ├── archived_banner.html
+│   │   │   ├── contact_card.html
+│   │   │   ├── pets_card.html        ← pet tiles + "Archived pets (N)" <details>
+│   │   │   ├── visits_card.html      ← 5 recent visits + "See all visits for …"
+│   │   │   ├── actions_card.html
+│   │   │   ├── account_card.html     ← one message per account_state
+│   │   │   ├── archive_dialog.html
+│   │   │   ├── restore_dialog.html
+│   │   │   └── resend_dialog.html
+│   │   ├── owner_form.html           ← Add owner and Edit details (one form, AdminPetOwnerForm)
+│   │   ├── owner_form_parts/         ← Includes for owner_form.html (not HTMX partials, so no `_`; header and buttons also used by owner_add_email.html)
+│   │   │   ├── header.html           ← back link (owner page or list), title, subtitle
+│   │   │   ├── error_summary.html    ← red "Please fix the N items below." box
+│   │   │   ├── name_contact_card.html
+│   │   │   ├── address_card.html     ← Province select, Town/Barangay dropdowns or typed fields, street line
+│   │   │   ├── photo_card.html
+│   │   │   └── buttons.html          ← Cancel + the one primary button (+ optional info note)
+│   │   ├── _barangay_options.html    ← HTMX: a town's Barangay <option> list (placeholder first)
 │   │   ├── owner_add_email.html
 │   │   ├── pets_list.html
 │   │   ├── pet_detail.html
@@ -307,7 +336,7 @@ static/
 │   ├── owner/              ← Pet owner page styles
 │   └── shared/             ← Styles used by both roles (header, clinic info)
 ├── js/
-│   ├── admin/              ← Admin page scripts; dialogs.js and auto_submit.js are loaded by layouts/admin.html on every page
+│   ├── admin/              ← Admin page scripts; dialogs.js and auto_submit.js are loaded by layouts/admin.html on every page; owner_form.js only by admin/pets/owner_form.html (extra_js)
 │   ├── owner/              ← Pet owner page scripts
 │   └── shared/             ← Scripts used by both roles
 ├── vendor/
@@ -323,7 +352,9 @@ static/
 > A page migrated to the new layout loses its per-page files. Removed so
 > far: `css/admin/appointments_list.css`, `css/admin/appointment_detail.css`
 > and `js/admin/appointments_list.js` (Slice 3b B5), `css/admin/walkin_create.css`
-> (Slice 3c-2). Other old files still
+> (Slice 3c-2), `js/admin/owners_list.js` and `css/admin/owners_list.css`
+> (Slice 4a-2), `css/admin/owner_detail.css` (Slice 4a-3), `css/admin/owner_form.css`
+> (Slice 4a-4; added: `js/admin/owner_form.js`). Other old files still
 > mention them in comments; those comments go when their own pages migrate.
 
 ### Media files (user uploads)
@@ -392,6 +423,8 @@ urlpatterns = [
 /admin/appointments/walk-in/    ← appointments (walk-in step 1; visit/ is steps 2–3)
 /admin/settings/                ← appointments (clinic settings)
 /admin/pets/  /admin/pets/owners/  ← pets
+/admin/pets/owners/<pk>/resend-link/  ← pets (POST: send the set-password link again)
+/admin/pets/address/barangays/  ← pets (HTMX: Barangay options for ?town=, name admin_address_barangays)
 /admin/medical/  /admin/vaccinations/  ← medical
 /admin/billing/  /admin/services/  ← billing
 /admin/health/                  ← health
@@ -614,7 +647,7 @@ class AppointmentBookingForm(forms.ModelForm):
 ### Four base templates
 | Base | Used by | What it provides |
 |---|---|---|
-| `layouts/admin.html` | Every admin page: redesigned ones (e.g. `admin/dashboard/index.html`) and ones not redesigned yet, which add their old CSS in `legacy_css` (e.g. `admin/billing/receipt_detail.html`) | Sidebar with count badges and logout, top bar with search ("Find a pet or owner"; the appointments list puts its own search there) and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/admin/dialogs.js`, `static/js/admin/auto_submit.js`, CSRF + `X-Admin-Layout` via `hx-headers`, confirm modal |
+| `layouts/admin.html` | Every admin page: redesigned ones (e.g. `admin/dashboard/index.html`) and ones not redesigned yet, which add their old CSS in `legacy_css` (e.g. `admin/billing/receipt_detail.html`) | Sidebar with count badges and logout, top bar with search ("Find a pet or owner"; the appointments and pet owners lists put their own search there) and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/admin/dialogs.js`, `static/js/admin/auto_submit.js`, CSRF + `X-Admin-Layout` via `hx-headers`, confirm modal |
 | `layouts/auth.html` | `admin/login.html` | Admin login: standalone card on a violet background, `app.css`, no HTMX |
 | `base_dashboard.html` | Logged-in owner pages (e.g. `owner/pets/list.html`; `shared/clinic_info.html` for owners, which gets its base from the view) | Header with search and bell, role-based sidebar, flash messages, Tailwind + HTMX, CSRF header for HTMX, confirm modal |
 | `base.html` | Standalone auth pages (e.g. `owner/login.html`, `owner/register.html`, password reset, `owner/onboarding/step1.html`) | Bare page with Tailwind + HTMX, no header or sidebar |
@@ -638,7 +671,7 @@ Migrated pages never loop over `messages` (the layout includes
 {% block extra_head %}{% endblock %}  ← extra tags in <head>
 {% block topbar_search %}…{% endblock %} ← global search in the top bar; a page
                                          with its own search overrides it
-                                         (appointments list) or empties it
+                                         (appointments and owners lists) or empties it
                                          (walk-in step 1)
 {% block page_header %}               ← default header, wraps the three below
   {% block page_title %}{% endblock %}
@@ -846,10 +879,10 @@ The main admin user is an elderly vet. Every migrated admin page follows these:
 ### Components (`templates/components/`)
 | Component | Usage |
 |---|---|
-| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 46 icons (`calendar-check` added in dashboard v5). To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
-| `pet_avatar.html` | `{% include "components/pet_avatar.html" with pet=appointment.pet size="lg" %}`. `lg` 64px (`size-16 rounded-2xl`), `sm` 40px (`size-10 rounded-xl`). The pet's photo, or a violet tile with the `species_icon` icon (dog, cat, rabbit, bird, paw-print) at stroke 1.5, labelled "No photo of {name} yet". |
-| `owner_avatar.html` | `{% include "components/owner_avatar.html" with owner=appointment.owner size="xs" %}`. Circle; `sm` 40px, `xs` 32px. The profile photo, or initials (one letter when the last name is blank). Old owner templates still draw initials inline until Slice 4. |
-| `form_field.html` | `{% include "components/form_field.html" with field=form.email %}`. Label, control, help text, errors (red text with the `triangle-alert` icon). Needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple field uses it. |
+| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 53 icons (`calendar-check` added in dashboard v5, `archive` in Slice 4a-2, `map-pin`, `link`, `pencil`, `rotate-ccw`, `send` in Slice 4a-3, `upload` in Slice 4a-4). To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
+| `pet_avatar.html` | `{% include "components/pet_avatar.html" with pet=appointment.pet size="lg" %}`. `lg` 64px (`size-16 rounded-2xl`), `sm` 40px (`size-10 rounded-xl`). The pet's photo, or a violet tile with the `species_icon` icon (dog, cat, rabbit, bird, paw-print) at stroke 1.5, labelled "No photo of {name} yet". Optional `muted=True`: gray tile (`bg-gray-100 text-gray-600 ring-gray-300`) for archived pets, or every pet of an archived owner (owner page); a photo is unchanged. |
+| `owner_avatar.html` | `{% include "components/owner_avatar.html" with owner=appointment.owner size="xs" %}`. Circle; `lg` 64px (`size-16`, `text-xl` initials; owner page header), `sm` 40px, `xs` 32px. The profile photo, or initials (one letter when the last name is blank). Optional `muted=True`: gray initials tile (`bg-gray-100 text-gray-700 ring-gray-300`) for archived owners (owners list Archived tab, owner page). |
+| `form_field.html` | `{% include "components/form_field.html" with field=form.email %}`. Label, control, help text, errors (red text with the `triangle-alert` icon). Optional `optional=True` adds a gray "(optional)" after the label. Needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple field uses it. |
 | `status_badge.html` | `{% include "components/status_badge.html" with status=obj.status label=obj.get_status_display %}` |
 | `flash_messages.html` | Rendered once by the admin layout; pages must not loop over `messages`. |
 | `empty_state.html` | `{% include "components/empty_state.html" with icon="calendar" title="No appointments on this day" text="Pick another date on the calendar." %}`. Optional `live=True` makes the title a polite live region (results that change as you type). |

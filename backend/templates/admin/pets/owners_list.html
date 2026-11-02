@@ -1,154 +1,42 @@
 {% extends "layouts/admin.html" %}
 
-{% load static %}
-{% block legacy_css %}
-<style>
-  @import url("{% static 'css/admin/owner_detail.css' %}") layer(legacy);
-  @import url("{% static 'css/admin/owners_list.css' %}") layer(legacy);
-</style>
+{% block title %}Pet owners — Hapi Vet Admin{% endblock %}
+
+{# This page's own search replaces "Find a pet or owner" (md up; phones get the same form in the page body) #}
+{% block topbar_search %}
+  {% include "admin/pets/owners_list_parts/search_form.html" with id_prefix="topbar" form_class="hidden min-w-0 flex-1 items-center gap-3 md:flex" %}
 {% endblock %}
 
-{% block title %}Pet Owners — Hapi Vet Admin{% endblock %}
-
-{% block page_header %}{% endblock %}
+{% block page_title %}Pet owners{% endblock %}
+{% block page_subtitle %}Everyone who brings a pet to the clinic.{% endblock %}
+{% block page_actions %}
+  <a href="{% url 'admin_owner_create' %}" class="btn btn-primary">{% include "components/icon.html" with name="user-plus" %}Add owner</a>
+{% endblock %}
 
 {% block content %}
-
-<div class="admin-page">
-
-  <!-- Page header -->
-  <div class="admin-page-header">
-    <h1 class="admin-page-title">Pet Owners</h1>
-    <a href="{% url 'admin_walkin_create' %}" class="btn-primary">+ Register Walk-in Client</a>
-  </div>
-
-  <!-- Search and filter bar -->
-  <form method="get" class="admin-filter-bar">
-
-    <input
-      type="text"
-      name="search"
-      value="{{ search_query }}"
-      placeholder="Search by name or email..."
-      class="admin-search-input"
-    />
-
-    <select name="status" class="admin-filter-select">
-      <option value="active" {% if status_filter == "active" %}selected{% endif %}>
-        Active
-      </option>
-      <option value="archived" {% if status_filter == "archived" %}selected{% endif %}>
-        Archived
-      </option>
-    </select>
-
-    <button type="submit" class="btn-secondary">Search</button>
-
-    {% if search_query or status_filter != "active" %}
-      <a href="{% url 'admin_owner_list' %}" class="btn-secondary">
-        Clear
-      </a>
-    {% endif %}
-
-  </form>
-
-  <!-- Results count -->
-  <p class="admin-results-count">
-    {{ total_count }} owner{{ total_count|pluralize }} found
-  </p>
-
-  {% if owners %}
-
-    <!-- Owners table -->
-    <div class="admin-table-wrapper">
-      <table class="admin-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Email</th>
-            <th>Contact</th>
-            <th>Pets</th>
-            <th>Registered</th>
-            <th>Status</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for owner in owners %}
-            <tr class="admin-table-row">
-
-              <!-- Name + avatar -->
-              <td class="admin-table-cell">
-                <div class="admin-owner-name-cell">
-                  {% if owner.profile_photo %}
-                    <img
-                      src="{{ owner.profile_photo.url }}"
-                      alt="{{ owner.full_name }}"
-                      class="admin-avatar-small"
-                    />
-                  {% else %}
-                    <div class="admin-avatar-initials-small">
-                      {{ owner.first_name|first|upper }}{{ owner.last_name|first|upper }}
-                    </div>
-                  {% endif %}
-                  <span>{{ owner.full_name }}</span>
-                </div>
-              </td>
-
-              <td class="admin-table-cell">{{ owner.user.email }}</td>
-
-              <td class="admin-table-cell">
-                {{ owner.contact_number|default:"—" }}
-              </td>
-
-              <td class="admin-table-cell">
-                {{ owner.pets.count }}
-              </td>
-
-              <td class="admin-table-cell">
-                {{ owner.date_registered|date:"M d, Y" }}
-              </td>
-
-              <td class="admin-table-cell">
-                {% if owner.is_archived %}
-                  <span class="status-badge status-archived">Archived</span>
-                {% else %}
-                  <span class="status-badge status-active">Active</span>
-                {% endif %}
-              </td>
-
-              <td class="admin-table-cell">
-                <a href="{% url 'admin_owner_detail' owner.pk %}" class="admin-table-link">
-                  View
-                </a>
-              </td>
-
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-  {% else %}
-
-    <!-- Empty state -->
-    <div class="admin-empty">
-      {% if search_query %}
-        <p class="admin-empty-message">
-          No owners found for "{{ search_query }}".
-        </p>
-      {% else %}
-        <p class="admin-empty-message">No pet owners registered yet.</p>
-      {% endif %}
-    </div>
-
+  {% include "admin/pets/owners_list_parts/search_form.html" with id_prefix="page" form_class="mb-4 flex items-center gap-3 md:hidden" %}
+  {% include "admin/pets/owners_list_parts/tabs.html" %}
+  {% if active_tab == "archived" and archived_count %}
+    {% include "admin/pets/owners_list_parts/archived_note.html" %}
   {% endif %}
 
-</div>
+  {# A search shows what matched (with Clear search); otherwise the tab's heading, when it has owners #}
+  {% if is_searching %}
+    {% include "admin/pets/owners_list_parts/results_line.html" %}
+  {% elif owners %}
+    {% include "admin/pets/owners_list_parts/list_head.html" %}
+  {% endif %}
 
-{% endblock %}
-
-{% block extra_js %}
-  <script src="{% static 'js/shared/pet_species_breed.js' %}"></script>
-  <script src="{% static 'js/admin/owners_list.js' %}"></script>
+  {% if owners %}
+    <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      <ul>
+        {% for owner in owners %}
+          {% include "admin/pets/owners_list_parts/row.html" %}
+        {% endfor %}
+      </ul>
+      {% include "admin/appointments/list_parts/pager.html" %}
+    </div>
+  {% else %}
+    {% include "admin/pets/owners_list_parts/empty.html" %}
+  {% endif %}
 {% endblock %}

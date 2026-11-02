@@ -1,0 +1,13 @@
+{# Restore confirmation; without an email the owner still can't log in #}
+<dialog id="restore-dialog" aria-labelledby="restore-dialog-title" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50">
+  <form method="post" action="{% url 'admin_owner_restore' owner.pk %}" class="p-6 sm:p-7">
+    {% csrf_token %}
+    <h2 id="restore-dialog-title" class="text-xl font-bold">Restore {{ owner.full_name }}?</h2>
+    {% if owner.user.email %}
+      <p class="mt-2 text-base text-gray-700">{{ owner.full_name }} will be able to log in again, and you can book visits for them. Their pets come back on the Pets list.</p>
+    {% else %}
+      <p class="mt-2 text-base text-gray-700">You can book visits for {{ owner.full_name }} again. They still can't log in until they have an email and set a password.</p>
+    {% endif %}
+    {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, restore account" icon="rotate-ccw" %}
+  </form>
+</dialog>

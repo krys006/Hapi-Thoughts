@@ -1,0 +1,33 @@
+{% load friendly_dates pet_display %}
+{% comment %}
+  One owner in the list: avatar (gray on the Archived tab), name, phone and
+  email, active pets, and Open. Below sm the row stacks and Open is full
+  width. Open is the only link; the row has no click handler.
+{% endcomment %}
+<li class="flex flex-col gap-3 border-t border-gray-100 p-4 first:border-t-0 hover:bg-gray-50 sm:flex-row sm:items-center sm:gap-4 sm:px-5">
+  <div class="flex min-w-0 flex-1 items-start gap-3 sm:items-center sm:gap-4">
+    {% include "components/owner_avatar.html" with owner=owner size="sm" muted=owner.is_archived %}
+    <div class="min-w-0 flex-1">
+      <p class="flex flex-wrap items-center gap-2 text-lg font-semibold text-gray-900">
+        {{ owner.full_name }}
+        {% if owner.is_archived %}
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1 text-sm font-medium text-gray-800">{% include "components/icon.html" with name="archive" class="size-4 shrink-0" %}Archived {{ owner.archived_at|friendly_date:"mid" }}</span>
+        {% endif %}
+      </p>
+      <p class="mt-0.5 flex flex-wrap gap-x-5 gap-y-1 text-sm text-gray-700">
+        <span class="inline-flex items-center gap-1.5">{% include "components/icon.html" with name="phone" class="size-4 shrink-0 text-gray-600" %}<span class="sr-only">Phone: </span>{% if owner.contact_number %}{{ owner.contact_number }}{% else %}<span class="text-gray-600">No phone number</span>{% endif %}</span>
+        <span class="inline-flex min-w-0 items-center gap-1.5">{% include "components/icon.html" with name="mail" class="size-4 shrink-0 text-gray-600" %}<span class="sr-only">Email: </span>{% if owner.user.email %}<span class="min-w-0 wrap-anywhere">{{ owner.user.email }}</span>{% else %}<span class="text-gray-600">No email</span>{% endif %}</span>
+      </p>
+      {% if owner.active_pets %}
+        <ul class="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-base text-gray-800" aria-label="Pets">
+          {% for pet in owner.active_pets %}
+            <li class="inline-flex items-center gap-1.5">{% include "components/icon.html" with name=pet.species|species_icon class="size-5 shrink-0 text-violet-600" stroke="1.5" %}{{ pet.name }}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="mt-1 text-base text-gray-600">No pets yet</p>
+      {% endif %}
+    </div>
+  </div>
+  <a href="{% url 'admin_owner_detail' owner.pk %}" class="inline-flex min-h-11 w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-violet-300 bg-violet-50 px-5 text-base font-semibold text-violet-800 hover:border-violet-400 hover:bg-violet-100 sm:w-auto">Open<span class="sr-only"> {{ owner.full_name }}</span>{% include "components/icon.html" with name="arrow-right" %}</a>
+</li>

@@ -1,0 +1,14 @@
+{% comment %}
+  Active / Archived tabs, same classes as the appointments list's tabs.
+  Shown at every width (only two). The links keep the search, so a name
+  can be checked in the other tab, and drop the page.
+{% endcomment %}
+<nav class="mb-4 flex flex-wrap gap-2" aria-label="Filter by status">
+  {% if active_tab == "active" %}
+    <a href="{% url 'admin_owner_list' %}?status=active{% if q %}&amp;q={{ q|urlencode }}{% endif %}" class="inline-flex min-h-12 items-center gap-2 rounded-lg bg-violet-50 px-4 text-base font-semibold text-violet-800 ring-2 ring-violet-600" aria-current="page">Active<span class="rounded-full bg-violet-100 px-2 text-sm font-semibold text-violet-800">{{ active_count }}</span></a>
+    <a href="{% url 'admin_owner_list' %}?status=archived{% if q %}&amp;q={{ q|urlencode }}{% endif %}" class="inline-flex min-h-12 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800 hover:bg-gray-50">Archived<span class="rounded-full bg-gray-100 px-2 text-sm font-semibold text-gray-800">{{ archived_count }}</span></a>
+  {% else %}
+    <a href="{% url 'admin_owner_list' %}?status=active{% if q %}&amp;q={{ q|urlencode }}{% endif %}" class="inline-flex min-h-12 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800 hover:bg-gray-50">Active<span class="rounded-full bg-gray-100 px-2 text-sm font-semibold text-gray-800">{{ active_count }}</span></a>
+    <a href="{% url 'admin_owner_list' %}?status=archived{% if q %}&amp;q={{ q|urlencode }}{% endif %}" class="inline-flex min-h-12 items-center gap-2 rounded-lg bg-violet-50 px-4 text-base font-semibold text-violet-800 ring-2 ring-violet-600" aria-current="page">Archived<span class="rounded-full bg-violet-100 px-2 text-sm font-semibold text-violet-800">{{ archived_count }}</span></a>
+  {% endif %}
+</nav>
