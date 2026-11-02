@@ -620,8 +620,9 @@ class AppointmentBookingForm(forms.ModelForm):
 | `base.html` | Standalone auth pages (e.g. `owner/login.html`, `owner/register.html`, password reset, `owner/onboarding/step1.html`) | Bare page with Tailwind + HTMX, no header or sidebar |
 
 `layouts/admin.html` shell sizes: Sidebar 224 px (w-56). The sidebar's logo
-block and the top bar are both h-16, so their bottom borders line up; keep
-them equal if either changes. The clinic name may wrap to two lines
+block and the top bar are both h-16, so the nav starts level with the page
+under the top bar; keep them equal if either changes. The logo block has no
+bottom border. The clinic name may wrap to two lines
 (line-clamp-2).
 
 Migrated pages never loop over `messages` (the layout includes

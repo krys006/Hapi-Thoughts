@@ -393,10 +393,16 @@ class ShellLayoutTests(ShellTestBase):
         header = self._classes(r'<header class="([^"]*)"')
         for name, classes in (("logo block", logo), ("top bar", header)):
             with self.subTest(block=name):
-                for cls in ("h-16", "shrink-0", "flex", "items-center", "border-b"):
+                for cls in ("h-16", "shrink-0", "flex", "items-center"):
                     self.assertIn(cls, classes)
                 for cls in ("py-3", "py-4"):
                     self.assertNotIn(cls, classes)
+        self.assertIn("border-b", header)
+
+    def test_logo_block_has_no_bottom_border(self):
+        logo = self._classes(r'<aside id="admin-sidebar"[^>]*>\s*<div class="([^"]*)"')
+        self.assertNotIn("border-b", logo)
+        self.assertNotIn("border-violet-200", logo)
 
     def test_clinic_name_wraps_to_two_lines_with_title(self):
         self.assertIn(
