@@ -619,6 +619,11 @@ class AppointmentBookingForm(forms.ModelForm):
 | `base_dashboard.html` | Logged-in owner pages (e.g. `owner/pets/list.html`; `shared/clinic_info.html` for owners, which gets its base from the view) | Header with search and bell, role-based sidebar, flash messages, Tailwind + HTMX, CSRF header for HTMX, confirm modal |
 | `base.html` | Standalone auth pages (e.g. `owner/login.html`, `owner/register.html`, password reset, `owner/onboarding/step1.html`) | Bare page with Tailwind + HTMX, no header or sidebar |
 
+`layouts/admin.html` shell sizes: Sidebar 224 px (w-56). The sidebar's logo
+block and the top bar are both h-16, so their bottom borders line up; keep
+them equal if either changes. The clinic name may wrap to two lines
+(line-clamp-2).
+
 Migrated pages never loop over `messages` (the layout includes
 `components/flash_messages.html`) and load no `static/css/admin/` file.
 

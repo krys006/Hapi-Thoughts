@@ -368,6 +368,48 @@ class TopbarSearchTests(ShellTestBase):
         )
 
 
+class ShellLayoutTests(ShellTestBase):
+    """Sidebar width, and the logo block and top bar sharing one height."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.admin)
+        self.html = self.client.get(reverse("admin_dashboard")).content.decode()
+
+    def _classes(self, pattern):
+        """The class list of the first opening tag matching pattern."""
+        match = re.search(pattern, self.html)
+        self.assertIsNotNone(match, f"No tag matching {pattern}")
+        return match.group(1).split()
+
+    def test_sidebar_is_w_56(self):
+        classes = self._classes(r'<aside id="admin-sidebar" class="([^"]*)"')
+        self.assertIn("w-56", classes)
+        self.assertNotIn("w-72", classes)
+
+    def test_logo_block_and_top_bar_are_both_h_16(self):
+        # The logo block is the first <div> inside the sidebar
+        logo = self._classes(r'<aside id="admin-sidebar"[^>]*>\s*<div class="([^"]*)"')
+        header = self._classes(r'<header class="([^"]*)"')
+        for name, classes in (("logo block", logo), ("top bar", header)):
+            with self.subTest(block=name):
+                for cls in ("h-16", "shrink-0", "flex", "items-center", "border-b"):
+                    self.assertIn(cls, classes)
+                for cls in ("py-3", "py-4"):
+                    self.assertNotIn(cls, classes)
+
+    def test_clinic_name_wraps_to_two_lines_with_title(self):
+        self.assertIn(
+            '<p class="line-clamp-2 text-base font-semibold leading-5 text-gray-900" '
+            'title="Hapi Vet">Hapi Vet</p>',
+            self.html,
+        )
+
+    def test_no_admin_subtitle(self):
+        self.assertNotIn('<p class="text-sm text-gray-700">Admin</p>', self.html)
+        self.assertNotRegex(self.html, r">\s*Admin\s*</p>")
+
+
 def _squash(html):
     """Rendered markup with indentation and blank lines removed."""
     return "".join(line.strip() for line in html.splitlines())
