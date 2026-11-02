@@ -164,7 +164,11 @@ templates/
 │   │   ├── index.html
 │   │   ├── _stats.html
 │   │   ├── _day_schedule.html
-│   │   └── _mini_calendar.html
+│   │   ├── _mini_calendar.html
+│   │   ├── _day_response.html        ← day endpoint: schedule + calendar out-of-band
+│   │   └── dashboard_parts/          ← Includes for index.html (not HTMX partials, so no `_`)
+│   │       ├── needs_approval.html
+│   │       └── recent_activity.html
 │   ├── notifications/
 │   │   ├── _panel.html
 │   │   └── _notification_row.html
@@ -726,10 +730,10 @@ From `admin/billing/receipt_detail.html`:
 Partials are prefixed with underscore and never extend a base template.
 Real examples:
 ```
-admin/appointments/_calendar_grid.html      ← calendar month grid
-admin/appointments/_calendar_day_panel.html ← calendar day side panel
+admin/dashboard/_mini_calendar.html         ← dashboard month calendar
+admin/dashboard/_day_response.html          ← schedule card + calendar out-of-band
 admin/dashboard/_stats.html                 ← self-polling dashboard stats
-shared/notifications/_panel.html            ← bell dropdown
+admin/notifications/_panel.html             ← bell dropdown
 ```
 
 ### Template variable naming
@@ -837,7 +841,7 @@ The main admin user is an elderly vet. Every migrated admin page follows these:
 ### Components (`templates/components/`)
 | Component | Usage |
 |---|---|
-| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 45 icons (`user-plus` added in 3c-3). To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
+| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 46 icons (`calendar-check` added in dashboard v5). To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
 | `pet_avatar.html` | `{% include "components/pet_avatar.html" with pet=appointment.pet size="lg" %}`. `lg` 64px (`size-16 rounded-2xl`), `sm` 40px (`size-10 rounded-xl`). The pet's photo, or a violet tile with the `species_icon` icon (dog, cat, rabbit, bird, paw-print) at stroke 1.5, labelled "No photo of {name} yet". |
 | `owner_avatar.html` | `{% include "components/owner_avatar.html" with owner=appointment.owner size="xs" %}`. Circle; `sm` 40px, `xs` 32px. The profile photo, or initials (one letter when the last name is blank). Old owner templates still draw initials inline until Slice 4. |
 | `form_field.html` | `{% include "components/form_field.html" with field=form.email %}`. Label, control, help text, errors (red text with the `triangle-alert` icon). Needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple field uses it. |

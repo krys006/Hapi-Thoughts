@@ -1,0 +1,21 @@
+{% load friendly_dates %}
+{% comment %}
+  The 3 newest notifications (recent_activity). Each row opens the
+  notification (notification_open marks it read); View all opens the
+  top-bar Notifications panel.
+{% endcomment %}
+<section class="card p-4" aria-labelledby="recent-activity-title">
+  <div class="flex items-center justify-between">
+    <h2 id="recent-activity-title" class="text-lg font-semibold">Recent activity</h2>
+    <button type="button" class="inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap text-base font-medium text-blue-600 hover:underline" hx-get="{% url 'notifications_panel' %}" hx-target="#notification-panel-container" hx-swap="innerHTML">View all</button>
+  </div>
+  {% if recent_activity %}
+    <ul class="divide-y divide-gray-100">
+      {% for item in recent_activity %}
+        <li><a href="{% url 'notification_open' item.notification.pk %}" class="flex min-h-12 items-center gap-3 rounded-lg px-1 py-1.5 hover:bg-gray-50"><span class="size-2.5 shrink-0 rounded-full {% if item.is_unread %}bg-red-600{% else %}bg-transparent{% endif %}" aria-hidden="true"></span><span class="min-w-0 flex-1"><span class="block text-base">{% if item.is_unread %}<span class="sr-only">Unread: </span>{% endif %}{% if item.pet_name %}<span class="font-semibold">{{ item.pet_name }}</span> · {{ item.label }}{% else %}{{ item.label|capfirst }}{% endif %}</span><span class="block text-sm text-gray-600">{{ item.created_at|friendly_datetime }}{% if item.is_unread %} · New{% endif %}</span></span>{% include "components/icon.html" with name="chevron-right" class="size-5 shrink-0 text-gray-600" %}</a></li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="py-3 text-base text-gray-700">No notifications yet.</p>
+  {% endif %}
+</section>

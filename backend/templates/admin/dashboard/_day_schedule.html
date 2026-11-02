@@ -1,29 +1,33 @@
 {% load friendly_dates %}
 {% comment %}
-  Schedule card: one day's appointments (cancelled ones left out).
-  Shown for today on page load; the mini calendar swaps in other days.
+  Schedule card for one day, from the `schedule` dict (dashboard/utils.py
+  day_schedule). Shown for today on page load; the calendar swaps in other
+  days. Pending requests are not rows (they are in Needs approval).
 {% endcomment %}
-<section id="day-schedule" class="card flex h-full flex-col">
-  <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
-    <div>
-      <h2 class="text-xl font-semibold text-gray-900">{% if is_today %}Today's schedule{% else %}Schedule for {{ selected_date|friendly_date }}{% endif %}</h2>
-      <p class="mt-1 text-base text-gray-600">{{ selected_date|date:"l, F j, Y" }}</p>
+<section id="day-schedule" class="card p-5" aria-labelledby="day-schedule-title">
+  <div class="mb-2 flex items-start justify-between gap-4">
+    <div class="min-w-0">
+      <h2 id="day-schedule-title" class="text-xl font-semibold">{% if schedule.is_today %}Today's schedule{% else %}{{ schedule.day|long_date }}{% endif %}</h2>
+      <p class="text-base text-gray-700">{{ schedule.summary }}</p>
     </div>
-    <div class="flex flex-wrap items-center gap-3">
-      {% if not is_today %}
-        <button type="button" class="btn btn-outline" hx-get="{% url 'admin_dashboard_day' %}" hx-target="#day-schedule" hx-swap="outerHTML">Back to today</button>
-      {% endif %}
-      <a href="{% url 'admin_appointments' %}" class="text-base font-medium text-blue-600 hover:underline">All appointments</a>
-    </div>
+    {% if schedule.is_today %}
+      <a href="{% url 'admin_appointments' %}" class="inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap text-base font-medium text-blue-600 hover:underline">All appointments</a>
+    {% else %}
+      <a href="{% url 'admin_dashboard' %}" hx-get="{% url 'admin_dashboard_day' %}" hx-target="#day-schedule" hx-swap="outerHTML" class="inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap text-base font-medium text-blue-600 hover:underline">{% include "components/icon.html" with name="arrow-left" %}Back to today</a>
+    {% endif %}
   </div>
 
-  {% if day_appointments %}
-    <ul class="max-h-[28rem] divide-y divide-gray-100 overflow-y-auto">
-      {% for appointment in day_appointments %}
-        <li><a href="{% url 'admin_appointment_detail' appointment.pk %}" class="flex items-center gap-4 rounded-lg px-2 py-3 hover:bg-gray-50"><span class="w-24 shrink-0 whitespace-nowrap text-base text-gray-700">{{ appointment.time|time:"g:i A" }}</span><span class="min-w-0 flex-1"><span class="block text-base font-medium text-gray-900">{{ appointment.pet.name }}{% if appointment.service %} · {{ appointment.service.service_name }}{% endif %}{% if appointment.is_walk_in %} <span class="badge bg-violet-100 text-violet-800">Walk-in</span>{% endif %}</span><span class="block text-sm text-gray-600">{{ appointment.owner.first_name }} {{ appointment.owner.last_name }}</span></span>{% include "components/status_badge.html" with status=appointment.status label=appointment.get_status_display %}</a></li>
+  {% if schedule.shown_rows %}
+    <ul class="space-y-1">
+      {% for appointment in schedule.shown_rows %}
+        {# The next visit today is outlined in violet and labelled "Next" #}
+        <li><a href="{% url 'admin_appointment_detail' appointment.pk %}" class="grid min-h-16 grid-cols-[5.5rem_1fr_auto] items-center gap-4 rounded-lg px-3 py-2.5 {% if appointment.id == schedule.next_id %}bg-violet-50 ring-2 ring-violet-600{% else %}hover:bg-gray-50{% endif %}"><span class="block"><span class="block text-base font-semibold">{{ appointment.time|time:"g:i A" }}</span>{% if appointment.id == schedule.next_id %}<span class="block text-sm font-semibold text-violet-800">Next</span>{% endif %}</span><span class="flex min-w-0 items-center gap-3">{% include "components/pet_avatar.html" with pet=appointment.pet size="sm" %}<span class="block min-w-0"><span class="flex flex-wrap items-center gap-x-2 gap-y-1 text-base"><span class="font-semibold">{{ appointment.pet.name }}</span><span class="text-gray-800">· {% if appointment.service %}{{ appointment.service.service_name }}{% else %}No service picked{% endif %}</span>{% if appointment.is_walk_in %}<span class="inline-flex rounded-full bg-violet-100 px-3 py-0.5 text-sm font-semibold text-violet-800">Walk-in</span>{% endif %}</span><span class="block text-sm text-gray-600">{{ appointment.owner.first_name }} {{ appointment.owner.last_name }}</span></span></span><span class="flex items-center gap-3">{% include "components/status_badge.html" with status=appointment.status label=appointment.get_status_display %}<span class="inline-flex items-center text-base font-medium text-blue-600">Open{% include "components/icon.html" with name="chevron-right" %}</span></span></a></li>
       {% endfor %}
     </ul>
+    {% if schedule.more_count %}
+      <p class="px-3 pt-2 text-base text-gray-700">and {{ schedule.more_count }} more · <a href="{% url 'admin_appointments' %}?date={{ schedule.day|date:'Y-m-d' }}" class="inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap text-base font-medium text-blue-600 hover:underline">See all on Appointments</a></p>
+    {% endif %}
   {% else %}
-    {% include "components/empty_state.html" with icon="calendar" title="No appointments on this day" text="Pick another date on the calendar." %}
+    <p class="rounded-lg bg-gray-50 px-4 py-6 text-center text-base text-gray-700">No visits booked on this day.</p>
   {% endif %}
 </section>

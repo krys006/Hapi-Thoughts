@@ -1,5 +1,4 @@
 {% extends "layouts/admin.html" %}
-{% load friendly_dates %}
 
 {% block title %}Dashboard — Hapi Vet Admin{% endblock %}
 
@@ -13,58 +12,20 @@
 {% block content %}
   {% include "admin/dashboard/_stats.html" %}
 
-  {# Row 2: the day's schedule next to the mini calendar that switches it #}
-  <div class="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
-    {# aria-live sits on this wrapper because the card inside is swapped out #}
-    <div aria-live="polite">
-      {% include "admin/dashboard/_day_schedule.html" %}
+  {# Left: requests and the day's schedule. Right: the calendar that switches the schedule, then recent activity. Stacks below lg. #}
+  <div class="grid gap-6 lg:grid-cols-3 lg:items-start">
+    <div class="space-y-6 lg:col-span-2">
+      {% if pending_requests %}
+        {% include "admin/dashboard/dashboard_parts/needs_approval.html" %}
+      {% endif %}
+      {# aria-live sits on this wrapper because the card inside is swapped out #}
+      <div aria-live="polite">
+        {% include "admin/dashboard/_day_schedule.html" %}
+      </div>
     </div>
-    {% include "admin/dashboard/_mini_calendar.html" %}
-  </div>
-
-  {# Row 3: recent activity next to requests waiting for approval #}
-  <div class="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
-    <section class="card" aria-labelledby="recent-activity-title">
-      <div class="mb-4 flex items-center justify-between gap-3">
-        <h2 id="recent-activity-title" class="text-xl font-semibold text-gray-900">Recent activity</h2>
-        <button type="button" class="text-base font-medium text-blue-600 hover:underline" hx-get="{% url 'notifications_panel' %}" hx-target="#notification-panel-container" hx-swap="innerHTML">View all</button>
-      </div>
-      {% if recent_notifications %}
-        <ul class="divide-y divide-gray-100">
-          {% for notification in recent_notifications %}
-            <li><a href="{% url 'notification_open' notification.pk %}" class="flex items-start gap-3 rounded-lg px-2 py-3 hover:bg-gray-50"><span class="mt-0.5 rounded-lg p-2{% if notification.is_read %} bg-gray-100 text-gray-600{% else %} bg-violet-50 text-violet-700{% endif %}">{% include "components/icon.html" with name="bell" %}</span><span class="min-w-0 flex-1"><span class="block text-base text-gray-900{% if not notification.is_read %} font-semibold{% endif %}">{{ notification.title }}</span><span class="block text-base text-gray-700">{{ notification.message|truncatechars:110 }}</span></span><span class="shrink-0 whitespace-nowrap text-sm text-gray-600">{{ notification.created_at|friendly_datetime }}</span></a></li>
-          {% endfor %}
-        </ul>
-      {% else %}
-        {% include "components/empty_state.html" with icon="bell" title="No activity yet" text="Booking requests, payments and other updates will show up here." %}
-      {% endif %}
-    </section>
-
-    <section class="card" aria-labelledby="needs-approval-title">
-      <div class="mb-4 flex items-center justify-between gap-3">
-        <h2 id="needs-approval-title" class="text-xl font-semibold text-gray-900">Needs approval</h2>
-        {% if pending_approvals %}<span class="badge bg-yellow-100 text-yellow-800">{{ pending_approvals }} waiting</span>{% endif %}
-      </div>
-      {% if pending_appointments %}
-        <ul class="divide-y divide-gray-100">
-          {% for appointment in pending_appointments|slice:":3" %}
-            <li class="flex items-center gap-3 py-3">
-              <div class="min-w-0 flex-1">
-                <p class="text-base font-semibold text-gray-900">{{ appointment.pet.name }}{% if appointment.service %} · {{ appointment.service.service_name }}{% endif %}</p>
-                <p class="text-base text-gray-700">{{ appointment.date|friendly_date }}, {{ appointment.time|time:"g:i A" }}</p>
-                <p class="text-sm text-gray-600">{{ appointment.owner.first_name }} {{ appointment.owner.last_name }}</p>
-                {% if appointment.date < today %}<p class="mt-1"><span class="badge bg-red-100 text-red-800">Date has passed</span></p>{% endif %}
-              </div>
-              <a href="{% url 'admin_appointment_detail' appointment.pk %}" class="btn btn-outline shrink-0">Review</a>
-            </li>
-          {% endfor %}
-        </ul>
-        {% if pending_approvals > 3 %}
-          <a href="{% url 'admin_appointments' %}?status=pending" class="mt-3 inline-block text-base font-medium text-blue-600 hover:underline">See all {{ pending_approvals }} requests →</a>
-        {% endif %}
-      {% else %}
-        {% include "components/empty_state.html" with icon="circle-check" title="No requests waiting" text="New booking requests from pet owners will appear here." %}
-      {% endif %}
-    </section>
+    <div class="min-w-0 space-y-6">
+      {% include "admin/dashboard/_mini_calendar.html" %}
+      {% include "admin/dashboard/dashboard_parts/recent_activity.html" %}
+    </div>
   </div>
 {% endblock %}

@@ -1,49 +1,45 @@
 {% comment %}
-  Dashboard mini calendar. The arrows reload this partial; clicking a date
-  loads that day's appointments into the schedule card (#day-schedule).
-  Dots: violet = booked, yellow = has requests waiting for approval.
+  Dashboard month calendar, from the cal_* keys (dashboard/utils.py
+  dashboard_calendar_context). The month dropdown reloads this partial;
+  a day loads that day into the schedule card (#day-schedule), and the day
+  response re-renders this card with oob=True. Without JavaScript the
+  links and the Show button load the full page with ?month= and ?day=.
+  Pill: the day's visits + waiting requests (yellow when a request waits).
 {% endcomment %}
 <section id="mini-calendar" class="card p-5" aria-label="Calendar"{% if oob %} hx-swap-oob="outerHTML"{% endif %}>
-  <div class="mb-3 flex items-center justify-between gap-2">
-    <h2 class="text-lg font-semibold text-gray-900">{{ calendar_period_label }}</h2>
-    <div class="flex gap-1">
-      <button type="button" class="btn btn-outline px-3" hx-get="{% url 'admin_dashboard_calendar' %}?date={{ calendar_prev_date|date:'Y-m-d' }}" hx-target="#mini-calendar" hx-swap="outerHTML">
-        {% include "components/icon.html" with name="chevron-left" %}
-        <span class="sr-only">Previous month</span>
-      </button>
-      <button type="button" class="btn btn-outline px-3" hx-get="{% url 'admin_dashboard_calendar' %}?date={{ calendar_next_date|date:'Y-m-d' }}" hx-target="#mini-calendar" hx-swap="outerHTML">
-        {% include "components/icon.html" with name="chevron-right" %}
-        <span class="sr-only">Next month</span>
-      </button>
-    </div>
+  <div class="mb-2 flex items-center gap-2">
+    <form method="get" action="{% url 'admin_dashboard' %}" class="flex min-w-0 flex-1 items-center gap-2">
+      <label class="min-w-0 flex-1"><span class="sr-only">Month</span>
+        <select name="month" class="min-h-11 w-full min-w-0 rounded-lg border border-gray-300 bg-white px-2 text-base font-semibold text-gray-900" hx-get="{% url 'admin_dashboard_calendar' %}" hx-trigger="change" hx-target="#mini-calendar" hx-swap="outerHTML" hx-include="closest form">
+          {% for option in cal_month_options %}
+            <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% if cal_picked %}<input type="hidden" name="day" value="{{ cal_picked|date:'Y-m-d' }}">{% endif %}
+      <noscript><button type="submit" class="btn btn-outline">Show</button></noscript>
+    </form>
+    {# Same size and label in every state; violet once away from today #}
+    <a href="{% url 'admin_dashboard' %}" hx-get="{% url 'admin_dashboard_day' %}" hx-target="#day-schedule" hx-swap="outerHTML" class="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg border-2 px-3 text-base font-semibold focus-visible:ring-2 focus-visible:ring-violet-600 {% if cal_is_home %}border-gray-300 bg-white text-gray-800 hover:bg-gray-50{% else %}border-violet-600 bg-violet-50 text-violet-800 hover:bg-violet-100{% endif %}">Today</a>
   </div>
 
-  <div class="grid grid-cols-7 text-center text-sm font-medium text-gray-600" aria-hidden="true">
-    <span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span>
+  <div class="grid grid-cols-7 text-center text-sm font-semibold text-gray-700" aria-hidden="true">
+    <span class="py-1">Mo</span><span class="py-1">Tu</span><span class="py-1">We</span><span class="py-1">Th</span><span class="py-1">Fr</span><span class="py-1">Sa</span><span class="py-1">Su</span>
   </div>
 
-  <div class="mt-1 grid grid-cols-7 gap-1 text-center">
-    {% for week in calendar_weeks %}
-      {% for day in week %}
-        {% if day.is_current_period %}
-          <button type="button" class="relative grid h-11 place-content-center rounded-lg text-base {% if day.is_today %}bg-violet-600 font-semibold text-white{% elif day.is_blocked or not day.is_working_day %}text-gray-500 hover:bg-gray-100{% else %}text-gray-800 hover:bg-violet-50{% endif %}" hx-get="{% url 'admin_dashboard_day' %}?date={{ day.date|date:'Y-m-d' }}" hx-target="#day-schedule" hx-swap="outerHTML" aria-label="{{ day.date|date:'l, F j' }}{% if day.statuses %}, has appointments{% endif %}{% if day.has_pending %}, requests waiting{% endif %}">
-            {{ day.date.day }}
-            {% if day.statuses %}
-              <span class="absolute bottom-1 left-1/2 size-1.5 -translate-x-1/2 rounded-full {% if day.has_pending %}bg-yellow-500{% elif day.is_today %}bg-white{% else %}bg-violet-500{% endif %}"></span>
-            {% endif %}
-          </button>
-        {% else %}
-          <span class="h-11"></span>
-        {% endif %}
-      {% endfor %}
+  {# Always 42 cells (6 rows), so the card keeps its height in every month #}
+  <div class="grid grid-cols-7 gap-0.5 text-center">
+    {% for cell in cal_cells %}
+      {% if cell.in_month %}
+        <a href="{% url 'admin_dashboard' %}?month={{ cal_month_value }}&day={{ cell.date|date:'Y-m-d' }}" hx-get="{% url 'admin_dashboard_day' %}?date={{ cell.date|date:'Y-m-d' }}" hx-target="#day-schedule" hx-swap="outerHTML" aria-label="{{ cell.aria_label }}"{% if cell.is_today %} aria-current="date"{% endif %} class="flex h-12 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg text-base leading-5 focus-visible:ring-2 focus-visible:ring-violet-600 {% if cell.is_today %}bg-violet-600 font-semibold text-white{% elif cell.is_picked %}bg-violet-50 font-semibold text-violet-900 ring-2 ring-inset ring-violet-600{% elif cell.is_weekend %}text-gray-500 hover:bg-gray-100{% else %}text-gray-800 hover:bg-gray-100{% endif %}"><span>{{ cell.day }}</span>{% if cell.pill %}<span class="min-w-6 rounded-full px-1 text-sm font-semibold leading-5 {% if cell.has_waiting %}bg-yellow-200 text-yellow-900{% elif cell.is_today %}bg-white text-violet-800{% else %}bg-violet-100 text-violet-800{% endif %}">{{ cell.pill }}</span>{% else %}<span class="h-5" aria-hidden="true"></span>{% endif %}</a>
+      {% else %}
+        <span class="h-12" aria-hidden="true"></span>
+      {% endif %}
     {% endfor %}
   </div>
 
-  <div class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-3 text-sm text-gray-700">
-    <span class="flex items-center gap-4">
-      <span class="flex items-center gap-1.5"><span class="size-2.5 rounded-full bg-violet-500"></span>Booked</span>
-      <span class="flex items-center gap-1.5"><span class="size-2.5 rounded-full bg-yellow-500"></span>Waiting for approval</span>
-    </span>
-    <a href="{% url 'admin_appointments' %}" class="text-base font-medium text-blue-600 hover:underline">Open appointments</a>
+  <div class="mt-2 flex flex-nowrap items-center gap-x-3 border-t border-gray-100 pt-3 text-sm text-gray-700">
+    <span class="flex items-center gap-1.5 whitespace-nowrap"><span class="min-w-6 rounded-full bg-violet-100 px-1 text-center font-semibold leading-5 text-violet-800" aria-hidden="true">2</span>Visits</span>
+    <span class="flex items-center gap-1.5 whitespace-nowrap"><span class="min-w-6 rounded-full bg-yellow-200 px-1 text-center font-semibold leading-5 text-yellow-900" aria-hidden="true">2</span>Has a request waiting</span>
   </div>
 </section>

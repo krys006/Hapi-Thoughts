@@ -15,6 +15,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from appointments.models import Appointment
+from billing.models import Service
 from dashboard.context_processors import shell
 from dashboard.templatetags.friendly_dates import (
     friendly_date,
@@ -34,7 +35,7 @@ from dashboard.utils import (
     resolve_picked,
     slot_minutes,
 )
-from dashboard.views import _greeting, _parse_day
+from dashboard.views import _greeting
 from medical.models import MedicalRecord, Vaccination
 from notifications.models import Notification
 from pets.models import Pet, PetDeletionRequest, PetOwner
@@ -416,19 +417,6 @@ class GreetingTests(SimpleTestCase):
                 self.assertEqual(_greeting(value), expected)
 
 
-@mock.patch("django.utils.timezone.now", return_value=FROZEN_NOW)
-class ParseDayTests(SimpleTestCase):
-
-    def test_valid_iso_date(self, _now):
-        self.assertEqual(_parse_day("2026-06-20"), date(2026, 6, 20))
-
-    def test_bad_values_fall_back_to_today(self, _now):
-        """Missing, malformed and impossible dates all give today (Manila)."""
-        for value in (None, "", "nonsense", "2026-02-30"):
-            with self.subTest(value=value):
-                self.assertEqual(_parse_day(value), date(2026, 6, 15))
-
-
 class DashboardViewTests(ShellTestBase):
     """The dashboard page and its two HTMX partials."""
 
@@ -442,11 +430,10 @@ class DashboardViewTests(ShellTestBase):
         )
 
     def _cell(self, response, day):
-        """The mini calendar cell for one date."""
-        for week in response.context["calendar_weeks"]:
-            for cell in week:
-                if cell["date"] == day:
-                    return cell
+        """The calendar cell for one date."""
+        for cell in response.context["cal_cells"]:
+            if cell["in_month"] and cell["date"] == day:
+                return cell
         self.fail(f"No calendar cell for {day}")
 
     def test_partials_are_admin_only(self):
@@ -468,34 +455,38 @@ class DashboardViewTests(ShellTestBase):
     def test_day_lists_that_day_in_time_order_without_cancelled(self, _now):
         day = date(2026, 6, 20)
         later = self._booking(day, 10, Appointment.CONFIRMED)
-        earlier = self._booking(day, 9, Appointment.PENDING)
+        self._booking(day, 9, Appointment.PENDING)
+        earlier = self._booking(day, 8, Appointment.COMPLETED)
         self._booking(day, 11, Appointment.CANCELLED)
         self._booking(date(2026, 6, 21), 9, Appointment.CONFIRMED)
         response = self.client.get(
             reverse("admin_dashboard_day"), {"date": "2026-06-20"}
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["selected_date"], day)
-        self.assertEqual(list(response.context["day_appointments"]), [earlier, later])
+        schedule = response.context["schedule"]
+        self.assertEqual(schedule["day"], day)
+        # A Pending request is not a row; it counts as waiting
+        self.assertEqual(schedule["rows"], [earlier, later])
+        self.assertEqual(schedule["waiting_count"], 1)
 
     def test_day_without_date_is_today(self):
         response = self.client.get(reverse("admin_dashboard_day"))
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.context["is_today"])
-        self.assertEqual(response.context["selected_date"], timezone.localdate())
+        self.assertTrue(response.context["schedule"]["is_today"])
+        self.assertEqual(response.context["schedule"]["day"], timezone.localdate())
 
     # Frozen in June so ?date=2026-06-01 is inside the clamped month range.
     @mock.patch("django.utils.timezone.now", return_value=FROZEN_NOW)
     def test_calendar_flags_days_with_pending(self, _now):
-        """Yellow dot only on days with a request waiting for approval."""
+        """Yellow pill only on days with a request waiting for approval."""
         self._booking(date(2026, 6, 20), 9, Appointment.PENDING)
         self._booking(date(2026, 6, 22), 9, Appointment.CONFIRMED)
         response = self.client.get(
             reverse("admin_dashboard_calendar"), {"date": "2026-06-01"}
         )
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(self._cell(response, date(2026, 6, 20))["has_pending"])
-        self.assertFalse(self._cell(response, date(2026, 6, 22))["has_pending"])
+        self.assertTrue(self._cell(response, date(2026, 6, 20))["has_waiting"])
+        self.assertFalse(self._cell(response, date(2026, 6, 22))["has_waiting"])
 
     def test_full_page_has_greeting_and_todays_schedule(self):
         today = timezone.localdate()
@@ -507,8 +498,8 @@ class DashboardViewTests(ShellTestBase):
             response.context["greeting"],
             ("Good morning", "Good afternoon", "Good evening"),
         )
-        self.assertEqual(response.context["selected_date"], today)
-        self.assertEqual(list(response.context["day_appointments"]), [kept])
+        self.assertEqual(response.context["schedule"]["day"], today)
+        self.assertEqual(response.context["schedule"]["rows"], [kept])
 
     def test_refresh_renders_stats_partial(self):
         response = self.client.get(reverse("admin_dashboard_refresh"))
@@ -841,7 +832,6 @@ class CalendarEndpointTests(ShellTestBase):
         response = self._get(month="2026-12")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["cal_month"], date(2026, 12, 1))
-        self.assertEqual(response.context["anchor_date"], date(2026, 12, 1))
 
     def test_far_off_values_are_clamped(self, _now):
         cases = (
@@ -854,18 +844,29 @@ class CalendarEndpointTests(ShellTestBase):
                 response = self._get(**params)
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.context["cal_month"], expected)
-                self.assertEqual(response.context["anchor_date"], expected)
 
     def test_old_date_param_still_works(self, _now):
         response = self._get(date="2026-10-05")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["cal_month"], date(2026, 10, 1))
-        self.assertEqual(response.context["calendar_period_label"], "October 2026")
+        selected = [o for o in response.context["cal_month_options"] if o["selected"]]
+        self.assertEqual([o["label"] for o in selected], ["October 2026"])
 
     def test_picked_param(self, _now):
         response = self._get(month="2026-11", picked="2026-11-05")
         self.assertEqual(response.context["cal_picked"], date(2026, 11, 5))
         self.assertFalse(response.context["cal_is_home"])
+
+    def test_day_param_is_the_picked_day(self, _now):
+        """The month dropdown's form sends the picked day as ?day."""
+        response = self._get(month="2026-12", day="2026-11-05")
+        self.assertEqual(response.context["cal_month"], date(2026, 12, 1))
+        self.assertEqual(response.context["cal_picked"], date(2026, 11, 5))
+        self.assertFalse(response.context["cal_is_home"])
+
+    def test_picked_wins_over_day(self, _now):
+        response = self._get(month="2026-11", picked="2026-11-05", day="2026-11-09")
+        self.assertEqual(response.context["cal_picked"], date(2026, 11, 5))
 
     def test_non_admin_htmx_gets_403(self, _now):
         self.client.force_login(self.owner.user)
@@ -1135,7 +1136,6 @@ class DayEndpointTests(DashboardV5TestBase):
         self.assertTemplateUsed(response, "admin/dashboard/_day_schedule.html")
         self.assertEqual(response.context["schedule"]["day"], PICKED_DAY)
         self.assertEqual(response.context["schedule"]["rows"], [visit])
-        self.assertEqual(response.context["selected_date"], PICKED_DAY)
         self.assertEqual(response.context["cal_picked"], PICKED_DAY)
         self.assertEqual(response.context["cal_month"], date(2026, 11, 1))
         self.assertContains(
@@ -1148,7 +1148,6 @@ class DayEndpointTests(DashboardV5TestBase):
     def test_picked_day_in_another_month_opens_that_month(self, _now):
         response = self._get(date="2026-12-10")
         self.assertEqual(response.context["cal_month"], date(2026, 12, 1))
-        self.assertEqual(response.context["anchor_date"], date(2026, 12, 1))
 
     def test_no_date_is_today(self, _now):
         response = self._get()
@@ -1208,3 +1207,282 @@ class FullPageDayParamTests(DashboardV5TestBase):
             response = self.client.get(reverse("admin_dashboard"))
         self.assertEqual(response.status_code, 200)
         print(f"\nadmin_dashboard full page: {len(queries)} queries")
+
+
+# ─── Dashboard v5 templates (batch D3) ────────────────────────────────────────
+
+# 9:40 AM in Manila on Mon, Nov 2, 2026 (01:40 UTC), as in the mockup.
+MARKUP_NOW = datetime(2026, 11, 2, 1, 40, tzinfo=dt_timezone.utc)
+BUSY_DAY = date(2026, 11, 26)
+
+
+def _part(html, marker):
+    """From the <section> holding marker to the end of that section."""
+    start = html.rindex("<section", 0, html.index(marker))
+    return html[start : html.index("</section>", start) + len("</section>")]
+
+
+@mock.patch("django.utils.timezone.now", return_value=MARKUP_NOW)
+class DashboardMarkupTests(DashboardV5TestBase):
+    """The rendered dashboard at 9:40 AM on Mon, Nov 2, 2026 (Manila)."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.admin)
+        self.checkup = Service.objects.create(
+            service_name="Check-up", status=Service.ACTIVE
+        )
+
+    def _html(self, url_name="admin_dashboard", **params):
+        response = self.client.get(reverse(url_name), params)
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _stats(self, html):
+        return _part(html, 'id="dashboard-stats"')
+
+    def _schedule(self, html):
+        return _part(html, 'id="day-schedule"')
+
+    def _calendar(self, html):
+        return _part(html, 'id="mini-calendar"')
+
+    def _today_button(self, html):
+        return re.search(r"<a [^>]*>Today</a>", self._calendar(html)).group(0)
+
+    # Stat cards
+
+    def test_four_stat_cards(self, _now):
+        html = self._html()
+        stats = self._stats(html)
+        self.assertEqual(stats.count("<a "), 4)
+        links = {
+            "Waiting for approval": reverse("admin_appointments") + "?status=pending",
+            "Unpaid bills": reverse("admin_receipt_list") + "?status=pending",
+            "Vaccinations due this week": reverse("admin_vaccination_list"),
+            "Follow-ups due this week": reverse("admin_medical_record_list"),
+        }
+        for label, url in links.items():
+            with self.subTest(label=label):
+                # The label inside this card's own <a>
+                pattern = (
+                    rf'<a href="{re.escape(url)}"[^>]*>(?:(?!</a>).)*{label}</span>'
+                )
+                self.assertRegex(stats, re.compile(pattern, re.S))
+        self.assertNotIn("Today's appointments", html)
+        self.assertNotIn("pet owner", stats)
+        self.assertNotIn(reverse("admin_owner_list"), stats)
+        self.assertNotIn(reverse("admin_pet_list"), stats)
+
+    def test_waiting_card_is_yellow_only_with_requests(self, _now):
+        def waiting_card():
+            stats = self._stats(self._html())
+            return re.search(r"<a [^>]*status=pending[^>]*>", stats).group(0)
+
+        self.assertNotIn("border-yellow-400", waiting_card())
+        self.assertIn("border-gray-200", waiting_card())
+        self._booking(PICKED_DAY, 9, Appointment.PENDING)
+        self.assertIn("border-yellow-400 ring-1 ring-yellow-300", waiting_card())
+
+    # Needs approval
+
+    def test_needs_approval_absent_without_requests(self, _now):
+        self.assertNotIn("Needs approval", self._html())
+
+    def test_needs_approval_lists_every_request(self, _now):
+        past = self._booking(CAL_TODAY - timedelta(days=2), 9, Appointment.PENDING)
+        soon = self._booking(date(2026, 11, 3), 9, Appointment.PENDING, minute=30)
+        soon.service = self.checkup
+        soon.save()
+        later = [
+            self._booking(PICKED_DAY + timedelta(days=n), 13, Appointment.PENDING)
+            for n in range(5)
+        ]
+        card = _part(self._html(), 'id="needs-approval-title"')
+        self.assertIn("7 waiting", card)
+        for appointment in [past, soon, *later]:
+            with self.subTest(appointment=appointment.pk):
+                url = reverse("admin_appointment_detail", args=[appointment.pk])
+                self.assertIn(
+                    f'<a href="{url}" class="btn btn-outline shrink-0" '
+                    'aria-label="Review Bantay\'s request">Review</a>',
+                    card,
+                )
+        self.assertIn("· Check-up", card)
+        self.assertIn("Tomorrow, 9:30 AM", card)
+        self.assertNotIn("See all", card)
+        # Soonest first, so the past request is the first row
+        rows = card.split("<li ")[1:]
+        self.assertEqual(len(rows), 7)
+        self.assertIn("Date has passed", rows[0])
+        for row in rows[1:]:
+            self.assertNotIn("Date has passed", row)
+
+    # Schedule
+
+    def test_todays_schedule_marks_the_next_visit(self, _now):
+        eight = self._booking(CAL_TODAY, 8, Appointment.COMPLETED)
+        eight.is_walk_in = True
+        eight.save()
+        ten = self._booking(CAL_TODAY, 10, Appointment.CONFIRMED)
+        self._booking(CAL_TODAY, 14, Appointment.CONFIRMED)
+        schedule = self._schedule(self._html())
+        self.assertIn("Today's schedule", schedule)
+        self.assertIn("3 visits · 1 done · 2 to go", schedule)
+        self.assertIn(f'<a href="{reverse("admin_appointments")}" ', schedule)
+        self.assertIn(">All appointments</a>", schedule)
+        self.assertNotIn("Back to today", schedule)
+        self.assertEqual(schedule.count("<li>"), 3)
+        self.assertEqual(schedule.count(">Next<"), 1)
+        ten_url = reverse("admin_appointment_detail", args=[ten.pk])
+        row = re.search(rf'<a href="{ten_url}".*?</a></li>', schedule, re.S)
+        row = row.group(0)
+        self.assertIn("bg-violet-50 ring-2 ring-violet-600", row)
+        self.assertIn("10:00 AM", row)
+        self.assertIn(">Next<", row)
+        self.assertIn(">Walk-in<", schedule)
+
+    def test_picked_busy_day_shows_three_rows(self, _now):
+        for hour in range(8, 13):
+            self._booking(BUSY_DAY, hour, Appointment.CONFIRMED)
+        schedule = self._schedule(self._html(day="2026-11-26"))
+        self.assertIn("Thursday, November 26", schedule)
+        self.assertNotIn("Today's schedule", schedule)
+        self.assertIn("5 visits", schedule)
+        self.assertEqual(schedule.count("<li>"), 3)
+        self.assertIn("and 2 more · ", schedule)
+        self.assertIn(
+            f'<a href="{reverse("admin_appointments")}?date=2026-11-26"', schedule
+        )
+        self.assertIn("See all on Appointments", schedule)
+        self.assertIn("Back to today", schedule)
+        self.assertIn(f'hx-get="{reverse("admin_dashboard_day")}"', schedule)
+        self.assertNotIn(">Next<", schedule)
+
+    def test_empty_day(self, _now):
+        schedule = self._schedule(self._html(day="2026-11-10"))
+        self.assertIn("No visits booked on this day.", schedule)
+        self.assertNotIn("<li>", schedule)
+
+    # Calendar
+
+    def test_month_dropdown(self, _now):
+        calendar = self._calendar(self._html())
+        self.assertEqual(calendar.count("<select"), 1)
+        options = re.findall(
+            r'<option value="([\d-]+)"( selected)?>([^<]+)</option>', calendar
+        )
+        self.assertEqual(
+            [(value, label) for value, _, label in options],
+            [
+                ("2026-08", "August 2026"),
+                ("2026-09", "September 2026"),
+                ("2026-10", "October 2026"),
+                ("2026-11", "November 2026"),
+                ("2026-12", "December 2026"),
+            ],
+        )
+        self.assertEqual([value for value, sel, _ in options if sel], ["2026-11"])
+        self.assertIn('<span class="sr-only">Month</span>', calendar)
+        self.assertIn(f'hx-get="{reverse("admin_dashboard_calendar")}"', calendar)
+        self.assertIn('hx-include="closest form"', calendar)
+
+    def test_42_cells_and_today(self, _now):
+        calendar = self._calendar(self._html())
+        grid = calendar[calendar.index("gap-0.5 text-center") :]
+        days = re.findall(r'<a href="[^"]*\?month=2026-11&day=[^"]*"', grid)
+        blanks = grid.count('<span class="h-12" aria-hidden="true"></span>')
+        self.assertEqual(len(days), 30)
+        self.assertEqual(len(days) + blanks, 42)
+        current = re.findall(r'<a [^>]*aria-current="date"[^>]*>', grid)
+        self.assertEqual(len(current), 1)
+        self.assertIn("?month=2026-11&day=2026-11-02", current[0])
+        self.assertIn("bg-violet-600", current[0])
+        self.assertNotIn("ring-inset", grid)
+
+    def test_picked_day_has_the_inside_outline(self, _now):
+        calendar = self._calendar(self._html(day="2026-11-05"))
+        picked = re.search(r'<a [^>]*day=2026-11-05"[^>]*>', calendar).group(0)
+        self.assertIn("ring-2 ring-inset ring-violet-600", picked)
+        self.assertIn('?date=2026-11-05" hx-target="#day-schedule"', picked)
+        self.assertIn('<input type="hidden" name="day" value="2026-11-05">', calendar)
+
+    def test_today_button_colour(self, _now):
+        home = self._today_button(self._html())
+        self.assertIn("border-gray-300", home)
+        self.assertNotIn("border-violet-600", home)
+        self.assertIn(f'href="{reverse("admin_dashboard")}"', home)
+        self.assertIn(f'hx-get="{reverse("admin_dashboard_day")}"', home)
+        for params in ({"day": "2026-11-05"}, {"month": "2026-12"}):
+            with self.subTest(params=params):
+                away = self._today_button(self._html(**params))
+                self.assertIn("border-violet-600 bg-violet-50 text-violet-800", away)
+
+    def test_day_endpoint_returns_schedule_and_oob_calendar(self, _now):
+        html = self._html("admin_dashboard_day", date="2026-11-05")
+        self.assertIn('<section id="day-schedule"', html)
+        self.assertIn('hx-swap-oob="outerHTML"', self._calendar(html))
+
+    # Recent activity
+
+    def test_recent_activity_rows(self, _now):
+        moved_from = self._booking(PICKED_DAY, 9, Appointment.CANCELLED)
+        moved = self._booking(PICKED_DAY, 10, Appointment.PENDING)
+        moved.rescheduled_from = moved_from
+        moved.save()
+        # Oldest first; each one 10 minutes after the one before
+        kinds = (
+            (Notification.APPOINTMENT_REQUESTED, moved_from, True),
+            (Notification.APPOINTMENT_REQUESTED, moved, False),
+            (Notification.APPOINTMENT_CANCELLED, moved_from, True),
+            (Notification.APPOINTMENT_REQUESTED, moved_from, False),
+        )
+        notes = []
+        for n, (kind, appointment, is_read) in enumerate(kinds):
+            note = Notification.objects.create(
+                recipient=self.admin,
+                notification_type=kind,
+                title="Test",
+                message="Test",
+                related_appointment=appointment,
+                is_read=is_read,
+            )
+            Notification.objects.filter(pk=note.pk).update(
+                created_at=MARKUP_NOW - timedelta(minutes=10 * (4 - n))
+            )
+            notes.append(note)
+        card = _part(self._html(), 'id="recent-activity-title"')
+        rows = re.findall(r"<li><a .*?</a></li>", card, re.S)
+        self.assertEqual(len(rows), 3)
+        expected = (
+            (notes[3], "visit request", True),
+            (notes[2], "cancelled by owner", False),
+            (notes[1], "time change request", True),
+        )
+        for row, (note, label, unread) in zip(rows, expected):
+            with self.subTest(label=label):
+                url = reverse("notification_open", args=[note.pk])
+                self.assertIn(f'<a href="{url}"', row)
+                self.assertIn(
+                    f'<span class="font-semibold">Bantay</span> · {label}', row
+                )
+                self.assertEqual(" · New</span>" in row, unread)
+                self.assertEqual("Unread: " in row, unread)
+        self.assertIn(">View all</button>", card)
+
+    def test_no_notifications(self, _now):
+        card = _part(self._html(), 'id="recent-activity-title"')
+        self.assertIn("No notifications yet.", card)
+
+    # Top bar
+
+    def test_bell_count_reads_n_new(self, _now):
+        self.assertRegex(
+            self._html(), r'<span id="bell-count" class="hidden [^"]*">0 new</span>'
+        )
+        self._notification(self.admin)
+        self._notification(self.admin)
+        self.assertRegex(
+            self._html(),
+            r'<span id="bell-count" class="rounded-full[^"]*">2 new</span>',
+        )
