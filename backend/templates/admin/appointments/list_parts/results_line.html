@@ -1,0 +1,10 @@
+{% comment %}
+  While searching: what is shown, plus Clear search (drops q, keeps the
+  requested status and the period).
+{% endcomment %}
+{% if q %}
+  <div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1">
+    <p class="text-base text-gray-800">Results for <strong class="font-semibold">“{{ q }}”</strong> in all appointments{% if period.kind != "any" %}, {{ period.mid_label }}{% endif %}</p>
+    <a href="{% url 'admin_appointments' %}{% if clear_search_query %}?{{ clear_search_query }}{% endif %}" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="x" %}Clear search</a>
+  </div>
+{% endif %}

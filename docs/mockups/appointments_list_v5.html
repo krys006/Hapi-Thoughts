@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Appointments list v5</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: "Segoe UI", system-ui, sans-serif; }
+</style>
+</head>
+<body class="bg-gray-200 text-gray-900 antialiased">
+
+<header class="sticky top-0 z-10 border-b border-gray-300 bg-white/95 px-6 py-3 backdrop-blur">
+  <div class="flex flex-wrap items-start gap-x-8 gap-y-2">
+    <div>
+      <p class="mb-1 text-sm font-semibold text-gray-700">Appointments list v5 (approved) · period as the heading · pick a state</p>
+      <div id="stateSwitch" class="flex flex-wrap gap-2"></div>
+    </div>
+  </div>
+</header>
+
+<div class="overflow-x-auto p-6">
+  <div id="caption" class="mb-4 max-w-[1280px] rounded-xl border border-violet-200 bg-violet-50 p-4 text-base text-gray-800"></div>
+  <div id="stage"></div>
+  <p class="mt-3 text-sm text-gray-600">Desktop frame is 1280 px wide: a 1920×1080 screen at 150% zoom, so the page area is about 930 px. “Today” is Monday, November 2, 2026. The controls in the frame are clickable.</p>
+</div>
+
+<script>
+const P = {
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  home:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  fileText:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  syringe:'<path d="m18 2 4 4"/><path d="m17 7 3-3"/><path d="M19 9 8.7 19.3c-1 1-2.5 1-3.4 0l-.6-.6c-1-1-1-2.5 0-3.4L15 5"/><path d="m9 11 4 4"/><path d="m5 19-3 3"/><path d="m14 4 6 6"/>',
+  book:'<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="m4.9 4.9 2.1 2.1"/><path d="m17 17 2.1 2.1"/><path d="M2 12h3"/><path d="M19 12h3"/><path d="m4.9 19.1 2.1-2.1"/><path d="m17 7 2.1-2.1"/>',
+  logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
+  search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  arrowRight:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  chevLeft:'<path d="m15 18-6-6 6-6"/>',
+  chevRight:'<path d="m9 18 6-6-6-6"/>',
+  chevDown:'<path d="m6 9 6 6 6-6"/>',
+  rotate:'<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+  dog:'<path d="M11.25 16.25h1.5L12 17z"/><path d="M16 14v.5"/><path d="M4.42 11.247A13.152 13.152 0 0 0 4 14.556C4 18.728 7.582 21 12 21s8-2.272 8-6.444a11.702 11.702 0 0 0-.493-3.309"/><path d="M8 14v.5"/><path d="M8.5 8.5c-.384 1.05-1.083 2.028-2.344 2.5-1.931.722-3.576-.297-3.656-1-.113-.994 1.177-6.53 4-7 1.923-.321 3.651.845 3.651 2.235A7.497 7.497 0 0 1 14 5.277c0-1.39 1.844-2.598 3.767-2.277 2.823.47 4.113 6.006 4 7-.08.703-1.725 1.722-3.656 1-1.261-.472-1.855-1.45-2.239-2.5"/>',
+  cat:'<path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z"/><path d="M8 14v.5"/><path d="M16 14v.5"/><path d="M11.25 16.25h1.5L12 17l-.75-.75Z"/>'
+};
+const ic = (n, c = 'size-5 shrink-0') => `<svg class="${c}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+const outline = (n, c) => `<svg class="${c}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// ---------- Shell ----------
+const navLink = (i, l, active = false, badge = '') => `<a class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base ${active ? 'bg-white font-semibold text-violet-800 shadow-sm ring-1 ring-violet-200' : 'text-gray-800'}">${ic(i)}<span class="flex-1">${l}</span>${badge ? `<span class="rounded-full bg-violet-600 px-2 text-sm font-semibold text-white">${badge}</span>` : ''}</a>`;
+const group = t => `<p class="px-3 pb-1 pt-4 text-sm font-semibold text-violet-800">${t}</p>`;
+const sidebar = () => `
+<aside class="flex w-72 shrink-0 flex-col border-r border-violet-200 bg-violet-100">
+  <div class="flex items-center gap-3 border-b border-violet-200 px-5 py-4">
+    <span class="grid size-10 shrink-0 place-content-center rounded-lg bg-violet-600 text-white">${ic('paw')}</span>
+    <div><p class="text-base font-semibold">Hapi Tutz Vet. Supplies</p><p class="text-sm text-gray-700">Admin</p></div>
+  </div>
+  <nav class="flex-1 px-3 pb-3 pt-1">
+    ${group('Daily work')}<div class="space-y-1">${navLink('home','Dashboard')}${navLink('calendar','Appointments',true,1)}${navLink('users','Pet owners')}${navLink('paw','Pets')}</div>
+    ${group('Records')}<div class="space-y-1">${navLink('fileText','Medical records')}${navLink('syringe','Vaccinations')}${navLink('book','Health library')}</div>
+    ${group('Clinic')}<div class="space-y-1">${navLink('receipt','Billing')}${navLink('settings','Clinic settings')}</div>
+  </nav>
+  <div class="border-t border-violet-200 px-3 py-3">${navLink('logout','Log out')}</div>
+</aside>`;
+const topbar = () => `
+<div class="flex min-h-[4.25rem] items-center gap-3 border-b border-gray-200 bg-white px-8 py-3">
+  <span class="relative block w-[26rem]"><span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-gray-600">${ic('search')}</span>
+    <span class="flex min-h-11 w-full items-center rounded-lg border border-gray-300 bg-white pl-12 pr-4 text-base text-gray-500">Search appointments: pet or owner name</span></span>
+  <span class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-semibold text-gray-800">${ic('search')}Search</span>
+  <span class="flex-1"></span>
+  <span class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800">${ic('bell')}Notifications</span>
+</div>`;
+const shell = body => `
+<div class="relative flex min-h-[640px] w-[1280px] overflow-hidden rounded-xl border border-gray-300 bg-gray-50 shadow-sm">
+  ${sidebar()}
+  <div class="flex min-w-0 flex-1 flex-col">${topbar()}<main class="flex-1 p-8">${body}</main></div>
+</div>`;
+
+const head = `
+<div class="mb-5 flex flex-wrap items-start gap-4">
+  <div class="flex-1"><h1 class="text-2xl font-bold">Appointments</h1><p class="mt-1 text-base text-gray-600">Approve requests and keep track of visits.</p></div>
+  <span class="inline-flex min-h-11 items-center gap-2 rounded-lg bg-violet-600 px-5 text-base font-semibold text-white">${ic('plus')}New walk-in</span>
+</div>`;
+
+// ---------- Period state ----------
+const KINDS = [['any','Any date'],['day','Day'],['week','Week'],['month','Month'],['year','Year']];
+const LABELS = {
+  day:   { 0:'Today', '-1':'Sun, Nov 1', '-2':'Sat, Oct 31', 1:'Tomorrow', 2:'Wed, Nov 4' },
+  week:  { 0:'This week', '-1':'Last week', 1:'Next week', 2:'Week of Nov 16', 8:'Week of Dec 28' },
+  month: { 0:'This month', '-1':'Last month', 1:'Next month', '-2':'September', 2:'January 2027' },
+  year:  { 0:'This year', '-1':'Last year', 1:'Next year', '-2':'2024', 2:'2028' }
+};
+const BACK = { day:'Back to today', week:'Back to this week', month:'Back to this month', year:'Back to this year' };
+const NOW = { day:'Today', week:'This week', month:'This month', year:'This year' };
+let kind = 'any', off = 0, opt = 'b';
+const label = () => kind === 'any' ? '' : (LABELS[kind][off] || (off < 0 ? `${-off} ${kind}s back` : `${off} ${kind}s ahead`));
+
+// ---------- Tabs ----------
+const TABS = [['Needs approval',1,'warn'],['Upcoming',2],['Completed',0],['Cancelled',1],['No show',1],['All',7]];
+const tabsPlain = (compact = false) => `<nav class="flex flex-wrap gap-2">${TABS.map(([l, n, w], i) => {
+  const on = i === 1;
+  return `<span class="inline-flex ${compact ? 'min-h-11' : 'min-h-12'} items-center gap-2 rounded-lg px-4 text-base ${on ? 'bg-violet-50 font-semibold text-violet-800 ring-2 ring-violet-600' : 'border border-gray-300 bg-white font-medium text-gray-800'}">${l}<span class="rounded-full px-2 text-sm font-semibold ${w ? 'bg-yellow-100 text-yellow-800' : on ? 'bg-violet-100 text-violet-800' : 'bg-gray-100 text-gray-800'}">${n}</span></span>`;
+}).join('')}</nav>`;
+
+// Segmented "how much" buttons (links in the build: no dropdown, no auto-submit)
+const segmented = (extra = '') => `
+<div role="group" aria-label="Dates" class="inline-flex overflow-hidden rounded-lg border border-gray-300 bg-white ${extra}">
+  ${KINDS.map(([k, l], i) => `<span data-k="${k}" class="inline-flex min-h-11 cursor-pointer items-center px-4 text-base ${i ? 'border-l border-gray-300' : ''} ${kind === k ? 'bg-violet-50 font-semibold text-violet-800 shadow-[inset_0_0_0_2px_#7c3aed]' : 'font-medium text-gray-800 hover:bg-gray-50'}">${l}</span>`).join('')}
+</div>`;
+
+// Joined stepper: [‹] label [›]
+const stepper = (big = false) => kind === 'any' ? '' : `
+<div class="inline-flex items-stretch overflow-hidden rounded-lg border border-gray-300 bg-white">
+  <span data-step="-1" class="inline-flex min-h-11 cursor-pointer items-center gap-1 px-3 text-base font-semibold text-gray-800 hover:bg-gray-50">${ic('chevLeft')}<span class="sr-only">Previous</span>Previous</span>
+  <span class="inline-flex min-h-11 items-center gap-2 border-x border-gray-300 bg-violet-50 px-4 ${big ? 'text-lg' : 'text-base'} font-semibold text-violet-900">${ic('calendar','size-5 shrink-0 text-violet-700')}${label()}</span>
+  <span data-step="1" class="inline-flex min-h-11 cursor-pointer items-center gap-1 px-3 text-base font-semibold text-gray-800 hover:bg-gray-50">Next${ic('chevRight')}</span>
+</div>`;
+const backBtn = () => (kind !== 'any' && off !== 0) ? `<span data-back class="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-semibold text-gray-800 hover:bg-gray-50">${ic('rotate')}${BACK[kind]}</span>` : '';
+
+// ---------- Sample list ----------
+const row = (t, pet, kindTxt, sp, owner, phone, svc, st) => `
+<div class="grid grid-cols-[6rem_1.3fr_1.4fr_1fr_1fr_8rem] items-center gap-4 border-t border-gray-100 px-6 py-4 first:border-t-0">
+  <p class="text-base font-semibold">${t}</p>
+  <div class="flex items-center gap-3"><span class="grid size-10 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-600 ring-1 ring-violet-200">${outline(sp,'size-6 shrink-0')}</span><div><p class="text-base font-semibold">${pet}</p><p class="text-sm text-gray-600">${kindTxt}</p></div></div>
+  <div><p class="text-base">${owner}</p><p class="text-sm text-gray-600">${phone}</p></div>
+  <p class="text-base">${svc}</p>
+  <span class="inline-flex w-fit rounded-full bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-800">${st}</span>
+  <span class="inline-flex min-h-11 items-center justify-center gap-2 justify-self-end rounded-lg border border-violet-300 bg-violet-50 px-5 text-base font-semibold text-violet-800 hover:border-violet-400 hover:bg-violet-100">Open${ic('arrowRight')}</span>
+</div>`;
+const dayCard = () => `
+<section class="overflow-hidden rounded-xl border border-violet-300 bg-white shadow-sm ring-2 ring-violet-200">
+  <header class="flex items-center gap-4 border-b border-gray-200 bg-violet-50 px-6 py-3">
+    <span class="grid w-14 shrink-0 overflow-hidden rounded-lg text-center ring-1 ring-violet-600"><span class="bg-violet-600 py-0.5 text-sm font-semibold text-white">MON</span><span class="bg-white py-0.5 text-2xl font-bold leading-tight">2</span></span>
+    <div><h2 class="text-xl font-semibold">Today, Monday, November 2</h2><p class="text-base text-gray-700">2 appointments</p></div>
+  </header>
+  ${row('9:00 AM','Browny','Dog, Aspin','dog','Krys Test','0954 288 9774','Vaccination','Confirmed')}
+  ${row('2:00 PM','Muning','Cat, Puspin','cat','Rosa Dela Cruz','0920 444 7788','Deworming','Confirmed')}
+</section>`;
+const cols = `<div class="grid grid-cols-[6rem_1.3fr_1.4fr_1fr_1fr_8rem] gap-4 px-[25px] pb-2 text-base font-semibold text-gray-800"><span>Time</span><span>Pet</span><span>Owner</span><span>Service</span><span>Status</span><span></span></div>`;
+
+// ---------- Option B: period as the list's heading (calendar-app style) ----------
+// Two groups that wrap instead of overflowing:
+//   left  = Previous / Next (with words) + the heading (may wrap onto two lines) + "Back to…" link under it
+//   right = the Dates buttons (never shrink; drop to their own line when the heading is long)
+const navBtn = (step, text, icon, after = false) => `<span data-step="${step}" class="inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 text-base font-semibold text-gray-800 hover:bg-gray-50">${after ? text + ic(icon) : ic(icon) + text}</span>`;
+const optB = () => `
+<div class="mb-5">${tabsPlain()}</div>
+<div class="mb-4 flex flex-wrap items-center gap-x-6 gap-y-3">
+  <div class="flex min-w-0 flex-1 basis-[26rem] items-center gap-3">
+    ${kind === 'any'
+      ? `<h2 class="text-xl font-semibold text-gray-900">All dates</h2>`
+      : `<div class="inline-flex shrink-0 items-stretch overflow-hidden rounded-lg border border-gray-300 bg-white">
+           <span data-step="-1" class="inline-flex min-h-11 cursor-pointer items-center gap-1 px-3 text-base font-semibold text-gray-800 hover:bg-gray-50">${ic('chevLeft')}Previous</span>
+           ${off === 0
+             ? `<span aria-disabled="true" title="You are on ${NOW[kind].toLowerCase()}" class="inline-flex min-h-11 cursor-default items-center border-x border-gray-300 bg-gray-100 px-4 text-base font-semibold text-gray-600">${NOW[kind]}</span>`
+             : `<span data-back class="inline-flex min-h-11 cursor-pointer items-center border-x border-gray-300 px-4 text-base font-semibold text-blue-700 hover:bg-gray-50">${NOW[kind]}</span>`}
+           <span data-step="1" class="inline-flex min-h-11 cursor-pointer items-center gap-1 px-3 text-base font-semibold text-gray-800 hover:bg-gray-50">Next${ic('chevRight')}</span>
+         </div>
+         <h2 class="whitespace-nowrap text-xl font-semibold text-gray-900">${label()}</h2>`}
+  </div>
+  <div class="shrink-0">${segmented()}</div>
+</div>
+${cols}${dayCard()}`;
+
+const OPTS = [
+  { id:'b', label:'B · Period as the heading', fn:optB,
+    cap:`<b>Approved: period as the heading, with short headings.</b> Same layout as before (Previous | This week | Next, then the heading, Dates buttons on the right), but the heading is now short so it always fits on one line: <b>Today · Tomorrow · Sun, Nov 1</b> for days; <b>This week · Last week · Next week · Week of Nov 16</b> for weeks; <b>This month · Last month · Next month · September</b> (year added outside the current year, e.g. January 2027) for months; <b>This year · Last year · Next year · 2024</b> for years. The exact dates are still on every day card below. Try the arrows; the “Long week label” state is now “Week of Dec 28”.` }
+];
+const STATES = [
+  { id:'any', label:'Any date', set:() => { kind='any'; off=0; } },
+  { id:'week', label:'This week', set:() => { kind='week'; off=0; } },
+  { id:'last', label:'Last week', set:() => { kind='week'; off=-1; } },
+  { id:'month', label:'October', set:() => { kind='month'; off=-1; } },
+  { id:'day', label:'Day, 2 back', set:() => { kind='day'; off=-2; } },
+  { id:'long', label:'Long week label', set:() => { kind='week'; off=8; } }
+];
+let state = 'week';
+
+function render() {
+  const O = OPTS.find(x => x.id === opt);
+  document.getElementById('stage').innerHTML = shell(head + O.fn());
+  document.getElementById('caption').innerHTML = O.cap;
+  paint('stateSwitch', state);
+  document.querySelectorAll('[data-k]').forEach(b => b.onclick = () => { kind = b.dataset.k; off = 0; state = ''; render(); });
+  document.querySelectorAll('[data-step]').forEach(b => b.onclick = () => { off += +b.dataset.step; state = ''; render(); });
+  document.querySelectorAll('[data-back]').forEach(b => b.onclick = () => { off = 0; state = ''; render(); });
+  const cs = document.getElementById('csel'); if (cs) cs.onchange = () => { kind = cs.value; off = 0; state = ''; render(); };
+}
+function paint(id, cur) {
+  [...document.getElementById(id).children].forEach(b => {
+    const on = b.dataset.id === cur;
+    b.className = 'min-h-11 rounded-lg px-4 text-base font-medium ' + (on ? 'bg-violet-600 text-white' : 'border border-gray-300 bg-white text-gray-800 hover:bg-gray-50');
+  });
+}
+function mk(id, list, onPick) {
+  const box = document.getElementById(id);
+  list.forEach(s => { const b = document.createElement('button'); b.type = 'button'; b.dataset.id = s.id; b.textContent = s.label; b.onclick = () => { onPick(s); render(); }; box.appendChild(b); });
+}
+mk('stateSwitch', STATES, s => { state = s.id; s.set(); });
+STATES[1].set();
+render();
+</script>
+</body>
+</html>

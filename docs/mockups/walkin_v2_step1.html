@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Walk-in step 1 v2</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: "Segoe UI", system-ui, sans-serif; }
+</style>
+</head>
+<body class="bg-gray-200 text-gray-900 antialiased">
+
+<header class="sticky top-0 z-10 border-b border-gray-300 bg-white/95 px-6 py-3 backdrop-blur">
+  <p class="mb-2 text-sm font-semibold text-gray-700">Walk-in step 1 v2 · owners listed on load, list narrows as you type · pick a state (the search box works in every state)</p>
+  <div id="switcher" class="flex flex-wrap gap-2"></div>
+</header>
+
+<div class="overflow-x-auto p-6">
+  <div id="caption" class="mb-4 max-w-[1280px] rounded-xl border border-violet-200 bg-violet-50 p-4 text-base text-gray-800"></div>
+  <div id="stage"></div>
+  <p class="mt-3 text-sm text-gray-600">Desktop frame is 1280 px wide: a 1920×1080 screen at 150% zoom. Icons in the build come from components/icon.html, as usual.</p>
+</div>
+
+<script>
+// ---------- Icons (Lucide, same shapes as walkin_v1) ----------
+const P = {
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  home:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  fileText:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  syringe:'<path d="m18 2 4 4"/><path d="m17 7 3-3"/><path d="M19 9 8.7 19.3c-1 1-2.5 1-3.4 0l-.6-.6c-1-1-1-2.5 0-3.4L15 5"/><path d="m9 11 4 4"/><path d="m5 19-3 3"/><path d="m14 4 6 6"/>',
+  book:'<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="m4.9 4.9 2.1 2.1"/><path d="m17 17 2.1 2.1"/><path d="M2 12h3"/><path d="M19 12h3"/><path d="m4.9 19.1 2.1-2.1"/><path d="m17 7 2.1-2.1"/>',
+  logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
+  search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  arrowRight:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  arrowLeft:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  userPlus:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/>',
+  dog:'<path d="M11.25 16.25h1.5L12 17z"/><path d="M16 14v.5"/><path d="M4.42 11.247A13.152 13.152 0 0 0 4 14.556C4 18.728 7.582 21 12 21s8-2.272 8-6.444a11.702 11.702 0 0 0-.493-3.309"/><path d="M8 14v.5"/><path d="M8.5 8.5c-.384 1.05-1.083 2.028-2.344 2.5-1.931.722-3.576-.297-3.656-1-.113-.994 1.177-6.53 4-7 1.923-.321 3.651.845 3.651 2.235A7.497 7.497 0 0 1 14 5.277c0-1.39 1.844-2.598 3.767-2.277 2.823.47 4.113 6.006 4 7-.08.703-1.725 1.722-3.656 1-1.261-.472-1.855-1.45-2.239-2.5"/>',
+  cat:'<path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z"/><path d="M8 14v.5"/><path d="M16 14v.5"/><path d="M11.25 16.25h1.5L12 17l-.75-.75Z"/>'
+};
+const ic = (n, c = 'size-5 shrink-0') =>
+  `<svg class="${c}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+const outline = (n, c) =>
+  `<svg class="${c}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// ---------- Shell ----------
+const navLink = (i, l, active = false, badge = '') =>
+  `<a class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base ${active ? 'bg-white font-semibold text-violet-800 shadow-sm ring-1 ring-violet-200' : 'text-gray-800'}">${ic(i)}<span class="flex-1">${l}</span>${badge ? `<span class="rounded-full bg-violet-600 px-2 text-sm font-semibold text-white">${badge}</span>` : ''}</a>`;
+const group = t => `<p class="px-3 pb-1 pt-4 text-sm font-semibold text-violet-800">${t}</p>`;
+const sidebar = () => `
+<aside class="flex w-72 shrink-0 flex-col border-r border-violet-200 bg-violet-100">
+  <div class="flex items-center gap-3 border-b border-violet-200 px-5 py-4">
+    <span class="grid size-10 shrink-0 place-content-center rounded-lg bg-violet-600 text-white">${ic('paw')}</span>
+    <div><p class="text-base font-semibold">Hapi Tutz Vet. Supplies</p><p class="text-sm text-gray-700">Admin</p></div>
+  </div>
+  <nav class="flex-1 px-3 pb-3 pt-1">
+    ${group('Daily work')}<div class="space-y-1">${navLink('home','Dashboard')}${navLink('calendar','Appointments',true,1)}${navLink('users','Pet owners')}${navLink('paw','Pets')}</div>
+    ${group('Records')}<div class="space-y-1">${navLink('fileText','Medical records')}${navLink('syringe','Vaccinations')}${navLink('book','Health library')}</div>
+    ${group('Clinic')}<div class="space-y-1">${navLink('receipt','Billing')}${navLink('settings','Clinic settings')}</div>
+  </nav>
+  <div class="border-t border-violet-200 px-3 py-3">${navLink('logout','Log out')}</div>
+</aside>`;
+const topbar = () => `
+<div class="flex min-h-[4.25rem] items-center gap-4 border-b border-gray-200 bg-white px-8 py-3">
+  <span class="flex-1"></span>
+  <span class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800">${ic('bell')}Notifications</span>
+</div>`;
+const shell = body => `
+<div class="relative flex min-h-[720px] w-[1280px] overflow-hidden rounded-xl border border-gray-300 bg-gray-50 shadow-sm">
+  ${sidebar()}
+  <div class="flex min-w-0 flex-1 flex-col">${topbar()}<main class="flex-1 p-8">${body}</main></div>
+</div>`;
+
+// ---------- Data (34 owners; page 1 shows 25, A–Z by last name) ----------
+const OWNERS = [
+  ['Mario','Abad','0917 220 1188',[['Choco','dog']]],
+  ['Lorna','Alcantara','0918 330 4521',[['Mingming','cat']]],
+  ['Jun','Aquino','',[['Bruno','dog'],['Snow','cat']]],
+  ['Teresa','Bautista','0920 115 9087',[['Lucky','dog']]],
+  ['Ramon','Castillo','0916 448 2201',[['Tiger','cat']]],
+  ['Ana','Cruz','',[['Bantay','dog']]],
+  ['Liza','Cruz','0917 123 4567',[['Brownie','dog']]],
+  ['Rosa','Dela Cruz','0920 444 7788',[['Max','dog'],['Muning','cat']]],
+  ['Pedro','Dimaculangan','0919 774 3310',[['Blackie','dog']]],
+  ['Grace','Domingo','0917 902 6655',[['Kitty','cat']]],
+  ['Elmer','Fernandez','0921 338 0042',[['Rocky','dog']]],
+  ['Josie','Garcia','0918 551 7720',[['Peanut','dog'],['Ming','cat']]],
+  ['Noel','Gonzales','',[['Spot','dog']]],
+  ['Carmen','Hernandez','0915 663 2290',[['Coco','dog']]],
+  ['Danilo','Javier','0917 334 8812',[['Simba','cat']]],
+  ['Marites','Lopez','0920 778 1145',[['Bella','dog']]],
+  ['Ben','Magsino','0916 221 9034',[['Toby','dog']]],
+  ['Cora','Manalo','0919 404 6671',[['Muffin','cat']]],
+  ['Rodel','Mendoza','0917 889 2210',[['Duke','dog']]],
+  ['Linda','Morales','',[['Princess','cat']]],
+  ['Arnel','Navarro','0918 667 3302',[['Jack','dog']]],
+  ['Susan','Ocampo','0921 990 4415',[['Hachi','dog']]],
+  ['Fe','Pascual','0917 556 1023',[['Luna','cat']]],
+  ['Ricky','Ramos','0920 113 7789',[['Bantay','dog']]],
+  ['Nena','Reyes','0915 228 6640',[['Chloe','cat'],['Buddy','dog']]],
+  ['Oscar','Robles','0917 774 0091',[['Rex','dog']]],
+  ['Gina','Santos','0918 442 5567',[['Puti','cat']]],
+  ['Tony','Santiago','',[['Shadow','dog']]],
+  ['Maricel','Soriano','0919 336 7780',[['Pepper','dog']]],
+  ['Wilma','Tan','0917 661 2234',[['Oreo','cat']]],
+  ['Efren','Torres','0920 559 8843',[['Bogart','dog']]],
+  ['Lito','Valdez','0916 870 3321',[['Ginger','cat']]],
+  ['Ruby','Villanueva','0917 228 9012',[['Sky','dog']]],
+  ['Joel','Zamora','0918 113 4456',[['Kulit','dog']]]
+];
+const PAGE_SIZE = 25;
+
+// ---------- Pieces ----------
+const initials = (f, l) => (f[0] + (l ? l.split(' ').pop()[0] : '')).toUpperCase();
+const ownerPic = (f, l) => `<span class="grid size-10 shrink-0 place-content-center rounded-full bg-violet-50 text-sm font-semibold tracking-wide text-violet-700 ring-1 ring-violet-200">${initials(f, l)}</span>`;
+const btnOutline = (label, icon = '', extra = '') => `<span class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-semibold text-gray-800 ${extra}">${icon ? ic(icon) : ''}${label}</span>`;
+const link = (label, icon = '') => `<span class="inline-flex min-h-11 cursor-pointer items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">${icon ? ic(icon) : ''}${label}</span>`;
+
+const steps = () => {
+  const S = ['Who is it for?','The visit','Check and book'];
+  return `<ol class="mb-6 flex flex-wrap gap-3">${S.map((s, i) => {
+    const n = i + 1, on = n === 1;
+    const dot = on ? `<span class="grid size-8 place-content-center rounded-full bg-violet-600 text-base font-semibold text-white">${n}</span>`
+      : `<span class="grid size-8 place-content-center rounded-full border-2 border-gray-300 bg-white text-base font-semibold text-gray-700">${n}</span>`;
+    return `<li class="flex items-center gap-2 text-base ${on ? 'font-semibold text-gray-900' : 'text-gray-700'}">${dot}${s}${n < 3 ? `<span class="mx-1 h-px w-10 bg-gray-300"></span>` : ''}</li>`;
+  }).join('')}</ol>`;
+};
+
+const ownerCard = ([f, l, phone, pets]) => `
+<li class="flex flex-wrap items-center gap-4 border-t border-gray-100 px-5 py-4 first:border-t-0">
+  ${ownerPic(f, l)}
+  <div class="min-w-0 flex-1">
+    <p class="text-base font-semibold">${f} ${l}</p>
+    <p class="text-sm text-gray-600">${phone || 'No phone number'}</p>
+    <p class="mt-1 flex flex-wrap gap-x-4 text-base text-gray-800">${pets.map(([p, s]) => `<span class="inline-flex items-center gap-1.5">${outline(s,'size-5 shrink-0 text-violet-600')}${p}</span>`).join('')}</p>
+  </div>
+  ${btnOutline('Choose','arrowRight')}
+</li>`;
+
+const pager = (page, pages) => `
+<nav class="mt-4 flex flex-wrap items-center justify-between gap-3" aria-label="Pages">
+  ${page > 1 ? btnOutline('Previous','arrowLeft') : `<span class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-gray-200 bg-gray-100 px-4 text-base font-semibold text-gray-500">${ic('arrowLeft')}Previous</span>`}
+  <span class="text-base text-gray-700">Page ${page} of ${pages}</span>
+  ${page < pages ? `<span class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-semibold text-gray-800">Next${ic('arrowRight')}</span>` : `<span class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-gray-200 bg-gray-100 px-4 text-base font-semibold text-gray-500">Next${ic('arrowRight')}</span>`}
+</nav>`;
+
+// Same rule as search_walkin_owners: every word must match a first/last name, phone or pet name.
+function matches(o, q) {
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const hay = [o[0], o[1], o[2].replace(/\s/g, ''), o[2], ...o[3].map(p => p[0])].map(s => s.toLowerCase());
+  return words.every(w => hay.some(h => h.includes(w)));
+}
+
+function resultsHtml(q) {
+  q = q.trim();
+  if (!q) {
+    const pageItems = OWNERS.slice(0, PAGE_SIZE);
+    return `
+      <div class="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 class="text-lg font-semibold">All pet owners <span class="font-normal text-gray-600">(${OWNERS.length})</span></h2>
+        <p class="text-sm text-gray-600">A to Z by last name</p>
+      </div>
+      <ul class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">${pageItems.map(ownerCard).join('')}</ul>
+      ${pager(1, Math.ceil(OWNERS.length / PAGE_SIZE))}`;
+  }
+  const hits = OWNERS.filter(o => matches(o, q));
+  if (!hits.length) {
+    return `
+      <div class="rounded-xl border border-gray-200 bg-white px-6 py-8 text-center shadow-sm">
+        <span class="mx-auto mb-3 grid size-12 place-content-center rounded-xl bg-gray-100 text-gray-700">${ic('search','size-6 shrink-0')}</span>
+        <p class="text-lg font-semibold">No owner matches “${q}”</p>
+        <p class="mt-1 text-base text-gray-700">Check the spelling, or use <b class="font-semibold text-gray-900">New owner</b> above if this is their first visit.</p>
+      </div>`;
+  }
+  return `
+    <div class="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+      <p class="text-base text-gray-700">${hits.length} ${hits.length === 1 ? 'owner matches' : 'owners match'} “${q}”</p>
+    </div>
+    <ul class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">${hits.map(ownerCard).join('')}</ul>`;
+}
+
+const page = (q) => shell(`
+<div class="mb-4">${link('Back to appointments','arrowLeft')}</div>
+<div class="mb-5"><h1 class="text-2xl font-bold">New walk-in</h1><p class="mt-1 text-base text-gray-600">Book a visit for a pet that is here now, or for someone who called.</p></div>
+${steps()}
+<div class="max-w-3xl">
+  <div class="mb-6 flex flex-wrap items-center gap-4 rounded-xl border-2 border-violet-300 bg-violet-50 px-5 py-4">
+    <span class="grid size-12 shrink-0 place-content-center rounded-xl bg-violet-600 text-white">${ic('userPlus','size-6 shrink-0')}</span>
+    <div class="flex-1"><p class="text-lg font-semibold text-gray-900">First visit at the clinic?</p><p class="text-base text-gray-700">Add the owner and their pet first. It takes a minute.</p></div>
+    <span class="inline-flex min-h-12 items-center gap-2 rounded-lg border-2 border-violet-600 bg-white px-5 text-base font-semibold text-violet-700">${ic('plus')}New owner</span>
+  </div>
+  <form class="mb-1 flex flex-wrap items-end gap-3" onsubmit="return false">
+    <label class="min-w-0 flex-1"><span class="mb-1.5 block text-base font-medium text-gray-800">Been here before? Find the owner</span>
+      <span class="relative block">
+        <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-gray-600">${ic('search')}</span>
+        <input id="q" type="search" value="${q}" placeholder="Owner name, pet name or phone" autocomplete="off"
+          class="min-h-12 w-full rounded-lg border border-gray-300 bg-white pl-12 pr-4 text-base text-gray-900 placeholder:text-gray-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200">
+      </span>
+    </label>
+    ${btnOutline('Search','search','min-h-12')}
+  </form>
+  <div class="mb-4 flex min-h-11 flex-wrap items-center justify-between gap-3">
+    <p class="text-sm text-gray-600">The list gets shorter as you type.</p>
+    <span id="clear" class="${q ? '' : 'invisible'}">${link('Clear search','x')}</span>
+  </div>
+  <div id="results" aria-live="polite">${resultsHtml(q)}</div>
+</div>`);
+
+// ---------- States ----------
+const states = [
+  { id:'load', label:'1 · On load', q:'',
+    caption:`<b>On load.</b> Every active owner is listed under the search, A to Z by last name, 25 per page with the same pager as the appointments list. The page itself scrolls (no small scroll box inside it). Archived owners are left out. “Choose” goes to step 2, as before. Type in the search box to try the filter.` },
+  { id:'typing', label:'2 · Typing “cruz”', q:'cruz',
+    caption:`<b>Typing.</b> The list narrows a moment after Dr. Aga stops typing (about half a second), with the same rule as today: every word must match an owner's first or last name, phone, or a pet's name. No pager while searching (it keeps today's limit of 20 with “Showing the first 20.”). The Search button still works for anyone who presses it, and without JavaScript. “Clear search” brings the full list back.` },
+  { id:'none', label:'3 · No match', q:'xyz',
+    caption:`<b>No match.</b> A plain message that points to the New owner button above, instead of an empty space.` }
+];
+
+const sw = document.getElementById('switcher');
+let timer;
+function bindInput() {
+  const input = document.getElementById('q');
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      document.getElementById('results').innerHTML = resultsHtml(input.value);
+      document.getElementById('clear').className = input.value.trim() ? '' : 'invisible';
+    }, 500);
+  });
+  document.getElementById('clear').addEventListener('click', () => {
+    input.value = '';
+    document.getElementById('results').innerHTML = resultsHtml('');
+    document.getElementById('clear').className = 'invisible';
+    input.focus();
+  });
+}
+function show(id) {
+  const s = states.find(x => x.id === id);
+  document.getElementById('stage').innerHTML = page(s.q);
+  document.getElementById('caption').innerHTML = s.caption;
+  [...sw.children].forEach(b => {
+    const on = b.dataset.id === id;
+    b.className = 'min-h-11 rounded-lg px-4 text-base font-medium ' +
+      (on ? 'bg-violet-600 text-white' : 'border border-gray-300 bg-white text-gray-800 hover:bg-gray-50');
+  });
+  bindInput();
+}
+states.forEach(s => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.dataset.id = s.id; b.textContent = s.label;
+  b.onclick = () => show(s.id);
+  sw.appendChild(b);
+});
+show('load');
+</script>
+</body>
+</html>

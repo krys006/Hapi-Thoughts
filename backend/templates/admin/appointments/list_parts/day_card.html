@@ -1,0 +1,45 @@
+{% load friendly_dates %}
+{% comment %}
+  One card per day: a calendar-page tile (hidden from screen readers, the
+  heading says the same), the date as a heading and the count. Rows are a
+  table from md up (its header is visually hidden; the column names show
+  once above all cards) and phone cards below md. Today's card is outlined
+  violet. Expects `day` and `rows`.
+{% endcomment %}
+<section class="overflow-hidden rounded-xl border bg-white shadow-sm {% if day == today %}border-violet-300 ring-2 ring-violet-200{% else %}border-gray-200{% endif %}" aria-labelledby="day-{{ day|date:'Y-m-d' }}">
+  <header class="flex items-center gap-4 border-b border-gray-200 px-5 py-3 {% if day == today %}bg-violet-50{% else %}bg-gray-50{% endif %}">
+    <span class="grid w-14 shrink-0 overflow-hidden rounded-lg text-center ring-1 {% if day == today %}ring-violet-600{% else %}ring-gray-300{% endif %}" aria-hidden="true">
+      <span class="py-0.5 text-sm font-semibold uppercase text-white {% if day == today %}bg-violet-600{% else %}bg-gray-700{% endif %}">{{ day|date:"D" }}</span>
+      <span class="bg-white py-0.5 text-2xl font-bold leading-tight text-gray-900">{{ day|date:"j" }}</span>
+    </span>
+    <div class="min-w-0 flex-1">
+      <h2 id="day-{{ day|date:'Y-m-d' }}" class="text-xl font-semibold text-gray-900">{{ day|long_date }}</h2>
+      <p class="text-base text-gray-700">{{ rows|length }} appointment{{ rows|length|pluralize }}</p>
+    </div>
+  </header>
+
+  <table class="hidden w-full table-fixed text-left md:table">
+    {% include "admin/appointments/list_parts/columns.html" %}
+    <thead>
+      <tr>
+        <th scope="col" class="p-0"><span class="sr-only">Time</span></th>
+        <th scope="col" class="p-0"><span class="sr-only">Pet</span></th>
+        <th scope="col" class="p-0"><span class="sr-only">Owner</span></th>
+        <th scope="col" class="p-0"><span class="sr-only">Service</span></th>
+        <th scope="col" class="p-0"><span class="sr-only">Status</span></th>
+        <th scope="col" class="p-0"><span class="sr-only">Open</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for appointment in rows %}
+        {% include "admin/appointments/list_parts/table_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <ul class="space-y-3 p-3 md:hidden">
+    {% for appointment in rows %}
+      <li>{% include "admin/appointments/list_parts/phone_card.html" %}</li>
+    {% endfor %}
+  </ul>
+</section>

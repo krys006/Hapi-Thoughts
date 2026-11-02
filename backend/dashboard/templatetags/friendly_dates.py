@@ -45,7 +45,11 @@ def friendly_date(value, style=None):
             if timezone.is_aware(value)
             else value.date()
         )
-    today = timezone.localdate()
+    return friendly_date_on(value, timezone.localdate(), style)
+
+
+def friendly_date_on(value, today, style=None):
+    """friendly_date for a date, with today passed in (for helpers that take today)."""
     label = _label_for_day(value, today)
     if label:
         return _cased(label, style)
@@ -61,7 +65,11 @@ def long_date(value, style=None):
     With "mid": 'today, Saturday, October 31'."""
     if not value:
         return ""
-    today = timezone.localdate()
+    return long_date_on(value, timezone.localdate(), style)
+
+
+def long_date_on(value, today, style=None):
+    """long_date with today passed in (for helpers that take today)."""
     if value == today:
         return f"{_cased('Today', style)}, {date_format(value, 'l, F j')}"
     if value == today + timedelta(days=1):

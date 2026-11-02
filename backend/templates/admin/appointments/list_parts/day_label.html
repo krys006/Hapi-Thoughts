@@ -1,4 +1,0 @@
-{% load friendly_dates %}{% comment %}
-  Day heading for one group of rows: "Today · Saturday, October 31" for
-  today, otherwise "Mon, Nov 2". Expects `day`.
-{% endcomment %}{% if day == today %}Today · {{ day|date:"l, F j" }}{% else %}{{ day|friendly_date }}{% endif %}
