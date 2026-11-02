@@ -2752,6 +2752,69 @@ class ResolvePeriodTests(SimpleTestCase):
         self.assertEqual(self._period("year", "9999-06-01")["start"], D(2026, 1, 1))
         self.assertEqual(self._period("day", "0001-01-01")["start"], PERIOD_TODAY)
 
+    def test_short_labels(self):
+        cases = {
+            "day": {
+                "2026-11-02": "Today",
+                "2026-11-03": "Tomorrow",
+                "2026-11-01": "Yesterday",
+                "2026-10-31": "Sat, Oct 31",
+                "2027-01-04": "Mon, Jan 4, 2027",
+            },
+            "week": {
+                "2026-11-02": "This week",
+                "2026-10-26": "Last week",
+                "2026-11-09": "Next week",
+                "2026-11-16": "Week of Nov 16",
+                "2026-12-28": "Week of Dec 28",
+                "2025-12-01": "Week of Dec 1, 2025",
+                "2027-01-04": "Week of Jan 4, 2027",
+            },
+            "month": {
+                "2026-11-01": "This month",
+                "2026-10-01": "Last month",
+                "2026-12-01": "Next month",
+                "2026-09-01": "September",
+                "2027-01-01": "January 2027",
+                "2025-11-01": "November 2025",
+            },
+            "year": {
+                "2026-01-01": "This year",
+                "2025-01-01": "Last year",
+                "2027-01-01": "Next year",
+                "2024-01-01": "2024",
+            },
+        }
+        for kind, labels in cases.items():
+            for from_value, label in labels.items():
+                with self.subTest(kind=kind, from_value=from_value):
+                    period = self._period(kind, from_value)
+                    self.assertEqual(period["short_label"], label)
+
+    def test_short_label_for_the_week_of_dec_28_seen_from_january(self):
+        """The week's Monday decides the year: seen from Jan 2, 2027 the week
+        of Dec 28, 2026 is this week; the one before has its year added."""
+        today = D(2027, 1, 2)
+        self.assertEqual(
+            self._period("week", "2026-12-28", today)["short_label"], "This week"
+        )
+        self.assertEqual(
+            self._period("week", "2026-12-14", today)["short_label"],
+            "Week of Dec 14, 2026",
+        )
+
+    def test_current_label(self):
+        for kind, label in (
+            ("day", "Today"),
+            ("week", "This week"),
+            ("month", "This month"),
+            ("year", "This year"),
+        ):
+            with self.subTest(kind=kind):
+                self.assertEqual(
+                    self._period(kind, "2020-05-05")["current_label"], label
+                )
+
     def test_is_past(self):
         self.assertTrue(self._period("week", "2026-10-26")["is_past"])
         self.assertFalse(self._period("week", "2026-11-02")["is_past"])
@@ -2799,12 +2862,31 @@ class ListPeriodViewTests(FrozenNowTestBase):
         pattern = r'<nav [^>]*aria-label="Filter by status">.*?</nav>'
         return re.search(pattern, html, re.S).group(0)
 
+    def _heading(self, html):
+        """The period row's heading (day card headings have an id first)."""
+        match = re.search(
+            r'<h2 class="text-xl font-semibold text-gray-900[^"]*">([^<]+)</h2>', html
+        )
+        return match.group(1)
+
+    def _period_row(self, html):
+        """The period row up to the Dates group."""
+        pattern = (
+            r'<div class="mb-4 flex flex-wrap items-center gap-x-6 gap-y-3">'
+            r'.*?aria-label="Dates"'
+        )
+        return re.search(pattern, html, re.S).group(0)
+
+    def _dates_group(self, html):
+        pattern = r'<div role="group" aria-label="Dates" class="([^"]*)">(.*?)</div>'
+        return re.search(pattern, html, re.S).groups()
+
     # ─── Period ───────────────────────────────────────────────────────────────
 
     def test_today_is_the_manila_date(self):
         response = self._get(show="day")
         self.assertEqual(response.context["period"]["start"], WALK_IN_DAY)
-        self.assertContains(response, "Today, Monday, November 2")
+        self.assertEqual(self._heading(self._html(response)), "Today")
 
     def test_period_filters_inside_the_tab(self):
         today = self._appointment(Appointment.CONFIRMED, 0)
@@ -2814,7 +2896,7 @@ class ListPeriodViewTests(FrozenNowTestBase):
         response = self._get(status="upcoming", show="week")
         self.assertEqual(response.context["active_tab"], "upcoming")
         self.assertEqual(self._ids(response), [today.pk, thursday.pk])
-        self.assertContains(response, "This week: Nov 2 to Nov 8")
+        self.assertEqual(self._heading(self._html(response)), "This week")
 
     def test_tab_counts_ignore_period_and_search(self):
         self._appointment(Appointment.CONFIRMED, 0)
@@ -2862,7 +2944,10 @@ class ListPeriodViewTests(FrozenNowTestBase):
         self.assertEqual(response.context["period"]["kind"], "day")
         self.assertEqual(set(self._ids(response)), {pending.pk, confirmed.pk})
         self.assertContains(response, "Thursday, November 5")
-        self.assertContains(response, '<option value="day" selected>')
+        _, links = self._dates_group(self._html(response))
+        self.assertEqual(
+            re.findall(r'aria-current="true"[^>]*>([^<]+)<', links), ["Day"]
+        )
         response = self._get(date="2026-11-05", status="pending")
         self.assertEqual(response.context["active_tab"], "pending")
         self.assertEqual(self._ids(response), [pending.pk])
@@ -2879,60 +2964,124 @@ class ListPeriodViewTests(FrozenNowTestBase):
         self.assertEqual(
             context["current_period_query"], "status=pending&show=week&from=2026-11-02"
         )
-        html = self._html(response)
+        row = self._period_row(self._html(response))
         self.assertRegex(
-            html,
+            row,
             r'(?s)<a href="\?status=pending&amp;show=week&amp;from=2026-11-09" '
-            r'class="btn btn-outline[^"]*">(?:(?!</a>).)*Previous',
+            r'class="inline-flex min-h-11[^"]*">(?:(?!</a>).)*Previous',
         )
         self.assertRegex(
-            html,
+            row,
             r'<a href="\?status=pending&amp;show=week&amp;from=2026-11-23" '
-            r'class="btn btn-outline[^"]*">Next',
+            r'class="inline-flex min-h-11[^"]*">Next',
         )
-        self.assertContains(response, "Back to this week")
+        # The middle button links back to the current period
+        self.assertRegex(
+            row,
+            r'<a href="\?status=pending&amp;show=week&amp;from=2026-11-02" '
+            r'class="[^"]*text-blue-700[^"]*">This week</a>',
+        )
         searching = self._get(q="Bantay", show="month")
         self.assertEqual(
             searching.context["prev_period_query"],
             "status=all&q=Bantay&show=month&from=2026-10-01",
         )
 
-    def test_period_box_and_no_controls_on_any_date(self):
-        response = self._get(show="week")
-        self.assertContains(
-            response,
-            'class="inline-flex min-h-12 items-center gap-2 rounded-lg border-2 '
-            "border-violet-600 bg-violet-50 px-5 text-lg font-semibold "
-            'text-violet-900">',
+    def test_all_dates_heading_and_no_control_on_any_date(self):
+        html = self._html(self._get())
+        self.assertEqual(self._heading(html), "All dates")
+        self.assertNotIn('aria-label="Pick a period"', html)
+        self.assertNotIn("Previous<span", html)
+        html = self._html(self._get(show="week"))
+        self.assertEqual(self._heading(html), "This week")
+        self.assertIn('aria-label="Pick a period"', html)
+        self.assertIn(
+            '<h2 class="text-xl font-semibold text-gray-900 md:whitespace-nowrap">',
+            html,
         )
-        self.assertNotContains(response, "Back to this week")
-        response = self._get()
-        self.assertNotContains(response, 'aria-label="Pick a period"')
-        self.assertNotContains(response, "Previous<span")
 
-    def test_show_dropdown_applies_on_change(self):
-        html = self._html(self._get(status="upcoming", show="month"))
-        form = self._form_with(html, "period-show")
-        self.assertIn('<input type="hidden" name="status" value="upcoming">', form)
-        self.assertNotIn('name="from"', form)
-        self.assertIn(
-            'name="show" class="input min-h-12 font-semibold" data-auto-submit', form
+    def test_middle_button_is_disabled_on_the_current_period(self):
+        for show, label in (
+            ("day", "Today"),
+            ("week", "This week"),
+            ("month", "This month"),
+            ("year", "This year"),
+        ):
+            with self.subTest(show=show):
+                row = self._period_row(self._html(self._get(show=show)))
+                middle = re.search(
+                    r'<span aria-disabled="true" title="You are on [^"]+" '
+                    rf'class="([^"]*)">{label}</span>',
+                    row,
+                )
+                self.assertIsNotNone(middle)
+                self.assertIn("bg-gray-100", middle.group(1).split())
+                self.assertIn("text-gray-600", middle.group(1).split())
+                self.assertNotIn(f">{label}</a>", row)
+        row = self._period_row(self._html(self._get(show="month", from_="2026-09-01")))
+        self.assertNotIn('aria-disabled="true"', row)
+        self.assertRegex(
+            row,
+            r'<a href="\?status=upcoming&amp;show=month&amp;from=2026-11-01" '
+            r'class="[^"]*text-blue-700[^"]*">This month</a>',
         )
-        self.assertIn(
-            '<noscript><button type="submit" class="btn btn-outline min-h-12 '
-            'font-semibold">Apply</button></noscript>',
-            form,
+
+    def test_no_back_to_link_in_the_period_row(self):
+        for params in (
+            {"show": "week", "from_": "2026-10-26"},
+            {"show": "day", "from_": "2026-11-20"},
+        ):
+            with self.subTest(params=params):
+                self.assertNotIn(
+                    "Back to", self._period_row(self._html(self._get(**params)))
+                )
+
+    def test_dates_links(self):
+        html = self._html(
+            self._get(status="upcoming", show="month", from_="2026-10-01")
         )
-        options = re.findall(r'<option value="(\w+)"( selected)?>([^<]+)<', form)
+        group_class, links = self._dates_group(html)
+        found = re.findall(
+            r'<a href="\?([^"]*)"( aria-current="true")? class="([^"]*)">([^<]+)</a>',
+            links,
+        )
         self.assertEqual(
-            options,
+            [(query, bool(current), label) for query, current, _, label in found],
             [
-                ("any", "", "Any date"),
-                ("day", "", "One day"),
-                ("week", "", "One week"),
-                ("month", " selected", "One month"),
-                ("year", "", "One year"),
+                ("status=upcoming", False, "Any date"),
+                ("status=upcoming&amp;show=day", False, "Day"),
+                ("status=upcoming&amp;show=week", False, "Week"),
+                ("status=upcoming&amp;show=month", True, "Month"),
+                ("status=upcoming&amp;show=year", False, "Year"),
             ],
+        )
+        self.assertNotIn("from=", links)
+        active = found[3][2].split()
+        for name in (
+            "bg-violet-50",
+            "font-semibold",
+            "text-violet-800",
+            "ring-2",
+            "ring-inset",
+            "ring-violet-600",
+        ):
+            self.assertIn(name, active)
+        for _, _, classes, _ in found:
+            self.assertIn("min-h-11", classes.split())
+            self.assertIn("px-1", classes.split())
+            self.assertIn("sm:px-4", classes.split())
+        # Five equal columns on phones, one joined group from sm up
+        for name in ("grid", "w-full", "grid-cols-5", "sm:inline-flex", "sm:w-auto"):
+            self.assertIn(name, group_class.split())
+        # A search keeps q (and the "All" tab it forces)
+        _, links = self._dates_group(self._html(self._get(q="Bantay", show="week")))
+        self.assertIn('href="?status=all&amp;q=Bantay&amp;show=week"', links)
+        # Only the phone Status dropdown still auto-submits
+        self.assertEqual(html.count("data-auto-submit"), 1)
+        self.assertIn(
+            'id="status-select" name="status" class="input font-semibold" '
+            "data-auto-submit",
+            html,
         )
         # static() gives the URL the active storage renders (hashed with manifest)
         auto_submit = static("js/admin/auto_submit.js")
@@ -3068,7 +3217,59 @@ class ListPeriodViewTests(FrozenNowTestBase):
         # One table per card with a hidden header; column names once above
         self.assertEqual(html.count('<table class="hidden w-full table-fixed'), 2)
         self.assertEqual(html.count('<span class="sr-only">Pet</span></th>'), 2)
-        self.assertEqual(html.count('md:table" aria-hidden="true">'), 1)
+        self.assertEqual(
+            html.count('<div class="mb-2 hidden px-px md:block" aria-hidden="true">'), 1
+        )
+
+    def test_column_names_line_up_with_the_card_rows(self):
+        self._appointment(Appointment.CONFIRMED, 0)
+        self._appointment(Appointment.CONFIRMED, 3)
+        html = self._html(self._get(status="upcoming"))
+        # Every table (column names + 2 cards) is table-fixed with the same
+        # colgroup, so the Open column has the same fixed width everywhere
+        colgroup = re.findall(r"<colgroup>.*?</colgroup>", html, re.S)
+        self.assertEqual(len(colgroup), 3)
+        self.assertEqual(len(set(colgroup)), 1)
+        self.assertEqual(
+            re.findall(r'<col(?: class="([^"]*)")?>', colgroup[0]),
+            ["w-32", "", "", "w-[18%]", "w-48", "w-40"],
+        )
+        self.assertEqual(html.count("table-fixed"), 3)
+        # px-px gives the column-name table the cards' 1px border inset
+        header = re.search(
+            r'<div class="mb-2 hidden px-px md:block" aria-hidden="true">.*?</table>',
+            html,
+            re.S,
+        ).group(0)
+        self.assertEqual(header.count('<td class="px-5">'), 6)
+
+    def test_open_button_is_light_violet(self):
+        visit = self._appointment(Appointment.CONFIRMED, 1)
+        html = self._html(self._get(status="upcoming"))
+        url = reverse("admin_appointment_detail", args=[visit.pk])
+        open_classes = (
+            "inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap "
+            "rounded-lg border border-violet-300 bg-violet-50 px-5 text-base "
+            "font-semibold text-violet-800"
+        )
+        self.assertIn(
+            f'<a href="{url}" class="{open_classes} hover:border-violet-400 '
+            'hover:bg-violet-100">Open<span class="sr-only">',
+            html,
+        )
+        card = re.search(rf'<a href="{url}" class="block group.*?</a>', html, re.S)
+        self.assertIsNotNone(card)
+        self.assertIn(
+            f'<span class="mt-3 {open_classes} group-hover:border-violet-400 '
+            'group-hover:bg-violet-100">Open',
+            card.group(0),
+        )
+        # The chevron is gone; the label has the arrow-right icon
+        self.assertNotIn("m9 18 6-6-6-6", card.group(0))
+        self.assertIn("m12 5 7 7-7 7", card.group(0))
+        # New walk-in stays the only solid violet button
+        self.assertEqual(len(re.findall(r"\bbtn-primary\b", html)), 1)
+        self.assertNotIn("bg-violet-600 text-white", card.group(0))
 
     def test_day_card_in_another_year_shows_the_year(self):
         Appointment.objects.create(

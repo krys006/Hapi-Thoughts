@@ -174,7 +174,7 @@ templates/
 │   │   │   ├── search_form.html      ← search (q + show/from, never status); top bar md+, page body on phones
 │   │   │   ├── tabs.html             ← tab links (md+), "Status" dropdown form (phones), unfinished line
 │   │   │   ├── unfinished_notice.html
-│   │   │   ├── period.html           ← "Show" dropdown, Previous / Next, period label, "Back to …"
+│   │   │   ├── period.html           ← period row: [Previous | This week | Next], short heading, Dates buttons
 │   │   │   ├── results_line.html     ← "Results for “q” in all appointments…" + Clear search
 │   │   │   ├── day_card.html         ← one card per day: date tile, heading, count, table + phone cards
 │   │   │   ├── columns.html          ← shared <colgroup> so the cards' columns line up
@@ -690,9 +690,10 @@ page. Use a native `<dialog>` with data attributes, no inline handlers:
 `layouts/admin.html` also loads `static/js/admin/auto_submit.js`. A control
 with `data-auto-submit` submits its form when it changes (no inline
 handlers). Keep a submit button in `<noscript>` for pages without
-JavaScript. See `admin/appointments/list_parts/period.html`:
+JavaScript. Used today only by the appointments list's phone Status
+dropdown (`admin/appointments/list_parts/tabs.html`):
 ```html
-<select id="period-show" name="show" class="input" data-auto-submit>…</select>
+<select id="status-select" name="status" class="input font-semibold" data-auto-submit>…</select>
 <noscript><button type="submit" class="btn btn-outline">Apply</button></noscript>
 ```
 
@@ -765,8 +766,10 @@ Admin dates are in Manila time (`timezone.localdate()`).
   give "mon, nov 2"). Leave the argument off at the start of a line or a
   label ("Right now: Today at 9:00 AM").
 - Python helpers that take `today` as an argument use
-  `long_date_on(value, today, style=None)` (same output as `long_date`),
-  e.g. `resolve_period` in `appointments/utils.py`.
+  `long_date_on(value, today, style=None)` and
+  `friendly_date_on(value, today, style=None)` (same output as
+  `long_date` / `friendly_date`), e.g. `resolve_period` in
+  `appointments/utils.py`.
 
 ---
 

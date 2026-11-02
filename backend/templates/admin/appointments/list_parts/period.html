@@ -1,33 +1,37 @@
 {% comment %}
-  Period filter. "Show" applies on change (data-auto-submit,
-  static/js/admin/auto_submit.js; the Apply button is for no JavaScript)
-  and sends no from, so a new kind starts on the current period. With a
-  period on: Previous / Next links, the period in words, and "Back to …"
-  when another period is showing.
+  Period row. Left: with a period on, one joined control
+  [Previous | This week | Next] (the middle part links to the current
+  period, or is a disabled span when already on it), then the short
+  heading ("This week", "Week of Nov 16"); with "Any date", only the
+  heading "All dates". Right: the Dates buttons, links that keep status
+  and q and send no from, so a new kind opens on the current period.
+  The row wraps; below sm the Dates buttons are five equal columns.
 {% endcomment %}
-<div class="mb-5 flex flex-wrap items-end gap-3">
-  <form method="get" action="{% url 'admin_appointments' %}" class="flex items-end gap-3">
-    <input type="hidden" name="status" value="{{ active_tab }}">
-    {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
-    <div class="w-48">
-      <label for="period-show" class="mb-1.5 block text-base font-medium text-gray-800">Show</label>
-      <select id="period-show" name="show" class="input min-h-12 font-semibold" data-auto-submit>
-        {% for value, label in show_options %}
-          <option value="{{ value }}"{% if value == period.kind %} selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <noscript><button type="submit" class="btn btn-outline min-h-12 font-semibold">Apply</button></noscript>
-  </form>
+<div class="mb-4 flex flex-wrap items-center gap-x-6 gap-y-3">
+  <div class="flex min-w-0 flex-1 basis-[26rem] flex-wrap items-center gap-3">
+    {% if period.kind == "any" %}
+      <h2 class="text-xl font-semibold text-gray-900">All dates</h2>
+    {% else %}
+      <nav class="inline-flex shrink-0 items-stretch overflow-hidden rounded-lg border border-gray-300 bg-white" aria-label="Pick a period">
+        <a href="?{{ prev_period_query }}" class="inline-flex min-h-11 items-center gap-1 px-3 text-base font-semibold text-gray-800 hover:bg-gray-50">{% include "components/icon.html" with name="chevron-left" %}Previous<span class="sr-only"> {{ period.kind }}</span></a>
+        {% if period.is_current %}
+          <span aria-disabled="true" title="You are on {{ period.back_to_mid }}" class="inline-flex min-h-11 cursor-default items-center border-x border-gray-300 bg-gray-100 px-4 text-base font-semibold text-gray-600">{{ period.current_label }}</span>
+        {% else %}
+          <a href="?{{ current_period_query }}" class="inline-flex min-h-11 items-center border-x border-gray-300 px-4 text-base font-semibold text-blue-700 hover:bg-gray-50">{{ period.current_label }}</a>
+        {% endif %}
+        <a href="?{{ next_period_query }}" class="inline-flex min-h-11 items-center gap-1 px-3 text-base font-semibold text-gray-800 hover:bg-gray-50">Next<span class="sr-only"> {{ period.kind }}</span>{% include "components/icon.html" with name="chevron-right" %}</a>
+      </nav>
+      <h2 class="text-xl font-semibold text-gray-900 md:whitespace-nowrap">{{ period.short_label }}</h2>
+    {% endif %}
+  </div>
 
-  {% if period.kind != "any" %}
-    <nav class="flex flex-wrap items-center gap-3" aria-label="Pick a period">
-      <a href="?{{ prev_period_query }}" class="btn btn-outline min-h-12 font-semibold">{% include "components/icon.html" with name="chevron-left" %}Previous<span class="sr-only"> {{ period.kind }}</span></a>
-      <p class="inline-flex min-h-12 items-center gap-2 rounded-lg border-2 border-violet-600 bg-violet-50 px-5 text-lg font-semibold text-violet-900">{% include "components/icon.html" with name="calendar" class="size-5 shrink-0 text-violet-700" %}{{ period.label }}</p>
-      <a href="?{{ next_period_query }}" class="btn btn-outline min-h-12 font-semibold">Next<span class="sr-only"> {{ period.kind }}</span>{% include "components/icon.html" with name="chevron-right" %}</a>
-      {% if not period.is_current %}
-        <a href="?{{ current_period_query }}" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="arrow-left" %}{{ period.back_to }}</a>
+  <div role="group" aria-label="Dates" class="grid w-full grid-cols-5 overflow-hidden rounded-lg border border-gray-300 bg-white sm:inline-flex sm:w-auto sm:shrink-0">
+    {% for link in dates_links %}
+      {% if link.kind == period.kind %}
+        <a href="?{{ link.query }}" aria-current="true" class="inline-flex min-h-11 items-center justify-center px-1 text-center text-base leading-tight font-semibold bg-violet-50 text-violet-800 ring-2 ring-inset ring-violet-600 sm:px-4{% if not forloop.first %} border-l border-gray-300{% endif %}">{{ link.label }}</a>
+      {% else %}
+        <a href="?{{ link.query }}" class="inline-flex min-h-11 items-center justify-center px-1 text-center text-base leading-tight font-medium text-gray-800 hover:bg-gray-50 sm:px-4{% if not forloop.first %} border-l border-gray-300{% endif %}">{{ link.label }}</a>
       {% endif %}
-    </nav>
-  {% endif %}
+    {% endfor %}
+  </div>
 </div>

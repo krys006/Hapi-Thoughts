@@ -21,18 +21,24 @@
   {% include "admin/appointments/list_parts/results_line.html" %}
 
   {% if day_groups %}
-    {# Column names once above all the day cards (md up); each card's table has its own hidden header for screen readers #}
-    <table class="mb-2 hidden w-full table-fixed text-left md:table" aria-hidden="true">
-      {% include "admin/appointments/list_parts/columns.html" %}
-      <tr class="text-base font-semibold text-gray-800">
-        <td class="px-5">Time</td>
-        <td class="px-5">Pet</td>
-        <td class="px-5">Owner</td>
-        <td class="px-5">Service</td>
-        <td class="px-5">Status</td>
-        <td></td>
-      </tr>
-    </table>
+    {% comment %}
+      Column names once above all the day cards (md up); each card's table has
+      its own hidden header for screen readers. px-px matches the cards' 1px
+      border, so this table has the same width and left edge as theirs.
+    {% endcomment %}
+    <div class="mb-2 hidden px-px md:block" aria-hidden="true">
+      <table class="w-full table-fixed text-left">
+        {% include "admin/appointments/list_parts/columns.html" %}
+        <tr class="text-base font-semibold text-gray-800">
+          <td class="px-5">Time</td>
+          <td class="px-5">Pet</td>
+          <td class="px-5">Owner</td>
+          <td class="px-5">Service</td>
+          <td class="px-5">Status</td>
+          <td class="px-5"></td>
+        </tr>
+      </table>
+    </div>
 
     <div class="space-y-6">
       {% for day, rows in day_groups %}

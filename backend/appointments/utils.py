@@ -6,7 +6,11 @@ from django.db.models import Count, Exists, OuterRef, Prefetch, Q
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
-from dashboard.templatetags.friendly_dates import MID_SENTENCE, long_date_on
+from dashboard.templatetags.friendly_dates import (
+    MID_SENTENCE,
+    friendly_date_on,
+    long_date_on,
+)
 from notifications.utils import notify
 from pets.models import Pet, PetOwner
 from .models import ClinicSettings, BlockedDate, Appointment
@@ -383,10 +387,10 @@ def parse_list_date(value):
 # Period filter (?show=&from=): (id, label) in the "Show" dropdown's order
 SHOW_OPTIONS = [
     ("any", "Any date"),
-    ("day", "One day"),
-    ("week", "One week"),
-    ("month", "One month"),
-    ("year", "One year"),
+    ("day", "Day"),
+    ("week", "Week"),
+    ("month", "Month"),
+    ("year", "Year"),
 ]
 _PERIOD_KINDS = {kind for kind, _ in SHOW_OPTIONS}
 
@@ -449,14 +453,39 @@ def _period_label(kind, start, end, today, style=None):
     return f"{word.lower() if style == MID_SENTENCE else word}: {text}"
 
 
+def _short_label(kind, start, today):
+    """Heading of the period row: 'Today', 'Sun, Nov 1', 'This week',
+    'Week of Nov 16', 'Last month', 'September', 'January 2027', '2024'.
+    The year shows only outside the current year."""
+    if kind == "day":
+        return friendly_date_on(start, today)
+    current = _period_start(kind, today)
+    word = {
+        current: "This",
+        _shift_period(kind, current, -1): "Last",
+        _shift_period(kind, current, 1): "Next",
+    }.get(start)
+    if word:
+        return f"{word} {kind}"
+    if kind == "week":
+        # The week's Monday decides the year shown
+        fmt = "M j" if start.year == today.year else "M j, Y"
+        return f"Week of {date_format(start, fmt)}"
+    if kind == "month":
+        return date_format(start, "F" if start.year == today.year else "F Y")
+    return str(start.year)
+
+
 def resolve_period(show, from_value, today):
     """
     The period filter as a dict. show is any/day/week/month/year (unknown
     → any). from_value is an ISO date, snapped to the first day of its
     period; missing or bad → the period holding today.
     Keys: kind, start, end (both None for "any"), label, mid_label,
-    is_current, is_past (ends before today), prev_from, next_from,
-    current_from, back_to ("Back to this week"), back_to_mid ("this week").
+    short_label (the row's heading), current_label ("This week", the
+    middle button), is_current, is_past (ends before today), prev_from,
+    next_from, current_from, back_to ("Back to this week"), back_to_mid
+    ("this week").
     """
     kind = show if show in _PERIOD_KINDS else "any"
     if kind == "any":
@@ -480,6 +509,8 @@ def resolve_period(show, from_value, today):
         "end": end,
         "label": _period_label(kind, start, end, today),
         "mid_label": _period_label(kind, start, end, today, MID_SENTENCE),
+        "short_label": _short_label(kind, start, today),
+        "current_label": "Today" if kind == "day" else f"This {kind}",
         "is_current": start == current,
         "is_past": end < today,
         "prev_from": prev_from,
@@ -567,17 +598,28 @@ def list_querystring(tab, q, period, start=None):
     return urlencode({key: value for key, value in params.items() if value})
 
 
+def _dates_query(tab, q, kind):
+    """status/q/show for one Dates button: no from, and no show for "any"."""
+    params = {"status": tab, "q": q, "show": "" if kind == "any" else kind}
+    return urlencode({key: value for key, value in params.items() if value})
+
+
 def list_links(tab, status, q, period):
     """
     Query strings (no "?") for the list's links. Tabs keep the period, not
     the search. The pager and Previous / Next / Back to keep everything.
     Clear search keeps the requested status (not the "All" a search
-    forces) and the period.
+    forces) and the period. The Dates buttons keep status and q and send
+    no from, so a new kind opens on the current period.
     """
     links = {
         "page_query": list_querystring(tab, q, period),
         "tab_period_query": list_querystring("", "", period),
         "clear_search_query": list_querystring(status, "", period),
+        "dates_links": [
+            {"kind": kind, "label": label, "query": _dates_query(tab, q, kind)}
+            for kind, label in SHOW_OPTIONS
+        ],
     }
     if period["kind"] != "any":
         for name in ("prev", "next", "current"):

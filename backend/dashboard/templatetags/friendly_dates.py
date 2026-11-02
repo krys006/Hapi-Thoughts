@@ -45,7 +45,11 @@ def friendly_date(value, style=None):
             if timezone.is_aware(value)
             else value.date()
         )
-    today = timezone.localdate()
+    return friendly_date_on(value, timezone.localdate(), style)
+
+
+def friendly_date_on(value, today, style=None):
+    """friendly_date for a date, with today passed in (for helpers that take today)."""
     label = _label_for_day(value, today)
     if label:
         return _cased(label, style)

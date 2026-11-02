@@ -23,7 +23,6 @@ from .forms import (
 
 from .utils import (
     LIST_PAGE_SIZE,
-    SHOW_OPTIONS,
     WALKIN_PAGE_SIZE,
     WALKIN_SEARCH_LIMIT,
     create_walkin_appointment,
@@ -704,7 +703,6 @@ def admin_appointment_list(request):
         **paging_links(page_obj, links["page_query"]),
         "q": q,
         "period": period,
-        "show_options": SHOW_OPTIONS,
         "is_searching": bool(q),
         **unfinished_visits(today, counts["unfinished"]),
         # The yellow notice belongs on the work tabs, not on search results
