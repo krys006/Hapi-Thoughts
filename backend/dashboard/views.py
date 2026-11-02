@@ -10,19 +10,25 @@ from django.utils.dateparse import parse_date
 from appointments.models import Appointment, ClinicSettings
 from appointments.utils import get_admin_calendar_context
 from billing.models import BillingReceipt
-from dashboard.utils import dashboard_calendar_context
+from dashboard.utils import (
+    dashboard_calendar_context,
+    day_schedule,
+    pending_requests,
+    picked_day,
+    recent_activity,
+)
 from medical.models import MedicalRecord, Vaccination
 from notifications.models import Notification
 from pets.models import Pet, PetOwner
 
 
-def _get_admin_dashboard_context(request):
+def _get_admin_dashboard_context(request, today=None):
     """
     Builds the stats + widget context for the admin dashboard.
     Shared by the full-page view and the HTMX polling partial so
     both always stay in sync with the same query logic.
     """
-    today = timezone.localdate()
+    today = today or timezone.localdate()
     week_end = today + timedelta(days=7)
 
     # ── Summary stats ──────────────────────────────────────────────────────
@@ -108,8 +114,9 @@ def _parse_day(value):
         return timezone.localdate()
 
 
-def _day_schedule_context(day):
-    """One day's appointments for the dashboard schedule card (no cancelled)."""
+def _day_schedule_context(day, today):
+    """One day's appointments for the old schedule card (no cancelled).
+    Kept for the old template until D3; the new card uses day_schedule."""
     appointments = (
         Appointment.objects.filter(date=day)
         .exclude(status=Appointment.CANCELLED)
@@ -118,7 +125,7 @@ def _day_schedule_context(day):
     )
     return {
         "selected_date": day,
-        "is_today": day == timezone.localdate(),
+        "is_today": day == today,
         "day_appointments": appointments,
     }
 
@@ -131,6 +138,19 @@ def _mini_calendar_context(date_str):
             cell["has_pending"] = any(
                 item["status"] == Appointment.PENDING for item in cell["statuses"]
             )
+    return context
+
+
+def _schedule_and_calendar_context(today, now, clinic, picked, month_value=None):
+    """Schedule card and calendar for the picked day (today when None): the
+    old keys the old partials need plus the new schedule / cal_* keys."""
+    day = picked or today
+    picked_value = picked.isoformat() if picked else None
+    cal = dashboard_calendar_context(today, month_value, picked_value, clinic)
+    context = _mini_calendar_context(cal["cal_month"].isoformat())
+    context.update(cal)
+    context.update(_day_schedule_context(day, today))
+    context["schedule"] = day_schedule(day, today, now, clinic)
     return context
 
 
@@ -283,16 +303,18 @@ def admin_dashboard(request):
         return redirect("owner_dashboard")
 
     clinic = ClinicSettings.objects.first()
-    today = timezone.localdate()
-    context = _get_admin_dashboard_context(request)
-    context.update(_mini_calendar_context(None))
-    context.update(_day_schedule_context(today))
+    now = timezone.localtime()
+    today = now.date()
+    picked = picked_day(request.GET.get("day"), today, clinic)
+    context = _get_admin_dashboard_context(request, today)
     context.update(
-        dashboard_calendar_context(
-            today, request.GET.get("month"), request.GET.get("day"), clinic
+        _schedule_and_calendar_context(
+            today, now, clinic, picked, request.GET.get("month")
         )
     )
-    context["greeting"] = _greeting()
+    context["pending_requests"] = pending_requests()
+    context["recent_activity"] = recent_activity(request.user)
+    context["greeting"] = _greeting(now)
     context["display_name"] = _admin_display_name(request.user, clinic)
 
     return render(request, "admin/dashboard/index.html", context)
@@ -331,14 +353,18 @@ def admin_dashboard_calendar(request):
 
 @login_required
 def admin_dashboard_day(request):
-    """HTMX: one day's appointments for the dashboard schedule card."""
+    """HTMX: the schedule card for ?date=YYYY-MM-DD plus the calendar
+    out-of-band, on that day's month. A missing, bad or out-of-range date,
+    or today, resets both cards to today (Today / Back to today)."""
     if request.user.role != "admin":
         return HttpResponseForbidden()
 
-    day = _parse_day(request.GET.get("date"))
-    return render(
-        request, "admin/dashboard/_day_schedule.html", _day_schedule_context(day)
-    )
+    clinic = ClinicSettings.objects.first()
+    now = timezone.localtime()
+    today = now.date()
+    picked = picked_day(request.GET.get("date"), today, clinic)
+    context = _schedule_and_calendar_context(today, now, clinic, picked)
+    return render(request, "admin/dashboard/_day_response.html", context)
 
 
 @login_required

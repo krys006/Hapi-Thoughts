@@ -1,13 +1,16 @@
 import re
 from datetime import date, datetime, time, timedelta
 from datetime import timezone as dt_timezone
+from types import SimpleNamespace
 from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
+from django.db import connection
 from django.template import engines
 from django.template.loader import render_to_string
 from django.test import RequestFactory, SimpleTestCase, TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -22,10 +25,14 @@ from dashboard.utils import (
     booking_limit,
     calendar_month_range,
     dashboard_calendar_context,
+    day_schedule,
     month_cells,
     month_day_counts,
+    pending_requests,
+    recent_activity,
     resolve_month,
     resolve_picked,
+    slot_minutes,
 )
 from dashboard.views import _greeting, _parse_day
 from medical.models import MedicalRecord, Vaccination
@@ -456,7 +463,9 @@ class DashboardViewTests(ShellTestBase):
                     fetch_redirect_response=False,
                 )
 
-    def test_day_lists_that_day_in_time_order_without_cancelled(self):
+    # Frozen in June so ?date=2026-06-20 is inside the clamped month range.
+    @mock.patch("django.utils.timezone.now", return_value=FROZEN_NOW)
+    def test_day_lists_that_day_in_time_order_without_cancelled(self, _now):
         day = date(2026, 6, 20)
         later = self._booking(day, 10, Appointment.CONFIRMED)
         earlier = self._booking(day, 9, Appointment.PENDING)
@@ -866,3 +875,336 @@ class CalendarEndpointTests(ShellTestBase):
             headers={"HX-Request": "true"},
         )
         self.assertEqual(response.status_code, 403)
+
+
+# ─── Dashboard v5 schedule, Needs approval, Recent activity (batch D2) ────────
+
+# Thursday, Nov 5, 2026: a picked day inside the calendar range.
+PICKED_DAY = date(2026, 11, 5)
+
+
+def _manila(utc_hour, minute):
+    """Nov 2, 2026 at utc_hour:minute UTC as Manila local time (UTC+8)."""
+    value = datetime(2026, 11, 2, utc_hour, minute, tzinfo=dt_timezone.utc)
+    return timezone.localtime(value)
+
+
+class DashboardV5TestBase(ShellTestBase):
+
+    def _booking(self, day, hour, status, minute=0):
+        return Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=day,
+            time=time(hour, minute),
+            status=status,
+        )
+
+    def _schedule(self, day, now=None, clinic=None):
+        return day_schedule(day, CAL_TODAY, now or timezone.localtime(CAL_NOW), clinic)
+
+
+class DayScheduleTests(DashboardV5TestBase):
+
+    def test_rows_counts_and_order(self):
+        """Visits are rows by time then id; Pending only counts as waiting."""
+        first_ten = self._booking(CAL_TODAY, 10, Appointment.CONFIRMED)
+        completed = self._booking(CAL_TODAY, 8, Appointment.COMPLETED)
+        no_show = self._booking(CAL_TODAY, 9, Appointment.NO_SHOW)
+        second_ten = self._booking(CAL_TODAY, 10, Appointment.CONFIRMED)
+        self._booking(CAL_TODAY, 11, Appointment.PENDING)
+        self._booking(CAL_TODAY, 12, Appointment.CANCELLED)
+        self._booking(PICKED_DAY, 9, Appointment.CONFIRMED)
+        schedule = self._schedule(CAL_TODAY)
+        self.assertEqual(schedule["rows"], [completed, no_show, first_ten, second_ten])
+        self.assertTrue(schedule["is_today"])
+        self.assertEqual(schedule["visit_count"], 4)
+        self.assertEqual(schedule["done_count"], 2)
+        self.assertEqual(schedule["to_go_count"], 2)
+        self.assertEqual(schedule["waiting_count"], 1)
+        self.assertEqual(schedule["summary"], "4 visits · 2 done · 2 to go")
+
+    def test_today_with_one_visit_is_singular(self):
+        self._booking(CAL_TODAY, 15, Appointment.CONFIRMED)
+        self.assertEqual(
+            self._schedule(CAL_TODAY)["summary"], "1 visit · 0 done · 1 to go"
+        )
+
+    def test_picked_day_with_waiting(self):
+        self._booking(PICKED_DAY, 9, Appointment.CONFIRMED)
+        self._booking(PICKED_DAY, 10, Appointment.CONFIRMED)
+        self._booking(PICKED_DAY, 11, Appointment.PENDING)
+        schedule = self._schedule(PICKED_DAY)
+        self.assertFalse(schedule["is_today"])
+        self.assertEqual(schedule["summary"], "2 visits · 1 waiting for approval")
+
+    def test_picked_day_without_waiting(self):
+        self._booking(PICKED_DAY, 9, Appointment.CONFIRMED)
+        self._booking(PICKED_DAY, 10, Appointment.COMPLETED)
+        self.assertEqual(self._schedule(PICKED_DAY)["summary"], "2 visits")
+
+    def test_no_visits_today(self):
+        """Today's summary never mentions waiting requests."""
+        self._booking(CAL_TODAY, 11, Appointment.PENDING)
+        self.assertEqual(self._schedule(CAL_TODAY)["summary"], "No visits")
+
+    def test_no_visits_on_a_picked_day_with_one_waiting(self):
+        self._booking(PICKED_DAY, 11, Appointment.PENDING)
+        self._booking(PICKED_DAY, 12, Appointment.CANCELLED)
+        schedule = self._schedule(PICKED_DAY)
+        self.assertEqual(schedule["rows"], [])
+        self.assertEqual(schedule["summary"], "No visits · 1 waiting for approval")
+
+    def test_picked_busy_day_shows_three_rows(self):
+        rows = [
+            self._booking(PICKED_DAY, h, Appointment.CONFIRMED) for h in range(8, 13)
+        ]
+        schedule = self._schedule(PICKED_DAY)
+        self.assertEqual(schedule["shown_rows"], rows[:3])
+        self.assertEqual(schedule["more_count"], 2)
+
+    def test_today_shows_every_row(self):
+        rows = [
+            self._booking(CAL_TODAY, h, Appointment.CONFIRMED) for h in range(8, 13)
+        ]
+        schedule = self._schedule(CAL_TODAY)
+        self.assertEqual(schedule["shown_rows"], rows)
+        self.assertEqual(schedule["more_count"], 0)
+
+
+class NextVisitTests(DashboardV5TestBase):
+    """Nov 2, 2026 with 60-minute slots: 8:00 Completed, 10:00 and 14:00
+    Confirmed. Times below are Manila time."""
+
+    def setUp(self):
+        super().setUp()
+        self.eight = self._booking(CAL_TODAY, 8, Appointment.COMPLETED)
+        self.ten = self._booking(CAL_TODAY, 10, Appointment.CONFIRMED)
+        self.two_pm = self._booking(CAL_TODAY, 14, Appointment.CONFIRMED)
+
+    def _next(self, now, clinic=None):
+        return self._schedule(CAL_TODAY, now, clinic)["next_id"]
+
+    def test_before_the_visit(self):
+        # 01:40 UTC = 9:40 Manila
+        self.assertEqual(self._next(_manila(1, 40)), self.ten.id)
+
+    def test_visit_in_progress_still_counts(self):
+        # 02:20 UTC = 10:20 Manila
+        self.assertEqual(self._next(_manila(2, 20)), self.ten.id)
+
+    def test_completed_visit_is_skipped(self):
+        self.ten.status = Appointment.COMPLETED
+        self.ten.save()
+        # 02:20 UTC = 10:20 Manila
+        self.assertEqual(self._next(_manila(2, 20)), self.two_pm.id)
+
+    def test_none_after_the_last_slot(self):
+        # 07:10 UTC = 15:10 Manila
+        self.assertIsNone(self._next(_manila(7, 10)))
+
+    def test_picked_day_has_no_next(self):
+        self._booking(PICKED_DAY, 10, Appointment.CONFIRMED)
+        # 01:40 UTC = 9:40 Manila
+        self.assertIsNone(self._schedule(PICKED_DAY, _manila(1, 40))["next_id"])
+
+    def test_clinic_none_uses_60_minutes(self):
+        self.assertEqual(slot_minutes(None), 60)
+        # 02:50 UTC = 10:50 Manila: inside a 60-minute slot, past a 30-minute one
+        self.assertEqual(self._next(_manila(2, 50)), self.ten.id)
+        short_slots = SimpleNamespace(slot_duration_minutes=30)
+        self.assertEqual(self._next(_manila(2, 50), short_slots), self.two_pm.id)
+
+
+class PendingRequestsTests(DashboardV5TestBase):
+
+    def test_every_pending_request_no_cap(self):
+        for n in range(7):
+            self._booking(CAL_TODAY + timedelta(days=n), 9, Appointment.PENDING)
+        self.assertEqual(len(pending_requests()), 7)
+
+    def test_order_by_date_then_time(self):
+        late = self._booking(PICKED_DAY, 14, Appointment.PENDING)
+        early = self._booking(PICKED_DAY, 9, Appointment.PENDING)
+        first = self._booking(CAL_TODAY, 16, Appointment.PENDING)
+        self.assertEqual(pending_requests(), [first, early, late])
+
+    def test_non_pending_excluded(self):
+        kept = self._booking(PICKED_DAY, 9, Appointment.PENDING)
+        for status in (
+            Appointment.CONFIRMED,
+            Appointment.COMPLETED,
+            Appointment.NO_SHOW,
+            Appointment.CANCELLED,
+        ):
+            self._booking(PICKED_DAY, 10, status)
+        self.assertEqual(pending_requests(), [kept])
+
+    def test_date_has_passed_only_for_past_dates(self):
+        """The Needs approval markup flags rows with `appointment.date < today`."""
+        self._booking(CAL_TODAY - timedelta(days=1), 9, Appointment.PENDING)
+        self._booking(CAL_TODAY, 9, Appointment.PENDING)
+        self._booking(PICKED_DAY, 9, Appointment.PENDING)
+        flags = engines["django"].from_string(
+            "{% for appointment in pending_requests %}"
+            "{% if appointment.date < today %}past{% else %}ok{% endif %} "
+            "{% endfor %}"
+        )
+        html = flags.render(
+            {"pending_requests": pending_requests(), "today": CAL_TODAY}
+        )
+        self.assertEqual(html.split(), ["past", "ok", "ok"])
+
+
+class RecentActivityTests(DashboardV5TestBase):
+
+    def _note(self, kind, title="Other", **related):
+        return Notification.objects.create(
+            recipient=self.admin,
+            notification_type=kind,
+            title=title,
+            message="Test",
+            **related,
+        )
+
+    def test_only_own_three_newest_first(self):
+        notes = [self._note(Notification.APPOINTMENT_REQUESTED) for _ in range(4)]
+        # The oldest gets the newest timestamp, so created_at wins over id
+        Notification.objects.filter(pk=notes[0].pk).update(
+            created_at=timezone.now() + timedelta(hours=1)
+        )
+        self._notification(self.owner.user)
+        items = recent_activity(self.admin)
+        self.assertEqual(
+            [item["notification"] for item in items], [notes[0], notes[3], notes[2]]
+        )
+        self.assertTrue(items[0]["is_unread"])
+        self.assertEqual(items[0]["created_at"], items[0]["notification"].created_at)
+
+    def test_labels(self):
+        original = self._booking(PICKED_DAY, 9, Appointment.CANCELLED)
+        moved = self._booking(PICKED_DAY, 10, Appointment.PENDING)
+        moved.rescheduled_from = original
+        moved.save()
+        cases = (
+            (Notification.APPOINTMENT_REQUESTED, moved, "time change request"),
+            (Notification.APPOINTMENT_REQUESTED, original, "visit request"),
+            (Notification.APPOINTMENT_REQUESTED, None, "visit request"),
+            (Notification.APPOINTMENT_CANCELLED, original, "cancelled by owner"),
+            (Notification.BILLING_GENERATED, None, "Receipt ready"),
+        )
+        for kind, appointment, expected in cases:
+            with self.subTest(kind=kind, expected=expected):
+                Notification.objects.all().delete()
+                self._note(kind, "Receipt ready", related_appointment=appointment)
+                self.assertEqual(recent_activity(self.admin)[0]["label"], expected)
+
+    def test_pet_name(self):
+        other = Pet.objects.create(owner=self.owner, name="Muning", species="Cat")
+        appointment = self._booking(PICKED_DAY, 9, Appointment.PENDING)
+        cases = (
+            ({"related_pet": other, "related_appointment": appointment}, "Muning"),
+            ({"related_appointment": appointment}, "Bantay"),
+            ({}, None),
+        )
+        for related, expected in cases:
+            with self.subTest(expected=expected):
+                Notification.objects.all().delete()
+                self._note(Notification.APPOINTMENT_REQUESTED, **related)
+                self.assertEqual(recent_activity(self.admin)[0]["pet_name"], expected)
+
+
+@mock.patch("django.utils.timezone.now", return_value=CAL_NOW)
+class DayEndpointTests(DashboardV5TestBase):
+    """admin_dashboard_day with "now" at noon on Mon, Nov 2, 2026 (Manila)."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.admin)
+
+    def _get(self, **params):
+        return self.client.get(
+            reverse("admin_dashboard_day"), params, headers={"HX-Request": "true"}
+        )
+
+    def test_picked_day_returns_schedule_and_oob_calendar(self, _now):
+        visit = self._booking(PICKED_DAY, 9, Appointment.CONFIRMED)
+        response = self._get(date="2026-11-05")
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "admin/dashboard/_day_response.html")
+        self.assertTemplateUsed(response, "admin/dashboard/_day_schedule.html")
+        self.assertEqual(response.context["schedule"]["day"], PICKED_DAY)
+        self.assertEqual(response.context["schedule"]["rows"], [visit])
+        self.assertEqual(response.context["selected_date"], PICKED_DAY)
+        self.assertEqual(response.context["cal_picked"], PICKED_DAY)
+        self.assertEqual(response.context["cal_month"], date(2026, 11, 1))
+        self.assertContains(
+            response,
+            '<section id="mini-calendar" class="card p-5" aria-label="Calendar" '
+            'hx-swap-oob="outerHTML">',
+        )
+        self.assertContains(response, 'id="day-schedule"')
+
+    def test_picked_day_in_another_month_opens_that_month(self, _now):
+        response = self._get(date="2026-12-10")
+        self.assertEqual(response.context["cal_month"], date(2026, 12, 1))
+        self.assertEqual(response.context["anchor_date"], date(2026, 12, 1))
+
+    def test_no_date_is_today(self, _now):
+        response = self._get()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["schedule"]["day"], CAL_TODAY)
+        self.assertTrue(response.context["schedule"]["is_today"])
+        self.assertIsNone(response.context["cal_picked"])
+        self.assertTrue(response.context["cal_is_home"])
+        self.assertContains(response, 'hx-swap-oob="outerHTML"')
+
+    def test_bad_or_out_of_range_date_is_today(self, _now):
+        for value in ("nonsense", "2026-02-30", "2026-07-31", "2027-01-01"):
+            with self.subTest(value=value):
+                response = self._get(date=value)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.context["schedule"]["day"], CAL_TODAY)
+                self.assertIsNone(response.context["cal_picked"])
+
+    def test_non_admin_htmx_gets_403(self, _now):
+        self.client.force_login(self.owner.user)
+        self.assertEqual(self._get(date="2026-11-05").status_code, 403)
+
+
+@mock.patch("django.utils.timezone.now", return_value=CAL_NOW)
+class FullPageDayParamTests(DashboardV5TestBase):
+    """admin_dashboard ?day= with "now" at noon on Mon, Nov 2, 2026 (Manila)."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.admin)
+
+    def test_day_param_picks_the_day(self, _now):
+        response = self.client.get(reverse("admin_dashboard"), {"day": "2026-11-05"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["schedule"]["day"], PICKED_DAY)
+        self.assertEqual(response.context["cal_picked"], PICKED_DAY)
+        self.assertNotContains(response, "hx-swap-oob")
+
+    def test_no_day_param_is_today(self, _now):
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertEqual(response.context["schedule"]["day"], CAL_TODAY)
+        self.assertIsNone(response.context["cal_picked"])
+
+    def test_new_context_keys(self, _now):
+        pending = self._booking(PICKED_DAY, 9, Appointment.PENDING)
+        self._notification(self.admin)
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertEqual(response.context["pending_requests"], [pending])
+        self.assertEqual(len(response.context["recent_activity"]), 1)
+
+    def test_report_query_count(self, _now):
+        """Prints the query count of one full page load (reported, not asserted)."""
+        self._booking(CAL_TODAY, 9, Appointment.CONFIRMED)
+        self._booking(PICKED_DAY, 9, Appointment.PENDING)
+        self._notification(self.admin)
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(reverse("admin_dashboard"))
+        self.assertEqual(response.status_code, 200)
+        print(f"\nadmin_dashboard full page: {len(queries)} queries")

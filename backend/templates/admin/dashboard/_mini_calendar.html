@@ -3,7 +3,7 @@
   loads that day's appointments into the schedule card (#day-schedule).
   Dots: violet = booked, yellow = has requests waiting for approval.
 {% endcomment %}
-<section id="mini-calendar" class="card p-5" aria-label="Calendar">
+<section id="mini-calendar" class="card p-5" aria-label="Calendar"{% if oob %} hx-swap-oob="outerHTML"{% endif %}>
   <div class="mb-3 flex items-center justify-between gap-2">
     <h2 class="text-lg font-semibold text-gray-900">{{ calendar_period_label }}</h2>
     <div class="flex gap-1">

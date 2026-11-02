@@ -1,25 +1,33 @@
-"""Helpers for the admin dashboard calendar (dashboard v5).
+"""Helpers for the admin dashboard (dashboard v5).
 
-The pure helpers take `today` as an argument and never read the clock, so
-tests can pass any date. Only month_day_counts touches the database.
+Every helper takes `today` (and `now` where the time matters) as an
+argument and never reads the clock, so tests can pass any date. The
+calendar helpers are pure except month_day_counts; the schedule, Needs
+approval and Recent activity helpers query the database.
 """
 
 import calendar
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from django.db.models import Count
+from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
 from appointments.models import Appointment
 from dashboard.templatetags.friendly_dates import long_date_on
+from notifications.models import Notification
 
 # Months shown before today's month in the month dropdown.
 CALENDAR_MONTHS_BACK = 3
 # Six rows of seven days, so the grid never changes height.
 CALENDAR_CELLS = 42
-# Used when there is no ClinicSettings row (same as the model default).
+# Used when there is no ClinicSettings row (same as the model defaults).
 DEFAULT_BOOKING_LIMIT_DAYS = 30
+DEFAULT_SLOT_MINUTES = 60
+# Rows shown for a picked day; today shows every visit.
+PICKED_DAY_ROWS = 3
+RECENT_ACTIVITY_LIMIT = 3
 
 # Counted as visits (violet pill). PENDING counts as waiting (yellow pill).
 # CANCELLED never counts.
@@ -67,6 +75,13 @@ def booking_limit(clinic):
     return clinic.booking_limit_days
 
 
+def slot_minutes(clinic):
+    """The clinic's slot length in minutes, or the default without settings."""
+    if clinic is None:
+        return DEFAULT_SLOT_MINUTES
+    return clinic.slot_duration_minutes
+
+
 def resolve_month(value, today, months):
     """A month-first date from 'YYYY-MM', clamped to months. Missing or bad
     values give today's month. Never raises."""
@@ -92,6 +107,12 @@ def resolve_picked(value, today, months):
     if picked < months[0] or picked > _last_day(months[-1]) or picked == today:
         return None
     return picked
+
+
+def picked_day(value, today, clinic):
+    """resolve_picked over the calendar's month range for this clinic."""
+    months = calendar_month_range(today, booking_limit(clinic))
+    return resolve_picked(value, today, months)
 
 
 def month_day_counts(month_first):
@@ -194,3 +215,109 @@ def dashboard_calendar_context(today, month_value=None, picked_value=None, clini
         "cal_today_month_value": _month_value(today_month),
         "cal_is_home": month == today_month and picked is None,
     }
+
+
+def _slot_end(row, minutes):
+    """When a row's slot ends, as an aware datetime in Manila time."""
+    start = timezone.make_aware(datetime.combine(row.date, row.time))
+    return start + timedelta(minutes=minutes)
+
+
+def _next_visit_id(rows, now, minutes):
+    """The first Confirmed row whose slot hasn't ended (one in progress
+    still counts), or None."""
+    for row in rows:
+        if row.status == Appointment.CONFIRMED and _slot_end(row, minutes) > now:
+            return row.id
+    return None
+
+
+def _schedule_summary(is_today, visits, done, to_go, waiting):
+    """'3 visits · 1 done · 2 to go' today; '2 visits · 1 waiting for
+    approval' on a picked day; 'No visits' when there are none."""
+    parts = [_plural(visits, "visit") if visits else "No visits"]
+    if is_today and visits:
+        parts += [f"{done} done", f"{to_go} to go"]
+    if not is_today and waiting:
+        parts.append(f"{waiting} waiting for approval")
+    return " · ".join(parts)
+
+
+def day_schedule(day, today, now, clinic):
+    """The schedule card for one day. Rows are Confirmed, Completed and
+    No show visits; Pending requests are only counted (waiting). A picked
+    day shows its first 3 rows, today shows every row."""
+    rows = list(
+        Appointment.objects.filter(date=day, status__in=VISIT_STATUSES)
+        .select_related("pet", "owner", "service")
+        .order_by("time", "id")
+    )
+    waiting = Appointment.objects.filter(date=day, status=WAITING_STATUS).count()
+    is_today = day == today
+    to_go = sum(row.status == Appointment.CONFIRMED for row in rows)
+    done = len(rows) - to_go
+    shown = rows if is_today else rows[:PICKED_DAY_ROWS]
+    next_id = _next_visit_id(rows, now, slot_minutes(clinic)) if is_today else None
+    return {
+        "day": day,
+        "is_today": is_today,
+        "rows": rows,
+        "shown_rows": shown,
+        "more_count": len(rows) - len(shown),
+        "visit_count": len(rows),
+        "done_count": done,
+        "to_go_count": to_go,
+        "waiting_count": waiting,
+        "next_id": next_id,
+        "summary": _schedule_summary(is_today, len(rows), done, to_go, waiting),
+    }
+
+
+def pending_requests():
+    """Every Pending request, any date, soonest first, no cap. The template
+    marks past dates with `appointment.date < today` (the "Date has passed"
+    tag), so no flag is set here."""
+    return list(
+        Appointment.objects.filter(status=WAITING_STATUS)
+        .select_related("pet", "owner", "service")
+        .order_by("date", "time", "id")
+    )
+
+
+def _activity_label(notification):
+    kind = notification.notification_type
+    if kind == Notification.APPOINTMENT_REQUESTED:
+        appointment = notification.related_appointment
+        if appointment and appointment.rescheduled_from_id:
+            return "time change request"
+        return "visit request"
+    if kind == Notification.APPOINTMENT_CANCELLED:
+        return "cancelled by owner"
+    return notification.title
+
+
+def _activity_pet_name(notification):
+    if notification.related_pet:
+        return notification.related_pet.name
+    if notification.related_appointment:
+        return notification.related_appointment.pet.name
+    return None
+
+
+def recent_activity(user, limit=RECENT_ACTIVITY_LIMIT):
+    """The user's newest notifications as dicts for the Recent activity card."""
+    notifications = (
+        Notification.objects.filter(recipient=user)
+        .select_related("related_pet", "related_appointment__pet")
+        .order_by("-created_at", "-id")[:limit]
+    )
+    return [
+        {
+            "notification": notification,
+            "pet_name": _activity_pet_name(notification),
+            "label": _activity_label(notification),
+            "is_unread": not notification.is_read,
+            "created_at": notification.created_at,
+        }
+        for notification in notifications
+    ]
