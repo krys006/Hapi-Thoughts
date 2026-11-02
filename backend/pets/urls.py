@@ -116,6 +116,11 @@ urlpatterns = [
         views.admin_pet_edit,
         name="admin_pet_edit",
     ),
+    path(
+        "admin/pets/<int:pk>/restore/",
+        views.admin_pet_restore,
+        name="admin_pet_restore",
+    ),
     # --- Admin: Deletion Requests ---
     path(
         "admin/pets/deletion-requests/",

@@ -17,16 +17,20 @@ from django.utils import timezone
 
 from appointments.models import Appointment
 from billing.models import Service
+from medical.models import MedicalRecord, Vaccination
+from notifications.models import Notification
 from pets.forms import AdminOwnerEmailForm, AdminPetOwnerForm
 from pets.models import Pet, PetDeletionRequest, PetOwner
 from pets.templatetags.pet_display import species_icon
 from pets.utils import (
+    answer_deletion_request,
     barangay_choices,
     barangays_for,
     marinduque_towns,
     match_barangay,
     match_town,
     owner_list_context,
+    pet_list_context,
     psgc_marinduque,
 )
 
@@ -2350,3 +2354,774 @@ class AddEmailPageTests(TestCase):
         self.assertContains(response, "This email is already used by another account.")
         # The typed email is kept as typed, so it can be corrected
         self.assertContains(response, 'value="Ben@example.com"')
+
+
+# ── Slice 4b-1: pets backend ─────────────────────────────────────────────────
+
+
+def _pet(owner, name="Bantay", species="Dog", breed="", **fields):
+    return Pet.objects.create(
+        owner=owner, name=name, species=species, breed=breed, **fields
+    )
+
+
+def _request(pet, status=PetDeletionRequest.PENDING, created=None, reviewed=None):
+    """A deletion request; created / reviewed are datetimes to set."""
+    deletion_request = PetDeletionRequest.objects.create(
+        pet=pet,
+        requested_by=pet.owner.user,
+        reason=PetDeletionRequest.PASSED_AWAY,
+        status=status,
+        reviewed_at=reviewed,
+    )
+    if created:
+        PetDeletionRequest.objects.filter(pk=deletion_request.pk).update(
+            created_at=created
+        )
+    return deletion_request
+
+
+class PetListViewTests(TestCase):
+    """admin_pet_list: tabs, search, old params, owner filter, order, paging."""
+
+    def setUp(self):
+        _admin(self)
+        self.url = reverse("admin_pet_list")
+        self.ana = _owner(email="ana@example.com")
+        self.ben = _owner(first="Ben", last="Santos", email="ben@example.com")
+
+    def _get(self, **params):
+        return self.client.get(self.url, params)
+
+    def _names(self, response):
+        return [pet.name for pet in response.context["pets"]]
+
+    def test_tabs(self):
+        _pet(self.ana, "Bantay")
+        _pet(self.ana, "Old", is_archived=True, archived_at=timezone.now())
+        cora = _archive(_owner(first="Cora", last="Lim", email="cora@example.com"))
+        _pet(cora, "Choco")
+        self.assertEqual(self._names(self._get()), ["Bantay"])
+        self.assertEqual(self._names(self._get(status="active")), ["Bantay"])
+        self.assertEqual(self._names(self._get(status="bogus")), ["Bantay"])
+        self.assertEqual(self._get(status="bogus").context["active_tab"], "active")
+        archived = self._get(status="archived")
+        self.assertEqual(self._names(archived), ["Choco", "Old"])
+        self.assertEqual(archived.context["active_tab"], "archived")
+
+    def test_counts_ignore_the_search(self):
+        _pet(self.ana, "Bantay")
+        _pet(self.ben, "Mingming", species="Cat")
+        _pet(self.ana, "Old", is_archived=True)
+        response = self._get(q="mingming")
+        self.assertEqual(self._names(response), ["Mingming"])
+        self.assertEqual(response.context["active_count"], 2)
+        self.assertEqual(response.context["archived_count"], 1)
+        self.assertEqual(response.context["total_count"], 1)
+        self.assertTrue(response.context["is_searching"])
+
+    def test_search_every_word_over_all_four_fields(self):
+        _pet(self.ana, "Bantay", species="Dog", breed="Aspin")
+        _pet(self.ben, "Mingming", species="Cat", breed="Persian")
+        cases = [
+            ("bantay", ["Bantay"]),
+            ("cat", ["Mingming"]),
+            ("aspin", ["Bantay"]),
+            ("ANA", ["Bantay"]),
+            ("santos", ["Mingming"]),
+            ("dog ana", ["Bantay"]),
+            ("persian ben", ["Mingming"]),
+            ("cat cruz", []),
+            ("  aspin   cruz ", ["Bantay"]),
+        ]
+        for q, names in cases:
+            with self.subTest(q=q):
+                self.assertEqual(self._names(self._get(q=q)), names)
+
+    def test_old_search_param_and_q_wins(self):
+        _pet(self.ana, "Bantay")
+        _pet(self.ben, "Mingming", species="Cat")
+        self.assertEqual(self._names(self._get(search="ming")), ["Mingming"])
+        self.assertEqual(self._get(search="ming").context["search_query"], "ming")
+        self.assertEqual(self._names(self._get(search="ming", q="bantay")), ["Bantay"])
+
+    def test_old_species_param(self):
+        _pet(self.ana, "Bantay", species="Dog")
+        _pet(self.ben, "Mingming", species="Cat")
+        response = self._get(species="ca")
+        self.assertEqual(self._names(response), ["Mingming"])
+        self.assertEqual(response.context["species_filter"], "ca")
+        self.assertEqual(list(response.context["species_list"]), ["Cat", "Dog"])
+
+    def test_owner_filter(self):
+        _pet(self.ana, "Bantay")
+        _pet(self.ben, "Mingming", species="Cat")
+        response = self._get(owner=self.ben.pk)
+        self.assertEqual(self._names(response), ["Mingming"])
+        self.assertEqual(response.context["owner_filter"], self.ben)
+
+    def test_bad_or_unknown_owner_is_ignored(self):
+        _pet(self.ana, "Bantay")
+        _pet(self.ben, "Mingming", species="Cat")
+        for value in ("abc", "99999", "", "1.5", "-"):
+            with self.subTest(owner=value):
+                response = self._get(owner=value)
+                self.assertEqual(response.status_code, 200)
+                self.assertIsNone(response.context["owner_filter"])
+                self.assertEqual(self._names(response), ["Bantay", "Mingming"])
+
+    def test_order_by_name_then_owner_first_name(self):
+        _pet(self.ben, "Bantay")
+        _pet(self.ana, "Bantay")
+        _pet(self.ben, "Arf")
+        pets = list(self._get().context["pets"])
+        self.assertEqual(
+            [(pet.name, pet.owner.first_name) for pet in pets],
+            [("Arf", "Ben"), ("Bantay", "Ana"), ("Bantay", "Ben")],
+        )
+
+    def test_25_per_page_and_the_pager_keeps_params(self):
+        for i in range(30):
+            _pet(self.ana, f"Pet{i:02d}")
+        first = self._get(status="active", q="pet", owner=self.ana.pk)
+        self.assertEqual(len(first.context["pets"]), 25)
+        self.assertEqual(first.context["prev_page_query"], "")
+        self.assertEqual(
+            first.context["next_page_query"],
+            f"?status=active&q=pet&owner={self.ana.pk}&page=2",
+        )
+        second = self._get(status="active", q="pet", owner=self.ana.pk, page=2)
+        self.assertEqual(self._names(second), [f"Pet{i}" for i in range(25, 30)])
+        self.assertEqual(
+            second.context["prev_page_query"],
+            f"?status=active&q=pet&owner={self.ana.pk}&page=1",
+        )
+        self.assertEqual(second.context["next_page_query"], "")
+        self.assertEqual(second.context["total_count"], 30)
+
+    def test_has_pending_deletion(self):
+        waiting = _pet(self.ana, "Bantay")
+        answered = _pet(self.ana, "Choco")
+        _pet(self.ana, "Dash")
+        _request(waiting)
+        _request(answered, status=PetDeletionRequest.REJECTED)
+        flags = {
+            pet.name: pet.has_pending_deletion for pet in self._get().context["pets"]
+        }
+        self.assertEqual(flags, {"Bantay": True, "Choco": False, "Dash": False})
+
+    def test_pending_requests_count(self):
+        _request(_pet(self.ana, "Bantay"))
+        _request(_pet(self.ben, "Mingming"))
+        _request(_pet(self.ben, "Old"), status=PetDeletionRequest.APPROVED)
+        self.assertEqual(self._get(q="zzz").context["pending_requests_count"], 2)
+
+    def test_query_count_is_flat(self):
+        """The list's own queries don't grow with the number of pets.
+        Measured on pet_list_context plus each row's owner, owner email and
+        flag."""
+
+        def run():
+            context = pet_list_context(QueryDict(f"owner={self.ana.pk}"))
+            list(context["species_list"])
+            for pet in context["pets"]:
+                (pet.owner.full_name, pet.owner.user.email, pet.has_pending_deletion)
+
+        for i in range(3):
+            _request(_pet(self.ana, f"Pet{i:02d}"))
+        with CaptureQueriesContext(connection) as small:
+            run()
+        for i in range(3, 30):
+            _request(_pet(self.ana, f"Pet{i:02d}"))
+        with self.assertNumQueries(len(small)):
+            run()
+
+
+class DeletionRequestsViewTests(TestCase):
+    """admin_deletion_requests: waiting oldest first, history newest first."""
+
+    def setUp(self):
+        _admin(self)
+        self.url = reverse("admin_deletion_requests")
+        self.owner = _owner(email="ana@example.com")
+        self.now = timezone.now()
+
+    def test_pending_oldest_first(self):
+        newer = _request(_pet(self.owner, "A"), created=self.now - timedelta(days=1))
+        older = _request(_pet(self.owner, "B"), created=self.now - timedelta(days=3))
+        middle = _request(_pet(self.owner, "C"), created=self.now - timedelta(days=2))
+        context = self.client.get(self.url).context
+        self.assertEqual(list(context["pending"]), [older, middle, newer])
+        self.assertEqual(context["pending_count"], 3)
+
+    def test_history_newest_first_by_reviewed_at(self):
+        old = _request(
+            _pet(self.owner, "A"),
+            status=PetDeletionRequest.APPROVED,
+            reviewed=self.now - timedelta(days=5),
+        )
+        new = _request(
+            _pet(self.owner, "B"),
+            status=PetDeletionRequest.REJECTED,
+            reviewed=self.now - timedelta(days=1),
+        )
+        _request(_pet(self.owner, "C"))
+        context = self.client.get(self.url).context
+        self.assertEqual(list(context["resolved"]), [new, old])
+
+    def test_history_25_per_page(self):
+        for i in range(30):
+            _request(
+                _pet(self.owner, f"Pet{i:02d}"),
+                status=PetDeletionRequest.APPROVED,
+                reviewed=self.now - timedelta(days=i),
+            )
+        first = self.client.get(self.url).context
+        self.assertEqual(len(first["resolved"]), 25)
+        self.assertEqual(first["resolved"][0].pet.name, "Pet00")
+        self.assertEqual(first["next_page_query"], "?page=2")
+        second = self.client.get(self.url, {"page": 2}).context
+        self.assertEqual(
+            [r.pet.name for r in second["resolved"]],
+            [f"Pet{i}" for i in range(25, 30)],
+        )
+        self.assertEqual(second["prev_page_query"], "?page=1")
+        self.assertEqual(second["next_page_query"], "")
+
+
+class AnswerDeletionTests(TestCase):
+    """Archive (admin_approve_deletion) and Keep (admin_reject_deletion)."""
+
+    def setUp(self):
+        self.admin = _admin(self)
+        self.owner = _owner(email="ana@example.com")
+        self.pet = _pet(self.owner)
+        self.request = _request(self.pet)
+        self.requests_url = reverse("admin_deletion_requests")
+        self.pet_url = reverse("admin_pet_detail", args=[self.pet.pk])
+
+    def _post(self, approve=True, deletion_request=None, **data):
+        name = "admin_approve_deletion" if approve else "admin_reject_deletion"
+        url = reverse(name, args=[(deletion_request or self.request).pk])
+        return self.client.post(url, data)
+
+    def _refresh(self):
+        self.pet.refresh_from_db()
+        self.request.refresh_from_db()
+
+    def _answers(self):
+        return Notification.objects.filter(
+            notification_type=Notification.PET_DELETION_ANSWERED
+        )
+
+    def test_get_does_nothing(self):
+        for name in ("admin_approve_deletion", "admin_reject_deletion"):
+            with self.subTest(name=name):
+                response = self.client.get(reverse(name, args=[self.request.pk]))
+                self.assertRedirects(
+                    response, self.requests_url, fetch_redirect_response=False
+                )
+        self._refresh()
+        self.assertEqual(self.request.status, PetDeletionRequest.PENDING)
+        self.assertFalse(self.pet.is_archived)
+        self.assertFalse(self._answers().exists())
+        self.assertEqual(mail.outbox, [])
+
+    def test_archive(self):
+        response = self._post()
+        self.assertRedirects(response, self.requests_url, fetch_redirect_response=False)
+        self.assertEqual(
+            _messages(response), ["Archived Bantay. Ana Cruz was notified."]
+        )
+        self._refresh()
+        self.assertTrue(self.pet.is_archived)
+        self.assertIsNotNone(self.pet.archived_at)
+        self.assertEqual(self.request.status, PetDeletionRequest.APPROVED)
+        self.assertEqual(self.request.reviewed_by, self.admin)
+        self.assertIsNotNone(self.request.reviewed_at)
+
+    def test_keep(self):
+        response = self._post(approve=False)
+        self.assertRedirects(response, self.requests_url, fetch_redirect_response=False)
+        self.assertEqual(_messages(response), ["Kept Bantay. Ana Cruz was notified."])
+        self._refresh()
+        self.assertFalse(self.pet.is_archived)
+        self.assertIsNone(self.pet.archived_at)
+        self.assertEqual(self.request.status, PetDeletionRequest.REJECTED)
+        self.assertEqual(self.request.reviewed_by, self.admin)
+        self.assertIsNotNone(self.request.reviewed_at)
+
+    def test_archive_notification_has_no_related_pet(self):
+        self._post()
+        answer = self._answers().get()
+        self.assertEqual(answer.recipient, self.owner.user)
+        self.assertIsNone(answer.related_pet)
+        self.assertEqual(answer.title, "Bantay was removed")
+        self.assertEqual(
+            answer.message,
+            "The clinic removed Bantay from your account, as you asked.",
+        )
+
+    def test_keep_notification_links_the_pet(self):
+        self._post(approve=False)
+        answer = self._answers().get()
+        self.assertEqual(answer.recipient, self.owner.user)
+        self.assertEqual(answer.related_pet, self.pet)
+        self.assertEqual(answer.title, "Bantay stays on your account")
+        self.assertEqual(
+            answer.message,
+            "The clinic kept Bantay on your account. If you still want it "
+            "removed, please contact the clinic.",
+        )
+
+    def test_email_sent_when_the_owner_has_one_whatever_the_preferences(self):
+        self.owner.user.notification_preference.__class__.objects.filter(
+            user=self.owner.user
+        ).update(
+            email_appointment_reminders=False,
+            email_appointment_status=False,
+            email_billing=False,
+            email_vaccination=False,
+            email_followup=False,
+        )
+        self._post()
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["ana@example.com"])
+        self.assertEqual(mail.outbox[0].subject, "Bantay was removed — Hapi Vet")
+        self.assertTrue(self._answers().get().email_sent)
+
+    def test_no_email_still_notifies_in_app(self):
+        owner = _owner(first="Lito", last="Reyes")
+        pet = _pet(owner, "Choco")
+        response = self._post(approve=False, deletion_request=_request(pet))
+        self.assertEqual(_messages(response), ["Kept Choco. Lito Reyes was notified."])
+        self.assertEqual(mail.outbox, [])
+        answer = self._answers().get()
+        self.assertEqual(answer.recipient, owner.user)
+        self.assertFalse(answer.email_sent)
+
+    def test_send_failure_keeps_the_save(self):
+        with patch("notifications.utils.send_mail", side_effect=OSError("down")):
+            response = self._post()
+        self.assertEqual(
+            _messages(response), ["Archived Bantay. Ana Cruz was notified."]
+        )
+        self._refresh()
+        self.assertTrue(self.pet.is_archived)
+        self.assertEqual(self.request.status, PetDeletionRequest.APPROVED)
+        answer = self._answers().get()
+        self.assertTrue(answer.email_failed)
+        self.assertEqual(answer.email_error, "down")
+
+    def test_notify_error_is_logged_and_keeps_the_save(self):
+        with patch("pets.utils.notify", side_effect=RuntimeError("boom")):
+            with self.assertLogs("pets.utils", level="ERROR"):
+                self._post(approve=False)
+        self._refresh()
+        self.assertEqual(self.request.status, PetDeletionRequest.REJECTED)
+
+    def test_archive_saves_both_or_neither(self):
+        with patch.object(
+            PetDeletionRequest, "save", side_effect=RuntimeError("db down")
+        ):
+            with self.assertRaises(RuntimeError):
+                answer_deletion_request(self.request, self.admin, approve=True)
+        self._refresh()
+        self.assertFalse(self.pet.is_archived)
+        self.assertIsNone(self.pet.archived_at)
+        self.assertEqual(self.request.status, PetDeletionRequest.PENDING)
+        self.assertFalse(self._answers().exists())
+
+    def test_answered_request_is_refused(self):
+        for status in (PetDeletionRequest.APPROVED, PetDeletionRequest.REJECTED):
+            answered = _request(_pet(self.owner, f"Pet {status}"), status=status)
+            for approve in (True, False):
+                with self.subTest(status=status, approve=approve):
+                    # Unread messages ride along in the cookie; start fresh
+                    self.client.cookies.pop("messages", None)
+                    response = self._post(approve=approve, deletion_request=answered)
+                    self.assertRedirects(
+                        response, self.requests_url, fetch_redirect_response=False
+                    )
+                    self.assertEqual(
+                        _messages(response), ["This request was already answered."]
+                    )
+                    answered.refresh_from_db()
+                    self.assertEqual(answered.status, status)
+        self.assertFalse(self._answers().exists())
+
+    def test_archive_refused_for_an_archived_pet(self):
+        Pet.objects.filter(pk=self.pet.pk).update(is_archived=True)
+        response = self._post()
+        self.assertEqual(_messages(response), ["Bantay is already archived."])
+        self._refresh()
+        self.assertEqual(self.request.status, PetDeletionRequest.PENDING)
+        self.assertFalse(self._answers().exists())
+
+    def test_archive_refused_for_an_archived_owner(self):
+        _archive(self.owner)
+        response = self._post()
+        self.assertEqual(_messages(response), ["Restore Ana Cruz first."])
+        self._refresh()
+        self.assertFalse(self.pet.is_archived)
+        self.assertEqual(self.request.status, PetDeletionRequest.PENDING)
+        self.assertFalse(self._answers().exists())
+
+    def test_return_to_pet(self):
+        for approve in (True, False):
+            with self.subTest(approve=approve):
+                deletion_request = _request(_pet(self.owner, f"Pet {approve}"))
+                response = self._post(
+                    approve=approve, deletion_request=deletion_request, return_to="pet"
+                )
+                self.assertRedirects(
+                    response,
+                    reverse("admin_pet_detail", args=[deletion_request.pet.pk]),
+                    fetch_redirect_response=False,
+                )
+
+    def test_return_to_anything_else_is_the_requests_page(self):
+        for value in ("", "list", "https://example.com/", "/admin/pets/"):
+            with self.subTest(return_to=value):
+                deletion_request = _request(_pet(self.owner, f"Pet {value}"))
+                response = self._post(
+                    deletion_request=deletion_request, return_to=value
+                )
+                self.assertRedirects(
+                    response, self.requests_url, fetch_redirect_response=False
+                )
+
+    def test_refusal_also_honours_return_to(self):
+        _archive(self.owner)
+        response = self._post(return_to="pet")
+        self.assertRedirects(response, self.pet_url, fetch_redirect_response=False)
+
+
+class RestorePetTests(TestCase):
+    """admin_pet_restore: only a pet archived on its own."""
+
+    def setUp(self):
+        _admin(self)
+        self.owner = _owner(email="ana@example.com")
+        self.pet = _pet(self.owner, is_archived=True, archived_at=timezone.now())
+        self.url = reverse("admin_pet_restore", args=[self.pet.pk])
+        self.pet_url = reverse("admin_pet_detail", args=[self.pet.pk])
+
+    def test_url(self):
+        self.assertEqual(self.url, f"/admin/pets/{self.pet.pk}/restore/")
+
+    def test_restore(self):
+        reviewed = timezone.now() - timedelta(days=2)
+        approved = _request(
+            self.pet, status=PetDeletionRequest.APPROVED, reviewed=reviewed
+        )
+        response = self.client.post(self.url)
+        self.assertRedirects(response, self.pet_url, fetch_redirect_response=False)
+        self.assertEqual(_messages(response), ["Restored Bantay."])
+        self.pet.refresh_from_db()
+        self.assertFalse(self.pet.is_archived)
+        self.assertIsNone(self.pet.archived_at)
+        # The request stays in the history as it was
+        approved.refresh_from_db()
+        self.assertEqual(approved.status, PetDeletionRequest.APPROVED)
+        self.assertEqual(approved.reviewed_at, reviewed)
+        self.assertEqual(PetDeletionRequest.objects.count(), 1)
+
+    def test_get_does_nothing(self):
+        response = self.client.get(self.url)
+        self.assertRedirects(response, self.pet_url, fetch_redirect_response=False)
+        self.pet.refresh_from_db()
+        self.assertTrue(self.pet.is_archived)
+
+    def test_refused_when_the_owner_is_archived(self):
+        _archive(self.owner)
+        response = self.client.post(self.url)
+        self.assertRedirects(response, self.pet_url, fetch_redirect_response=False)
+        self.assertEqual(
+            _messages(response),
+            ["Restore Ana Cruz first. Their pets come back with them."],
+        )
+        self.pet.refresh_from_db()
+        self.assertTrue(self.pet.is_archived)
+
+    def test_refused_when_the_pet_isnt_archived(self):
+        active = _pet(self.owner, "Choco")
+        url = reverse("admin_pet_restore", args=[active.pk])
+        response = self.client.post(url)
+        self.assertRedirects(
+            response,
+            reverse("admin_pet_detail", args=[active.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(_messages(response), ["This pet isn't archived."])
+
+
+class PetDetailContextTests(TestCase):
+    """admin_pet_detail: context for the 4b-3 redesign (old keys kept)."""
+
+    def setUp(self):
+        _admin(self)
+        self.owner = _owner(email="ana@example.com")
+        self.pet = _pet(self.owner)
+        self.today = timezone.localdate()
+
+    def _context(self, pet=None):
+        url = reverse("admin_pet_detail", args=[(pet or self.pet).pk])
+        return self.client.get(url).context
+
+    def _visit(self, days, status=Appointment.CONFIRMED, hour=9):
+        return Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=self.today + timedelta(days=days),
+            time=time(hour, 0),
+            status=status,
+        )
+
+    def _shot(self, given_days, due_days=None, name=Vaccination.ANTI_RABIES, **kw):
+        return Vaccination.objects.create(
+            pet=self.pet,
+            vaccine_name=name,
+            date_administered=self.today + timedelta(days=given_days),
+            next_due_date=(
+                None if due_days is None else self.today + timedelta(days=due_days)
+            ),
+            **kw,
+        )
+
+    def test_recent_visits_are_the_3_newest(self):
+        visits = [self._visit(-days) for days in range(1, 6)]
+        later_same_day = self._visit(-1, hour=15)
+        context = self._context()
+        self.assertEqual(
+            list(context["recent_visits"]), [later_same_day, visits[0], visits[1]]
+        )
+        self.assertEqual(context["visits_query"], "status=all&q=Bantay")
+
+    def test_upcoming_visits(self):
+        self._visit(-1)
+        self._visit(2, status=Appointment.CANCELLED)
+        later = self._visit(5, status=Appointment.PENDING)
+        today = self._visit(0)
+        context = self._context()
+        self.assertEqual(context["upcoming_count"], 2)
+        self.assertEqual(context["next_upcoming_visit"], today)
+        self.assertNotEqual(context["next_upcoming_visit"], later)
+
+    def test_no_upcoming_visits(self):
+        context = self._context()
+        self.assertEqual(context["upcoming_count"], 0)
+        self.assertIsNone(context["next_upcoming_visit"])
+
+    def test_recent_records_and_count(self):
+        records = [
+            MedicalRecord.objects.create(
+                pet=self.pet, record_date=self.today - timedelta(days=days)
+            )
+            for days in range(1, 6)
+        ]
+        same_day = MedicalRecord.objects.create(
+            pet=self.pet, record_date=self.today - timedelta(days=1)
+        )
+        context = self._context()
+        self.assertEqual(
+            list(context["recent_records"]), [same_day, records[0], records[1]]
+        )
+        self.assertEqual(context["records_count"], 6)
+        # Old key, every record
+        self.assertEqual(len(context["medical_records"]), 6)
+
+    def test_recent_vaccinations_and_count(self):
+        shots = [self._shot(-days) for days in range(1, 5)]
+        same_day = self._shot(-1, name=Vaccination.DEWORMING)
+        context = self._context()
+        self.assertEqual(
+            list(context["recent_vaccinations"]), [same_day, shots[0], shots[1]]
+        )
+        self.assertEqual(context["vaccinations_count"], 5)
+        self.assertEqual(len(context["vaccinations"]), 5)
+
+    def test_vaccination_due_soon_30_day_edge(self):
+        for due_days, due in ((0, True), (30, True), (31, False), (-1, False)):
+            with self.subTest(due_days=due_days):
+                Vaccination.objects.all().delete()
+                shot = self._shot(-300, due_days)
+                expected = shot if due else None
+                self.assertEqual(self._context()["vaccination_due_soon"], expected)
+
+    def test_vaccination_due_soon_is_the_earliest(self):
+        self._shot(-300, 20)
+        earliest = self._shot(-300, 5, name=Vaccination.DEWORMING)
+        self._shot(-300, None, name=Vaccination.BORDETELLA)
+        self.assertEqual(self._context()["vaccination_due_soon"], earliest)
+
+    def test_vaccination_due_soon_leaves_out_superseded(self):
+        self._shot(-300, 10)
+        # A later Anti-rabies dose replaces the one due in 10 days
+        self._shot(-2, 363)
+        self.assertIsNone(self._context()["vaccination_due_soon"])
+        # Another vaccine is not affected by that dose
+        other = self._shot(-300, 12, name=Vaccination.DEWORMING)
+        self.assertEqual(self._context()["vaccination_due_soon"], other)
+
+    def test_a_corrected_due_vaccination_still_counts(self):
+        due = self._shot(-300, 5, is_corrected=True, correction_note="Fixed batch")
+        self._shot(-300, 10, name=Vaccination.DEWORMING)
+        self.assertEqual(self._context()["vaccination_due_soon"], due)
+
+    def test_a_corrected_later_dose_supersedes(self):
+        self._shot(-300, 10)
+        self._shot(-2, 363, is_corrected=True, correction_note="Fixed batch")
+        self.assertIsNone(self._context()["vaccination_due_soon"])
+
+    def test_other_vaccines_compare_the_typed_name(self):
+        due = self._shot(-300, 10, name=Vaccination.OTHER, custom_vaccine_name="Lepto")
+        self._shot(-2, 363, name=Vaccination.OTHER, custom_vaccine_name="Giardia")
+        self.assertEqual(self._context()["vaccination_due_soon"], due)
+
+    def test_pet_state_and_flags(self):
+        context = self._context()
+        self.assertEqual(context["pet_state"], "active")
+        self.assertFalse(context["owner_archived"])
+        self.assertIsNone(context["pending_deletion"])
+
+        waiting = _request(self.pet)
+        self.assertEqual(self._context()["pending_deletion"], waiting)
+
+        _archive(self.owner)
+        context = self._context()
+        self.assertEqual(context["pet_state"], "owner_archived")
+        self.assertTrue(context["owner_archived"])
+
+        Pet.objects.filter(pk=self.pet.pk).update(is_archived=True)
+        context = self._context()
+        self.assertEqual(context["pet_state"], "archived")
+        self.assertTrue(context["owner_archived"])
+
+
+class ArchivedPetGuardTests(TestCase):
+    """admin_pet_edit refuses archived pets and pets of archived owners."""
+
+    def setUp(self):
+        _admin(self)
+        self.owner = _owner(email="ana@example.com")
+        self.pet = _pet(self.owner)
+        self.url = reverse("admin_pet_edit", args=[self.pet.pk])
+        self.pet_url = reverse("admin_pet_detail", args=[self.pet.pk])
+
+    def _check_refused(self, message):
+        post = {"name": "Changed", "species": "Dog", "gender": "unknown"}
+        for method in ("get", "post"):
+            with self.subTest(method=method):
+                # Unread messages ride along in the cookie; start fresh
+                self.client.cookies.pop("messages", None)
+                response = getattr(self.client, method)(self.url, post)
+                self.assertRedirects(
+                    response, self.pet_url, fetch_redirect_response=False
+                )
+                self.assertEqual(_messages(response), [message])
+        self.pet.refresh_from_db()
+        self.assertEqual(self.pet.name, "Bantay")
+
+    def test_archived_pet(self):
+        Pet.objects.filter(pk=self.pet.pk).update(is_archived=True)
+        self._check_refused("Restore Bantay first.")
+
+    def test_archived_owner(self):
+        _archive(self.owner)
+        self._check_refused("Restore Ana Cruz first.")
+
+    def test_both_archived_names_the_owner(self):
+        Pet.objects.filter(pk=self.pet.pk).update(is_archived=True)
+        _archive(self.owner)
+        self._check_refused("Restore Ana Cruz first.")
+
+    def test_active_pet_can_be_edited(self):
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+
+
+class AddPetReturnToWalkInTests(TestCase):
+    """admin_pet_add ?return=walkin goes back to walk-in step 2."""
+
+    POST = {"name": "Bantay", "species": "Dog", "gender": "unknown"}
+
+    def setUp(self):
+        _admin(self)
+        self.owner = _owner(email="ana@example.com")
+        self.url = reverse("admin_pet_add", args=[self.owner.pk])
+        self.visit_url = reverse("admin_walkin_appointment_visit")
+
+    def test_return_walkin_goes_to_step_2_with_the_new_pet(self):
+        response = self.client.post(f"{self.url}?return=walkin", self.POST)
+        pet = Pet.objects.get(owner=self.owner)
+        self.assertRedirects(
+            response,
+            f"{self.visit_url}?owner={self.owner.pk}&pet={pet.pk}",
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(_messages(response), ["Bantay added."])
+
+    def test_return_field_also_counts(self):
+        response = self.client.post(self.url, {**self.POST, "return": "walkin"})
+        pet = Pet.objects.get(owner=self.owner)
+        self.assertRedirects(
+            response,
+            f"{self.visit_url}?owner={self.owner.pk}&pet={pet.pk}",
+            fetch_redirect_response=False,
+        )
+
+    def test_kept_through_a_failed_post(self):
+        response = self.client.post(f"{self.url}?return=walkin", {"species": "Dog"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["return_to"], "walkin")
+        self.assertFalse(Pet.objects.exists())
+        # The form has no action, so the next POST goes to the same URL
+        # (?return=walkin included)
+        form_tag = re.search(r"<form\b[^>]*>", response.content.decode()).group()
+        self.assertNotIn("action=", form_tag)
+        response = self.client.post(f"{self.url}?return=walkin", self.POST)
+        pet = Pet.objects.get(owner=self.owner)
+        self.assertRedirects(
+            response,
+            f"{self.visit_url}?owner={self.owner.pk}&pet={pet.pk}",
+            fetch_redirect_response=False,
+        )
+
+    def test_without_it_the_owner_page(self):
+        for url in (self.url, f"{self.url}?return=https://example.com/"):
+            with self.subTest(url=url):
+                Pet.objects.all().delete()
+                self.client.cookies.pop("messages", None)
+                response = self.client.post(url, self.POST)
+                self.assertRedirects(
+                    response,
+                    reverse("admin_owner_detail", args=[self.owner.pk]),
+                    fetch_redirect_response=False,
+                )
+                self.assertEqual(
+                    _messages(response),
+                    ["Bantay has been added to Ana Cruz's account."],
+                )
+        self.assertEqual(self.client.get(self.url).context["return_to"], "")
+
+    def test_archived_owner_still_refused(self):
+        _archive(self.owner)
+        response = self.client.post(f"{self.url}?return=walkin", self.POST)
+        self.assertRedirects(
+            response,
+            reverse("admin_owner_detail", args=[self.owner.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertFalse(Pet.objects.exists())
+
+    def test_step_2_links_have_return_walkin(self):
+        link = f'href="{self.url}?return=walkin"'
+        empty = self.client.get(self.visit_url, {"owner": self.owner.pk})
+        self.assertContains(empty, link)
+        self.assertContains(empty, "Add a pet for Ana Cruz")
+        _pet(self.owner)
+        with_pets = self.client.get(self.visit_url, {"owner": self.owner.pk})
+        self.assertContains(with_pets, link)
+        self.assertContains(with_pets, "Add another pet")
+        for tag in re.findall(r"<a\b[^>]*>", with_pets.content.decode()):
+            self.assertNotIn("\n", tag)

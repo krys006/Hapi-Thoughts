@@ -2,16 +2,17 @@
 
 import copy
 import logging
+from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import IntegrityError
-from django.db.models import Q
 from django.shortcuts import (
     get_object_or_404,
     redirect,
     render,
 )
+from django.urls import reverse
 from django.utils import timezone
 
 from .forms import (
@@ -31,11 +32,18 @@ from .models import (
 )
 
 from .utils import (
+    answer_deletion_request,
+    archived_pet_refusal,
     barangay_choices,
     create_owner,
+    deletion_answer_refusal,
+    deletion_requests_context,
     owner_account_state,
     owner_detail_context,
     owner_list_context,
+    pet_detail_context,
+    pet_list_context,
+    pet_restore_refusal,
 )
 
 from accounts.utils import (
@@ -942,7 +950,8 @@ def admin_owner_resend_link(request, pk):
 def admin_pet_add(request, owner_pk):
     """
     Admin manually adds a pet to an existing pet owner account.
-    Redirects to the owner detail page after successful creation.
+    Redirects to the owner detail page after successful creation, or back
+    to walk-in step 2 with the new pet chosen when ?return=walkin.
 
     URL: /admin/pets/add/<owner_pk>/
     """
@@ -957,12 +966,21 @@ def admin_pet_add(request, owner_pk):
     if refused:
         return refused
 
+    # A fixed value, never a URL. The form posts back to the same URL, so
+    # ?return= survives a failed POST; a "return" field also counts.
+    return_to = request.POST.get("return") or request.GET.get("return")
+    return_to = "walkin" if return_to == "walkin" else ""
+
     if request.method == "POST":
         form = AdminPetForm(request.POST, request.FILES)
         if form.is_valid():
             pet = form.save(commit=False)
             pet.owner = owner
             pet.save()
+            if return_to == "walkin":
+                messages.success(request, f"{pet.name} added.")
+                query = urlencode({"owner": owner.pk, "pet": pet.pk})
+                return redirect(f"{reverse('admin_walkin_appointment_visit')}?{query}")
             messages.success(
                 request,
                 f"{pet.name} has been added to {owner.full_name}'s account.",
@@ -980,6 +998,7 @@ def admin_pet_add(request, owner_pk):
             "pet": None,  # signals template this is a create, not edit
             "form_title": f"Add Pet for {owner.full_name}",
             "submit_label": "Add Pet",
+            "return_to": return_to,
         },
     )
 
@@ -995,44 +1014,10 @@ def admin_pet_list(request):
     if guard:
         return guard
 
-    search_query = request.GET.get("search", "").strip()
-    species_filter = request.GET.get("species", "").strip()
-
-    pets = Pet.objects.select_related("owner").filter(is_archived=False)
-
-    if search_query:
-        pets = pets.filter(
-            Q(name__icontains=search_query)
-            | Q(owner__first_name__icontains=search_query)
-            | Q(owner__last_name__icontains=search_query)
-        )
-
-    if species_filter:
-        pets = pets.filter(species__icontains=species_filter)
-
-    # Filter by owner PK when coming from owner detail page
-    owner_pk = request.GET.get("owner", "").strip()
-    if owner_pk:
-        pets = pets.filter(owner__pk=owner_pk)
-
-    # Get distinct species for the filter dropdown
-    species_list = (
-        Pet.objects.filter(is_archived=False)
-        .values_list("species", flat=True)
-        .distinct()
-        .order_by("species")
-    )
-
     return render(
         request,
         "admin/pets/pets_list.html",
-        {
-            "pets": pets,
-            "search_query": search_query,
-            "species_filter": species_filter,
-            "species_list": species_list,
-            "total_count": pets.count(),
-        },
+        pet_list_context(request.GET),
     )
 
 
@@ -1047,9 +1032,7 @@ def admin_pet_detail(request, pk):
     if guard:
         return guard
 
-    from medical.models import MedicalRecord, Vaccination
-
-    pet = get_object_or_404(Pet, pk=pk)
+    pet = get_object_or_404(Pet.objects.select_related("owner", "owner__user"), pk=pk)
 
     pending_deletion = PetDeletionRequest.objects.filter(
         pet=pet,
@@ -1072,8 +1055,42 @@ def admin_pet_detail(request, pk):
             "pending_deletion": pending_deletion,
             "medical_records": medical_records,
             "vaccinations": vaccinations,
+            **pet_detail_context(pet, timezone.localdate()),
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Admin — Restore Pet
+# ---------------------------------------------------------------------------
+
+
+@login_required
+def admin_pet_restore(request, pk):
+    """
+    Restores a pet archived on its own (after a deletion request). A pet
+    whose owner is archived comes back with the owner instead. The old
+    deletion requests stay as they are (history). POST only.
+
+    URL: /admin/pets/<pk>/restore/
+    """
+    guard = _require_admin(request)
+    if guard:
+        return guard
+
+    pet = get_object_or_404(Pet.objects.select_related("owner"), pk=pk)
+    if request.method != "POST":
+        return redirect("admin_pet_detail", pk=pet.pk)
+
+    refusal = pet_restore_refusal(pet)
+    if refusal:
+        messages.error(request, refusal)
+    else:
+        pet.is_archived = False
+        pet.archived_at = None
+        pet.save()
+        messages.success(request, f"Restored {pet.name}.")
+    return redirect("admin_pet_detail", pk=pet.pk)
 
 
 # ---------------------------------------------------------------------------
@@ -1087,7 +1104,11 @@ def admin_pet_edit(request, pk):
     if guard:
         return guard
 
-    pet = get_object_or_404(Pet, pk=pk)
+    pet = get_object_or_404(Pet.objects.select_related("owner"), pk=pk)
+    refusal = archived_pet_refusal(pet)
+    if refusal:
+        messages.error(request, refusal)
+        return redirect("admin_pet_detail", pk=pet.pk)
 
     if request.method == "POST":
         form = AdminPetForm(request.POST, request.FILES, instance=pet)
@@ -1124,37 +1145,45 @@ def admin_deletion_requests(request):
     if guard:
         return guard
 
-    # Show pending requests first, then resolved ones
-    pending = (
-        PetDeletionRequest.objects.filter(
-            status=PetDeletionRequest.PENDING,
-        )
-        .select_related("pet", "pet__owner", "requested_by")
-        .order_by("-created_at")
-    )
-
-    resolved = (
-        PetDeletionRequest.objects.exclude(
-            status=PetDeletionRequest.PENDING,
-        )
-        .select_related("pet", "pet__owner", "requested_by", "reviewed_by")
-        .order_by("-reviewed_at")
-    )
-
     return render(
         request,
         "admin/pets/deletion_requests.html",
-        {
-            "pending": pending,
-            "resolved": resolved,
-            "pending_count": pending.count(),
-        },
+        deletion_requests_context(request.GET),
     )
 
 
 # ---------------------------------------------------------------------------
-# Admin — Approve Deletion Request
+# Admin — Answer a Deletion Request ("Archive" approves, "Keep" rejects)
 # ---------------------------------------------------------------------------
+
+
+def _answer_deletion(request, pk, approve):
+    """
+    Shared by Archive and Keep. POST only; refused unless the request is
+    still pending (Archive also needs an active pet and owner). Goes back
+    to the pet page when the POST field return_to is "pet", else to the
+    requests page (a fixed choice, never a URL).
+    """
+    deletion_request = get_object_or_404(
+        PetDeletionRequest.objects.select_related("pet__owner__user"), pk=pk
+    )
+    pet = deletion_request.pet
+    if request.method != "POST":
+        return redirect("admin_deletion_requests")
+
+    refusal = deletion_answer_refusal(deletion_request, approve)
+    if refusal:
+        messages.error(request, refusal)
+    else:
+        answer_deletion_request(deletion_request, request.user, approve)
+        verb = "Archived" if approve else "Kept"
+        messages.success(
+            request, f"{verb} {pet.name}. {pet.owner.full_name} was notified."
+        )
+
+    if request.POST.get("return_to") == "pet":
+        return redirect("admin_pet_detail", pk=pet.pk)
+    return redirect("admin_deletion_requests")
 
 
 @login_required
@@ -1162,39 +1191,7 @@ def admin_approve_deletion(request, pk):
     guard = _require_admin(request)
     if guard:
         return guard
-
-    deletion_request = get_object_or_404(
-        PetDeletionRequest,
-        pk=pk,
-        status=PetDeletionRequest.PENDING,
-    )
-
-    if request.method == "POST":
-        # Soft delete the pet
-        pet = deletion_request.pet
-        pet.is_archived = True
-        pet.archived_at = timezone.now()
-        pet.save()
-
-        # Mark request as approved
-        deletion_request.status = PetDeletionRequest.APPROVED
-        deletion_request.reviewed_by = request.user
-        deletion_request.reviewed_at = timezone.now()
-        deletion_request.save()
-
-        messages.success(
-            request,
-            f"Deletion request for {pet.name} has been approved. "
-            "The pet has been archived.",
-        )
-        return redirect("admin_deletion_requests")
-
-    return redirect("admin_deletion_requests")
-
-
-# ---------------------------------------------------------------------------
-# Admin — Reject Deletion Request
-# ---------------------------------------------------------------------------
+    return _answer_deletion(request, pk, approve=True)
 
 
 @login_required
@@ -1202,24 +1199,4 @@ def admin_reject_deletion(request, pk):
     guard = _require_admin(request)
     if guard:
         return guard
-
-    deletion_request = get_object_or_404(
-        PetDeletionRequest,
-        pk=pk,
-        status=PetDeletionRequest.PENDING,
-    )
-
-    if request.method == "POST":
-        deletion_request.status = PetDeletionRequest.REJECTED
-        deletion_request.reviewed_by = request.user
-        deletion_request.reviewed_at = timezone.now()
-        deletion_request.save()
-
-        messages.success(
-            request,
-            f"Deletion request for {deletion_request.pet.name} "
-            "has been rejected. The pet remains active.",
-        )
-        return redirect("admin_deletion_requests")
-
-    return redirect("admin_deletion_requests")
+    return _answer_deletion(request, pk, approve=False)

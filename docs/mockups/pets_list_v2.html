@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pets list v2</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif; }
+</style>
+</head>
+<body class="bg-gray-200 text-gray-900 antialiased">
+<header class="sticky top-0 z-30 border-b border-gray-300 bg-white/95 px-6 py-3 backdrop-blur">
+  <p class="mb-2 text-sm font-semibold text-gray-700">Pets list + Deletion requests v2 (split rows) · frame copied from layouts/admin.html · pick a state</p>
+  <div id="switcher" class="flex flex-wrap gap-2"></div>
+</header>
+<div class="overflow-x-auto p-6">
+  <div id="caption" class="mb-4 max-w-[1280px] rounded-xl border border-violet-200 bg-violet-50 p-4 text-base text-gray-800"></div>
+  <div id="stage"></div>
+  <p class="mt-3 text-sm text-gray-600">Desktop frame is 1280 px wide: a 1920×1080 screen at 150% zoom. The grey picture tile stands in for an uploaded pet photo.</p>
+</div>
+<script>
+// ---------- Icons (Lucide 1.66 shapes) ----------
+const P = {
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  house:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  fileText:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  syringe:'<path d="m18 2 4 4"/><path d="m17 7 3-3"/><path d="M19 9 8.7 19.3c-1 1-2.5 1-3.4 0l-.6-.6c-1-1-1-2.5 0-3.4L15 5"/><path d="m9 11 4 4"/><path d="m5 19-3 3"/><path d="m14 4 6 6"/>',
+  bookOpen:'<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  settings:'<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+  logout:'<path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>',
+  search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  arrowRight:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  arrowLeft:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  pencil:'<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
+  phone:'<path d="M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384"/>',
+  mail:'<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
+  mapPin:'<path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>',
+  link:'<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  archive:'<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
+  rotate:'<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+  send:'<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>',
+  circleCheck:'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  lock:'<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  menu:'<path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/>',
+  x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  chevronLeft:'<path d="m15 18-6-6 6-6"/>',
+  chevronRight:'<path d="m9 18 6-6-6-6"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  circleX:'<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
+  rabbit:'<path d="M13 16a3 3 0 0 1 2.24 5"/><path d="M18 12h.01"/><path d="M18 21h-8a4 4 0 0 1-4-4 7 7 0 0 1 7-7h.2L9.6 6.4a1 1 0 1 1 2.8-2.8L15.8 7h.2c3.3 0 6 2.7 6 6v1a2 2 0 0 1-2 2h-1a3 3 0 0 0-3 3"/><path d="M20 8.54V4a2 2 0 1 0-4 0v3"/><path d="M7.612 12.524a3 3 0 1 0-1.6 4.3"/>',
+  bird:'<path d="M16 7h.01"/><path d="M3.4 18H12a8 8 0 0 0 8-8V7a4 4 0 0 0-7.28-2.3L2 20"/><path d="m20 7 2 .5-2 .5"/><path d="M10 18v3"/><path d="M14 17.75V21"/><path d="M7 18a6 6 0 0 0 3.84-10.61"/>',
+  rotate:'<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+  image:'<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+  dog:'<path d="M11.25 16.25h1.5L12 17z"/><path d="M16 14v.5"/><path d="M4.42 11.247A13.152 13.152 0 0 0 4 14.556C4 18.728 7.582 21 12 21s8-2.272 8-6.444a11.702 11.702 0 0 0-.493-3.309"/><path d="M8 14v.5"/><path d="M8.5 8.5c-.384 1.05-1.083 2.028-2.344 2.5-1.931.722-3.576-.297-3.656-1-.113-.994 1.177-6.53 4-7 1.923-.321 3.651.845 3.651 2.235A7.497 7.497 0 0 1 14 5.277c0-1.39 1.844-2.598 3.767-2.277 2.823.47 4.113 6.006 4 7-.08.703-1.725 1.722-3.656 1-1.261-.472-1.855-1.45-2.239-2.5"/>',
+  cat:'<path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z"/><path d="M8 14v.5"/><path d="M16 14v.5"/><path d="M11.25 16.25h1.5L12 17l-.75-.75Z"/>'
+};
+const ic = (n, c = 'size-5 shrink-0', s = 2) =>
+  `<svg class="${c}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${s}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// ---------- Shared classes, copied from assets/tailwind/input.css ----------
+const BTN = 'inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-base font-medium whitespace-nowrap transition-colors';
+const BTN_PRIMARY = `${BTN} bg-violet-600 text-white hover:bg-violet-700`;
+const BTN_OUTLINE = `${BTN} border border-gray-300 bg-white text-gray-800 hover:bg-gray-50`;
+const BTN_DANGER = `${BTN} bg-red-600 text-white hover:bg-red-700`;
+const INPUT = 'block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-base text-gray-900 placeholder:text-gray-500';
+const CARD = 'rounded-xl border border-gray-200 bg-white p-6 shadow-sm';
+
+// ---------- Frame: layouts/admin.html + admin_sidebar.html + admin_nav_link.html ----------
+const navLink = (icon, label, active = false, count = 0) =>
+  `<a class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base ${active ? 'bg-white font-semibold text-violet-800 shadow-sm ring-1 ring-violet-200' : 'text-gray-800 hover:bg-violet-200/70'}">${ic(icon)}<span class="flex-1">${label}</span>${count ? `<span class="rounded-full bg-violet-600 px-2 text-sm font-semibold text-white">${count}</span>` : ''}</a>`;
+const sidebar = () => `
+<aside class="flex w-56 shrink-0 flex-col border-r border-violet-200 bg-violet-100">
+  <div class="flex h-16 shrink-0 items-center gap-3 px-5">
+    <a class="-mx-2 flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-lg px-2 hover:bg-violet-200/60">
+      <span class="grid size-10 shrink-0 place-content-center rounded-lg bg-gradient-to-br from-amber-300 to-amber-700 text-white">${ic('image','size-5 shrink-0')}</span>
+      <div class="min-w-0 flex-1"><p class="line-clamp-2 text-base font-semibold leading-5 text-gray-900">Hapi Tutz Vet. Supplies</p></div>
+    </a>
+  </div>
+  <nav class="flex-1 space-y-1 px-3 py-2">
+    <p class="px-3 pb-1 pt-1 text-sm font-semibold text-violet-800">Daily work</p>
+    ${navLink('house','Dashboard')}${navLink('calendar','Appointments',false,2)}${navLink('users','Pet owners')}${navLink('paw','Pets',true,PENDING)}
+    <p class="px-3 pb-1 pt-5 text-sm font-semibold text-violet-800">Records</p>
+    ${navLink('fileText','Medical records')}${navLink('syringe','Vaccinations')}${navLink('bookOpen','Health library')}
+    <p class="px-3 pb-1 pt-5 text-sm font-semibold text-violet-800">Clinic</p>
+    ${navLink('receipt','Billing')}${navLink('settings','Clinic settings')}
+  </nav>
+  <div class="border-t border-violet-200 px-3 py-3">
+    <a class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base text-gray-800 hover:bg-violet-200/70">${ic('logout')}Log out</a>
+  </div>
+</aside>`;
+const petSearch = (q, formClass) => `
+<form class="${formClass}" role="search" onsubmit="return false">
+  <label class="sr-only">Search pets</label>
+  <div class="relative w-full min-w-0 max-w-[30rem]">
+    <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-600">${ic('search')}</span>
+    <input type="search" value="${q}" placeholder="Search pets: pet name, owner, species or breed" class="${INPUT} pl-10">
+  </div>
+  <button type="button" class="${BTN_OUTLINE} font-semibold">${ic('search')}Search</button>
+</form>`;
+const topbar = (q = '') => `
+<header class="flex h-16 shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-8">
+  ${petSearch(q, 'flex min-w-0 flex-1 items-center gap-3')}
+  <div class="relative ml-auto"><span class="${BTN_OUTLINE}">${ic('bell')}<span>Notifications</span><span class="rounded-full bg-red-600 px-2 text-sm font-semibold text-white">1 new</span></span></div>
+</header>`;
+const frame = (body, overlay = '', q = '') => `
+<div class="relative flex min-h-[800px] w-[1280px] overflow-hidden rounded-xl border border-gray-300 bg-gray-50 shadow-sm">
+  ${sidebar()}
+  <div class="min-w-0 flex-1">${topbar(q)}<main class="px-8 py-6">${body}</main></div>
+  ${overlay}
+</div>`;
+
+// ---------- Pieces ----------
+const PENDING = 2;
+const link = (t, i = '') => `<a class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">${i ? ic(i) : ''}${t}</a>`;
+const pageHeader = (title, subtitle) => `
+<div class="mb-6"><h1 class="text-2xl font-bold text-gray-900">${title}</h1><p class="mt-1 text-base text-gray-600">${subtitle}</p></div>`;
+const petAvatar = (species, photo = false, gray = false) => photo
+  ? `<span class="grid size-10 shrink-0 place-content-center rounded-xl bg-gradient-to-br from-stone-300 to-stone-500 text-white">${ic('image','size-5 shrink-0')}</span>`
+  : `<span class="grid size-10 shrink-0 place-content-center rounded-xl ${gray ? 'bg-gray-100 text-gray-600 ring-gray-300' : 'bg-violet-50 text-violet-600 ring-violet-200'} ring-1">${ic(species,'size-6 shrink-0',1.5)}</span>`;
+const ownerXs = (name, gray = false) => {
+  const p = name.split(' ');
+  return `<span class="grid size-8 shrink-0 place-content-center rounded-full ${gray ? 'bg-gray-100 text-gray-700 ring-gray-300' : 'bg-violet-50 text-violet-700 ring-violet-200'} text-sm font-semibold tracking-wide ring-1">${(p[0][0] + p[p.length-1][0]).toUpperCase()}</span>`;
+};
+const openBtn = `<a class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-violet-300 bg-violet-50 px-5 text-base font-semibold text-violet-800 hover:border-violet-400 hover:bg-violet-100">Open${ic('arrowRight')}</a>`;
+const pill = (cls, icon, text) => `<span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm font-medium ${cls}">${icon ? ic(icon,'size-4 shrink-0') : ''}${text}</span>`;
+
+// Tabs: Active | Archived | Deletion requests (its own page, same row)
+const tabs = (active, n) => {
+  const t = (id, label, count, yellow) => id === active
+    ? `<a class="inline-flex min-h-12 items-center gap-2 rounded-lg bg-violet-50 px-4 text-base font-semibold text-violet-800 ring-2 ring-violet-600" aria-current="page">${label}<span class="rounded-full px-2 text-sm font-semibold ${yellow && count ? 'bg-yellow-200 text-yellow-900' : 'bg-violet-100 text-violet-800'}">${count}</span></a>`
+    : `<a class="inline-flex min-h-12 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800 hover:bg-gray-50">${label}<span class="rounded-full px-2 text-sm font-semibold ${yellow && count ? 'bg-yellow-200 text-yellow-900' : 'bg-gray-100 text-gray-800'}">${count}</span></a>`;
+  return `<nav class="mb-4 flex flex-wrap gap-2" aria-label="Show">${t('active','Active',n.active)}${t('archived','Archived',n.archived)}${t('requests','Deletion requests',n.requests,true)}</nav>`;
+};
+const COUNTS = {active: 31, archived: 3, requests: PENDING};
+
+// ---------- Data: [name, species icon, species · breed, age, owner, photo, flags] ----------
+const PETS = [
+  ['Bantay','dog','Dog · Aspin','2 yrs','Ana Cruz'],
+  ['Bella','dog','Dog · Shih Tzu','4 yrs','Marites Lopez'],
+  ['Blackie','dog','Dog · Aspin','6 yrs','Pedro Dimaculangan'],
+  ['Brownie','dog','Dog · Aspin','3 yrs','Liza Cruz',true],
+  ['Bruno','dog','Dog · Labrador','5 yrs','Jun Aquino'],
+  ['Choco','dog','Dog · Shih Tzu','1 yr','Liza Cruz',false,'pending'],
+  ['Chloe','cat','Cat · Persian','2 yrs','Nena Reyes'],
+  ['Coco','dog','Dog · Poodle','7 yrs','Carmen Hernandez'],
+  ['Ginger','cat','Cat · Puspin','3 yrs','Lito Valdez'],
+  ['Kitty','cat','Cat · Puspin','9 mos','Grace Domingo'],
+  ['Kiwi','bird','Bird · Lovebird','1 yr','Gina Santos'],
+  ['Luna','cat','Cat · Siamese','4 yrs','Fe Pascual'],
+  ['Max','dog','Dog · Labrador','6 yrs','Rosa Dela Cruz'],
+  ['Mingming','cat','Cat · Puspin','5 mos','Liza Cruz'],
+  ['Muning','cat','Cat · Puspin','8 yrs','Rosa Dela Cruz',false,'pending'],
+  ['Snowball','rabbit','Rabbit','1 yr','Jun Aquino'],
+];
+const ARCHIVED = [
+  ['Bunny','paw','Hamster','2 yrs','Isabel Cruz',false,'ownerArchived'],
+  ['Duke','dog','Dog · Aspin','11 yrs','Rodel Mendoza',false,'ownerArchived'],
+  ['Spot','dog','Dog · Aspin','14 yrs','Noel Gonzales',false,'archived','Sep 20'],
+];
+
+const PHONES = {'Ana Cruz':'','Marites Lopez':'0920 778 1145','Pedro Dimaculangan':'0919 774 3310','Liza Cruz':'0917 123 4567','Jun Aquino':'','Nena Reyes':'0915 228 6640','Carmen Hernandez':'0915 663 2290','Lito Valdez':'0916 870 3321','Grace Domingo':'0917 902 6655','Gina Santos':'0918 442 5567','Fe Pascual':'0917 556 1023','Rosa Dela Cruz':'0920 444 7788','Isabel Cruz':'0917 448 1200','Rodel Mendoza':'0917 889 2210','Noel Gonzales':''};
+const ownerAvSm = (name, gray = false) => { const p = name.split(' '); return `<span class="grid size-10 shrink-0 place-content-center rounded-full ${gray ? 'bg-gray-100 text-gray-700 ring-gray-300' : 'bg-violet-50 text-violet-700 ring-violet-200'} text-base font-semibold tracking-wide ring-1">${(p[0][0] + p[p.length-1][0]).toUpperCase()}</span>`; };
+const ownerLink = name => `<a class="font-medium text-blue-600 underline underline-offset-2">${name}</a>`;
+const phoneLine = name => PHONES[name] ? PHONES[name] : '<span class="text-gray-600">No phone number</span>';
+const openSm = `<a class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-violet-300 bg-violet-50 px-4 text-base font-semibold text-violet-800 hover:border-violet-400 hover:bg-violet-100">Open${ic('arrowRight')}</a>`;
+const restoreBtn = name => `<button type="button" class="${BTN_OUTLINE} font-semibold">${ic('rotate')}Restore<span class="sr-only"> ${name}</span></button>`;
+
+// Split row: pet | owner | actions
+const row = ([name, species, sb, age, owner, photo, flag, when]) => {
+  const gray = flag === 'archived' || flag === 'ownerArchived';
+  const tag = flag === 'pending' ? pill('bg-yellow-100 text-yellow-900','clock','Deletion requested')
+    : flag === 'archived' ? pill('bg-gray-100 text-gray-800','archive',`Archived ${when}`)
+    : flag === 'ownerArchived' ? pill('bg-gray-100 text-gray-800','archive','Owner archived') : '';
+  const actions = flag === 'archived' ? `<div class="flex flex-wrap items-center justify-end gap-2">${restoreBtn(name)}${openSm}</div>` : openSm;
+  return `
+<li class="grid grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)_auto] items-center gap-5 border-t border-gray-100 px-5 py-4 first:border-t-0 hover:bg-gray-50">
+  <div class="flex min-w-0 items-center gap-4">${petAvatar(species, photo, gray)}
+    <div class="min-w-0"><p class="flex flex-wrap items-center gap-2 text-lg font-semibold text-gray-900">${name}${tag}</p><p class="text-base text-gray-700">${sb} · ${age}</p></div></div>
+  <span class="h-10 w-px bg-gray-200" aria-hidden="true"></span>
+  <div class="flex min-w-0 items-center gap-3">${ownerAvSm(owner, flag === 'ownerArchived')}
+    <div class="min-w-0"><p class="text-sm text-gray-600">Owner</p><p class="truncate text-base">${ownerLink(owner)}</p><p class="text-sm text-gray-700">${phoneLine(owner)}</p></div></div>
+  ${actions}
+</li>`;
+};
+const listCard = (rows, foot) => `<div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"><ul>${rows}</ul>${foot}</div>`;
+const pager = (from, to, total) => `
+<div class="flex flex-wrap items-center gap-3 border-t border-gray-200 px-5 py-3">
+  <p class="flex-1 text-base text-gray-700">Showing ${from}–${to} of ${total}</p>
+  <nav class="flex gap-3" aria-label="Pages">
+    <span class="${BTN} border border-gray-200 bg-gray-50 text-gray-600" aria-disabled="true">${ic('chevronLeft')}Previous</span>
+    <a class="${BTN_OUTLINE}">Next${ic('chevronRight')}</a>
+  </nav>
+</div>`;
+const pagerAll = n => `<div class="flex flex-wrap items-center gap-3 border-t border-gray-200 px-5 py-3"><p class="flex-1 text-base text-gray-700">Showing all ${n}</p></div>`;
+const listHead = (title, n, note) => `
+<div class="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+  <h2 class="text-lg font-semibold">${title} <span class="font-normal text-gray-600">(${n})</span></h2>
+  <p class="text-sm text-gray-600">${note}</p>
+</div>`;
+const resultsLine = (text) => `
+<div class="mb-3 flex min-h-11 flex-wrap items-center justify-between gap-3">
+  <h2 class="text-base font-normal text-gray-800">${text}</h2>
+  ${link('Clear search','x')}
+</div>`;
+const empty = (icon, title, text) => `
+<div class="rounded-xl border border-gray-200 bg-white shadow-sm"><div class="flex flex-col items-center px-6 py-10 text-center">
+  <span class="mb-3 grid size-12 place-content-center rounded-full bg-violet-50 text-violet-600">${ic(icon,'size-6 shrink-0')}</span>
+  <p class="text-lg font-semibold text-gray-900">${title}</p>
+  <p class="mt-1 max-w-sm text-base text-gray-600">${text}</p>
+</div></div>`;
+const header = () => pageHeader('Pets', 'Every pet registered at the clinic.');
+
+// ---------- Pets pages ----------
+const activePage = () => frame(header() + tabs('active', COUNTS) +
+  listHead('Active pets', COUNTS.active, 'A to Z by pet name') +
+  listCard(PETS.map(row).join(''), pager(1, 25, COUNTS.active)));
+
+const searchPage = q => {
+  const hits = PETS.filter(p => (p[0] + ' ' + p[2] + ' ' + p[4]).toLowerCase().includes(q));
+  return frame(header() + tabs('active', COUNTS) +
+    resultsLine(`${hits.length} pets match <b>“${q}”</b> in active pets`) +
+    listCard(hits.map(row).join(''), pagerAll(hits.length)), '', q);
+};
+
+const ownerPage = () => {
+  const hits = PETS.filter(p => p[4] === 'Liza Cruz');
+  return frame(header() + tabs('active', COUNTS) +
+    `<div class="mb-3 flex min-h-11 flex-wrap items-center justify-between gap-3 rounded-lg border border-violet-200 bg-violet-50 px-4 py-2">
+      <p class="flex items-center gap-2 text-base text-gray-900">${ownerXs('Liza Cruz')}Showing the pets of <b>Liza Cruz</b> (${hits.length})</p>
+      ${link('Show all pets','x')}</div>` +
+    listCard(hits.map(row).join(''), pagerAll(hits.length)));
+};
+
+const archivedPage = (overlay = '') => frame(header() + tabs('archived', COUNTS) +
+  `<div class="mb-4 flex items-start gap-3 rounded-lg border border-gray-300 bg-gray-100 px-4 py-3 text-base text-gray-900">${ic('archive','mt-0.5 size-5 shrink-0')}<p>Archived pets, and pets of archived owners. Their medical records and vaccinations are kept. They don't appear in walk-ins or online booking. <b>Restore</b> brings an archived pet back; a pet whose owner is archived comes back when you restore the owner.</p></div>` +
+  listHead('Archived pets', COUNTS.archived, 'A to Z by pet name') +
+  listCard(ARCHIVED.map(row).join(''), pagerAll(ARCHIVED.length)), overlay);
+
+const noMatchPage = q => frame(header() + tabs('active', COUNTS) +
+  resultsLine(`No pet matches <b>“${q}”</b> in active pets`) +
+  empty('search', `No pet matches “${q}”`, 'Check the spelling, or look in the Archived tab. To add a pet, open its owner first.'), '', q);
+
+// ---------- Deletion requests ----------
+const REQUESTS = [
+  ['Choco','dog','Dog · Shih Tzu','Liza Cruz','Rehomed','','Sat, Oct 31'],
+  ['Muning','cat','Cat · Puspin','Rosa Dela Cruz','Other','“We registered her twice. Please remove this one.”','Today, 8:12 AM'],
+];
+const HISTORY = [
+  ['Spot','dog','Noel Gonzales','Passed away','archived','Sun, Sep 20'],
+  ['Kitty','cat','Grace Domingo','Duplicate','kept','Thu, Sep 3'],
+];
+const requestCard = ([name, species, sb, owner, reason, detail, when], i) => `
+<li class="flex flex-wrap items-start gap-4 border-t border-gray-100 px-5 py-5 first:border-t-0">
+  ${petAvatar(species)}
+  <div class="min-w-0 flex-1">
+    <p class="text-lg font-semibold text-gray-900">${name} <span class="text-base font-normal text-gray-700">· ${sb}</span></p>
+    <p class="text-base text-gray-800">Asked by <a class="font-medium text-blue-600 underline underline-offset-2">${owner}</a> · ${when}</p>
+    <p class="mt-1 text-base text-gray-800"><span class="text-gray-600">Reason:</span> <b class="font-semibold">${reason}</b></p>
+    ${detail ? `<p class="mt-1 rounded-lg bg-gray-50 px-3 py-2 text-base text-gray-800">${detail}</p>` : ''}
+    <p class="mt-2">${link(`Open ${name}'s page`,'arrowRight')}</p>
+  </div>
+  <div class="flex w-full flex-col gap-2 sm:w-auto">
+    <button type="button" class="${BTN_OUTLINE} min-h-12 font-semibold">${ic('check')}Keep ${name}</button>
+    <button type="button" class="${BTN} min-h-12 border border-red-300 bg-white font-semibold text-red-700 hover:bg-red-50">${ic('archive')}Archive ${name}</button>
+  </div>
+</li>`;
+const historyRow = ([name, species, owner, reason, result, when]) => `
+<li class="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-gray-100 px-5 py-3 first:border-t-0">
+  ${petAvatar(species, false, result === 'archived')}
+  <span class="min-w-0 flex-1 text-base"><b class="font-semibold">${name}</b> · ${owner} · ${reason}</span>
+  ${result === 'archived' ? pill('bg-gray-100 text-gray-800','archive','Archived') : pill('bg-green-100 text-green-800','check','Kept')}
+  <span class="w-40 text-base text-gray-700">${when}</span>
+</li>`;
+
+const requestsPage = (overlay = '') => frame(header() + tabs('requests', COUNTS) + `
+<p class="mb-4 text-base text-gray-700">Owners ask here to remove a pet from their account. <b>Archive</b> hides the pet but keeps its records. <b>Keep</b> closes the request and the pet stays.</p>
+${listHead('Waiting for you', REQUESTS.length, 'Oldest first')}
+${listCard(REQUESTS.map(requestCard).join(''), '')}
+<div class="mt-8">${listHead('Already answered', HISTORY.length, 'Newest first')}</div>
+${listCard(HISTORY.map(historyRow).join(''), pagerAll(HISTORY.length))}`, overlay);
+
+const requestsEmpty = () => frame(header() + tabs('requests', {...COUNTS, requests: 0}) +
+  empty('circleCheck', 'No requests waiting', 'When an owner asks to remove a pet, it shows up here.') +
+  `<div class="mt-8">${listHead('Already answered', HISTORY.length, 'Newest first')}</div>` +
+  listCard(HISTORY.map(historyRow).join(''), pagerAll(HISTORY.length)));
+
+// Dialogs (same markup as the owner page dialogs)
+const dialogBox = inner => `<div class="absolute inset-0 flex items-start justify-center bg-gray-900/50 p-8 pt-24">
+  <div class="w-[calc(100%-2rem)] max-w-lg rounded-2xl bg-white p-7 text-gray-900 shadow-xl">${inner}</div></div>`;
+const dialogButtons = (ok, cls, icon) => `<div class="mt-6 flex flex-wrap justify-end gap-3">
+  <button type="button" class="${BTN_OUTLINE} min-h-12 font-semibold ring-2 ring-violet-400 ring-offset-2">Go back</button>
+  <button type="button" class="${cls} min-h-12 font-semibold">${ic(icon)}${ok}</button></div>`;
+const archiveDialog = dialogBox(`
+  <h2 class="text-xl font-bold">Archive Choco?</h2>
+  <p class="mt-2 text-base text-gray-700">Liza Cruz asked to remove Choco (reason: rehomed). Choco will be hidden from their account and from walk-ins. Medical records and vaccinations are kept, and the pet stays on the Archived tab.</p>
+  <p class="mt-3 flex items-start gap-2 text-sm text-gray-700">${ic('mail','mt-0.5 size-4 shrink-0')}<span>Liza Cruz gets a notification, and an email if they have one.</span></p>
+  ${dialogButtons('Yes, archive Choco', BTN_DANGER, 'archive')}`);
+const keepDialog = dialogBox(`
+  <h2 class="text-xl font-bold">Keep Choco?</h2>
+  <p class="mt-2 text-base text-gray-700">The request is closed and Choco stays on Liza Cruz's account. Liza Cruz can ask again later.</p>
+  <p class="mt-3 flex items-start gap-2 text-sm text-gray-700">${ic('mail','mt-0.5 size-4 shrink-0')}<span>Liza Cruz gets a notification, and an email if they have one.</span></p>
+  ${dialogButtons('Yes, keep Choco', BTN_PRIMARY, 'check')}`);
+
+const restoreDialog = dialogBox(`
+  <h2 class="text-xl font-bold">Restore Spot?</h2>
+  <p class="mt-2 text-base text-gray-700">Spot comes back on Noel Gonzales's account and on the Pets list. You can book visits for Spot again. Spot was archived on Sun, Sep 20 after a deletion request (reason: passed away); that request stays in the history.</p>
+  ${dialogButtons('Yes, restore Spot', BTN_PRIMARY, 'rotate')}`);
+
+// Phone
+const phoneView = () => `
+<div class="w-[390px] overflow-hidden rounded-[2rem] border-8 border-gray-800 bg-gray-50 shadow-lg">
+  <header class="flex h-16 items-center gap-3 border-b border-gray-200 bg-white px-4">
+    <span class="${BTN_OUTLINE}">${ic('menu')}Menu</span>
+    <div class="relative ml-auto"><span class="${BTN_OUTLINE}">${ic('bell')}<span class="rounded-full bg-red-600 px-2 text-sm font-semibold text-white">1 new</span></span></div>
+  </header>
+  <main class="px-4 py-6">
+    ${header()}
+    ${petSearch('', 'mb-4 flex items-center gap-3')}
+    ${tabs('active', COUNTS)}
+    <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"><ul>
+      ${PETS.slice(3, 6).map(([name, species, sb, age, owner, photo, flag]) => `
+      <li class="border-t border-gray-100 p-4 first:border-t-0">
+        <div class="flex items-start gap-3">${petAvatar(species, photo)}
+          <div class="min-w-0 flex-1"><p class="text-lg font-semibold">${name}</p>
+            ${flag === 'pending' ? `<p class="mt-1">${pill('bg-yellow-100 text-yellow-900','clock','Deletion requested')}</p>` : ''}
+            <p class="text-base text-gray-700">${sb} · ${age}</p>
+            </div></div>
+        <div class="mt-3 flex items-center gap-3 rounded-lg bg-gray-50 px-3 py-2">${ownerXs(owner)}<div class="min-w-0 text-base"><p class="text-sm text-gray-600">Owner</p><p>${ownerLink(owner)}</p><p class="text-sm text-gray-700">${phoneLine(owner)}</p></div></div>
+        <span class="mt-3 flex min-h-11 items-center justify-center gap-2 rounded-lg border border-violet-300 bg-violet-50 text-base font-semibold text-violet-800">Open${ic('arrowRight')}</span>
+      </li>`).join('')}
+    </ul>${pager(1, 25, 31)}</div>
+  </main>
+</div>`;
+
+// ---------- States ----------
+const states = [
+  { id:'active', label:'1 · Active pets', html: activePage(),
+    caption:`<b>Pets list, split rows (option B).</b> Each row: the pet on the left (picture, name, species · breed · age), a thin divider, the <b>owner</b> on the right (initials, name linking to the owner page, phone), then Open. Same frame and pieces as the owners list. Three tabs in one row: <b>Active</b>, <b>Archived</b>, and <b>Deletion requests</b> (still its own page; its count is yellow while requests wait, like “Needs approval”). A <b>“Deletion requested”</b> tag shows on pets with a waiting request. A to Z by pet name, 25 per page. <b>No violet button</b> on this page: a pet is always added from its owner's page. Pets of archived owners are not on Active.` },
+  { id:'search', label:'2 · Search “cruz”', html: searchPage('cruz'),
+    caption:`<b>Search</b> in the top bar, like the owners list. One box for everything: pet name, owner name, species or breed (so “cat” or “aspin” also works). This replaces today's species dropdown: fewer controls, and typing “cat” does the same job. Stays inside the open tab.` },
+  { id:'owner', label:'3 · One owner’s pets', html: ownerPage(),
+    caption:`<b>Opened with ?owner=</b> (today's “View All” link from an owner). A violet line says whose pets are shown, with <b>Show all pets</b>. A bad or unknown owner id is ignored (no more error page).` },
+  { id:'nomatch', label:'4 · No match', html: noMatchPage('rex'),
+    caption:`<b>No match.</b> Points to the Archived tab, and explains that pets are added from the owner's page.` },
+  { id:'archived', label:'5 · Archived tab', html: archivedPage(),
+    caption:`<b>Archived.</b> Two kinds of pets, each with a gray tag: archived pets (“Archived Sep 20”, after a deletion request was approved) and pets whose <b>owner</b> is archived (“Owner archived”). Archived pets get a <b>Restore</b> button next to Open (with a confirmation, state 6). Pets whose owner is archived have no Restore: they come back when the owner is restored, so the two can't get out of step.` },
+  { id:'restore', label:'5b · Dialog: restore pet', html: archivedPage(restoreDialog),
+    caption:`<b>Restore an archived pet.</b> Violet confirm. The pet comes back on the owner's account and the Pets list, and can be booked again. The old deletion request stays in the history as it was (nothing is deleted). Only for pets archived on their own; a pet whose owner is archived comes back with the owner.` },
+  { id:'requests', label:'6 · Deletion requests', html: requestsPage(),
+    caption:`<b>Deletion requests</b> (same tab row, separate page as today). <b>Waiting for you</b>: one card per request, oldest first, with who asked, when, the reason, the owner's own words when the reason is “Other”, and a link to the pet. Two buttons right on the card: <b>Keep {pet}</b> (outline) and <b>Archive {pet}</b> (red outline), each with a confirmation. Wording is “Keep / Archive” instead of “Reject / Approve”, so it's clear what happens to the pet. <b>Already answered</b> below: the history, newest first, with Archived or Kept. This also fixes the two broken links.` },
+  { id:'archive', label:'7 · Dialog: archive', html: requestsPage(archiveDialog),
+    caption:`<b>Archive asks first</b> (red confirm). Plain words on what happens and what's kept. The owner now gets a notification (and an email if they have one), for both Archive and Keep. After saving you come back to the page you started from: this list, or the pet's page.` },
+  { id:'keep', label:'8 · Dialog: keep', html: requestsPage(keepDialog),
+    caption:`<b>Keep asks first</b> too (it's a status change). Violet confirm, since nothing is hidden.` },
+  { id:'reqempty', label:'9 · No requests waiting', html: requestsEmpty(),
+    caption:`<b>Nothing waiting.</b> A calm empty state; the history stays below.` },
+  { id:'phone', label:'10 · Phone', html: phoneView(),
+    caption:`<b>Phone width.</b> Search moves into the page; each pet becomes a card with the owner in its own gray box (name and phone), then a full-width Open; the three tabs wrap onto two lines.` }
+];
+
+const sw = document.getElementById('switcher');
+function show(id) {
+  const s = states.find(x => x.id === id);
+  document.getElementById('stage').innerHTML = s.html;
+  document.getElementById('caption').innerHTML = s.caption;
+  [...sw.children].forEach(b => {
+    const on = b.dataset.id === id;
+    b.className = 'min-h-11 rounded-lg px-4 text-base font-medium ' +
+      (on ? 'bg-violet-600 text-white' : 'border border-gray-300 bg-white text-gray-800 hover:bg-gray-50');
+  });
+}
+states.forEach(s => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.dataset.id = s.id; b.textContent = s.label;
+  b.onclick = () => show(s.id);
+  sw.appendChild(b);
+});
+show('active');
+
+</script>
+</body>
+</html>

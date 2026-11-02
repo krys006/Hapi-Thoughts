@@ -2038,7 +2038,8 @@ class WalkInVisitStepTests(WalkInFlowTestBase):
         response = self._visit(owner=owner.pk)
         self.assertContains(response, "This owner has no pets yet")
         self.assertContains(
-            response, f'href="{reverse("admin_pet_add", args=[owner.pk])}"'
+            response,
+            f'href="{reverse("admin_pet_add", args=[owner.pk])}?return=walkin"',
         )
         self.assertNotContains(response, 'name="action"')
         self.assertEqual(self._primary_buttons(response), 0)

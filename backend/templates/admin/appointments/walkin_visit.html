@@ -61,7 +61,7 @@
           </div>
           {% for error in form.pet.errors %}<p class="mt-2 flex items-start gap-1 text-sm font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-4 shrink-0" %}{{ error }}</p>{% endfor %}
           <div class="mt-2">
-            <a href="{% url 'admin_pet_add' owner.pk %}" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="plus" %}Add another pet</a>
+            <a href="{% url 'admin_pet_add' owner.pk %}?return=walkin" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="plus" %}Add another pet</a>
           </div>
         </fieldset>
       </section>
@@ -111,7 +111,7 @@
       {% include "components/empty_state.html" with icon="paw-print" title="This owner has no pets yet" text="Add the pet first, then start the walk-in again." %}
       <div class="flex flex-wrap justify-center gap-3">
         <a href="{% url 'admin_walkin_appointment_create' %}" class="btn btn-outline">Cancel</a>
-        <a href="{% url 'admin_pet_add' owner.pk %}" class="btn btn-outline">{% include "components/icon.html" with name="plus" %}Add a pet for {{ owner.full_name }}</a>
+        <a href="{% url 'admin_pet_add' owner.pk %}?return=walkin" class="btn btn-outline">{% include "components/icon.html" with name="plus" %}Add a pet for {{ owner.full_name }}</a>
       </div>
     </section>
   {% endif %}

@@ -424,6 +424,7 @@ urlpatterns = [
 /admin/settings/                ← appointments (clinic settings)
 /admin/pets/  /admin/pets/owners/  ← pets
 /admin/pets/owners/<pk>/resend-link/  ← pets (POST: send the set-password link again)
+/admin/pets/<pk>/restore/       ← pets (POST: restore an archived pet, name admin_pet_restore)
 /admin/pets/address/barangays/  ← pets (HTMX: Barangay options for ?town=, name admin_address_barangays)
 /admin/medical/  /admin/vaccinations/  ← medical
 /admin/billing/  /admin/services/  ← billing

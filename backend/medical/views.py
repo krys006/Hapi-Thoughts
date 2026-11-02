@@ -19,6 +19,8 @@ from django.db.models import Q
 
 from notifications.models import Notification
 
+from pets.utils import archived_pet_refusal
+
 # ── Admin — Medical Records ───────────────────────────────────────────────────
 
 
@@ -35,7 +37,11 @@ def admin_medical_record_create(request, pet_pk):
     from pets.models import Pet
     from appointments.models import Appointment
 
-    pet = get_object_or_404(Pet, pk=pet_pk)
+    pet = get_object_or_404(Pet.objects.select_related("owner"), pk=pet_pk)
+    refusal = archived_pet_refusal(pet)
+    if refusal:
+        messages.error(request, refusal)
+        return redirect("admin_pet_detail", pk=pet.pk)
 
     # Check if linking to an appointment
     appointment = None
@@ -274,7 +280,13 @@ def admin_vaccination_add(request, record_pk):
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    record = get_object_or_404(MedicalRecord, pk=record_pk)
+    record = get_object_or_404(
+        MedicalRecord.objects.select_related("pet__owner"), pk=record_pk
+    )
+    refusal = archived_pet_refusal(record.pet)
+    if refusal:
+        messages.error(request, refusal)
+        return redirect("admin_pet_detail", pk=record.pet.pk)
 
     if request.method == "POST":
         form = VaccinationForm(request.POST)
@@ -302,7 +314,11 @@ def admin_vaccination_standalone_create(request, pet_pk):
 
     from pets.models import Pet
 
-    pet = get_object_or_404(Pet, pk=pet_pk)
+    pet = get_object_or_404(Pet.objects.select_related("owner"), pk=pet_pk)
+    refusal = archived_pet_refusal(pet)
+    if refusal:
+        messages.error(request, refusal)
+        return redirect("admin_pet_detail", pk=pet.pk)
 
     if request.method == "POST":
         form = VaccinationForm(request.POST)
