@@ -18,7 +18,17 @@ from dashboard.templatetags.friendly_dates import (
     friendly_datetime,
     long_date,
 )
+from dashboard.utils import (
+    booking_limit,
+    calendar_month_range,
+    dashboard_calendar_context,
+    month_cells,
+    month_day_counts,
+    resolve_month,
+    resolve_picked,
+)
 from dashboard.views import _greeting, _parse_day
+from medical.models import MedicalRecord, Vaccination
 from notifications.models import Notification
 from pets.models import Pet, PetDeletionRequest, PetOwner
 
@@ -465,7 +475,9 @@ class DashboardViewTests(ShellTestBase):
         self.assertTrue(response.context["is_today"])
         self.assertEqual(response.context["selected_date"], timezone.localdate())
 
-    def test_calendar_flags_days_with_pending(self):
+    # Frozen in June so ?date=2026-06-01 is inside the clamped month range.
+    @mock.patch("django.utils.timezone.now", return_value=FROZEN_NOW)
+    def test_calendar_flags_days_with_pending(self, _now):
         """Yellow dot only on days with a request waiting for approval."""
         self._booking(date(2026, 6, 20), 9, Appointment.PENDING)
         self._booking(date(2026, 6, 22), 9, Appointment.CONFIRMED)
@@ -550,3 +562,307 @@ class RoleAccessMiddlewareTests(ShellTestBase):
             f"{reverse('owner_login')}?next={url}",
             fetch_redirect_response=False,
         )
+
+
+# ─── Dashboard v5 calendar (batch D1) ─────────────────────────────────────────
+
+# Monday, Nov 2, 2026. The pure helpers take it as `today`.
+CAL_TODAY = date(2026, 11, 2)
+# Noon in Manila on CAL_TODAY (04:00 UTC), for the views.
+CAL_NOW = datetime(2026, 11, 2, 4, 0, tzinfo=dt_timezone.utc)
+# Aug 2026 to Dec 2026: the range on CAL_TODAY with the default 30 days.
+CAL_MONTHS = [date(2026, m, 1) for m in (8, 9, 10, 11, 12)]
+
+
+class CalendarMonthRangeTests(SimpleTestCase):
+
+    def test_three_months_back_to_the_booking_limit(self):
+        self.assertEqual(calendar_month_range(CAL_TODAY, 30), CAL_MONTHS)
+
+    def test_longer_limit_reaches_next_year(self):
+        months = calendar_month_range(CAL_TODAY, 60)
+        self.assertEqual(months[0], date(2026, 8, 1))
+        self.assertEqual(months[-1], date(2027, 1, 1))
+        self.assertEqual(len(months), 6)
+
+    def test_booking_limit_without_settings(self):
+        self.assertEqual(booking_limit(None), 30)
+
+
+class ResolveMonthTests(SimpleTestCase):
+
+    def _resolve(self, value):
+        return resolve_month(value, CAL_TODAY, CAL_MONTHS)
+
+    def test_valid_month(self):
+        self.assertEqual(self._resolve("2026-12"), date(2026, 12, 1))
+
+    def test_missing_and_bad_values_give_todays_month(self):
+        for value in (None, "", "abc", "2026-13", "2026-00", "2026-1", "2026-12-01"):
+            with self.subTest(value=value):
+                self.assertEqual(self._resolve(value), date(2026, 11, 1))
+
+    def test_clamped_to_the_range(self):
+        cases = {
+            "2026-07": date(2026, 8, 1),
+            "2027-01": date(2026, 12, 1),
+            "9999-12": date(2026, 12, 1),
+            "0001-01": date(2026, 8, 1),
+        }
+        for value, expected in cases.items():
+            with self.subTest(value=value):
+                self.assertEqual(self._resolve(value), expected)
+
+
+class ResolvePickedTests(SimpleTestCase):
+
+    def _resolve(self, value):
+        return resolve_picked(value, CAL_TODAY, CAL_MONTHS)
+
+    def test_valid_day(self):
+        self.assertEqual(self._resolve("2026-11-05"), date(2026, 11, 5))
+
+    def test_range_edges_are_allowed(self):
+        self.assertEqual(self._resolve("2026-08-01"), date(2026, 8, 1))
+        self.assertEqual(self._resolve("2026-12-31"), date(2026, 12, 31))
+
+    def test_bad_values(self):
+        for value in (None, "", "abc", "2026-02-30", "2026-11", "20261105"):
+            with self.subTest(value=value):
+                self.assertIsNone(self._resolve(value))
+
+    def test_outside_the_range(self):
+        for value in ("2026-07-31", "2027-01-01", "9999-12-31", "0001-01-01"):
+            with self.subTest(value=value):
+                self.assertIsNone(self._resolve(value))
+
+    def test_today_is_not_a_pick(self):
+        self.assertIsNone(self._resolve("2026-11-02"))
+
+
+class MonthCellsTests(SimpleTestCase):
+
+    NOV = date(2026, 11, 1)
+
+    def _day(self, cells, n):
+        return next(c for c in cells if c["in_month"] and c["day"] == n)
+
+    def test_always_42_cells(self):
+        for month in (self.NOV, date(2027, 2, 1)):
+            with self.subTest(month=month):
+                self.assertEqual(len(month_cells(month, CAL_TODAY, None, {})), 42)
+
+    def test_monday_first(self):
+        """Nov 1, 2026 is a Sunday, so six blanks come before it."""
+        cells = month_cells(self.NOV, CAL_TODAY, None, {})
+        self.assertEqual(cells[:6], [{"in_month": False}] * 6)
+        self.assertEqual(cells[6]["date"], self.NOV)
+        self.assertEqual(cells[7]["date"], date(2026, 11, 2))
+        self.assertEqual(cells[35]["date"], date(2026, 11, 30))
+        self.assertFalse(cells[36]["in_month"])
+
+    def test_counts_and_pills(self):
+        counts = {
+            date(2026, 11, 5): {"visits": 2, "waiting": 1},
+            date(2026, 11, 6): {"visits": 12, "waiting": 0},
+        }
+        cells = month_cells(self.NOV, CAL_TODAY, None, counts)
+        empty, three, twelve = (self._day(cells, n) for n in (4, 5, 6))
+        self.assertEqual((empty["total"], empty["pill"]), (0, ""))
+        self.assertFalse(empty["has_waiting"])
+        self.assertEqual(
+            (three["visits"], three["waiting"], three["total"], three["pill"]),
+            (2, 1, 3, "3"),
+        )
+        self.assertTrue(three["has_waiting"])
+        self.assertEqual((twelve["total"], twelve["pill"]), (12, "9+"))
+        self.assertFalse(twelve["has_waiting"])
+
+    def test_today_picked_and_weekend_flags(self):
+        cells = month_cells(self.NOV, CAL_TODAY, date(2026, 11, 5), {})
+        self.assertTrue(self._day(cells, 2)["is_today"])
+        self.assertFalse(self._day(cells, 3)["is_today"])
+        self.assertTrue(self._day(cells, 5)["is_picked"])
+        self.assertFalse(self._day(cells, 2)["is_picked"])
+        for n, weekend in ((6, False), (7, True), (8, True), (9, False)):
+            with self.subTest(day=n):
+                self.assertEqual(self._day(cells, n)["is_weekend"], weekend)
+
+    def test_aria_labels(self):
+        counts = {
+            date(2026, 11, 5): {"visits": 2, "waiting": 1},
+            date(2026, 11, 6): {"visits": 1, "waiting": 3},
+        }
+        cells = month_cells(self.NOV, CAL_TODAY, None, counts)
+        self.assertEqual(
+            self._day(cells, 5)["aria_label"],
+            "Thursday, November 5: 2 visits, 1 request waiting",
+        )
+        self.assertEqual(
+            self._day(cells, 6)["aria_label"],
+            "Friday, November 6: 1 visit, 3 requests waiting",
+        )
+        self.assertEqual(
+            self._day(cells, 2)["aria_label"], "Today, Monday, November 2: no visits"
+        )
+
+
+class MonthDayCountsTests(ShellTestBase):
+
+    def _booking(self, day, status, hour=9):
+        Appointment.objects.create(
+            owner=self.owner, pet=self.pet, date=day, time=time(hour, 0), status=status
+        )
+
+    def test_one_query_and_only_that_month(self):
+        self._booking(date(2026, 11, 5), Appointment.CONFIRMED, 9)
+        self._booking(date(2026, 11, 5), Appointment.COMPLETED, 10)
+        self._booking(date(2026, 11, 5), Appointment.NO_SHOW, 11)
+        self._booking(date(2026, 11, 5), Appointment.PENDING, 12)
+        self._booking(date(2026, 11, 5), Appointment.CANCELLED, 13)
+        self._booking(date(2026, 11, 30), Appointment.CANCELLED)
+        self._booking(date(2026, 10, 31), Appointment.CONFIRMED)
+        self._booking(date(2026, 12, 1), Appointment.PENDING)
+        with self.assertNumQueries(1):
+            counts = month_day_counts(date(2026, 11, 1))
+        self.assertEqual(counts, {date(2026, 11, 5): {"visits": 3, "waiting": 1}})
+
+
+class DashboardCalendarContextTests(TestCase):
+
+    def test_home_on_open(self):
+        cal = dashboard_calendar_context(CAL_TODAY)
+        self.assertEqual(cal["cal_month"], date(2026, 11, 1))
+        self.assertEqual(cal["cal_month_value"], "2026-11")
+        self.assertEqual(cal["cal_today_month_value"], "2026-11")
+        self.assertIsNone(cal["cal_picked"])
+        self.assertTrue(cal["cal_is_home"])
+        self.assertEqual(len(cal["cal_cells"]), 42)
+
+    def test_another_month_is_not_home(self):
+        cal = dashboard_calendar_context(CAL_TODAY, "2026-12")
+        self.assertEqual(cal["cal_month_value"], "2026-12")
+        self.assertFalse(cal["cal_is_home"])
+
+    def test_picked_day_is_not_home(self):
+        cal = dashboard_calendar_context(CAL_TODAY, "2026-11", "2026-11-05")
+        self.assertEqual(cal["cal_picked"], date(2026, 11, 5))
+        self.assertFalse(cal["cal_is_home"])
+
+    def test_picked_day_without_month_opens_its_month(self):
+        cal = dashboard_calendar_context(CAL_TODAY, None, "2026-12-10")
+        self.assertEqual(cal["cal_month"], date(2026, 12, 1))
+        self.assertEqual(cal["cal_picked"], date(2026, 12, 10))
+
+    def test_month_options(self):
+        cal = dashboard_calendar_context(CAL_TODAY, "2026-10")
+        self.assertEqual(
+            [o["label"] for o in cal["cal_month_options"]],
+            [
+                "August 2026",
+                "September 2026",
+                "October 2026",
+                "November 2026",
+                "December 2026",
+            ],
+        )
+        self.assertEqual(cal["cal_month_options"][2]["value"], "2026-10")
+        self.assertEqual(
+            [o["value"] for o in cal["cal_month_options"] if o["selected"]],
+            ["2026-10"],
+        )
+
+
+class DashboardStatFixTests(ShellTestBase):
+    """Vaccinations and follow-ups due this week (today to today + 7)."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.admin)
+        self.archived = Pet.objects.create(
+            owner=self.owner, name="Old", species="Cat", is_archived=True
+        )
+        self.soon = timezone.localdate() + timedelta(days=3)
+
+    def _stats(self):
+        return self.client.get(reverse("admin_dashboard_refresh")).context
+
+    def _vaccination(self, is_corrected):
+        Vaccination.objects.create(
+            pet=self.pet,
+            vaccine_name=Vaccination.ANTI_RABIES,
+            date_administered=timezone.localdate() - timedelta(days=300),
+            next_due_date=self.soon,
+            is_corrected=is_corrected,
+        )
+
+    def _followup(self, pet):
+        MedicalRecord.objects.create(
+            pet=pet,
+            record_date=timezone.localdate(),
+            follow_up_required=True,
+            follow_up_date=self.soon,
+        )
+
+    def test_corrected_vaccination_is_not_counted(self):
+        self._vaccination(is_corrected=True)
+        self.assertEqual(self._stats()["vaccinations_due"], 0)
+        self._vaccination(is_corrected=False)
+        self.assertEqual(self._stats()["vaccinations_due"], 1)
+
+    def test_followup_for_archived_pet_is_not_counted(self):
+        self._followup(self.archived)
+        self.assertEqual(self._stats()["followups_due"], 0)
+        self._followup(self.pet)
+        self.assertEqual(self._stats()["followups_due"], 1)
+
+
+@mock.patch("django.utils.timezone.now", return_value=CAL_NOW)
+class CalendarEndpointTests(ShellTestBase):
+    """admin_dashboard_calendar with "now" at noon on Mon, Nov 2, 2026 (Manila)."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.admin)
+
+    def _get(self, **params):
+        return self.client.get(reverse("admin_dashboard_calendar"), params)
+
+    def test_month_param(self, _now):
+        response = self._get(month="2026-12")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["cal_month"], date(2026, 12, 1))
+        self.assertEqual(response.context["anchor_date"], date(2026, 12, 1))
+
+    def test_far_off_values_are_clamped(self, _now):
+        cases = (
+            ({"month": "9999-12"}, date(2026, 12, 1)),
+            ({"date": "9999-12-15"}, date(2026, 12, 1)),
+            ({"date": "0001-01-15"}, date(2026, 8, 1)),
+        )
+        for params, expected in cases:
+            with self.subTest(params=params):
+                response = self._get(**params)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.context["cal_month"], expected)
+                self.assertEqual(response.context["anchor_date"], expected)
+
+    def test_old_date_param_still_works(self, _now):
+        response = self._get(date="2026-10-05")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["cal_month"], date(2026, 10, 1))
+        self.assertEqual(response.context["calendar_period_label"], "October 2026")
+
+    def test_picked_param(self, _now):
+        response = self._get(month="2026-11", picked="2026-11-05")
+        self.assertEqual(response.context["cal_picked"], date(2026, 11, 5))
+        self.assertFalse(response.context["cal_is_home"])
+
+    def test_non_admin_htmx_gets_403(self, _now):
+        self.client.force_login(self.owner.user)
+        response = self.client.get(
+            reverse("admin_dashboard_calendar"),
+            {"month": "2026-12"},
+            headers={"HX-Request": "true"},
+        )
+        self.assertEqual(response.status_code, 403)

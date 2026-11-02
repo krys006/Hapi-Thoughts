@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
@@ -10,6 +10,7 @@ from django.utils.dateparse import parse_date
 from appointments.models import Appointment, ClinicSettings
 from appointments.utils import get_admin_calendar_context
 from billing.models import BillingReceipt
+from dashboard.utils import dashboard_calendar_context
 from medical.models import MedicalRecord, Vaccination
 from notifications.models import Notification
 from pets.models import Pet, PetOwner
@@ -45,11 +46,13 @@ def _get_admin_dashboard_context(request):
     vaccinations_due = Vaccination.objects.filter(
         next_due_date__range=[today, week_end],
         pet__is_archived=False,
+        is_corrected=False,
     ).count()
 
     followups_due = MedicalRecord.objects.filter(
         follow_up_required=True,
         follow_up_date__range=[today, week_end],
+        pet__is_archived=False,
     ).count()
 
     # ── Pending approvals widget ───────────────────────────────────────────
@@ -129,6 +132,15 @@ def _mini_calendar_context(date_str):
                 item["status"] == Appointment.PENDING for item in cell["statuses"]
             )
     return context
+
+
+def _month_of_date(value):
+    """'YYYY-MM' of an ISO date (the old ?date= param), or None if invalid."""
+    try:
+        day = date.fromisoformat(value or "")
+    except ValueError:
+        return None
+    return f"{day.year:04d}-{day.month:02d}"
 
 
 def _run_global_search(query):
@@ -270,13 +282,18 @@ def admin_dashboard(request):
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
+    clinic = ClinicSettings.objects.first()
+    today = timezone.localdate()
     context = _get_admin_dashboard_context(request)
     context.update(_mini_calendar_context(None))
-    context.update(_day_schedule_context(timezone.localdate()))
-    context["greeting"] = _greeting()
-    context["display_name"] = _admin_display_name(
-        request.user, ClinicSettings.objects.first()
+    context.update(_day_schedule_context(today))
+    context.update(
+        dashboard_calendar_context(
+            today, request.GET.get("month"), request.GET.get("day"), clinic
+        )
     )
+    context["greeting"] = _greeting()
+    context["display_name"] = _admin_display_name(request.user, clinic)
 
     return render(request, "admin/dashboard/index.html", context)
 
@@ -293,11 +310,22 @@ def admin_dashboard_partial(request):
 
 @login_required
 def admin_dashboard_calendar(request):
-    """HTMX: the dashboard mini calendar for another month (arrow buttons)."""
+    """HTMX: the dashboard calendar for another month. ?month=YYYY-MM and
+    ?picked=YYYY-MM-DD; the old ?date= (Prev/Next) still works and means its
+    month. The month is clamped to the dropdown's range, so far-off dates
+    can't reach get_admin_calendar_context."""
     if request.user.role != "admin":
         return HttpResponseForbidden()
 
-    context = _mini_calendar_context(request.GET.get("date"))
+    month = request.GET.get("month") or _month_of_date(request.GET.get("date"))
+    cal = dashboard_calendar_context(
+        timezone.localdate(),
+        month,
+        request.GET.get("picked"),
+        ClinicSettings.objects.first(),
+    )
+    context = _mini_calendar_context(cal["cal_month"].isoformat())
+    context.update(cal)
     return render(request, "admin/dashboard/_mini_calendar.html", context)
 
 
