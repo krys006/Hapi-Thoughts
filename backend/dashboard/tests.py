@@ -368,6 +368,79 @@ class TopbarSearchTests(ShellTestBase):
         )
 
 
+class ShellLayoutTests(ShellTestBase):
+    """Sidebar width, and the logo block and top bar sharing one height."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.admin)
+        self.html = self.client.get(reverse("admin_dashboard")).content.decode()
+
+    def _classes(self, pattern):
+        """The class list of the first opening tag matching pattern."""
+        match = re.search(pattern, self.html)
+        self.assertIsNotNone(match, f"No tag matching {pattern}")
+        return match.group(1).split()
+
+    def test_sidebar_is_w_56(self):
+        classes = self._classes(r'<aside id="admin-sidebar" class="([^"]*)"')
+        self.assertIn("w-56", classes)
+        self.assertNotIn("w-72", classes)
+
+    def test_logo_block_and_top_bar_are_both_h_16(self):
+        # The logo block is the first <div> inside the sidebar
+        logo = self._classes(r'<aside id="admin-sidebar"[^>]*>\s*<div class="([^"]*)"')
+        header = self._classes(r'<header class="([^"]*)"')
+        for name, classes in (("logo block", logo), ("top bar", header)):
+            with self.subTest(block=name):
+                for cls in ("h-16", "shrink-0", "flex", "items-center"):
+                    self.assertIn(cls, classes)
+                for cls in ("py-3", "py-4"):
+                    self.assertNotIn(cls, classes)
+        self.assertIn("border-b", header)
+
+    def test_logo_block_has_no_bottom_border(self):
+        logo = self._classes(r'<aside id="admin-sidebar"[^>]*>\s*<div class="([^"]*)"')
+        self.assertNotIn("border-b", logo)
+        self.assertNotIn("border-violet-200", logo)
+
+    def test_clinic_name_wraps_to_two_lines_with_title(self):
+        self.assertIn(
+            '<p class="line-clamp-2 text-base font-semibold leading-5 text-gray-900" '
+            'title="Hapi Vet">Hapi Vet</p>',
+            self.html,
+        )
+
+    def _logo_link(self):
+        """The sidebar's logo + clinic name link (the first <a> in the sidebar)."""
+        sidebar = self.html[self.html.index('<aside id="admin-sidebar"') :]
+        match = re.search(r"<a [^>]*>.*?</a>", sidebar, re.S)
+        self.assertIsNotNone(match, "No link in the sidebar")
+        return match.group(0)
+
+    def test_logo_and_name_link_to_the_dashboard(self):
+        link = self._logo_link()
+        self.assertTrue(link.startswith(f'<a href="{reverse("admin_dashboard")}"'))
+        self.assertIn(">Hapi Vet</p>", link)
+        self.assertIn('<span class="sr-only">, go to Dashboard</span>', link)
+
+    def test_close_menu_button_is_outside_the_link(self):
+        self.assertNotIn("Close menu", self._logo_link())
+        self.assertNotIn("data-sidebar-close", self._logo_link())
+        # Still in the logo block, right after the link
+        sidebar = self.html[self.html.index('<aside id="admin-sidebar"') :]
+        after_link = sidebar[sidebar.index("</a>") :]
+        self.assertRegex(
+            after_link,
+            r'^</a>\s*<button type="button" class="btn btn-outline px-3 lg:hidden" '
+            r"data-sidebar-close>",
+        )
+
+    def test_no_admin_subtitle(self):
+        self.assertNotIn('<p class="text-sm text-gray-700">Admin</p>', self.html)
+        self.assertNotRegex(self.html, r">\s*Admin\s*</p>")
+
+
 def _squash(html):
     """Rendered markup with indentation and blank lines removed."""
     return "".join(line.strip() for line in html.splitlines())
