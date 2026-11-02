@@ -1,182 +1,49 @@
 {% extends "layouts/admin.html" %}
 
 {% load static %}
-{% block legacy_css %}
-<style>
-  @import url("{% static 'css/admin/owner_form.css' %}") layer(legacy);
-</style>
-{% endblock %}
 
-{% block title %}{{ form_title }} — Hapi Vet Admin{% endblock %}
+{% block title %}{% if owner %}Edit details — {{ owner.full_name }}{% else %}Add owner{% endif %} — Hapi Vet Admin{% endblock %}
+
+{% block extra_head %}
+  {# Without JavaScript both address groups show, so the form still works #}
+  <noscript><style>[data-address-pick], [data-address-typed] { display: contents; }</style></noscript>
+{% endblock %}
 
 {% block page_header %}{% endblock %}
 
 {% block content %}
+<div class="mx-auto max-w-3xl">
+  {% if owner %}
+    {% include "admin/pets/owner_form_parts/header.html" with title=form_title subtitle=owner.full_name %}
+  {% else %}
+    {% include "admin/pets/owner_form_parts/header.html" with title=form_title subtitle="Add an owner without booking a visit. You can add their pets on the next page." %}
+  {% endif %}
 
-<div class="admin-page">
-
-  <div class="admin-form-header">
-    <h1 class="admin-form-title">{{ form_title }}</h1>
-    {% if owner %}
-      <a href="{% url 'admin_owner_detail' owner.pk %}" class="btn-secondary">
-        Cancel
-      </a>
-    {% else %}
-      <a href="{% url 'admin_owner_list' %}" class="btn-secondary">
-        Cancel
-      </a>
-    {% endif %}
-  </div>
-
-  <form method="post" enctype="multipart/form-data" class="admin-form">
+  <form method="post" enctype="multipart/form-data" class="space-y-6" novalidate>
     {% csrf_token %}
 
-    <!-- Profile photo -->
-    <div class="admin-form-section">
-      <h3 class="admin-form-section-title">Profile Photo</h3>
+    {% if form.errors %}
+      {% include "admin/pets/owner_form_parts/error_summary.html" %}
+    {% else %}
+      <p class="text-sm text-gray-700">Fields marked <span class="text-red-700">*</span> are required. Everything else can be added later.</p>
+    {% endif %}
 
-      {% if owner and owner.profile_photo %}
-        <div class="current-photo-wrapper">
-          <img
-            src="{{ owner.profile_photo.url }}"
-            alt="Current photo"
-            class="current-photo-preview"
-          />
-          <p class="current-photo-label">Current photo</p>
-        </div>
-      {% endif %}
+    {% include "admin/pets/owner_form_parts/name_contact_card.html" %}
+    {% include "admin/pets/owner_form_parts/address_card.html" %}
+    {% include "admin/pets/owner_form_parts/photo_card.html" %}
 
-      <div class="form-section">
-        {{ form.profile_photo }}
-        {% if form.profile_photo.errors %}
-          <p class="form-error">{{ form.profile_photo.errors.0 }}</p>
-        {% endif %}
-      </div>
-
-    </div>
-
-    <!-- Personal info -->
-    <div class="admin-form-section">
-      <h3 class="admin-form-section-title">Personal Information</h3>
-
-      <div class="form-row-two-col">
-
-        <div class="form-section">
-          <label class="form-label" for="{{ form.first_name.id_for_label }}">
-            First Name <span class="required-tag">*</span>
-          </label>
-          {{ form.first_name }}
-          {% if form.first_name.errors %}
-            <p class="form-error">{{ form.first_name.errors.0 }}</p>
-          {% endif %}
-        </div>
-
-        <div class="form-section">
-          <label class="form-label" for="{{ form.last_name.id_for_label }}">
-            Last Name <span class="required-tag">*</span>
-          </label>
-          {{ form.last_name }}
-          {% if form.last_name.errors %}
-            <p class="form-error">{{ form.last_name.errors.0 }}</p>
-          {% endif %}
-        </div>
-
-      </div>
-
-      <div class="form-section">
-        <label class="form-label" for="{{ form.contact_number.id_for_label }}">
-          Contact Number <span class="optional-tag">(optional)</span>
-        </label>
-        {{ form.contact_number }}
-        {% if form.contact_number.errors %}
-          <p class="form-error">{{ form.contact_number.errors.0 }}</p>
-        {% endif %}
-      </div>
-
-      <!-- Email — lives on User model, saved separately in the view -->
-      <div class="form-section">
-        <label class="form-label" for="{{ form.email.id_for_label }}">
-          Email Address <span class="optional-tag">(optional)</span>
-        </label>
-        {{ form.email }}
-        {% if form.email.errors %}
-          <p class="form-error">{{ form.email.errors.0 }}</p>
-        {% endif %}
-        {% if not owner.user.email %}
-          <p class="form-hint">
-            Adding an email will activate this account and send a claim link.
-          </p>
-        {% endif %}
-      </div>
-
-    </div>
-
-    <!-- Address -->
-    <div class="admin-form-section">
-      <h3 class="admin-form-section-title">Address</h3>
-
-      <div class="form-section">
-        <label class="form-label" for="{{ form.address_line.id_for_label }}">
-          Address Line <span class="optional-tag">(optional)</span>
-        </label>
-        {{ form.address_line }}
-        {% if form.address_line.errors %}
-          <p class="form-error">{{ form.address_line.errors.0 }}</p>
-        {% endif %}
-      </div>
-
-      <div class="form-row-two-col">
-
-        <div class="form-section">
-          <label class="form-label" for="{{ form.barangay.id_for_label }}">
-            Barangay <span class="optional-tag">(optional)</span>
-          </label>
-          {{ form.barangay }}
-          {% if form.barangay.errors %}
-            <p class="form-error">{{ form.barangay.errors.0 }}</p>
-          {% endif %}
-        </div>
-
-        <div class="form-section">
-          <label class="form-label" for="{{ form.city_municipality.id_for_label }}">
-            City / Municipality <span class="optional-tag">(optional)</span>
-          </label>
-          {{ form.city_municipality }}
-          {% if form.city_municipality.errors %}
-            <p class="form-error">{{ form.city_municipality.errors.0 }}</p>
-          {% endif %}
-        </div>
-
-      </div>
-
-      <div class="form-section">
-        <label class="form-label" for="{{ form.province.id_for_label }}">
-          Province <span class="optional-tag">(optional)</span>
-        </label>
-        {{ form.province }}
-        {% if form.province.errors %}
-          <p class="form-error">{{ form.province.errors.0 }}</p>
-        {% endif %}
-      </div>
-
-    </div>
-
-    <!-- Actions -->
-    <div class="form-actions">
-      {% if owner %}
-        <a href="{% url 'admin_owner_detail' owner.pk %}" class="btn-secondary">
-          Cancel
-        </a>
-      {% else %}
-        <a href="{% url 'admin_owner_list' %}" class="btn-secondary">
-          Cancel
-        </a>
-      {% endif %}
-      <button type="submit" class="btn-primary">{{ submit_label }}</button>
-    </div>
-
+    {# Cancel goes back where the page was opened from #}
+    {% if owner %}
+      {% url 'admin_owner_detail' owner.pk as cancel_url %}
+      {% include "admin/pets/owner_form_parts/buttons.html" with cancel_url=cancel_url label=submit_label icon="check" %}
+    {% else %}
+      {% url 'admin_owner_list' as cancel_url %}
+      {% include "admin/pets/owner_form_parts/buttons.html" with cancel_url=cancel_url label=submit_label icon="user-plus" note="After saving you'll see their owner page, where you can add pets or book a walk-in." %}
+    {% endif %}
   </form>
-
 </div>
+{% endblock %}
 
+{% block extra_js %}
+  <script src="{% static 'js/admin/owner_form.js' %}" defer></script>
 {% endblock %}

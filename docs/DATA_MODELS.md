@@ -112,6 +112,11 @@ One-to-one relationship with User.
 - Address belongs to owner — pets inherit it implicitly
 - Profile photo is optional — initials avatar generated in UI if not uploaded
 - Full address is generated dynamically via a `full_address` model property
+- Address dropdowns (Slice 4a-4): no fields changed. For a Marinduque address
+  picked on the admin owner form, `province` is "Marinduque" and
+  `barangay` / `city_municipality` hold the PSA spellings from
+  `pets/data/psgc_marinduque.json`; other provinces are typed text (title
+  case). A form with no address saves all four fields as "".
 
 ---
 

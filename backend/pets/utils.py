@@ -1,5 +1,8 @@
 # pets/utils.py
 
+import json
+from functools import lru_cache
+from pathlib import Path
 from urllib.parse import urlencode
 
 from allauth.socialaccount.models import SocialAccount
@@ -17,6 +20,61 @@ from .models import Pet, PetOwner
 OWNER_PAGE_SIZE = 25
 OWNER_TABS = ("active", "archived")
 RECENT_VISITS_LIMIT = 5
+PSGC_FILE = Path(__file__).resolve().parent / "data" / "psgc_marinduque.json"
+
+
+# ── Marinduque addresses (PSA PSGC list) ─────────────────────────────────────
+
+
+@lru_cache(maxsize=1)
+def psgc_marinduque():
+    """The PSA list in data/psgc_marinduque.json, read once per process."""
+    with open(PSGC_FILE, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _match_key(value):
+    """Ignores case and extra spaces: " santa  CRUZ " → "santa cruz"."""
+    return " ".join((value or "").split()).casefold()
+
+
+def _match(value, names):
+    """The official spelling in names that matches value, or None."""
+    key = _match_key(value)
+    if not key:
+        return None
+    return next((name for name in names if _match_key(name) == key), None)
+
+
+def marinduque_towns():
+    """The 6 towns, A to Z, in the PSA spelling."""
+    return list(psgc_marinduque()["towns"])
+
+
+def match_town(value):
+    """The official spelling of a Marinduque town, or None."""
+    return _match(value, marinduque_towns())
+
+
+def barangays_for(town):
+    """The barangays of a town (A to Z, PSA spelling); [] for an unknown town."""
+    official = match_town(town)
+    if official is None:
+        return []
+    return list(psgc_marinduque()["towns"][official])
+
+
+def match_barangay(town, value):
+    """The official spelling of a barangay inside town, or None."""
+    return _match(value, barangays_for(town))
+
+
+def barangay_choices(town):
+    """Options for the Barangay select: the placeholder first."""
+    barangays = barangays_for(town)
+    if not barangays:
+        return [("", "Choose the town first")]
+    return [("", "Choose a barangay")] + [(name, name) for name in barangays]
 
 
 # ── Admin owners list ────────────────────────────────────────────────────────

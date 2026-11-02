@@ -17,10 +17,18 @@ from django.utils import timezone
 
 from appointments.models import Appointment
 from billing.models import Service
-from pets.forms import AdminOwnerEmailForm
+from pets.forms import AdminOwnerEmailForm, AdminPetOwnerForm
 from pets.models import Pet, PetDeletionRequest, PetOwner
 from pets.templatetags.pet_display import species_icon
-from pets.utils import owner_list_context
+from pets.utils import (
+    barangay_choices,
+    barangays_for,
+    marinduque_towns,
+    match_barangay,
+    match_town,
+    owner_list_context,
+    psgc_marinduque,
+)
 
 User = get_user_model()
 
@@ -68,13 +76,15 @@ def _google_owner(first="Gina", last="Ramos"):
     return owner
 
 
+# Slice 4a-4: the address is picked (Province / Town / Barangay selects);
+# the typed barangay / city_municipality / province are for other provinces
 OWNER_POST = {
     "first_name": "Ana",
     "last_name": "Cruz",
     "contact_number": "09171234567",
-    "barangay": "Amoingon",
-    "city_municipality": "Boac",
-    "province": "Marinduque",
+    "address_province": "Marinduque",
+    "address_town": "Boac",
+    "address_barangay": "Amoingon",
 }
 
 
@@ -326,15 +336,7 @@ class AdminPetOwnerFormEmailTests(TestCase):
     def _post(self, email):
         return self.client.post(
             reverse("admin_owner_edit", args=[self.owner.pk]),
-            {
-                "first_name": "Ana",
-                "last_name": "Cruz",
-                "contact_number": "09171234567",
-                "barangay": "Amoingon",
-                "city_municipality": "Boac",
-                "province": "Marinduque",
-                "email": email,
-            },
+            {**OWNER_POST, "email": email},
         )
 
     def test_mixed_case_email_saved_lowercase(self):
@@ -1780,3 +1782,571 @@ class OwnerDetailPageTests(TestCase):
         add(1, 4)
         with self.assertNumQueries(len(small)):
             self._get()
+
+
+# ─── Slice 4a-4: owner forms and Marinduque address dropdowns ────────────────
+
+TOWNS = ["Boac", "Buenavista", "Gasan", "Mogpog", "Santa Cruz", "Torrijos"]
+
+
+def _options(html):
+    """(value, label) pairs of every <option> in html."""
+    return re.findall(r'<option value="([^"]*)"[^>]*>([^<]*)</option>', html)
+
+
+class PsgcDataTests(SimpleTestCase):
+    """backend/pets/data/psgc_marinduque.json (PSA PSGC list)."""
+
+    def test_six_towns_each_with_a_sorted_list(self):
+        data = psgc_marinduque()
+        self.assertEqual(data["province"], "Marinduque")
+        self.assertTrue(data["source"].strip())
+        self.assertEqual(list(data["towns"]), TOWNS)
+        for town, barangays in data["towns"].items():
+            with self.subTest(town=town):
+                self.assertTrue(barangays)
+                self.assertEqual(barangays, sorted(barangays, key=str.casefold))
+                self.assertEqual(len(barangays), len(set(barangays)))
+
+    def test_marinduque_towns_is_the_list_a_to_z(self):
+        self.assertEqual(marinduque_towns(), TOWNS)
+
+
+class AddressHelperTests(SimpleTestCase):
+    """pets/utils.py: match_town, barangays_for, match_barangay."""
+
+    def test_town_match_ignores_case_and_spaces(self):
+        self.assertEqual(match_town("  santa   CRUZ "), "Santa Cruz")
+        self.assertEqual(match_town("gasan"), "Gasan")
+
+    def test_unknown_town_is_none(self):
+        for value in ("Gassan", "", None, "Batangas"):
+            with self.subTest(value=value):
+                self.assertIsNone(match_town(value))
+        self.assertEqual(barangays_for("Gassan"), [])
+
+    def test_barangay_match_returns_the_official_spelling(self):
+        official = barangays_for("Boac")[0]
+        self.assertEqual(barangays_for("boac"), barangays_for("Boac"))
+        self.assertEqual(match_barangay("BOAC", f"  {official.upper()} "), official)
+        self.assertIsNone(match_barangay("Boac", "Nowhere"))
+        self.assertIsNone(match_barangay("Gassan", official))
+
+    def test_barangay_choices(self):
+        self.assertEqual(barangay_choices(""), [("", "Choose the town first")])
+        choices = barangay_choices("Mogpog")
+        self.assertEqual(choices[0], ("", "Choose a barangay"))
+        self.assertEqual([v for v, _ in choices[1:]], barangays_for("Mogpog"))
+
+
+class BarangayEndpointTests(TestCase):
+    """admin_address_barangays: the Barangay <option> list over HTMX."""
+
+    def setUp(self):
+        self.url = reverse("admin_address_barangays")
+
+    def test_admin_only(self):
+        response = self.client.get(self.url, {"town": "Boac"})
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn("<option", response.content.decode())
+        owner = _owner(email="ana@example.com", password="pw-12345!")
+        self.client.force_login(owner.user)
+        response = self.client.get(self.url, {"town": "Boac"})
+        self.assertRedirects(
+            response, reverse("owner_dashboard"), fetch_redirect_response=False
+        )
+
+    def test_known_town_lists_its_barangays_placeholder_first(self):
+        _admin(self)
+        for params in ({"town": "boac"}, {"address_town": "Boac"}):
+            with self.subTest(params=params):
+                response = self.client.get(
+                    self.url, params, headers={"HX-Request": "true"}
+                )
+                options = _options(response.content.decode())
+                self.assertEqual(options[0], ("", "Choose a barangay"))
+                self.assertEqual([v for v, _ in options[1:]], barangays_for("Boac"))
+                self.assertEqual([t for _, t in options[1:]], barangays_for("Boac"))
+
+    def test_unknown_or_empty_town(self):
+        _admin(self)
+        for town in ("", "Nowhere"):
+            with self.subTest(town=town):
+                response = self.client.get(self.url, {"town": town})
+                self.assertEqual(
+                    _options(response.content.decode()),
+                    [("", "Choose the town first")],
+                )
+
+
+class OwnerFormAddressTests(TestCase):
+    """AdminPetOwnerForm: address modes, errors and the empty rule."""
+
+    BASE = {
+        "first_name": "Ana",
+        "last_name": "Cruz",
+        "address_province": "Marinduque",
+    }
+
+    def _form(self, **data):
+        return AdminPetOwnerForm({**self.BASE, **data})
+
+    def _address(self, form):
+        self.assertTrue(form.is_valid(), form.errors)
+        data = form.cleaned_data
+        return (
+            data["province"],
+            data["city_municipality"],
+            data["barangay"],
+            data["address_line"],
+        )
+
+    def test_marinduque_pick_saves_the_official_spellings(self):
+        official = barangays_for("Gasan")[0]
+        form = self._form(address_town="Gasan", address_barangay=official.lower())
+        self.assertEqual(self._address(form), ("Marinduque", "Gasan", official, ""))
+
+    def test_marinduque_ignores_the_hidden_typed_fields(self):
+        official = barangays_for("Boac")[0]
+        form = self._form(
+            address_town="Boac",
+            address_barangay=official,
+            province="Batangas",
+            city_municipality="Lipa City",
+            barangay="Sabang",
+        )
+        self.assertEqual(self._address(form), ("Marinduque", "Boac", official, ""))
+
+    def test_barangay_of_another_town_is_refused(self):
+        boac = barangays_for("Boac")
+        other = next(b for b in barangays_for("Torrijos") if b not in boac)
+        form = self._form(address_town="Boac", address_barangay=other)
+        self.assertFalse(form.is_valid())
+        self.assertEqual(
+            form.errors["address_barangay"], ["Choose a barangay in Boac."]
+        )
+
+    def test_barangay_without_a_town_is_refused(self):
+        form = self._form(address_barangay=barangays_for("Boac")[0])
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors["address_town"], ["Choose the town first."])
+
+    def test_unknown_town_is_refused(self):
+        form = self._form(address_town="Gassan")
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors["address_town"], ["Choose a town from the list."])
+
+    def test_missing_province_is_refused(self):
+        form = AdminPetOwnerForm({"first_name": "Ana", "last_name": "Cruz"})
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors["address_province"], ["Choose a province."])
+
+    def test_other_mode_saves_the_typed_text(self):
+        form = self._form(
+            address_province="other",
+            address_town="Boac",
+            province=" batangas ",
+            city_municipality="lipa city",
+            barangay="sabang",
+            address_line="  Purok   3 ",
+        )
+        self.assertEqual(
+            self._address(form), ("Batangas", "Lipa City", "Sabang", "Purok 3")
+        )
+
+    def test_empty_rule_saves_four_empty_strings(self):
+        self.assertEqual(self._address(self._form()), ("", "", "", ""))
+        form = self._form(address_province="other")
+        self.assertEqual(self._address(form), ("", "", "", ""))
+
+    def test_street_only_keeps_marinduque(self):
+        form = self._form(address_line="Purok 3")
+        self.assertEqual(self._address(form), ("Marinduque", "", "", "Purok 3"))
+
+    def test_barangay_list_follows_the_posted_town(self):
+        form = self._form(address_town="Boac", first_name="")
+        field = form.fields["address_barangay"]
+        self.assertEqual([v for v, _ in field.choices[1:]], barangays_for("Boac"))
+        self.assertNotIn("disabled", field.widget.attrs)
+
+    def test_barangay_is_disabled_without_a_town(self):
+        field = AdminPetOwnerForm().fields["address_barangay"]
+        self.assertEqual(field.choices, [("", "Choose the town first")])
+        self.assertTrue(field.widget.attrs["disabled"])
+
+    def test_saved_through_the_add_page(self):
+        _admin(self)
+        official = barangays_for("Santa Cruz")[-1]
+        self.client.post(
+            reverse("admin_owner_create"),
+            {**OWNER_POST, "address_town": "Santa Cruz", "address_barangay": official},
+        )
+        owner = PetOwner.objects.get()
+        self.assertEqual(
+            (owner.province, owner.city_municipality, owner.barangay),
+            ("Marinduque", "Santa Cruz", official),
+        )
+
+
+class OwnerFormInitialTests(TestCase):
+    """AdminPetOwnerForm on the edit page: which address mode opens."""
+
+    def _form(self, data=None, **address):
+        owner = _owner(**address)
+        return AdminPetOwnerForm(data, instance=owner, current_user=owner.user)
+
+    def test_matching_saved_values_open_marinduque_with_them_picked(self):
+        official = barangays_for("Gasan")[0]
+        form = self._form(
+            province="marinduque", city_municipality="GASAN", barangay=official.lower()
+        )
+        self.assertEqual(form.address_mode, "marinduque")
+        self.assertFalse(form.address_hand_typed)
+        self.assertEqual(form["address_town"].value(), "Gasan")
+        self.assertEqual(form["address_barangay"].value(), official)
+
+    def test_town_without_barangay_opens_marinduque(self):
+        form = self._form(province="Marinduque", city_municipality="Boac")
+        self.assertEqual(form.address_mode, "marinduque")
+        self.assertEqual(form["address_town"].value(), "Boac")
+        self.assertFalse(form.address_hand_typed)
+
+    def test_typo_opens_other_mode_hand_typed(self):
+        official = barangays_for("Gasan")[0]
+        form = self._form(
+            province="marinduque", city_municipality="gassan", barangay=official
+        )
+        self.assertEqual(form.address_mode, "other")
+        self.assertTrue(form.address_hand_typed)
+        self.assertEqual(form["city_municipality"].value(), "gassan")
+        self.assertEqual(form["province"].value(), "marinduque")
+
+    def test_another_province_opens_other_mode_without_the_note(self):
+        form = self._form(
+            province="Batangas", city_municipality="Lipa City", barangay="Sabang"
+        )
+        self.assertEqual(form.address_mode, "other")
+        self.assertFalse(form.address_hand_typed)
+
+    def test_no_province_with_a_town_has_no_note(self):
+        form = self._form(city_municipality="Gassan")
+        self.assertEqual(form.address_mode, "other")
+        self.assertFalse(form.address_hand_typed)
+
+    def test_all_empty_opens_marinduque_with_nothing_picked(self):
+        form = self._form()
+        self.assertEqual(form.address_mode, "marinduque")
+        self.assertFalse(form.address_hand_typed)
+        self.assertFalse(form["address_town"].value())
+        self.assertFalse(form["address_barangay"].value())
+
+    def test_marinduque_with_street_only_is_not_hand_typed(self):
+        form = self._form(province="Marinduque", address_line="Purok 3")
+        self.assertEqual(form.address_mode, "marinduque")
+        self.assertFalse(form.address_hand_typed)
+
+    def test_note_goes_once_marinduque_is_posted(self):
+        data = {
+            "first_name": "",
+            "last_name": "Cruz",
+            "address_province": "Marinduque",
+        }
+        form = self._form(data, province="marinduque", city_municipality="Gassan")
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.address_mode, "marinduque")
+        self.assertFalse(form.address_hand_typed)
+
+
+class OwnerFormPageTests(TestCase):
+    """admin/pets/owner_form.html: Add owner and Edit details."""
+
+    def setUp(self):
+        _admin(self)
+        self.add = reverse("admin_owner_create")
+        self.liza = _owner(first="Liza", email="liza@example.com")
+        self.ana = _owner()
+        self.edit = reverse("admin_owner_edit", args=[self.liza.pk])
+        self.edit_ana = reverse("admin_owner_edit", args=[self.ana.pk])
+
+    def _html(self, url, data=None):
+        if data is None:
+            return self.client.get(url).content.decode()
+        return self.client.post(url, data).content.decode()
+
+    def test_new_layout(self):
+        for url in (self.add, self.edit):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertTemplateUsed(response, "layouts/admin.html")
+                self.assertNotContains(response, "owner_form.css")
+                self.assertNotContains(response, "admin-page")
+                self.assertContains(response, '<div class="mx-auto max-w-3xl">')
+                self.assertContains(response, "js/admin/owner_form")
+
+    def test_add_header(self):
+        html = self._html(self.add)
+        self.assertRegex(
+            html,
+            rf'(?s)<a href="{reverse("admin_owner_list")}" [^>]*>\s*<svg.*?</svg>'
+            r"\s*Back to pet owners</a>",
+        )
+        self.assertRegex(html, r"<h1[^>]*>Add owner</h1>")
+        self.assertIn(
+            "Add an owner without booking a visit. "
+            "You can add their pets on the next page.",
+            html,
+        )
+
+    def test_edit_header(self):
+        html = self._html(self.edit)
+        detail = reverse("admin_owner_detail", args=[self.liza.pk])
+        self.assertRegex(
+            html,
+            rf'(?s)<a href="{detail}" [^>]*>\s*<svg.*?</svg>\s*Back to Liza Cruz</a>',
+        )
+        self.assertRegex(html, r"<h1[^>]*>Edit details</h1>")
+        self.assertIn('<p class="mt-1 text-base text-gray-600">Liza Cruz</p>', html)
+
+    def test_failed_save_keeps_the_saved_name_in_the_header(self):
+        data = {
+            **OWNER_POST,
+            "first_name": "",
+            "last_name": "Reyes",
+            "email": "liza@example.com",
+        }
+        html = self._html(self.edit, data)
+        self.assertIn("Back to Liza Cruz", html)
+        self.assertIn('value="Reyes"', html)
+
+    def test_required_note_without_errors(self):
+        html = self._html(self.add)
+        self.assertIn("are required. Everything else can be added later.", html)
+        self.assertNotIn('role="alert"', html)
+
+    def test_error_summary_counts_the_fields(self):
+        User.objects.create_user(
+            username="ben", email="ben@example.com", role=User.PET_OWNER
+        )
+        cases = (
+            ({"first_name": ""}, "Please fix the item below."),
+            (
+                {"first_name": "", "email": "BEN@example.com"},
+                "Please fix the 2 items below.",
+            ),
+        )
+        for fields, title in cases:
+            with self.subTest(fields=fields):
+                html = self._html(self.add, {**OWNER_POST, **fields})
+                self.assertIn('role="alert"', html)
+                self.assertIn(title, html)
+                self.assertIn(
+                    "Nothing was saved yet. Everything you typed is still here.", html
+                )
+                self.assertNotIn("Everything else can be added later.", html)
+
+    def test_email_help_and_optional(self):
+        optional = (
+            r'(?s)for="id_email"[^>]*>\s*Email '
+            r'<span class="font-normal text-gray-600">\(optional\)</span>'
+        )
+        add = self._html(self.add)
+        self.assertIn("a link to set a password, so they can book online", add)
+        self.assertRegex(add, optional)
+
+        with_email = self._html(self.edit)
+        self.assertIn(
+            "This is the email Liza Cruz logs in with. "
+            "Change it only if they asked you to.",
+            with_email,
+        )
+        self.assertNotRegex(with_email, optional)
+
+        without = self._html(self.edit_ana)
+        self.assertIn("Adding an email lets Ana Cruz log in.", without)
+        self.assertRegex(without, optional)
+
+    def test_one_primary_button(self):
+        for url, label in ((self.add, "Add owner"), (self.edit, "Save changes")):
+            with self.subTest(label=label):
+                html = self._html(url)
+                self.assertEqual(html.count("btn-primary"), 1)
+                self.assertRegex(
+                    html,
+                    r'(?s)<button type="submit" class="btn btn-primary[^"]*">'
+                    rf"\s*<svg.*?</svg>\s*{label}</button>",
+                )
+
+    def test_add_note_only_on_add(self):
+        note = "where you can add pets or book a walk-in."
+        self.assertIn(note, self._html(self.add))
+        self.assertNotIn(note, self._html(self.edit))
+
+    def test_cancel_targets(self):
+        cancel = (
+            '<a href="{}" class="btn btn-outline w-full font-semibold sm:w-auto">'
+            "Cancel</a>"
+        )
+        self.assertIn(cancel.format(reverse("admin_owner_list")), self._html(self.add))
+        detail = reverse("admin_owner_detail", args=[self.liza.pk])
+        self.assertIn(cancel.format(detail), self._html(self.edit))
+
+    def test_photo_card_without_a_photo(self):
+        html = self._html(self.add)
+        self.assertRegex(
+            html,
+            r'(?s)<label for="id_profile_photo" class="btn btn-outline[^"]*">'
+            r"\s*<svg.*?</svg>\s*Choose a photo",
+        )
+        self.assertRegex(html, r'<input type="file" name="profile_photo"[^>]*sr-only')
+        self.assertIn("Without a photo, the initials are shown.", html)
+        self.assertNotIn("Remove the photo", html)
+        self.assertNotIn("Choose the photo again.", html)
+
+    def test_photo_card_with_a_photo(self):
+        self.liza.profile_photo.name = "owners/liza.jpg"
+        self.liza.save()
+        html = self._html(self.edit)
+        self.assertIn("Choose a new photo", html)
+        self.assertIn("Leave it as it is to keep the current photo.", html)
+        self.assertIn('name="profile_photo-clear"', html)
+        self.assertIn("Remove the photo", html)
+        self.assertNotIn("Remove the photo", self._html(self.edit_ana))
+
+    def test_remove_the_photo_clears_it(self):
+        self.liza.profile_photo.name = "owners/liza.jpg"
+        self.liza.save()
+        self.client.post(
+            self.edit,
+            {**OWNER_POST, "email": "liza@example.com", "profile_photo-clear": "on"},
+        )
+        self.liza.refresh_from_db()
+        self.assertFalse(self.liza.profile_photo)
+
+    def test_repick_line_only_after_errors(self):
+        line = "Choose the photo again. Browsers can't keep it after a problem."
+        self.assertNotIn(line, self._html(self.add))
+        self.assertIn(line, self._html(self.add, {**OWNER_POST, "first_name": ""}))
+
+    def test_address_card_marinduque_mode(self):
+        official = barangays_for("Gasan")[0]
+        self.liza.province = "Marinduque"
+        self.liza.city_municipality = "Gasan"
+        self.liza.barangay = official
+        self.liza.save()
+        html = self._html(self.edit)
+        self.assertIn('class="contents" data-address-pick', html)
+        self.assertIn('class="hidden" data-address-typed', html)
+        self.assertIn('<option value="Gasan" selected>Gasan</option>', html)
+        self.assertIn(f'<option value="{official}" selected>{official}</option>', html)
+        self.assertNotRegex(html, r'<select name="address_barangay"[^>]*disabled')
+        self.assertNotIn("typed by hand", html)
+
+    def test_address_card_hand_typed(self):
+        self.liza.province = "marinduque"
+        self.liza.city_municipality = "Gassan"
+        self.liza.save()
+        html = self._html(self.edit)
+        self.assertIn('class="hidden" data-address-pick', html)
+        self.assertIn('class="contents" data-address-typed', html)
+        self.assertIn("This address was typed by hand", html)
+        self.assertIn('value="Gassan"', html)
+
+    def test_address_card_another_province_has_no_note(self):
+        self.liza.province = "Batangas"
+        self.liza.city_municipality = "Lipa City"
+        self.liza.barangay = "Sabang"
+        self.liza.save()
+        html = self._html(self.edit)
+        self.assertIn('<option value="other" selected>Another province</option>', html)
+        self.assertIn('class="hidden" data-address-pick', html)
+        self.assertIn('class="contents" data-address-typed', html)
+        self.assertIn('value="Lipa City"', html)
+        self.assertNotIn("typed by hand", html)
+
+    def test_add_page_opens_on_marinduque_with_nothing_picked(self):
+        html = self._html(self.add)
+        self.assertIn('<option value="Marinduque" selected>Marinduque</option>', html)
+        self.assertIn('<option value="other">Another province</option>', html)
+        self.assertRegex(html, r'<select name="address_barangay"[^>]*disabled')
+        self.assertIn("The list fills in after you choose the town.", html)
+        self.assertIn("Choose the town first", html)
+
+    def test_town_select_loads_the_barangays_over_htmx(self):
+        html = self._html(self.add)
+        select = re.search(r'<select name="address_town"[^>]*>', html).group(0)
+        self.assertIn(f'hx-get="{reverse("admin_address_barangays")}"', select)
+        self.assertIn('hx-trigger="change"', select)
+        self.assertIn('hx-target="#id_address_barangay"', select)
+        self.assertIn('hx-swap="innerHTML"', select)
+        self.assertIn('hx-include="this"', select)
+
+    def test_rerender_keeps_the_mode_and_the_posted_values(self):
+        official = barangays_for("Boac")[1]
+        html = self._html(
+            self.add,
+            {**OWNER_POST, "first_name": "", "address_barangay": official},
+        )
+        self.assertIn('class="contents" data-address-pick', html)
+        self.assertIn('<option value="Boac" selected>Boac</option>', html)
+        self.assertIn(f'<option value="{official}" selected>{official}</option>', html)
+        barangay_select = re.search(
+            r'(?s)<select name="address_barangay".*?</select>', html
+        ).group(0)
+        self.assertEqual(
+            [v for v, _ in _options(barangay_select)[1:]], barangays_for("Boac")
+        )
+
+        data = {
+            **OWNER_POST,
+            "first_name": "",
+            "address_province": "other",
+            "province": "Batangas",
+        }
+        html = self._html(self.add, data)
+        self.assertIn('class="contents" data-address-typed', html)
+        self.assertIn('value="Batangas"', html)
+        self.assertNotIn("typed by hand", html)
+
+    def test_every_link_is_on_one_line(self):
+        for url in (self.add, self.edit, self.edit_ana):
+            with self.subTest(url=url):
+                for tag in re.findall(r"<a\b[^>]*>", self._html(url)):
+                    self.assertNotIn("\n", tag)
+
+
+class AddEmailPageTests(TestCase):
+    """admin/pets/owner_add_email.html."""
+
+    def setUp(self):
+        _admin(self)
+        self.owner = _owner()
+        self.url = reverse("admin_owner_add_email", args=[self.owner.pk])
+
+    def test_layout_and_texts(self):
+        response = self.client.get(self.url)
+        html = response.content.decode()
+        self.assertTemplateUsed(response, "layouts/admin.html")
+        self.assertNotIn("admin-page", html)
+        self.assertIn('<div class="mx-auto max-w-xl">', html)
+        self.assertIn("Back to Ana Cruz", html)
+        self.assertRegex(html, r"<h1[^>]*>Add email</h1>")
+        self.assertIn("a link to set a password. After that they can log in", html)
+        self.assertEqual(html.count("btn-primary"), 1)
+        self.assertRegex(
+            html,
+            r'(?s)<button type="submit" class="btn btn-primary[^"]*">'
+            r"\s*<svg.*?</svg>\s*Add email and send link</button>",
+        )
+        detail = reverse("admin_owner_detail", args=[self.owner.pk])
+        self.assertIn(f'<a href="{detail}" class="btn btn-outline', html)
+        for tag in re.findall(r"<a\b[^>]*>", html):
+            self.assertNotIn("\n", tag)
+
+    def test_email_already_used(self):
+        User.objects.create_user(
+            username="ben", email="ben@example.com", role=User.PET_OWNER
+        )
+        response = self.client.post(self.url, {"email": "Ben@example.com"})
+        self.assertContains(response, "This email is already used by another account.")
+        # The typed email is kept as typed, so it can be corrected
+        self.assertContains(response, 'value="Ben@example.com"')

@@ -1,0 +1,8 @@
+{# Red box above the form after a failed save: how many fields to fix (form.error_count) #}
+<div class="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-red-900" role="alert">
+  {% include "components/icon.html" with name="circle-alert" class="mt-0.5 size-6 shrink-0" %}
+  <div>
+    <p class="text-lg font-semibold">Please fix {% if form.error_count == 1 %}the item{% else %}the {{ form.error_count }} items{% endif %} below.</p>
+    <p class="mt-0.5 text-base">Nothing was saved yet. Everything you typed is still here.</p>
+  </div>
+</div>

@@ -1,0 +1,32 @@
+{% comment %}
+  Address: Province select, then the Town and Barangay dropdowns (Marinduque,
+  PSA list) or the typed fields (another province), then the street line.
+  The group not in use is hidden; owner_form.js switches them, and without
+  JavaScript both show (the <noscript> style in owner_form.html).
+  The Town select loads the Barangay options over HTMX (attributes set in
+  AdminPetOwnerForm).
+{% endcomment %}
+<section class="card" aria-labelledby="address-title" data-address>
+  <h2 id="address-title" class="text-xl font-semibold text-gray-900">Address <span class="text-base font-normal text-gray-600">(optional)</span></h2>
+  <div class="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-2">
+    {% if form.address_hand_typed %}
+      <div class="flex items-start gap-3 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-base text-yellow-900 sm:col-span-2" data-address-note>
+        {% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0" %}
+        <p>This address was typed by hand and doesn't match the list. It's kept as it is. To tidy it up, pick <b>Marinduque</b> and choose the town and barangay.</p>
+      </div>
+    {% endif %}
+    {% include "components/form_field.html" with field=form.address_province %}
+    <div class="{% if form.address_mode == 'other' %}hidden{% else %}contents{% endif %}" data-address-pick>
+      {% include "components/form_field.html" with field=form.address_town %}
+      {% include "components/form_field.html" with field=form.address_barangay %}
+    </div>
+    <div class="{% if form.address_mode == 'other' %}contents{% else %}hidden{% endif %}" data-address-typed>
+      {% include "components/form_field.html" with field=form.province %}
+      {% include "components/form_field.html" with field=form.city_municipality %}
+      {% include "components/form_field.html" with field=form.barangay %}
+    </div>
+    <div class="sm:col-span-2">
+      {% include "components/form_field.html" with field=form.address_line %}
+    </div>
+  </div>
+</section>

@@ -1,0 +1,14 @@
+{% comment %}
+  Owner form page header: back link (to the owner page when there is an
+  owner, else to the list), title and subtitle. Also used by owner_add_email.html.
+  Usage: {% include "admin/pets/owner_form_parts/header.html" with title="Edit details" subtitle=owner.full_name %}
+{% endcomment %}
+{% if owner %}
+  <a href="{% url 'admin_owner_detail' owner.pk %}" class="mb-2 inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 hover:underline">{% include "components/icon.html" with name="arrow-left" %}Back to {{ owner.full_name }}</a>
+{% else %}
+  <a href="{% url 'admin_owner_list' %}" class="mb-2 inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 hover:underline">{% include "components/icon.html" with name="arrow-left" %}Back to pet owners</a>
+{% endif %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-gray-900">{{ title }}</h1>
+  <p class="mt-1 text-base text-gray-600">{{ subtitle }}</p>
+</div>

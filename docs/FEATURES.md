@@ -148,6 +148,7 @@ Phase 7 — Dashboards & Polish
 | Add owner without booking a visit (owners list; no pet, no appointment; set-password link sent if an email is given) | `complete` |
 | Resend the set-password link: "Send the link again" on the owner page, asks first (owner has an email and has never set up the account; Google sign-ups count as set up) | `complete` |
 | Edit pet owner details | `complete` |
+| Address: Marinduque towns and barangays from dropdowns (PSA list); other provinces typed (Add owner and Edit details; owner-side forms and the walk-in New owner page still typed) | `complete` |
 | Archive pet owner account (soft delete; asks first, and warns about visits still to come, which archiving doesn't cancel) | `complete` |
 | Restore archived pet owner account (asks first) | `complete` |
 | View all registered pets | `complete` |

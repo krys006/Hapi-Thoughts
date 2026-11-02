@@ -89,6 +89,12 @@ urlpatterns = [
         views.admin_owner_restore,
         name="admin_owner_restore",
     ),
+    # HTMX: the owner form's Barangay options for a Marinduque town
+    path(
+        "admin/pets/address/barangays/",
+        views.admin_address_barangays,
+        name="admin_address_barangays",
+    ),
     # --- Admin: Pets ---
     path(
         "admin/pets/",

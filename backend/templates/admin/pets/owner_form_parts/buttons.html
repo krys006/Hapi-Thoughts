@@ -1,0 +1,13 @@
+{% comment %}
+  Form buttons: Cancel (outline link) and the page's one primary button,
+  with an optional info note at the left. Below sm both are full width,
+  the primary on top. Also used by owner_add_email.html.
+  Usage: {% include "admin/pets/owner_form_parts/buttons.html" with cancel_url=cancel_url label="Save changes" icon="check" note="" %}
+{% endcomment %}
+<div class="flex flex-col-reverse gap-3 border-t border-gray-200 pt-6 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+  {% if note %}
+    <p class="flex items-start gap-2 text-sm text-gray-700 sm:mr-auto">{% include "components/icon.html" with name="info" class="mt-0.5 size-4 shrink-0" %}<span>{{ note }}</span></p>
+  {% endif %}
+  <a href="{{ cancel_url }}" class="btn btn-outline w-full font-semibold sm:w-auto">Cancel</a>
+  <button type="submit" class="btn btn-primary w-full font-semibold sm:w-auto">{% include "components/icon.html" with name=icon %}{{ label }}</button>
+</div>

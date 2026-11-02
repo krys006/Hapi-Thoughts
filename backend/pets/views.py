@@ -1,5 +1,6 @@
 # pets/views.py
 
+import copy
 import logging
 
 from django.contrib import messages
@@ -30,6 +31,7 @@ from .models import (
 )
 
 from .utils import (
+    barangay_choices,
     create_owner,
     owner_account_state,
     owner_detail_context,
@@ -690,6 +692,25 @@ def admin_owner_create(request):
     )
 
 
+@login_required
+def admin_address_barangays(request):
+    """
+    HTMX: the Barangay <option> list for ?town= (the owner form's Town
+    select sends its own value as ?address_town=, which works too).
+    A plain GET gets the same partial.
+    """
+    guard = _require_admin(request)
+    if guard:
+        return guard
+
+    town = request.GET.get("town", request.GET.get("address_town", ""))
+    return render(
+        request,
+        "admin/pets/_barangay_options.html",
+        {"options": barangay_choices(town)},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Admin — Edit Pet Owner
 # ---------------------------------------------------------------------------
@@ -726,6 +747,10 @@ def admin_owner_edit(request, pk):
     if refused:
         return refused
 
+    # A failed POST writes the typed values onto the form's instance; the
+    # header, Cancel link and photo show the saved owner from this copy
+    saved_owner = copy.copy(owner)
+
     if request.method == "POST":
         form = AdminPetOwnerForm(
             request.POST,
@@ -752,9 +777,9 @@ def admin_owner_edit(request, pk):
         "admin/pets/owner_form.html",
         {
             "form": form,
-            "owner": owner,
-            "form_title": f"Edit {owner.full_name}",
-            "submit_label": "Save Changes",
+            "owner": saved_owner,
+            "form_title": "Edit details",
+            "submit_label": "Save changes",
         },
     )
 

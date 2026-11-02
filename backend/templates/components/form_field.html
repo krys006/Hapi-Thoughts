@@ -3,6 +3,7 @@
   Usage: {% include "components/form_field.html" with field=form.email %}
   Styling of the control comes from the .form-field rule in input.css,
   so forms.py never needs Tailwind classes.
+  optional=True: adds a gray "(optional)" after the label.
 {% endcomment %}
 {% if field.is_hidden %}
   {{ field }}
@@ -19,7 +20,7 @@
 {% else %}
   <div class="form-field space-y-1.5{% if field.errors %} has-error{% endif %}">
     <label for="{{ field.id_for_label }}" class="block text-base font-medium text-gray-800">
-      {{ field.label }}{% if field.field.required %} <span class="text-red-700" aria-hidden="true">*</span>{% endif %}
+      {{ field.label }}{% if field.field.required %} <span class="text-red-700" aria-hidden="true">*</span>{% endif %}{% if optional %} <span class="font-normal text-gray-600">(optional)</span>{% endif %}
     </label>
     {{ field }}
     {% if field.help_text %}<p class="text-sm text-gray-600">{{ field.help_text }}</p>{% endif %}
