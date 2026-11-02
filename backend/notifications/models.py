@@ -16,6 +16,7 @@ class Notification(models.Model):
     VACCINATION_REMINDER = "vaccination_reminder"
     FOLLOWUP_REMINDER = "followup_reminder"
     EMAIL_FAILED = "email_failed"
+    PET_DELETION_ANSWERED = "pet_deletion_answered"
 
     TYPE_CHOICES = [
         (APPOINTMENT_REQUESTED, "Appointment Requested"),
@@ -27,6 +28,7 @@ class Notification(models.Model):
         (VACCINATION_REMINDER, "Vaccination Reminder"),
         (FOLLOWUP_REMINDER, "Follow-up Reminder"),
         (EMAIL_FAILED, "Email Failed"),
+        (PET_DELETION_ANSWERED, "Pet deletion request answered"),
     ]
 
     # --- Relationships ---

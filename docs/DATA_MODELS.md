@@ -580,6 +580,7 @@ BILLING_GENERATED = 'billing_generated'
 VACCINATION_REMINDER = 'vaccination_reminder'
 FOLLOWUP_REMINDER = 'followup_reminder'
 EMAIL_FAILED = 'email_failed'
+PET_DELETION_ANSWERED = 'pet_deletion_answered'
 ```
 
 **Rules:**
