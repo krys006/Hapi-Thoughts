@@ -30,7 +30,6 @@ from dashboard.utils import (
     month_cells,
     month_day_counts,
     pending_requests,
-    recent_activity,
     resolve_month,
     resolve_picked,
     slot_minutes,
@@ -878,7 +877,7 @@ class CalendarEndpointTests(ShellTestBase):
         self.assertEqual(response.status_code, 403)
 
 
-# ─── Dashboard v5 schedule, Needs approval, Recent activity (batch D2) ────────
+# ─── Dashboard v5 schedule and Needs approval (batch D2) ──────────────────────
 
 # Thursday, Nov 5, 2026: a picked day inside the calendar range.
 PICKED_DAY = date(2026, 11, 5)
@@ -1057,64 +1056,6 @@ class PendingRequestsTests(DashboardV5TestBase):
         self.assertEqual(html.split(), ["past", "ok", "ok"])
 
 
-class RecentActivityTests(DashboardV5TestBase):
-
-    def _note(self, kind, title="Other", **related):
-        return Notification.objects.create(
-            recipient=self.admin,
-            notification_type=kind,
-            title=title,
-            message="Test",
-            **related,
-        )
-
-    def test_only_own_three_newest_first(self):
-        notes = [self._note(Notification.APPOINTMENT_REQUESTED) for _ in range(4)]
-        # The oldest gets the newest timestamp, so created_at wins over id
-        Notification.objects.filter(pk=notes[0].pk).update(
-            created_at=timezone.now() + timedelta(hours=1)
-        )
-        self._notification(self.owner.user)
-        items = recent_activity(self.admin)
-        self.assertEqual(
-            [item["notification"] for item in items], [notes[0], notes[3], notes[2]]
-        )
-        self.assertTrue(items[0]["is_unread"])
-        self.assertEqual(items[0]["created_at"], items[0]["notification"].created_at)
-
-    def test_labels(self):
-        original = self._booking(PICKED_DAY, 9, Appointment.CANCELLED)
-        moved = self._booking(PICKED_DAY, 10, Appointment.PENDING)
-        moved.rescheduled_from = original
-        moved.save()
-        cases = (
-            (Notification.APPOINTMENT_REQUESTED, moved, "time change request"),
-            (Notification.APPOINTMENT_REQUESTED, original, "visit request"),
-            (Notification.APPOINTMENT_REQUESTED, None, "visit request"),
-            (Notification.APPOINTMENT_CANCELLED, original, "cancelled by owner"),
-            (Notification.BILLING_GENERATED, None, "Receipt ready"),
-        )
-        for kind, appointment, expected in cases:
-            with self.subTest(kind=kind, expected=expected):
-                Notification.objects.all().delete()
-                self._note(kind, "Receipt ready", related_appointment=appointment)
-                self.assertEqual(recent_activity(self.admin)[0]["label"], expected)
-
-    def test_pet_name(self):
-        other = Pet.objects.create(owner=self.owner, name="Muning", species="Cat")
-        appointment = self._booking(PICKED_DAY, 9, Appointment.PENDING)
-        cases = (
-            ({"related_pet": other, "related_appointment": appointment}, "Muning"),
-            ({"related_appointment": appointment}, "Bantay"),
-            ({}, None),
-        )
-        for related, expected in cases:
-            with self.subTest(expected=expected):
-                Notification.objects.all().delete()
-                self._note(Notification.APPOINTMENT_REQUESTED, **related)
-                self.assertEqual(recent_activity(self.admin)[0]["pet_name"], expected)
-
-
 @mock.patch("django.utils.timezone.now", return_value=CAL_NOW)
 class DayEndpointTests(DashboardV5TestBase):
     """admin_dashboard_day with "now" at noon on Mon, Nov 2, 2026 (Manila)."""
@@ -1196,7 +1137,7 @@ class FullPageDayParamTests(DashboardV5TestBase):
         self._notification(self.admin)
         response = self.client.get(reverse("admin_dashboard"))
         self.assertEqual(response.context["pending_requests"], [pending])
-        self.assertEqual(len(response.context["recent_activity"]), 1)
+        self.assertNotIn("recent_activity", response.context)
 
     def test_report_query_count(self, _now):
         """Prints the query count of one full page load (reported, not asserted)."""
@@ -1449,56 +1390,20 @@ class DashboardMarkupTests(DashboardV5TestBase):
         self.assertIn('<section id="day-schedule"', html)
         self.assertIn('hx-swap-oob="outerHTML"', self._calendar(html))
 
-    # Recent activity
+    # Recent activity (removed in D5)
 
-    def test_recent_activity_rows(self, _now):
-        moved_from = self._booking(PICKED_DAY, 9, Appointment.CANCELLED)
-        moved = self._booking(PICKED_DAY, 10, Appointment.PENDING)
-        moved.rescheduled_from = moved_from
-        moved.save()
-        # Oldest first; each one 10 minutes after the one before
-        kinds = (
-            (Notification.APPOINTMENT_REQUESTED, moved_from, True),
-            (Notification.APPOINTMENT_REQUESTED, moved, False),
-            (Notification.APPOINTMENT_CANCELLED, moved_from, True),
-            (Notification.APPOINTMENT_REQUESTED, moved_from, False),
+    def test_dashboard_has_no_recent_activity(self, _now):
+        self._notification(self.admin)
+        html = self._html()
+        self.assertNotIn("Recent activity", html)
+        self.assertNotIn("View all", html)
+        button = re.search(r'<button [^>]*id="bell-button".*?</button>', html, re.S)
+        self.assertIsNotNone(button)
+        self.assertIn("Notifications</span>", button.group(0))
+        self.assertRegex(
+            button.group(0),
+            r'<span id="bell-count" class="rounded-full[^"]*">1 new</span>',
         )
-        notes = []
-        for n, (kind, appointment, is_read) in enumerate(kinds):
-            note = Notification.objects.create(
-                recipient=self.admin,
-                notification_type=kind,
-                title="Test",
-                message="Test",
-                related_appointment=appointment,
-                is_read=is_read,
-            )
-            Notification.objects.filter(pk=note.pk).update(
-                created_at=MARKUP_NOW - timedelta(minutes=10 * (4 - n))
-            )
-            notes.append(note)
-        card = _part(self._html(), 'id="recent-activity-title"')
-        rows = re.findall(r"<li><a .*?</a></li>", card, re.S)
-        self.assertEqual(len(rows), 3)
-        expected = (
-            (notes[3], "visit request", True),
-            (notes[2], "cancelled by owner", False),
-            (notes[1], "time change request", True),
-        )
-        for row, (note, label, unread) in zip(rows, expected):
-            with self.subTest(label=label):
-                url = reverse("notification_open", args=[note.pk])
-                self.assertIn(f'<a href="{url}"', row)
-                self.assertIn(
-                    f'<span class="font-semibold">Bantay</span> · {label}', row
-                )
-                self.assertEqual(" · New</span>" in row, unread)
-                self.assertEqual("Unread: " in row, unread)
-        self.assertIn(">View all</button>", card)
-
-    def test_no_notifications(self, _now):
-        card = _part(self._html(), 'id="recent-activity-title"')
-        self.assertIn("No notifications yet.", card)
 
     # Top bar
 

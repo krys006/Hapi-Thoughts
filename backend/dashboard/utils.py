@@ -2,8 +2,8 @@
 
 Every helper takes `today` (and `now` where the time matters) as an
 argument and never reads the clock, so tests can pass any date. The
-calendar helpers are pure except month_day_counts; the schedule, Needs
-approval and Recent activity helpers query the database.
+calendar helpers are pure except month_day_counts; the schedule and Needs
+approval helpers query the database.
 """
 
 import calendar
@@ -16,7 +16,6 @@ from django.utils.dateformat import format as date_format
 
 from appointments.models import Appointment
 from dashboard.templatetags.friendly_dates import long_date_on
-from notifications.models import Notification
 
 # Months shown before today's month in the month dropdown.
 CALENDAR_MONTHS_BACK = 3
@@ -27,7 +26,6 @@ DEFAULT_BOOKING_LIMIT_DAYS = 30
 DEFAULT_SLOT_MINUTES = 60
 # Rows shown for a picked day; today shows every visit.
 PICKED_DAY_ROWS = 3
-RECENT_ACTIVITY_LIMIT = 3
 
 # Counted as visits (violet pill). PENDING counts as waiting (yellow pill).
 # CANCELLED never counts.
@@ -282,42 +280,3 @@ def pending_requests():
         .select_related("pet", "owner", "service")
         .order_by("date", "time", "id")
     )
-
-
-def _activity_label(notification):
-    kind = notification.notification_type
-    if kind == Notification.APPOINTMENT_REQUESTED:
-        appointment = notification.related_appointment
-        if appointment and appointment.rescheduled_from_id:
-            return "time change request"
-        return "visit request"
-    if kind == Notification.APPOINTMENT_CANCELLED:
-        return "cancelled by owner"
-    return notification.title
-
-
-def _activity_pet_name(notification):
-    if notification.related_pet:
-        return notification.related_pet.name
-    if notification.related_appointment:
-        return notification.related_appointment.pet.name
-    return None
-
-
-def recent_activity(user, limit=RECENT_ACTIVITY_LIMIT):
-    """The user's newest notifications as dicts for the Recent activity card."""
-    notifications = (
-        Notification.objects.filter(recipient=user)
-        .select_related("related_pet", "related_appointment__pet")
-        .order_by("-created_at", "-id")[:limit]
-    )
-    return [
-        {
-            "notification": notification,
-            "pet_name": _activity_pet_name(notification),
-            "label": _activity_label(notification),
-            "is_unread": not notification.is_read,
-            "created_at": notification.created_at,
-        }
-        for notification in notifications
-    ]

@@ -12,7 +12,7 @@
 {% block content %}
   {% include "admin/dashboard/_stats.html" %}
 
-  {# Left: requests and the day's schedule. Right: the calendar that switches the schedule, then recent activity. Stacks below lg. #}
+  {# Left: requests and the day's schedule. Right: the calendar that switches the schedule. Stacks below lg. #}
   <div class="grid gap-6 lg:grid-cols-3 lg:items-start">
     <div class="space-y-6 lg:col-span-2">
       {% include "admin/dashboard/dashboard_parts/needs_approval.html" %}
@@ -23,7 +23,6 @@
     </div>
     <div class="min-w-0 space-y-6">
       {% include "admin/dashboard/_mini_calendar.html" %}
-      {% include "admin/dashboard/dashboard_parts/recent_activity.html" %}
     </div>
   </div>
 {% endblock %}

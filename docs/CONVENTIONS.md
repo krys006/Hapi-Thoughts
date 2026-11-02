@@ -167,8 +167,7 @@ templates/
 │   │   ├── _mini_calendar.html
 │   │   ├── _day_response.html        ← day endpoint: schedule + calendar out-of-band
 │   │   └── dashboard_parts/          ← Includes for index.html (not HTMX partials, so no `_`)
-│   │       ├── needs_approval.html
-│   │       └── recent_activity.html
+│   │       └── needs_approval.html
 │   ├── notifications/
 │   │   ├── _panel.html
 │   │   └── _notification_row.html

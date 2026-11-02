@@ -13,7 +13,6 @@ from dashboard.utils import (
     day_schedule,
     pending_requests,
     picked_day,
-    recent_activity,
 )
 from medical.models import MedicalRecord, Vaccination
 from notifications.models import Notification
@@ -242,7 +241,6 @@ def admin_dashboard(request):
         )
     )
     context["pending_requests"] = pending_requests()
-    context["recent_activity"] = recent_activity(request.user)
     context["greeting"] = _greeting(now)
     context["display_name"] = _admin_display_name(request.user, clinic)
 
