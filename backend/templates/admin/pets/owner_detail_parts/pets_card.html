@@ -1,0 +1,43 @@
+{% load friendly_dates %}
+{% comment %}
+  "Pets (N)": one tile per active pet (gray when the owner is archived),
+  archived pets folded into a <details>. Empty parts of the
+  "Species · Breed · age" line are left out.
+{% endcomment %}
+<section class="card" aria-labelledby="pets-title">
+  <h2 id="pets-title" class="mb-3 text-xl font-semibold">Pets <span class="font-normal text-gray-600">({{ active_pets|length }})</span></h2>
+  {% if active_pets %}
+    <ul class="grid grid-cols-1 gap-3 xl:grid-cols-2">
+      {% for pet in active_pets %}
+        <li class="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3">
+          {% include "components/pet_avatar.html" with pet=pet size="sm" muted=owner.is_archived %}
+          <div class="min-w-0 flex-1">
+            <p class="text-base font-semibold text-gray-900">{{ pet.name }}</p>
+            <p class="text-sm text-gray-700">{{ pet.species }}{% if pet.breed %} · {{ pet.breed }}{% endif %}{% if pet.date_of_birth %} · {{ pet.age }}{% endif %}</p>
+          </div>
+          <a href="{% url 'admin_pet_detail' pet.pk %}" class="inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-violet-300 bg-violet-50 px-4 text-base font-semibold text-violet-800 hover:border-violet-400 hover:bg-violet-100">Open<span class="sr-only"> {{ pet.name }}</span>{% include "components/icon.html" with name="arrow-right" %}</a>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="text-base text-gray-600">No pets yet.</p>
+  {% endif %}
+
+  {% if archived_pets %}
+    <details class="mt-4 rounded-xl border border-gray-200">
+      <summary class="flex min-h-11 cursor-pointer items-center gap-2 px-4 text-base font-medium text-gray-800">{% include "components/icon.html" with name="archive" class="size-5 shrink-0 text-gray-600" %}Archived pets ({{ archived_pets|length }})</summary>
+      <ul class="border-t border-gray-100 px-4 py-2">
+        {% for pet in archived_pets %}
+          <li class="flex items-center gap-3 py-2">
+            {% include "components/pet_avatar.html" with pet=pet size="sm" muted=True %}
+            <div class="min-w-0 flex-1">
+              <p class="text-base font-semibold text-gray-900">{{ pet.name }}</p>
+              <p class="text-sm text-gray-700">{{ pet.species }}{% if pet.breed %} · {{ pet.breed }}{% endif %}{% if pet.archived_at %} · Archived {{ pet.archived_at|friendly_date:"mid" }}{% endif %}</p>
+            </div>
+            <a href="{% url 'admin_pet_detail' pet.pk %}" class="inline-flex min-h-11 items-center px-2 text-base font-medium text-blue-600 underline underline-offset-2">Open<span class="sr-only"> {{ pet.name }}</span></a>
+          </li>
+        {% endfor %}
+      </ul>
+    </details>
+  {% endif %}
+</section>

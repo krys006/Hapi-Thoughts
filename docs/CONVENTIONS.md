@@ -110,7 +110,7 @@ Never use per-app template folders.
 - `base_dashboard.html` is the base for logged-in owner pages (header,
   bell, sidebar, flash messages). No admin page uses it.
 - `layouts/admin.html` is the base for every admin page (see §10). Pages
-  not redesigned yet (e.g. `admin/pets/owner_detail.html`) import their old
+  not redesigned yet (e.g. `admin/pets/pet_detail.html`) import their old
   `static/css/admin/` file in the `legacy_css` block, inside the `legacy`
   cascade layer.
 - `layouts/auth.html` is the base for the admin login: a standalone card
@@ -225,6 +225,18 @@ templates/
 │   │   │   ├── row.html
 │   │   │   └── empty.html
 │   │   ├── owner_detail.html
+│   │   ├── owner_detail_parts/       ← Includes for owner_detail.html (not HTMX partials, so no `_`; dialogs reuse appointments' detail_parts/dialog_buttons.html)
+│   │   │   ├── header.html           ← back link, avatar lg, name + Archived pill, "Pet owner since"
+│   │   │   ├── deletion_banner.html  ← one yellow banner per pending deletion request
+│   │   │   ├── archived_banner.html
+│   │   │   ├── contact_card.html
+│   │   │   ├── pets_card.html        ← pet tiles + "Archived pets (N)" <details>
+│   │   │   ├── visits_card.html      ← 5 recent visits + "See all visits for …"
+│   │   │   ├── actions_card.html
+│   │   │   ├── account_card.html     ← one message per account_state
+│   │   │   ├── archive_dialog.html
+│   │   │   ├── restore_dialog.html
+│   │   │   └── resend_dialog.html
 │   │   ├── owner_form.html
 │   │   ├── owner_add_email.html
 │   │   ├── pets_list.html
@@ -332,7 +344,7 @@ static/
 > far: `css/admin/appointments_list.css`, `css/admin/appointment_detail.css`
 > and `js/admin/appointments_list.js` (Slice 3b B5), `css/admin/walkin_create.css`
 > (Slice 3c-2), `js/admin/owners_list.js` and `css/admin/owners_list.css`
-> (Slice 4a-2). Other old files still
+> (Slice 4a-2), `css/admin/owner_detail.css` (Slice 4a-3). Other old files still
 > mention them in comments; those comments go when their own pages migrate.
 
 ### Media files (user uploads)
@@ -856,9 +868,9 @@ The main admin user is an elderly vet. Every migrated admin page follows these:
 ### Components (`templates/components/`)
 | Component | Usage |
 |---|---|
-| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 47 icons (`calendar-check` added in dashboard v5, `archive` in Slice 4a-2). To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
-| `pet_avatar.html` | `{% include "components/pet_avatar.html" with pet=appointment.pet size="lg" %}`. `lg` 64px (`size-16 rounded-2xl`), `sm` 40px (`size-10 rounded-xl`). The pet's photo, or a violet tile with the `species_icon` icon (dog, cat, rabbit, bird, paw-print) at stroke 1.5, labelled "No photo of {name} yet". |
-| `owner_avatar.html` | `{% include "components/owner_avatar.html" with owner=appointment.owner size="xs" %}`. Circle; `sm` 40px, `xs` 32px. The profile photo, or initials (one letter when the last name is blank). Optional `muted=True`: gray initials tile (`bg-gray-100 text-gray-700 ring-gray-300`) for archived owners (owners list, Archived tab). Old owner templates still draw initials inline until Slice 4. |
+| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 52 icons (`calendar-check` added in dashboard v5, `archive` in Slice 4a-2, `map-pin`, `link`, `pencil`, `rotate-ccw`, `send` in Slice 4a-3). To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
+| `pet_avatar.html` | `{% include "components/pet_avatar.html" with pet=appointment.pet size="lg" %}`. `lg` 64px (`size-16 rounded-2xl`), `sm` 40px (`size-10 rounded-xl`). The pet's photo, or a violet tile with the `species_icon` icon (dog, cat, rabbit, bird, paw-print) at stroke 1.5, labelled "No photo of {name} yet". Optional `muted=True`: gray tile (`bg-gray-100 text-gray-600 ring-gray-300`) for archived pets, or every pet of an archived owner (owner page); a photo is unchanged. |
+| `owner_avatar.html` | `{% include "components/owner_avatar.html" with owner=appointment.owner size="xs" %}`. Circle; `lg` 64px (`size-16`, `text-xl` initials; owner page header), `sm` 40px, `xs` 32px. The profile photo, or initials (one letter when the last name is blank). Optional `muted=True`: gray initials tile (`bg-gray-100 text-gray-700 ring-gray-300`) for archived owners (owners list Archived tab, owner page). |
 | `form_field.html` | `{% include "components/form_field.html" with field=form.email %}`. Label, control, help text, errors (red text with the `triangle-alert` icon). Needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple field uses it. |
 | `status_badge.html` | `{% include "components/status_badge.html" with status=obj.status label=obj.get_status_display %}` |
 | `flash_messages.html` | Rendered once by the admin layout; pages must not loop over `messages`. |

@@ -29,7 +29,12 @@ from .models import (
     PetOwner,
 )
 
-from .utils import create_owner, owner_detail_context, owner_list_context
+from .utils import (
+    create_owner,
+    owner_account_state,
+    owner_detail_context,
+    owner_list_context,
+)
 
 from accounts.utils import (
     WALKIN_NO_EMAIL_TAKEN,
@@ -891,7 +896,7 @@ def admin_owner_resend_link(request, pk):
         return redirect("admin_owner_detail", pk=owner.pk)
 
     user = owner.user
-    if owner.is_archived or not user.email or user.has_usable_password():
+    if owner_account_state(owner) != "unclaimed":
         messages.info(request, "This owner doesn't need a new link.")
     elif _send_claim_link(request, user):
         messages.success(request, f"Sent the link again to {user.email}.")

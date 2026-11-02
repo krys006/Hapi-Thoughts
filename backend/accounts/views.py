@@ -303,7 +303,7 @@ def _claim_email_failed_message(email):
     return (
         f"The claim email to {email} could not be sent. The owner and pet are "
         "saved, but the owner can't set a password until they get this email. "
-        "There is no resend button yet."
+        "Use Send the link again on the owner page later."
     )
 
 

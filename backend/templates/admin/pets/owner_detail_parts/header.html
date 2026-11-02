@@ -1,0 +1,15 @@
+{% load friendly_dates %}
+{# Page header: back link, avatar (gray when archived), name with the Archived pill, "Pet owner since" #}
+<a href="{% url 'admin_owner_list' %}" class="mb-2 inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 hover:underline">{% include "components/icon.html" with name="arrow-left" %}Back to pet owners</a>
+<div class="mb-5 flex flex-wrap items-center gap-4">
+  {% include "components/owner_avatar.html" with owner=owner size="lg" muted=owner.is_archived %}
+  <div class="min-w-0">
+    <div class="flex flex-wrap items-center gap-3">
+      <h1 class="text-2xl font-bold text-gray-900">{{ owner.full_name }}</h1>
+      {% if owner.is_archived %}
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-200 px-3 py-1 text-sm font-semibold text-gray-800">{% include "components/icon.html" with name="archive" class="size-4 shrink-0" %}Archived</span>
+      {% endif %}
+    </div>
+    <p class="mt-1 text-base text-gray-600">Pet owner since {{ owner.date_registered|friendly_date:"mid" }}</p>
+  </div>
+</div>

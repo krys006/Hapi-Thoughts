@@ -2,6 +2,7 @@
 
 from urllib.parse import urlencode
 
+from allauth.socialaccount.models import SocialAccount
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, Prefetch, Q, Value
@@ -98,16 +99,24 @@ def owner_list_context(params):
 # ── Admin owner detail ───────────────────────────────────────────────────────
 
 
-def account_state(owner):
+def owner_account_state(owner):
     """
     "archived", "no_email" (walk-in without an email), "unclaimed" (email
-    but no password set yet) or "active".
+    but the account was never set up) or "active".
+
+    Google sign-ups have no usable password, so "unclaimed" also needs no
+    login yet and no linked social account.
     """
+    user = owner.user
     if owner.is_archived:
         return "archived"
-    if not owner.user.email:
+    if not user.email:
         return "no_email"
-    if not owner.user.has_usable_password():
+    if (
+        not user.has_usable_password()
+        and user.last_login is None
+        and not SocialAccount.objects.filter(user=user).exists()
+    ):
         return "unclaimed"
     return "active"
 
@@ -121,7 +130,7 @@ def owner_detail_context(owner, today):
             date__gte=today,
         ).order_by("date", "time", "pk")
     )
-    state = account_state(owner)
+    state = owner_account_state(owner)
     return {
         "recent_visits": visits.order_by("-date", "-time", "-pk")[:RECENT_VISITS_LIMIT],
         # The appointments list searched by this owner's name, on "All"

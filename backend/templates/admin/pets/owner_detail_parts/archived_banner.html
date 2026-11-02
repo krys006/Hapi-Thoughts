@@ -1,0 +1,8 @@
+{% load friendly_dates %}
+<div class="mb-6 flex items-start gap-3 rounded-xl border border-gray-300 bg-gray-100 px-5 py-4 text-gray-900">
+  {% include "components/icon.html" with name="archive" class="mt-0.5 size-6 shrink-0" %}
+  <div class="min-w-0 flex-1">
+    <p class="text-lg font-semibold">This owner is archived</p>
+    <p class="mt-0.5 text-base">Archived on {{ owner.archived_at|friendly_date:"mid" }}. {{ owner.full_name }} can't log in, and you can't book visits for them. Their pets, visits and records are kept.</p>
+  </div>
+</div>
