@@ -1,0 +1,13 @@
+{% comment %}
+  Heading above the list when not searching: the open tab's name and
+  count, and its sort order on the right.
+{% endcomment %}
+<div class="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+  {% if active_tab == "archived" %}
+    <h2 class="text-lg font-semibold text-gray-900">Archived owners <span class="font-normal text-gray-600">({{ archived_count }})</span></h2>
+    <p class="text-sm text-gray-600">Newest first</p>
+  {% else %}
+    <h2 class="text-lg font-semibold text-gray-900">Active owners <span class="font-normal text-gray-600">({{ active_count }})</span></h2>
+    <p class="text-sm text-gray-600">A to Z by first name</p>
+  {% endif %}
+</div>

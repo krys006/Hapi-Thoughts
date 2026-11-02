@@ -1,4 +1,6 @@
-from datetime import time, timedelta
+import re
+from datetime import datetime, time, timedelta
+from datetime import timezone as dt_timezone
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -217,6 +219,16 @@ class OwnerAvatarTests(SimpleTestCase):
         self.assertIn("size-10 text-base", self._avatar(owner, "sm"))
         self.assertIn("size-8 text-sm", self._avatar(owner, "xs"))
 
+    def test_muted_is_a_gray_tile(self):
+        html = render_to_string(
+            "components/owner_avatar.html",
+            {"owner": PetOwner(first_name="Ana", last_name="Cruz"), "muted": True},
+        )
+        self.assertIn(">AC</span>", html)
+        self.assertIn("bg-gray-100 font-semibold", html)
+        self.assertIn("text-gray-700 ring-1 ring-gray-300", html)
+        self.assertNotIn("violet", html)
+
 
 class AdminOwnerEmailFormTests(TestCase):
     """AdminOwnerEmailForm (add an email to a walk-in owner) and its view."""
@@ -321,9 +333,9 @@ class AdminPetOwnerFormEmailTests(TestCase):
         self.assertEqual(self.user.email, "ana@example.com")
 
 
-class AdminOwnerListWalkInButtonTests(TestCase):
-    """The owners list's "+ Register Walk-in Client" is a plain link to the
-    walk-in New owner page (the owners_list.js modal was removed in 3c-2)."""
+class AdminOwnerListAddOwnerButtonTests(TestCase):
+    """The owners list's only primary button is Add owner (Slice 4a-2).
+    "+ Register Walk-in Client" is gone; walk-ins start on Appointments."""
 
     def setUp(self):
         admin = User.objects.create_user(
@@ -335,14 +347,16 @@ class AdminOwnerListWalkInButtonTests(TestCase):
         PetOwner.objects.create(user=user, first_name="Ana", last_name="Cruz")
         self.client.force_login(admin)
 
-    def test_button_links_to_the_new_owner_page(self):
+    def test_add_owner_is_the_only_primary_button(self):
         response = self.client.get(reverse("admin_owner_list"))
-        self.assertContains(
-            response,
-            f'<a href="{reverse("admin_walkin_create")}" class="btn-primary">'
-            "+ Register Walk-in Client</a>",
-            html=True,
+        html = response.content.decode()
+        self.assertEqual(html.count("btn-primary"), 1)
+        self.assertRegex(
+            html,
+            rf'(?s)<a href="{reverse("admin_owner_create")}" class="btn btn-primary">'
+            r"\s*<svg[^>]*>.*?</svg>\s*Add owner</a>",
         )
+        self.assertNotContains(response, "Register Walk-in Client")
 
 
 class BookWalkInLinkTests(TestCase):
@@ -872,8 +886,7 @@ class OwnerListViewTests(TestCase):
     def test_query_count_is_flat(self):
         """The list's own queries don't grow with the number of owners.
         Measured on owner_list_context plus each row's email, pet count and
-        pets: the old template's {{ owner.pets.count }} still costs one
-        query per row until the 4a-3 redesign."""
+        pets; OwnerListPageTests checks the whole page."""
 
         def run():
             context = owner_list_context(QueryDict("q=test"))
@@ -891,6 +904,287 @@ class OwnerListViewTests(TestCase):
         make(27, 3)
         with self.assertNumQueries(len(small)):
             run()
+
+
+class OwnerListPageTests(TestCase):
+    """admin/pets/owners_list.html on the new layout (Slice 4a-2)."""
+
+    def setUp(self):
+        _admin(self)
+        self.url = reverse("admin_owner_list")
+
+    def _get(self, **params):
+        return self.client.get(self.url, params)
+
+    def _html(self, **params):
+        return self._get(**params).content.decode()
+
+    def _many(self, count, start=0):
+        for i in range(start, start + count):
+            owner = _owner(
+                first=f"Owner{i:02d}", last="Test", email=f"o{i}@example.com"
+            )
+            Pet.objects.create(owner=owner, name=f"Pet{i:02d}", species="Dog")
+
+    def test_new_layout_without_old_files(self):
+        _owner()
+        response = self._get()
+        self.assertTemplateUsed(response, "layouts/admin.html")
+        for old in ("owners_list.css", "owner_detail.css", "owners_list.js"):
+            with self.subTest(file=old):
+                self.assertNotContains(response, old)
+        self.assertNotContains(response, "Find a pet or owner")
+        self.assertContains(response, "<title>Pet owners — Hapi Vet Admin</title>")
+        self.assertContains(response, "Everyone who brings a pet to the clinic.")
+
+    def test_search_form_in_top_bar_and_page_body(self):
+        html = self._html(q="cruz")
+        self.assertEqual(html.count('role="search"'), 2)
+        for prefix, form_class in (
+            ("topbar", "hidden min-w-0 flex-1 items-center gap-3 md:flex"),
+            ("page", "mb-4 flex items-center gap-3 md:hidden"),
+        ):
+            with self.subTest(prefix=prefix):
+                self.assertIn(
+                    f'<form method="get" action="{self.url}" class="{form_class}" '
+                    'role="search">',
+                    html,
+                )
+                self.assertIn(
+                    f'<label for="{prefix}-owner-search" class="sr-only">'
+                    "Search pet owners</label>",
+                    html,
+                )
+                self.assertIn(
+                    f'<input id="{prefix}-owner-search" type="search" name="q" '
+                    'value="cruz" placeholder="Search pet owners: name, phone or '
+                    'email" class="input pl-10">',
+                    html,
+                )
+        self.assertNotIn('name="status"', html)
+
+    def test_search_form_keeps_the_archived_tab(self):
+        html = self._html(status="archived")
+        self.assertEqual(
+            html.count('<input type="hidden" name="status" value="archived">'), 2
+        )
+
+    def test_tabs_counts_and_current(self):
+        _owner()
+        _owner(first="Ben", last="Santos", email="ben@example.com")
+        _archive(_owner(first="Cora", last="Lim", email="cora@example.com"))
+        html = self._html()
+        self.assertRegex(
+            html,
+            rf'<a href="{self.url}\?status=active" [^>]*aria-current="page">'
+            r"Active<span [^>]*>2</span></a>",
+        )
+        self.assertRegex(
+            html,
+            rf'<a href="{self.url}\?status=archived" class="[^"]*">'
+            r"Archived<span [^>]*>1</span></a>",
+        )
+        archived = self._html(status="archived")
+        self.assertRegex(
+            archived,
+            rf'<a href="{self.url}\?status=archived" [^>]*aria-current="page">',
+        )
+        # One current tab (the sidebar's Pet owners link has its own)
+        tabs = re.search(
+            r'(?s)<nav [^>]*aria-label="Filter by status">.*?</nav>', archived
+        ).group()
+        self.assertEqual(tabs.count('aria-current="page"'), 1)
+
+    def test_tab_links_keep_q_and_drop_page(self):
+        self._many(30)
+        html = self._html(q="owner test", page=2)
+        self.assertIn(f'href="{self.url}?status=active&amp;q=owner%20test"', html)
+        self.assertIn(f'href="{self.url}?status=archived&amp;q=owner%20test"', html)
+        tab_hrefs = re.findall(rf'href="{self.url}\?status=[^"]*"', html)
+        self.assertTrue(tab_hrefs)
+        for href in tab_hrefs:
+            self.assertNotIn("page=", href)
+
+    def test_list_head_on_each_tab(self):
+        _owner()
+        _archive(_owner(first="Ben", last="Santos", email="ben@example.com"))
+        active = self._html()
+        self.assertIn(
+            'Active owners <span class="font-normal text-gray-600">(1)</span></h2>',
+            active,
+        )
+        self.assertIn("A to Z by first name", active)
+        archived = self._html(status="archived")
+        self.assertIn(
+            'Archived owners <span class="font-normal text-gray-600">(1)</span></h2>',
+            archived,
+        )
+        self.assertIn("Newest first", archived)
+        self.assertNotIn("A to Z by first name", archived)
+
+    def test_results_line_and_clear_search(self):
+        _owner()
+        _owner(first="Ana", last="Reyes", email="reyes@example.com")
+        _archive(_owner(first="Ben", last="Cruz", email="ben@example.com"))
+        cases = [
+            ({"q": "ana"}, "2 owners match", "active", "active"),
+            ({"q": "reyes"}, "1 owner matches", "active", "active"),
+            ({"q": "zzz"}, "No owner matches", "active", "active"),
+            (
+                {"q": "ben", "status": "archived"},
+                "1 owner matches",
+                "archived",
+                "archived",
+            ),
+        ]
+        for params, start, where, status in cases:
+            with self.subTest(params=params):
+                html = self._html(**params)
+                self.assertIn(
+                    f'{start} <strong class="font-semibold">“{params["q"]}”</strong> '
+                    f"in {where} owners</h2>",
+                    html,
+                )
+                self.assertRegex(
+                    html,
+                    rf'<a href="{self.url}\?status={status}" [^>]*>'
+                    r"\s*<svg[^>]*>(?s:.*?)</svg>\s*Clear search</a>",
+                )
+                self.assertNotIn("A to Z by first name", html)
+        self.assertNotIn("Clear search", self._html())
+
+    def test_row(self):
+        _owner()
+        owner = _owner(
+            first="Ben",
+            last="Santos",
+            email="ben@example.com",
+            contact_number="0917 123 4567",
+        )
+        Pet.objects.create(owner=owner, name="Muning", species="Cat")
+        Pet.objects.create(owner=owner, name="Bantay", species="Dog")
+        Pet.objects.create(owner=owner, name="Gone", species="Dog", is_archived=True)
+        html = self._html()
+        # Ana Cruz: no phone, no email, no pets
+        self.assertIn(">AC</span>", html)
+        self.assertIn('<span class="text-gray-600">No phone number</span>', html)
+        self.assertIn('<span class="text-gray-600">No email</span>', html)
+        self.assertIn("No pets yet", html)
+        # Ben Santos: contact and active pets with species icons
+        self.assertIn("0917 123 4567", html)
+        self.assertIn("ben@example.com", html)
+        self.assertRegex(
+            html,
+            r'<svg class="size-5 shrink-0 text-violet-600"[^>]*' r'stroke-width="1.5"',
+        )
+        self.assertIn("Bantay</li>", html)
+        self.assertIn("Muning</li>", html)
+        self.assertNotIn("Gone", html)
+        self.assertRegex(
+            html,
+            rf'<a href="{reverse("admin_owner_detail", args=[owner.pk])}" '
+            r'class="[^"]*border-violet-300 bg-violet-50[^"]*">Open'
+            r'<span class="sr-only"> Ben Santos</span>',
+        )
+        self.assertNotIn("Archived Today", html)
+        self.assertNotIn("ring-gray-300", html)
+
+    def test_archived_rows_have_pill_and_muted_avatar(self):
+        _archive(_owner())
+        older = _archive(_owner(first="Ben", last="Santos", email="ben@example.com"))
+        # Aug 16 2025, noon in Manila
+        PetOwner.objects.filter(pk=older.pk).update(
+            archived_at=datetime(2025, 8, 16, 4, tzinfo=dt_timezone.utc)
+        )
+        html = self._html(status="archived")
+        self.assertIn("Archived today</span>", html)
+        self.assertIn("Archived Sat, Aug 16, 2025</span>", html)
+        self.assertEqual(html.count("text-gray-700 ring-1 ring-gray-300"), 2)
+        self.assertNotIn("text-violet-700 ring-1 ring-violet-200", html)
+
+    def test_archived_note_only_on_the_archived_tab(self):
+        _owner()
+        _archive(_owner(first="Ben", last="Santos", email="ben@example.com"))
+        note = "Archived owners can't log in, and you can't book visits for them."
+        self.assertNotIn(note, self._html())
+        self.assertIn(note, self._html(status="archived"))
+
+    def test_empty_states(self):
+        def title_and_text(html):
+            match = re.search(
+                r'<p class="text-lg font-semibold text-gray-900">(.*?)</p>\s*'
+                r'<p class="mt-1 max-w-sm text-base text-gray-600">(.*?)</p>',
+                html,
+            )
+            return match.groups() if match else None
+
+        self.assertEqual(
+            title_and_text(self._html()),
+            (
+                "No pet owners yet",
+                "Owners appear here when they sign up online, or when you add "
+                "them with Add owner or a walk-in.",
+            ),
+        )
+        _owner()
+        self.assertEqual(
+            title_and_text(self._html(status="archived")),
+            ("No archived owners", "Owners you archive appear here."),
+        )
+        self.assertEqual(
+            title_and_text(self._html(q="zzz")),
+            (
+                "No owner matches “zzz”",
+                "Check the spelling, or look in the Archived tab. To add someone "
+                "new, use Add owner at the top.",
+            ),
+        )
+        self.assertEqual(
+            title_and_text(self._html(q="zzz", status="archived")),
+            (
+                "No owner matches “zzz”",
+                "Check the spelling, or look in the Active tab.",
+            ),
+        )
+        PetOwner.objects.get().archive()
+        self.assertEqual(
+            title_and_text(self._html()),
+            (
+                "No active owners",
+                "Restore one from the Archived tab, or use Add owner.",
+            ),
+        )
+
+    def test_pager_on_30_owners(self):
+        self._many(30)
+        html = self._html()
+        self.assertEqual(html.count('<li class="flex flex-col gap-3'), 25)
+        self.assertIn("Showing 1–25 of 30", html)
+        self.assertIn(
+            '<a href="?status=active&amp;page=2" class="btn btn-outline">', html
+        )
+        second = self._html(page=2)
+        self.assertEqual(second.count('<li class="flex flex-col gap-3'), 5)
+        self.assertIn("Showing 26–30 of 30", second)
+
+    def test_query_count_is_flat(self):
+        """The full page costs the same with 3 owners as with 30."""
+        self._many(3)
+        _archive(_owner(first="Old", last="One", email="old@example.com"))
+        self._get()  # warm-up: one-time lookups don't count
+        with CaptureQueriesContext(connection) as small:
+            self._get()
+        self._many(27, 3)
+        with self.assertNumQueries(len(small)):
+            self._get()
+
+    def test_every_link_is_on_one_line(self):
+        self._many(30)
+        _archive(_owner())
+        for params in ({}, {"q": "owner"}, {"status": "archived"}, {"q": "zzz"}):
+            with self.subTest(params=params):
+                for tag in re.findall(r"<a\b[^>]*>", self._html(**params)):
+                    self.assertNotIn("\n", tag)
 
 
 class OwnerDetailContextTests(TestCase):

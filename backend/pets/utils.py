@@ -88,7 +88,7 @@ def owner_list_context(params):
         "active_tab": active_tab,
         **counts,
         **paging_links(page_obj, page_query),
-        # Kept for the old template until the 4a-3 redesign
+        # Old template's keys; no template uses them since 4a-2 (tests still read them)
         "search_query": q,
         "status_filter": active_tab,
         "total_count": page_obj.paginator.count,

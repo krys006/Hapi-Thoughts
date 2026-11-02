@@ -140,7 +140,7 @@ Phase 7 — Dashboards & Polish
 ### 2.4 Pet & Owner Management (Admin)
 | Feature | Status |
 |---|---|
-| View all registered pet owners | `complete` |
+| View all registered pet owners (Active / Archived tabs; search by name, phone or email inside the open tab; 25 per page) | `complete` |
 | Search pet owners (global search) | `complete` |
 | Filter pet owners | `complete` |
 | View individual pet owner profile and their pets | `complete` |

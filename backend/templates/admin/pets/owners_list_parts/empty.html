@@ -1,0 +1,22 @@
+{% comment %}
+  Empty list, in a card: a search with no match (the results line above
+  has Clear search), no owners at all, an empty Archived tab, or an empty
+  Active tab while archived owners exist.
+{% endcomment %}
+<div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+  {% if is_searching %}
+    {% with title="No owner matches “"|add:q|add:"”" %}
+      {% if active_tab == "archived" %}
+        {% include "components/empty_state.html" with icon="search" title=title text="Check the spelling, or look in the Active tab." %}
+      {% else %}
+        {% include "components/empty_state.html" with icon="search" title=title text="Check the spelling, or look in the Archived tab. To add someone new, use Add owner at the top." %}
+      {% endif %}
+    {% endwith %}
+  {% elif not active_count and not archived_count %}
+    {% include "components/empty_state.html" with icon="users" title="No pet owners yet" text="Owners appear here when they sign up online, or when you add them with Add owner or a walk-in." %}
+  {% elif active_tab == "archived" %}
+    {% include "components/empty_state.html" with icon="archive" title="No archived owners" text="Owners you archive appear here." %}
+  {% else %}
+    {% include "components/empty_state.html" with icon="users" title="No active owners" text="Restore one from the Archived tab, or use Add owner." %}
+  {% endif %}
+</div>
