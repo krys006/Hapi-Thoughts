@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard v5 recent activity</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: "Segoe UI", system-ui, sans-serif; }
+</style>
+</head>
+<body class="bg-gray-200 text-gray-900 antialiased">
+
+<header class="sticky top-0 z-20 border-b border-gray-300 bg-white/95 px-6 py-3 backdrop-blur">
+  <div class="flex flex-wrap items-end gap-x-8 gap-y-3">
+    <div>
+      <p class="mb-1 text-sm font-semibold text-gray-700">Recent activity</p>
+      <div id="calSwitch" class="flex flex-wrap gap-2"></div>
+    </div>
+    <div>
+      <p class="mb-1 text-sm font-semibold text-gray-700">State</p>
+      <div id="stateSwitch" class="flex flex-wrap gap-2"></div>
+    </div>
+    <label class="flex min-h-11 items-center gap-2 text-base text-gray-800"><input id="foldToggle" type="checkbox" class="size-5" checked>Show screen edge</label>
+  </div>
+</header>
+
+<div class="overflow-x-auto p-6">
+  <div id="caption" class="mb-4 max-w-[1280px] space-y-2 rounded-xl border border-violet-200 bg-violet-50 p-4 text-base text-gray-800"></div>
+  <div id="stage"></div>
+  <p class="mt-3 max-w-[1280px] text-sm text-gray-600">Layout A (compact cards). Desktop frame is 1280 px wide: a 1920×1080 screen at 150% zoom; the red dashed line is the bottom of your screen. "Today" is Monday, November 2, 2026, 9:40 AM. The calendar is the approved month dropdown (live). Dropdown range here: 3 months back to the last month the 30-day booking window reaches.</p>
+</div>
+
+<script>
+// ---------- Icons (Lucide 1.x shapes; the build copies them from lucide-static@1.66.0) ----------
+const P = {
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  home:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  calendarCheck:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="m9 16 2 2 4-4"/>',
+  calendarPlus:'<path d="M16 19h6"/><path d="M16 2v4"/><path d="M19 16v6"/><path d="M21 12.598V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8.5"/><path d="M3 10h18"/><path d="M8 2v4"/>',
+  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  fileText:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  syringe:'<path d="m18 2 4 4"/><path d="m17 7 3-3"/><path d="M19 9 8.7 19.3c-1 1-2.5 1-3.4 0l-.6-.6c-1-1-1-2.5 0-3.4L15 5"/><path d="m9 11 4 4"/><path d="m5 19-3 3"/><path d="m14 4 6 6"/>',
+  book:'<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  settings:'<path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/>',
+  logout:'<path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>',
+  search:'<path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  arrowLeft:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  chevLeft:'<path d="m15 18-6-6 6-6"/>',
+  chevRight:'<path d="m9 18 6-6-6-6"/>',
+  clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  dog:'<path d="M11.25 16.25h1.5L12 17z"/><path d="M16 14v.5"/><path d="M4.42 11.247A13.152 13.152 0 0 0 4 14.556C4 18.728 7.582 21 12 21s8-2.272 8-6.444a11.702 11.702 0 0 0-.493-3.309"/><path d="M8 14v.5"/><path d="M8.5 8.5c-.384 1.05-1.083 2.028-2.344 2.5-1.931.722-3.576-.297-3.656-1-.113-.994 1.177-6.53 4-7 1.923-.321 3.651.845 3.651 2.235A7.497 7.497 0 0 1 14 5.277c0-1.39 1.844-2.598 3.767-2.277 2.823.47 4.113 6.006 4 7-.08.703-1.725 1.722-3.656 1-1.261-.472-1.855-1.45-2.239-2.5"/>',
+  cat:'<path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z"/><path d="M8 14v.5"/><path d="M16 14v.5"/><path d="M11.25 16.25h1.5L12 17l-.75-.75Z"/>'
+};
+const ic = (n, c = 'size-5 shrink-0', sw = 2) =>
+  `<svg class="${c}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// ---------- Calendar data ----------
+// Months counted from Nov 2026 (0). offset = weekday of the 1st (Mon = 0). b = booked, p = waiting for approval.
+const MONTHS = {
+  '-3': { name:'August 2026', short:'Aug', offset:5, days:31, v:{ 4:{b:1}, 18:{b:2} } },
+  '-2': { name:'September 2026', short:'Sep', offset:1, days:30, v:{ 8:{b:1}, 22:{b:2} } },
+  '-1': { name:'October 2026', short:'Oct', offset:3, days:31, v:{ 5:{b:2}, 12:{b:1}, 19:{b:3}, 26:{b:1}, 29:{b:2} } },
+  '0':  { name:'November 2026', short:'Nov', offset:6, days:30, v:{ 2:{b:3}, 3:{b:1,p:1}, 4:{p:1}, 5:{b:2}, 6:{b:1}, 9:{p:1}, 12:{b:2}, 16:{b:1}, 19:{b:1}, 26:{b:12} } },
+  '1':  { name:'December 2026', short:'Dec', offset:1, days:31, v:{ 3:{b:1}, 10:{b:2}, 15:{b:1} } },
+  '2':  { name:'January 2027', short:'Jan', offset:4, days:31, v:{ 5:{b:1}, 14:{b:2} } },
+  '3':  { name:'February 2027', short:'Feb', offset:0, days:28, v:{ 9:{b:1} } },
+  '4':  { name:'March 2027', short:'Mar', offset:0, days:31, v:{} }
+};
+const MIN_M = -3, MAX_M = 1;  // 3 months back to the end of the booking window
+const WDLONG = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+const monthOf = m => MONTHS[String(m)];
+
+let act = 'A', cal = '3', state = 'now', showFold = true;
+let viewMonth = 0, pick = { m:0, d:2 };
+const isToday = (m, d) => m === 0 && d === 2;
+const atToday = () => viewMonth === 0 && isToday(pick.m, pick.d);
+
+// ---------- Small pieces ----------
+const btnOutline = (label, icon = '', extra = '', attrs = '') => `<button type="button" ${attrs} class="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-gray-300 bg-white px-3 text-base font-semibold text-gray-800 hover:bg-gray-50 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500 ${extra}">${icon ? ic(icon) : ''}${label}</button>`;
+const btnPrimary = (label, icon = '') => `<span class="inline-flex min-h-11 items-center gap-2 rounded-lg bg-violet-600 px-5 text-base font-semibold text-white">${icon ? ic(icon) : ''}${label}</span>`;
+const link = (label, icon = '', attrs = '') => `<button type="button" ${attrs} class="inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap text-base font-medium text-blue-600 hover:underline">${icon ? ic(icon) : ''}${label}</button>`;
+// Today button: ALWAYS border-2 and the same label, so its size never changes. Only the colour changes when away.
+const todayBtn = (label, extra = '', withIcon = true) => `<button type="button" data-act="today" class="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg border-2 px-3 text-base font-semibold ${atToday() ? 'border-gray-300 bg-white text-gray-800 hover:bg-gray-50' : 'border-violet-600 bg-violet-50 text-violet-800 hover:bg-violet-100'} ${extra}">${withIcon ? ic('calendar') : ''}${label}</button>`;
+const badge = s => ({
+  Confirmed:'<span class="inline-flex rounded-full bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-800">Confirmed</span>',
+  Completed:'<span class="inline-flex rounded-full bg-green-100 px-3 py-1 text-sm font-semibold text-green-800">Completed</span>'
+}[s]);
+const walkTag = '<span class="inline-flex rounded-full bg-violet-100 px-3 py-0.5 text-sm font-semibold text-violet-800">Walk-in</span>';
+const petPic = s => `<span class="grid size-10 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-600 ring-1 ring-violet-200">${ic(s,'size-6 shrink-0',1.5)}</span>`;
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+const card = (inner, extra = '') => `<section class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm ${extra}">${inner}</section>`;
+const TONE = {
+  yellow:'bg-yellow-50 text-yellow-700 ring-yellow-200', red:'bg-red-50 text-red-700 ring-red-200',
+  green:'bg-green-50 text-green-700 ring-green-200', blue:'bg-blue-50 text-blue-700 ring-blue-200',
+  violet:'bg-violet-50 text-violet-700 ring-violet-200'
+};
+const iconTile = (n, tone, size = 'size-10') => `<span class="grid ${size} shrink-0 place-content-center rounded-lg ring-1 ${TONE[tone]}">${ic(n)}</span>`;
+
+// ---------- Shell ----------
+const navLink = (i, l, active = false, b = '') =>
+  `<a class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base ${active ? 'bg-white font-semibold text-violet-800 shadow-sm ring-1 ring-violet-200' : 'text-gray-800'}">${ic(i)}<span class="flex-1">${l}</span>${b ? `<span class="rounded-full bg-violet-600 px-2 text-sm font-semibold text-white">${b}</span>` : ''}</a>`;
+const group = t => `<p class="px-3 pb-1 pt-4 text-sm font-semibold text-violet-800">${t}</p>`;
+const sidebar = () => `
+<aside class="flex w-72 shrink-0 flex-col border-r border-violet-200 bg-violet-100">
+  <div class="flex items-center gap-3 border-b border-violet-200 px-5 py-4">
+    <span class="grid size-10 shrink-0 place-content-center rounded-lg bg-violet-600 text-white">${ic('paw')}</span>
+    <div><p class="text-base font-semibold">Hapi Tutz Vet. Supplies</p><p class="text-sm text-gray-700">Admin</p></div>
+  </div>
+  <nav class="flex-1 px-3 pb-3 pt-1">
+    ${group('Daily work')}<div class="space-y-1">${navLink('home','Dashboard',true)}${navLink('calendar','Appointments',false,3)}${navLink('users','Pet owners')}${navLink('paw','Pets')}</div>
+    ${group('Records')}<div class="space-y-1">${navLink('fileText','Medical records')}${navLink('syringe','Vaccinations')}${navLink('book','Health library')}</div>
+    ${group('Clinic')}<div class="space-y-1">${navLink('receipt','Billing')}${navLink('settings','Clinic settings')}</div>
+  </nav>
+  <div class="border-t border-violet-200 px-3 py-3">${navLink('logout','Log out')}</div>
+</aside>`;
+const topbar = () => `
+<div class="flex min-h-[4.25rem] items-center gap-3 border-b border-gray-200 bg-white px-8 py-3">
+  <label class="relative block w-[30rem] max-w-full"><span class="sr-only">Find a pet or owner</span>
+    <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-gray-600">${ic('search')}</span>
+    <span class="flex min-h-11 w-full items-center rounded-lg border border-gray-300 bg-white pl-12 pr-4 text-base text-gray-500">Find a pet or owner</span>
+  </label>
+  <span class="flex-1"></span>
+  <span class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800">${ic('bell')}Notifications<span class="rounded-full bg-red-600 px-2 text-sm font-semibold text-white">2 new</span></span>
+</div>`;
+const fold = () => showFold ? `
+<div class="pointer-events-none absolute inset-x-0 top-[645px] z-10 border-t-2 border-dashed border-red-500">
+  <span class="absolute right-3 -top-4 rounded-full bg-red-600 px-3 py-0.5 text-sm font-semibold text-white">Bottom of the screen at 150% zoom</span>
+</div>` : '';
+const shell = body => `
+<div class="relative flex min-h-[900px] w-[1280px] overflow-hidden rounded-xl border border-gray-300 bg-gray-50 shadow-sm">
+  ${sidebar()}
+  <div class="flex min-w-0 flex-1 flex-col">${topbar()}<main class="flex-1 p-8">${body}</main></div>
+  ${fold()}
+</div>`;
+
+// ---------- Layout A pieces (unchanged from v3) ----------
+const pageHead = `
+<div class="mb-6 flex items-start gap-4">
+  <div class="flex-1"><h1 class="text-2xl font-bold">Good morning, Dr. Aga</h1><p class="mt-1 text-base text-gray-700">Monday, November 2, 2026</p></div>
+  ${btnPrimary('New walk-in','plus')}
+</div>`;
+const tiles = () => {
+  const T = [['clock','yellow','Waiting for approval',3,true],['receipt','red','Unpaid bills',1],['syringe','green','Vaccinations due this week',2],['calendarCheck','blue','Follow-ups due this week',0]];
+  return `<div class="mb-6 grid grid-cols-4 gap-4">${T.map(([i, tone, l, n, warn]) => `
+    <a class="flex min-h-[4.5rem] cursor-pointer items-center gap-3 rounded-xl border bg-white px-4 py-3 shadow-sm ${warn && n ? 'border-yellow-400 ring-1 ring-yellow-300' : 'border-gray-200'}">
+      ${iconTile(i, tone)}<span class="flex-1 text-base font-medium leading-snug text-gray-800">${l}</span><span class="text-3xl font-bold">${n}</span>
+    </a>`).join('')}</div>`;
+};
+const TODAY_ROWS = [
+  { t:'8:00 AM', pet:'Doggy', sp:'dog', svc:'Check-up', owner:'Kash Link', st:'Completed', walk:true },
+  { t:'10:00 AM', pet:'Max', sp:'dog', svc:'Check-up', owner:'Rosa Dela Cruz', st:'Confirmed', next:true },
+  { t:'2:00 PM', pet:'Muning', sp:'cat', svc:'Deworming', owner:'Rosa Dela Cruz', st:'Confirmed' }
+];
+const OTHER_ROWS = [
+  { t:'9:00 AM', pet:'Brownie', sp:'dog', svc:'Grooming', owner:'Liza Cruz', st:'Confirmed' },
+  { t:'3:00 PM', pet:'Kitty', sp:'cat', svc:'Vaccination', owner:'Grace Domingo', st:'Confirmed' },
+  { t:'4:00 PM', pet:'Bantay', sp:'dog', svc:'Check-up', owner:'Ana Cruz', st:'Confirmed' }
+];
+const schedRow = r => `
+<a class="grid min-h-16 cursor-pointer grid-cols-[5.5rem_1fr_auto] items-center gap-4 rounded-lg px-3 py-2.5 ${r.next ? 'bg-violet-50 ring-2 ring-violet-600' : 'hover:bg-gray-50'}">
+  <div><p class="text-base font-semibold">${r.t}</p>${r.next ? '<p class="text-sm font-semibold text-violet-800">Next</p>' : ''}</div>
+  <div class="flex min-w-0 items-center gap-3">${petPic(r.sp)}
+    <div class="min-w-0"><p class="flex flex-wrap items-center gap-x-2 gap-y-1 text-base"><span class="font-semibold">${r.pet}</span><span class="text-gray-800">· ${r.svc}</span>${r.walk ? walkTag : ''}</p><p class="text-sm text-gray-600">${r.owner}</p></div>
+  </div>
+  <div class="flex items-center gap-3">${badge(r.st)}<span class="inline-flex items-center text-base font-medium text-blue-600">Open${ic('chevRight')}</span></div>
+</a>`;
+const longDate = (m, d) => { const M = monthOf(m); return `${WDLONG[(M.offset + d - 1) % 7]}, ${M.name.split(' ')[0]} ${d}${m >= 2 ? ', 2027' : ''}`; };
+// Schedule header has the same shape for today and a picked day: title + one line + one link on the right
+const schedule = () => {
+  const today = isToday(pick.m, pick.d);
+  const vis = monthOf(pick.m).v[pick.d] || {};
+  const rows = today ? TODAY_ROWS : (vis.b ? OTHER_ROWS.slice(0, Math.min(vis.b, 3)) : []);
+  const done = rows.filter(r => r.st === 'Completed').length;
+  const count = today ? rows.length : (vis.b || 0);
+  const title = today ? "Today's schedule" : longDate(pick.m, pick.d);
+  const sum = today ? `${plural(count,'visit','visits')} · ${done} done · ${count - done} to go` : `${plural(count,'visit','visits')}${vis.p ? ` · ${vis.p} waiting for approval` : ''}`;
+  return card(`
+    <div class="mb-2 flex items-start justify-between gap-4">
+      <div class="min-w-0"><h2 class="text-xl font-semibold">${title}</h2><p class="text-base text-gray-700">${sum}</p></div>
+      ${today ? link('All appointments') : link('Back to today','arrowLeft','data-act="today"')}
+    </div>
+    ${rows.length ? `<div class="space-y-1">${rows.map(r => schedRow(today ? r : { ...r, next:false })).join('')}</div>${count > rows.length ? `<p class="px-3 pt-2 text-base text-gray-700">and ${count - rows.length} more · ${link('See all on Appointments')}</p>` : ''}`
+      : `<p class="rounded-lg bg-gray-50 px-4 py-6 text-center text-base text-gray-700">No visits booked on this day.</p>`}`);
+};
+const approval = () => card(`
+  <div class="flex items-center justify-between"><h2 class="text-xl font-semibold">Needs approval</h2><span class="rounded-full bg-yellow-100 px-3 py-1 text-sm font-semibold text-yellow-800">3 waiting</span></div>
+  <div class="divide-y divide-gray-100">${[['Kitkat','cat','Check-up','Tue, Nov 3, 9:30 AM','Paolo Santos'],['Max','dog','Vaccination','Wed, Nov 4, 1:00 PM','Rosa Dela Cruz'],['Browny','dog','Check-up','Mon, Nov 9, 3:00 PM','Krys Test']].map(([pet, sp, svc, when, owner]) => `
+    <div class="flex items-center gap-3 py-3">${petPic(sp)}<div class="min-w-0 flex-1"><p class="text-base"><span class="font-semibold">${pet}</span> <span class="text-gray-800">· ${svc}</span></p><p class="text-base text-gray-800">${when}</p><p class="text-sm text-gray-600">${owner}</p></div>${btnOutline('Review','', 'px-4')}</div>`).join('')}</div>`, 'border-yellow-300');
+// Recent activity: three space-saving options. Admin notifications today are only "Visit request" (FEATURES 6.5).
+const ACT_ROWS = [['Browny','Yesterday, 9:10 PM',true],['Max','Sat, Oct 31, 10:16 PM',true],['Kitkat','Fri, Oct 30, 4:05 PM',false]];
+const actA = () => card(`
+  <div class="flex items-center justify-between"><h2 class="text-lg font-semibold">Recent activity</h2>${link('View all')}</div>
+  <ul class="divide-y divide-gray-100">
+    ${ACT_ROWS.map(([pet, when, unread]) => `
+      <li><a class="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg px-1 py-1.5 hover:bg-gray-50">
+        <span class="size-2.5 shrink-0 rounded-full ${unread ? 'bg-red-600' : 'bg-transparent'}" aria-hidden="true"></span>
+        <span class="min-w-0 flex-1"><span class="block text-base"><span class="font-semibold">${pet}</span> · visit request</span><span class="block text-sm text-gray-600">${when}${unread ? ' · New' : ''}</span></span>
+        ${ic('chevRight','size-5 shrink-0 text-gray-600')}
+      </a></li>`).join('')}
+  </ul>`, 'p-4');
+const actB = () => `
+  <a class="flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm hover:bg-gray-50">
+    ${iconTile('bell','violet')}
+    <span class="min-w-0 flex-1"><span class="block text-base font-semibold">2 new notifications</span><span class="block text-sm text-gray-600">Latest: Browny, Yesterday, 9:10 PM</span></span>
+    <span class="inline-flex items-center text-base font-medium text-blue-600">Open${ic('chevRight')}</span>
+  </a>`;
+const actC = () => '';
+const ACTS = [
+  { id:'A', label:'A · Compact list', fn:actA,
+    cap:`<b>A · Compact list.</b> Three rows, two short lines each: "<b>Browny</b> · visit request" and when it came in. The owner and the requested time are left out because the Needs approval card already shows them. A red dot and "New" mark unread ones. About 200 px tall instead of about 290. <i>Trade-off:</i> still repeats what Needs approval and the Notifications button show.` },
+  { id:'B', label:'B · One-line summary', fn:actB,
+    cap:`<b>B · One-line summary.</b> The card shrinks to one clickable line: "2 new notifications · Latest: Browny, Yesterday, 9:10 PM", which opens the Notifications panel. About 70 px. <i>Trade-off:</i> it's another way to open the same panel as the top-bar button.` },
+  { id:'C', label:'C · Remove it', fn:actC,
+    cap:`<b>C · Remove it.</b> No Recent activity card. The <b>Notifications</b> button in the top bar shows "2 new" (the planned red-dot feature in FEATURES 6.1), and the Needs approval card already lists every request with a Review button. The right column ends with the calendar, level with the schedule. Saves about 290 px. <i>Trade-off:</i> no history on the dashboard; older notifications are only in the Notifications panel.` }
+];
+
+// ---------- Calendar B: shared grid (always 6 rows, 48 px cells) ----------
+const weekdayRow = `<div class="grid grid-cols-7 text-center text-sm font-semibold text-gray-700">${['Mo','Tu','We','Th','Fr','Sa','Su'].map(x => `<span class="py-1">${x}</span>`).join('')}</div>`;
+const grid = () => {
+  const M = monthOf(viewMonth);
+  let out = '';
+  for (let i = 0; i < M.offset; i++) out += '<span class="h-12" aria-hidden="true"></span>';
+  for (let d = 1; d <= M.days; d++) {
+    const today = isToday(viewMonth, d), picked = pick.m === viewMonth && pick.d === d && !today;
+    const weekend = (M.offset + d - 1) % 7 >= 5, v = M.v[d];
+    const total = v ? (v.b || 0) + (v.p || 0) : 0;
+    const cls = today ? 'bg-violet-600 font-semibold text-white'
+      : picked ? 'bg-violet-50 font-semibold text-violet-900 ring-2 ring-inset ring-violet-600'
+      : `${weekend ? 'text-gray-500' : 'text-gray-800'} hover:bg-gray-100`;
+    const pill = total
+      ? `<span class="min-w-6 rounded-full px-1 text-sm font-semibold leading-5 ${v.p ? 'bg-yellow-200 text-yellow-900' : today ? 'bg-white text-violet-800' : 'bg-violet-100 text-violet-800'}">${total > 9 ? '9+' : total}</span>`
+      : '<span class="h-5" aria-hidden="true"></span>';
+    out += `<button type="button" data-day="${d}" class="flex h-12 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg text-base leading-5 ${cls}"><span>${d}</span>${pill}</button>`;
+  }
+  // Fill to 42 cells so every month is 6 rows tall and the card never changes height
+  for (let i = M.offset + M.days; i < 42; i++) out += '<span class="h-12" aria-hidden="true"></span>';
+  return `${weekdayRow}<div class="grid grid-cols-7 gap-0.5 text-center">${out}</div>`;
+};
+const legend = (extra = '') => `
+  <div class="flex flex-nowrap items-center gap-x-3 border-t border-gray-100 pt-3 text-sm text-gray-700 ${extra}">
+    <span class="flex items-center gap-1.5 whitespace-nowrap"><span class="min-w-6 rounded-full bg-violet-100 px-1 text-center font-semibold leading-5 text-violet-800">2</span>Visits</span>
+    <span class="flex items-center gap-1.5 whitespace-nowrap"><span class="min-w-6 rounded-full bg-yellow-200 px-1 text-center font-semibold leading-5 text-yellow-900">2</span>Has a request waiting</span>
+  </div>`;
+const prevDisabled = () => viewMonth <= MIN_M ? 'disabled' : '';
+const nextDisabled = () => viewMonth >= MAX_M ? 'disabled' : '';
+const nextBtn = (label, extra = '') => `<button type="button" data-act="next" ${nextDisabled()} class="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-gray-300 bg-white px-3 text-base font-semibold text-gray-800 hover:bg-gray-50 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500 ${extra}">${label}${ic('chevRight')}</button>`;
+
+// Version 1: month names on the buttons, big Today button at the bottom
+const cal1 = () => {
+  const M = monthOf(viewMonth), prev = monthOf(viewMonth - 1), next = monthOf(viewMonth + 1);
+  return card(`
+    <h2 class="mb-2 whitespace-nowrap text-lg font-semibold">${M.name}</h2>
+    <div class="mb-2 grid grid-cols-2 gap-2">
+      ${btnOutline(prev ? prev.short : 'Previous', 'chevLeft', 'w-full', `data-act="prev" ${prevDisabled()}`)}
+      ${nextBtn(next ? next.short : 'Next', 'w-full')}
+    </div>
+    ${grid()}
+    ${legend('mt-2')}
+    ${todayBtn('Today: Mon, Nov 2', 'mt-3 w-full')}`);
+};
+
+// Version 2: Today next to the month name, Previous / Next under it
+const cal2 = () => {
+  const M = monthOf(viewMonth);
+  return card(`
+    <div class="mb-2 flex items-center justify-between gap-2">
+      <h2 class="whitespace-nowrap text-lg font-semibold">${M.name}</h2>
+      ${todayBtn('Today', '', false)}
+    </div>
+    <div class="mb-2 grid grid-cols-2 gap-2">
+      ${btnOutline('Previous', 'chevLeft', 'w-full', `data-act="prev" ${prevDisabled()}`)}
+      ${nextBtn('Next', 'w-full')}
+    </div>
+    ${grid()}
+    ${legend('mt-2')}`);
+};
+
+// Version 3: one row — month dropdown + Today, no Previous / Next
+const cal3 = () => {
+  const opts = Object.keys(MONTHS).map(Number).filter(m => m >= MIN_M && m <= MAX_M).sort((a, b) => a - b)
+    .map(m => `<option value="${m}" ${m === viewMonth ? 'selected' : ''}>${monthOf(m).name}</option>`).join('');
+  return card(`
+    <div class="mb-2 flex items-center gap-2">
+      <label class="min-w-0 flex-1"><span class="sr-only">Month</span>
+        <select id="monthSel" class="min-h-11 w-full min-w-0 rounded-lg border border-gray-300 bg-white px-2 text-base font-semibold text-gray-900">${opts}</select>
+      </label>
+      ${todayBtn('Today', '', false)}
+    </div>
+    ${grid()}
+    ${legend('mt-2')}`);
+};
+
+// ---------- Captions ----------
+const CALS = [
+  { id:'1', label:'1 · Today at the bottom', fn:cal1,
+    cap:`<b>1 · Month names on the buttons, Today at the bottom.</b> The buttons say where they go (<b>‹ Oct</b>, <b>Dec ›</b>), so Dr. Aga never wonders which month is next. A full-width <b>Today: Mon, Nov 2</b> button sits at the bottom of the card, always in the same place and the same size. <i>Trade-offs:</i> the tallest of the three (about 55 px more than 3), and Today is at the far end of the card from the month name.` },
+  { id:'2', label:'2 · Today in the header', fn:cal2,
+    cap:`<b>2 · Today next to the month name.</b> The v3 layout with every jump fixed: month name and <b>Today</b> share the first row, <b>Previous</b> / <b>Next</b> are under it. The Today button is text only so the longest month ("September 2026") still fits on one line in this narrow column. <i>Trade-offs:</i> middle height; the arrow buttons say Previous/Next, not the month name (swapping in "‹ Oct" / "Dec ›" from version 1 costs no space).` },
+  { id:'3', label:'3 · Month dropdown', fn:cal3,
+    cap:`<b>3 · Month dropdown.</b> One row: pick any month from a list, or press <b>Today</b>. No clicking Next twelve times to reach a far month, and nothing to scroll back through. The shortest card. <i>Trade-offs:</i> stepping one month takes two clicks (open the list, choose); the list's look depends on the browser; in the build the list would cover a set range (for example 6 months back to 6 months ahead, matching the booking window).` }
+];
+const STATES = [
+  { id:'now', label:'1 · On open', set:() => { viewMonth = 0; pick = { m:0, d:2 }; },
+    cap:`<b>On open.</b> Today (Nov 2) is solid violet and the <b>Today</b> button is a plain grey outline.` },
+  { id:'away', hidden:true, label:'2 · Moved to January', set:() => { viewMonth = 2; pick = { m:0, d:2 }; },
+    cap:`<b>Moved to January 2027.</b> Only the Today button's colour changes (violet outline). No new line appears, nothing gets wider, and the card stays the same height, so Recent activity underneath doesn't jump.` },
+  { id:'picked', label:'2 · Clicked Thu, Nov 5', set:() => { viewMonth = 0; pick = { m:0, d:5 }; },
+    cap:`<b>Clicked Thursday, November 5.</b> The picked day gets an inside violet outline (it doesn't grow the cell), the Today button turns violet, and the schedule heading keeps its shape: title, one line, one link.` },
+  { id:'short', hidden:true, label:'4 · February (4 weeks)', set:() => { viewMonth = 3; pick = { m:0, d:2 }; },
+    cap:`<b>February 2027 only needs 4 rows.</b> The grid still reserves 6, so the card is exactly as tall as November. Compare with v3, where the card shrank and everything under it moved.` },
+  { id:'busy', label:'3 · Busy day picked (12 visits)', set:() => { viewMonth = 0; pick = { m:0, d:26 }; },
+    cap:`<b>A day with 12 visits.</b> Two-digit counts show as <b>9+</b> so the pill never spills out of its cell. The schedule lists the first 3 and says how many more, with a link to the full list.` }
+];
+const COMMON = `<p class="text-sm text-gray-700"><b>Fixed in all three:</b> the Today button keeps one size and one label in every state (only its colour changes); the "Today is Monday, November 2" line is gone; the grid always has 6 rows, so the card height never changes between months; cells are 48 px (down from 56, still above the 44 px minimum); counts above 9 show "9+"; month names never wrap; the picked-day outline is drawn inside the cell. The schedule heading keeps the same shape for today and a picked day.</p>`;
+const REC = `<p class="rounded-lg bg-white p-3 text-base ring-1 ring-violet-200"><b>Approved 2026-11-02: Recent activity A (compact list)</b>, with layout A and the month-dropdown calendar (3 months back to the end of the booking window). This file supersedes dashboard_v4.html.</p>`;
+
+// ---------- Render ----------
+function paint(boxId, cur) {
+  [...document.getElementById(boxId).children].forEach(b => {
+    b.className = 'min-h-11 rounded-lg px-4 text-base font-medium ' + (b.dataset.id === cur ? 'bg-violet-600 text-white' : 'border border-gray-300 bg-white text-gray-800 hover:bg-gray-50');
+  });
+}
+function render() {
+  const C = CALS.find(x => x.id === cal), A = ACTS.find(x => x.id === act);
+  const S = STATES.find(x => x.id === state) || { cap:`<b>Exploring.</b> You've clicked around the calendar. Press <b>Today</b> (or Back to today) to return.` };
+  const body = pageHead + tiles() + `<div class="grid grid-cols-3 items-start gap-6">
+      <div class="col-span-2 space-y-6">${approval()}${schedule()}</div>
+      <div class="min-w-0 space-y-6">${C.fn()}${A.fn()}</div>
+    </div>`;
+  document.getElementById('stage').innerHTML = shell(body);
+  document.getElementById('caption').innerHTML = `<p>${A.cap}</p><p>${S.cap}</p>${REC}`;
+  paint('calSwitch', act); paint('stateSwitch', state);
+  wire();
+}
+function wire() {
+  const stage = document.getElementById('stage');
+  stage.querySelectorAll('[data-act="today"]').forEach(b => b.onclick = () => { viewMonth = 0; pick = { m:0, d:2 }; state = 'now'; render(); });
+  stage.querySelectorAll('[data-act="prev"]').forEach(b => b.onclick = () => { viewMonth = Math.max(MIN_M, viewMonth - 1); state = ''; render(); });
+  stage.querySelectorAll('[data-act="next"]').forEach(b => b.onclick = () => { viewMonth = Math.min(MAX_M, viewMonth + 1); state = ''; render(); });
+  stage.querySelectorAll('[data-day]').forEach(b => b.onclick = () => { pick = { m:viewMonth, d:+b.dataset.day }; state = ''; render(); });
+  const sel = document.getElementById('monthSel');
+  if (sel) sel.onchange = () => { viewMonth = +sel.value; state = ''; render(); };
+}
+function makeSwitch(boxId, items, set) {
+  const box = document.getElementById(boxId);
+  items.forEach(s => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.dataset.id = s.id; b.textContent = s.label;
+    b.onclick = () => { set(s); render(); };
+    box.appendChild(b);
+  });
+}
+makeSwitch('calSwitch', ACTS, s => { act = s.id; });
+makeSwitch('stateSwitch', STATES.filter(x => !x.hidden), s => { state = s.id; s.set(); });
+document.getElementById('foldToggle').onchange = e => { showFold = e.target.checked; render(); };
+render();
+</script>
+</body>
+</html>

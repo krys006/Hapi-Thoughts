@@ -1,0 +1,7 @@
+{% comment %}
+  Response of the dashboard day endpoint. Picking a day (or Today / Back to
+  today) updates both cards at once: the schedule card is the main swap, and
+  the calendar follows out-of-band so its picked day and month stay in step.
+{% endcomment %}
+{% include "admin/dashboard/_day_schedule.html" %}
+{% include "admin/dashboard/_mini_calendar.html" with oob=True %}

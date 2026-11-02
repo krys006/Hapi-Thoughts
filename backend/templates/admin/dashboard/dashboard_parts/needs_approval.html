@@ -1,0 +1,40 @@
+{% load friendly_dates %}
+{% comment %}
+  Every request waiting for approval, soonest first (pending_requests).
+  Always shown, so the card stays in the same place every day; yellow
+  only while something is waiting, a grey "None waiting" state otherwise.
+{% endcomment %}
+<section class="card {% if pending_requests %}border-yellow-300{% else %}border-gray-200{% endif %} p-5" aria-labelledby="needs-approval-title">
+  <div class="flex items-center justify-between">
+    <h2 id="needs-approval-title" class="text-xl font-semibold">Needs approval</h2>
+    {% if pending_requests %}
+      <span class="rounded-full bg-yellow-100 px-3 py-1 text-sm font-semibold text-yellow-800">{{ pending_requests|length }} waiting</span>
+    {% else %}
+      <span class="rounded-full bg-gray-100 px-3 py-1 text-sm font-semibold text-gray-700">None waiting</span>
+    {% endif %}
+  </div>
+  {% if not pending_requests %}
+    <div class="mt-3 flex items-center gap-3 rounded-lg bg-gray-50 px-4 py-3">
+      {% include "components/icon.html" with name="circle-check" class="size-6 shrink-0 text-green-700" %}
+      <p class="text-base text-gray-800">No visit requests to review right now. New requests from pet owners will show up here.</p>
+    </div>
+  {% else %}
+    <ul class="divide-y divide-gray-100">
+      {% for appointment in pending_requests %}
+        <li class="flex items-center gap-3 py-3">
+          {% include "components/pet_avatar.html" with pet=appointment.pet size="sm" %}
+          <div class="min-w-0 flex-1">
+            <p class="text-base"><span class="font-semibold">{{ appointment.pet.name }}</span> <span class="text-gray-800">· {% if appointment.service %}{{ appointment.service.service_name }}{% else %}No service picked{% endif %}</span></p>
+            <p class="text-base text-gray-800">{{ appointment.date|friendly_date }}, {{ appointment.time|time:"g:i A" }}</p>
+            <p class="text-sm text-gray-600">{{ appointment.owner.first_name }} {{ appointment.owner.last_name }}</p>
+            {# A request nobody approved before its date (same tag as the appointments list) #}
+            {% if appointment.date < today %}
+              <p class="mt-1"><span class="badge gap-1 bg-orange-100 text-orange-800">{% include "components/icon.html" with name="triangle-alert" class="size-4 shrink-0" %}Date has passed</span></p>
+            {% endif %}
+          </div>
+          <a href="{% url 'admin_appointment_detail' appointment.pk %}" class="btn btn-outline shrink-0" aria-label="Review {{ appointment.pet.name }}'s request">Review</a>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+</section>

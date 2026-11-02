@@ -383,8 +383,8 @@ PENDING or CONFIRMED → CANCELLED
 |---|---|
 | Notification stored in database on trigger event | `complete` |
 | Bell icon in dashboard header | `complete` |
-| Red dot on bell icon when unread notifications exist | `planned` |
-| Red dot disappears when all notifications are read | `planned` |
+| Red dot on bell icon when unread notifications exist (the top-bar Notifications button shows "N new" when unread notifications exist) | `complete` |
+| Red dot disappears when all notifications are read | `complete` |
 | Click bell to open notification list | `complete` |
 | Click individual notification to view detail and mark as read | `complete` |
 | Mark all as read button | `complete` |
@@ -434,6 +434,8 @@ PENDING or CONFIRMED → CANCELLED
 | Event | Recipient |
 |---|---|
 | Appointment requested | Admin |
+| Reschedule (time change) requested | Admin |
+| Appointment cancelled by owner | Admin |
 | Appointment approved | Pet Owner |
 | Appointment rejected | Pet Owner |
 | Appointment reminder (configurable + day-of) | Pet Owner |
@@ -448,19 +450,12 @@ PENDING or CONFIRMED → CANCELLED
 ### 7.1 Admin Dashboard
 | Feature | Status |
 |---|---|
-| Summary stats: total appointments today | `complete` |
-| Summary stats: pending appointment approvals | `complete` |
-| Summary stats: total registered pet owners | `complete` |
-| Summary stats: total registered pets | `complete` |
-| Summary stats: unpaid bills | `complete` |
-| Summary stats: upcoming vaccinations due this week | `complete` |
-| Summary stats: upcoming follow-ups due this week | `complete` |
-| Calendar view — monthly and weekly toggle | `complete` |
-| Calendar dot indicators color-coded by appointment status | `complete` |
-| Click calendar day to view appointment details in side panel | `planned` |
-| Pending appointment approvals widget | `complete` |
-| Recent notifications widget | `complete` |
-| HTMX polling for live data updates (10–30 sec) | `complete` |
+| Stat cards: waiting for approval, unpaid bills, vaccinations and follow-ups due this week (today to today + 7) | `complete` |
+| Month calendar: month dropdown (3 months back to the end of the booking window), Today button, count per day (yellow when a request is waiting) | `complete` |
+| Click a day to load it into the schedule | `complete` |
+| Stat cards refresh every 60 seconds | `complete` |
+| Needs approval list (every waiting request; says so when none are waiting) | `complete` |
+| Today's schedule with the next visit marked | `complete` |
 | Global search across pet owners, pets, appointments, medical records | `complete` |
 | Search results grouped by type | `complete` |
 
