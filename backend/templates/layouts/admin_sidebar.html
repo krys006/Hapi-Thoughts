@@ -1,16 +1,7 @@
 {# Clinic name and logo. h-16 matches the top bar, so the two bottom borders line up #}
 <div class="flex h-16 shrink-0 items-center gap-3 border-b border-violet-200 px-5">
-  {% if shell.clinic.logo %}
-    <img src="{{ shell.clinic.logo.url }}" alt="" class="size-10 shrink-0 rounded-lg object-cover">
-  {% else %}
-    <span class="grid size-10 shrink-0 place-content-center rounded-lg bg-violet-600 text-white">
-      {% include "components/icon.html" with name="paw-print" %}
-    </span>
-  {% endif %}
-  {# The name may wrap to two lines; longer names are cut off, with the full name in title #}
-  <div class="min-w-0 flex-1">
-    <p class="line-clamp-2 text-base font-semibold leading-5 text-gray-900" title="{{ shell.clinic.clinic_name|default:'Hapi Vet' }}">{{ shell.clinic.clinic_name|default:"Hapi Vet" }}</p>
-  </div>
+  {# Logo + name link to the dashboard (-mx-2/px-2 keeps the hover background off the block's edges). The name may wrap to two lines; longer names are cut off, with the full name in title #}
+  <a href="{% url 'admin_dashboard' %}" class="-mx-2 flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-lg px-2 hover:bg-violet-200/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600">{% if shell.clinic.logo %}<img src="{{ shell.clinic.logo.url }}" alt="" class="size-10 shrink-0 rounded-lg object-cover">{% else %}<span class="grid size-10 shrink-0 place-content-center rounded-lg bg-violet-600 text-white">{% include "components/icon.html" with name="paw-print" %}</span>{% endif %}<div class="min-w-0 flex-1"><p class="line-clamp-2 text-base font-semibold leading-5 text-gray-900" title="{{ shell.clinic.clinic_name|default:'Hapi Vet' }}">{{ shell.clinic.clinic_name|default:"Hapi Vet" }}</p></div><span class="sr-only">, go to Dashboard</span></a>
   <button type="button" class="btn btn-outline px-3 lg:hidden" data-sidebar-close>
     {% include "components/icon.html" with name="x" %}
     <span class="sr-only">Close menu</span>

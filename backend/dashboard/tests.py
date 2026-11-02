@@ -405,6 +405,31 @@ class ShellLayoutTests(ShellTestBase):
             self.html,
         )
 
+    def _logo_link(self):
+        """The sidebar's logo + clinic name link (the first <a> in the sidebar)."""
+        sidebar = self.html[self.html.index('<aside id="admin-sidebar"') :]
+        match = re.search(r"<a [^>]*>.*?</a>", sidebar, re.S)
+        self.assertIsNotNone(match, "No link in the sidebar")
+        return match.group(0)
+
+    def test_logo_and_name_link_to_the_dashboard(self):
+        link = self._logo_link()
+        self.assertTrue(link.startswith(f'<a href="{reverse("admin_dashboard")}"'))
+        self.assertIn(">Hapi Vet</p>", link)
+        self.assertIn('<span class="sr-only">, go to Dashboard</span>', link)
+
+    def test_close_menu_button_is_outside_the_link(self):
+        self.assertNotIn("Close menu", self._logo_link())
+        self.assertNotIn("data-sidebar-close", self._logo_link())
+        # Still in the logo block, right after the link
+        sidebar = self.html[self.html.index('<aside id="admin-sidebar"') :]
+        after_link = sidebar[sidebar.index("</a>") :]
+        self.assertRegex(
+            after_link,
+            r'^</a>\s*<button type="button" class="btn btn-outline px-3 lg:hidden" '
+            r"data-sidebar-close>",
+        )
+
     def test_no_admin_subtitle(self):
         self.assertNotIn('<p class="text-sm text-gray-700">Admin</p>', self.html)
         self.assertNotRegex(self.html, r">\s*Admin\s*</p>")
