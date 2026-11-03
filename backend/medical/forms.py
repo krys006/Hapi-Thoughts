@@ -1,5 +1,9 @@
+from datetime import date
+from decimal import Decimal
+
 from django import forms
 from django.utils import timezone
+from django.utils.dateformat import format as date_format
 
 from .models import MedicalRecord, PrescriptionItem, TestResultFile, Vaccination
 
@@ -80,7 +84,40 @@ class TestResultFileForm(forms.ModelForm):
         }
 
 
-class VaccinationForm(forms.ModelForm):
+class VaccinationRulesMixin:
+    """
+    Rules shared by the add and edit vaccination forms:
+    - a listed vaccine clears any typed name; Other needs a typed name
+    - the date given can't be in the future (Manila date)
+    - the next dose, when set, must be after the date given
+    """
+
+    def clean(self):
+        cleaned_data = super().clean()
+        vaccine_name = cleaned_data.get("vaccine_name")
+
+        if vaccine_name and vaccine_name != Vaccination.OTHER:
+            cleaned_data["custom_vaccine_name"] = ""
+        elif vaccine_name == Vaccination.OTHER and not cleaned_data.get(
+            "custom_vaccine_name"
+        ):
+            self.add_error("custom_vaccine_name", "Type the vaccine name.")
+
+        given = cleaned_data.get("date_administered")
+        next_due = cleaned_data.get("next_due_date")
+        if given and given > timezone.localdate():
+            self.add_error(
+                "date_administered", "The date given can't be in the future."
+            )
+        if given and next_due and next_due <= given:
+            self.add_error(
+                "next_due_date", "The next dose must be after the date given."
+            )
+
+        return cleaned_data
+
+
+class VaccinationForm(VaccinationRulesMixin, forms.ModelForm):
     """
     Admin form — create a vaccination record.
     Can be linked to a medical record or standalone.
@@ -104,72 +141,67 @@ class VaccinationForm(forms.ModelForm):
             "next_due_date": forms.DateInput(attrs={"type": "date"}),
         }
 
-    def clean(self):
-        cleaned_data = super().clean()
-        vaccine_name = cleaned_data.get("vaccine_name")
-        custom_name = cleaned_data.get("custom_vaccine_name")
 
-        # Custom name required when Other is selected
-        if vaccine_name == Vaccination.OTHER and not custom_name:
-            raise forms.ValidationError(
-                "Please specify the vaccine name when selecting Other."
-            )
-
-        return cleaned_data
-
-
-class VaccinationCorrectionForm(forms.ModelForm):
-    """
-    Admin form — mark a vaccination record as corrected.
-    Does not edit the original data — only adds a correction note.
-    """
-
-    class Meta:
-        model = Vaccination
-        fields = ["correction_note"]
-        widgets = {
-            "correction_note": forms.Textarea(
-                attrs={
-                    "rows": 3,
-                    "placeholder": "Explain what was incorrect and what the correct information is.",
-                }
-            ),
-        }
-
-    def clean_correction_note(self):
-        note = self.cleaned_data.get("correction_note", "").strip()
-        if not note:
-            raise forms.ValidationError("A correction note is required.")
-        return note
-
-
-# Clinical fields — correction note required if any of these change
-CLINICAL_FIELDS = [
-    "vaccine_name",
-    "custom_vaccine_name",
-    "date_administered",
-    "next_due_date",
-    "weight_at_vaccination",
-    "site_of_injection",
+# Clinical fields: changing any of these on a saved vaccination is a
+# correction and needs a reason. The vaccine and its typed name count once.
+CLINICAL_CHANGES = [
+    (("vaccine_name", "custom_vaccine_name"), "the vaccine"),
+    (("date_administered",), "the date given"),
+    (("next_due_date",), "the next dose date"),
+    (("weight_at_vaccination",), "the weight"),
+    (("site_of_injection",), "where it was given"),
 ]
 
 
-class VaccinationEditForm(forms.ModelForm):
+def _normalised(value):
+    """None and "" are equal, strings are stripped, numbers are Decimals."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float)):
+        return Decimal(str(value))
+    return value
+
+
+def _display_old(value, today):
+    """An old clinical value for the error line: 'Tue, Oct 6', '12.5', 'empty'."""
+    if value in (None, ""):
+        return "empty"
+    if isinstance(value, date):
+        if value.year == today.year:
+            return date_format(value, "D, M j")
+        return date_format(value, "D, M j, Y")
+    if isinstance(value, Decimal):
+        return f"{value.normalize():f}"
+    return str(value)
+
+
+def _join_changes(parts):
+    """'a', 'a and b', 'a, b and c'."""
+    if len(parts) == 1:
+        return parts[0]
+    return f"{', '.join(parts[:-1])} and {parts[-1]}"
+
+
+class VaccinationEditForm(VaccinationRulesMixin, forms.ModelForm):
     """
-    Admin form — edit a vaccination record (Option C).
-    All fields are editable.
-    Correction note is required only if a clinical field changed.
-    is_corrected is set automatically in the view if clinical fields changed.
+    Admin form — edit a vaccination record.
+    Label fields (batch, manufacturer, given by) change freely.
+    A clinical change needs correction_reason; the save adds it to
+    correction_note as a dated line (medical/utils.save_vaccination_edit).
+    After clean(), changed_clinical lists (label, old value for display).
     """
 
-    correction_note = forms.CharField(
+    correction_reason = forms.CharField(
+        label="Reason for a correction",
+        required=False,
         widget=forms.Textarea(
             attrs={
                 "rows": 2,
-                "placeholder": "Required if you changed vaccine, date, due date, weight, or site of injection.",
+                "placeholder": "For example: wrong date typed, it was given the day before",
             }
         ),
-        required=False,
     )
 
     class Meta:
@@ -184,7 +216,6 @@ class VaccinationEditForm(forms.ModelForm):
             "manufacturer",
             "administered_by",
             "site_of_injection",
-            "correction_note",
         ]
         widgets = {
             "date_administered": forms.DateInput(attrs={"type": "date"}),
@@ -192,36 +223,50 @@ class VaccinationEditForm(forms.ModelForm):
         }
 
     def __init__(self, *args, **kwargs):
-        # Store the original instance values for comparison in clean()
-        self.original = kwargs.get("instance")
         super().__init__(*args, **kwargs)
+        # Snapshot the saved values: the ModelForm writes the posted
+        # values onto self.instance after clean().
+        self.before = {
+            field: getattr(self.instance, field)
+            for fields, _label in CLINICAL_CHANGES
+            for field in fields
+        }
+        # A listed vaccine never keeps a typed name, so compare it as ""
+        if self.before["vaccine_name"] != Vaccination.OTHER:
+            self.before["custom_vaccine_name"] = ""
+        self.before_vaccine = self.instance.display_vaccine_name
+        self.changed_clinical = []
 
     def clean(self):
         cleaned_data = super().clean()
-        vaccine_name = cleaned_data.get("vaccine_name")
-        custom_name = cleaned_data.get("custom_vaccine_name")
-
-        if vaccine_name == Vaccination.OTHER and not custom_name:
-            raise forms.ValidationError(
-                "Please specify the vaccine name when selecting Other."
+        if self.instance.pk:
+            self.changed_clinical = self._clinical_changes(cleaned_data)
+        reason = cleaned_data.get("correction_reason", "").strip()
+        if self.changed_clinical and not reason:
+            parts = [f"{label} (was {old})" for label, old in self.changed_clinical]
+            self.add_error(
+                "correction_reason",
+                f"You changed {_join_changes(parts)}. "
+                "Write why, so the change is on record.",
             )
-
-        # Check if any clinical field has changed
-        if self.original:
-            clinical_changed = any(
-                str(cleaned_data.get(field, ""))
-                != str(getattr(self.original, field) or "")
-                for field in CLINICAL_FIELDS
-            )
-            if clinical_changed and not cleaned_data.get("correction_note", "").strip():
-                raise forms.ValidationError(
-                    "A correction note is required when changing clinical fields "
-                    "(vaccine, date, due date, weight, or site of injection)."
-                )
-
-            # Store whether clinical fields changed so the view can use it
-            self.clinical_changed = clinical_changed
-        else:
-            self.clinical_changed = False
-
         return cleaned_data
+
+    def _clinical_changes(self, cleaned_data):
+        """(label, old value) for each clinical item whose value changed.
+        Fields with their own error are skipped."""
+        today = timezone.localdate()
+        changes = []
+        for fields, label in CLINICAL_CHANGES:
+            changed = any(
+                field in cleaned_data
+                and _normalised(cleaned_data[field]) != _normalised(self.before[field])
+                for field in fields
+            )
+            if not changed:
+                continue
+            if fields[0] == "vaccine_name":
+                old = self.before_vaccine
+            else:
+                old = _display_old(self.before[fields[0]], today)
+            changes.append((label, old))
+        return changes

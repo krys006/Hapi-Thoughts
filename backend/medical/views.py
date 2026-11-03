@@ -9,9 +9,9 @@ from .forms import (
     PrescriptionItemForm,
     TestResultFileForm,
     VaccinationForm,
-    VaccinationCorrectionForm,
     VaccinationEditForm,
 )
+from .utils import save_vaccination_edit
 
 from notifications.utils import notify
 
@@ -344,33 +344,6 @@ def admin_vaccination_standalone_create(request, pet_pk):
 
 
 @login_required
-def admin_vaccination_correct(request, pk):
-    """
-    Admin view — mark a vaccination record as corrected.
-    Does not alter the original data — only flags it and adds a note.
-    """
-    if request.user.role != "admin":
-        return redirect("owner_dashboard")
-
-    vaccination = get_object_or_404(Vaccination, pk=pk)
-
-    if request.method == "POST":
-        form = VaccinationCorrectionForm(request.POST, instance=vaccination)
-        if form.is_valid():
-            vaccination = form.save(commit=False)
-            vaccination.is_corrected = True
-            vaccination.save()
-            messages.success(request, "Vaccination record marked as corrected.")
-        else:
-            messages.error(request, "Please provide a correction note.")
-
-    # Redirect back to wherever we came from
-    if vaccination.medical_record:
-        return redirect("admin_medical_record_detail", pk=vaccination.medical_record.pk)
-    return redirect("admin_pet_vaccination_history", pk=vaccination.pet.pk)
-
-
-@login_required
 def admin_pet_vaccination_history(request, pk):
     """
     Admin view — view all vaccination records for a specific pet.
@@ -498,10 +471,9 @@ def admin_vaccination_list(request):
 @login_required
 def admin_vaccination_edit(request, pk):
     """
-    Admin view — edit a vaccination record (Option C).
-    Overwrites fields in place.
-    Sets is_corrected = True automatically if any clinical field changed.
-    Correction note required when clinical fields are changed.
+    Admin view — edit a vaccination record in place.
+    A clinical change needs a reason; the save marks the record corrected
+    and adds a dated line to correction_note (save_vaccination_edit).
     Redirects back to where the admin came from via ?next= param.
     """
     if request.user.role != "admin":
@@ -517,13 +489,7 @@ def admin_vaccination_edit(request, pk):
     if request.method == "POST":
         form = VaccinationEditForm(request.POST, instance=vaccination)
         if form.is_valid():
-            updated = form.save(commit=False)
-
-            # Auto-flag as corrected if any clinical field changed
-            if form.clinical_changed:
-                updated.is_corrected = True
-
-            updated.save()
+            save_vaccination_edit(form, timezone.localdate())
             messages.success(request, "Vaccination record updated.")
 
             if next_param == "record" and vaccination.medical_record:

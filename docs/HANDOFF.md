@@ -1,6 +1,7 @@
 # HANDOFF.md — Hapi Vet Project State
 
-> Last updated: 2026-11-03, after Slice 4b-4 pet form (Slice 4 done)
+> Last updated: 2026-11-03, after Slice 5a-1 vaccination rules
+> (Slice 4b-4 pet form, Slice 4 done: 2026-11-03)
 > (Slice 4b-3 pet detail + direct archive: 2026-11-03)
 > (Slice 4b-2 pets list + deletion requests: 2026-11-03)
 > (Slice 4b-1 pets backend: 2026-11-03)
@@ -333,7 +334,15 @@ to needs-approval) and the appointments list.
   - Owner-side onboarding/profile and the walk-in New owner page: same address dropdowns (later slice).
   - Owner form hand-typed note — Decided 2026-11-02: only for a saved province Marinduque whose town or barangay doesn't match the list; another province (or no province) opens on "Another province" with no note. Tests: `test_another_province_opens_other_mode_without_the_note` (was `test_another_province_opens_other_mode`, which asserted the note), `test_no_province_with_a_town_has_no_note`, `test_address_card_another_province_has_no_note`; `test_note_goes_once_marinduque_is_posted` now starts from "marinduque" + "Gassan" (was Batangas).
   - Unbalanced `<div>`s (found in 3c-3): `admin/pets/owner_detail.html` had one `</div>` too many — fixed in 4a-3 (rebuilt). `admin/pets/pet_detail.html` had one too few (31 for 32) — fixed in 4b-3 (rebuilt).
-- Slice 5 medical
+- Slice 5 medical (approved mockups `docs/mockups/medical_lists_v1.html`, `record_detail_v1.html`, `record_form_v1.html`, `vaccination_form_v1.html`, `pet_health_history_v1.html`, all 2026-11-03; decisions in `docs/mockups/medical_v1_decisions.md`) — in progress (5a-1 done)
+  - Batches (from the decisions doc): 5a-1 vaccination rules (edit form, reasons, vaccine name, dates, Correct view removal) · 5a-2 record, medicine and file rules (record dates, follow-up clearing, visit checks, guards, same-day medicine removal, file types/size, archive once, owner fixes) · 5a-3 shared due rules (dashboard, pet page, lists, reminder rule) · 5a-4 list contexts (tabs, search, paging, dashboard links) · 5a-5 detail, form and reminder backend (dialog errors, vaccination form with a record, given-by pre-fill, highlight, honest flash, friendly dates, views under 50 lines) · 5b-1 lists · 5b-2 record detail · 5b-3 record form · 5b-4 vaccination form · 5b-5 pet history pages
+  - Slice 5a-1 vaccination rules (spec: the "Rules (backend)" section of the decisions doc; `vaccination_form_v1.html` states 5 and 6). No model changes.
+    - Correct path removed: `admin_vaccination_correct` (view), its URL `admin/medical/vaccination/<pk>/correct/` and `VaccinationCorrectionForm`. No template, JS or test used them. Corrections happen only through the edit page.
+    - `VaccinationRulesMixin` (`medical/forms.py`, used by `VaccinationForm` and `VaccinationEditForm`): a listed vaccine clears `custom_vaccine_name` to ""; Other with no typed name → "Type the vaccine name." on `custom_vaccine_name` (was a non-field "Please specify the vaccine name when selecting Other."); `date_administered` after `timezone.localdate()` → "The date given can't be in the future." (today allowed); `next_due_date` on or before the date given → "The next dose must be after the date given.".
+    - `VaccinationEditForm`: `correction_note` is no longer a form field; form-only `correction_reason` ("Reason for a correction", not required, never pre-filled). `CLINICAL_CHANGES` lists the items and their plain labels ("the vaccine" for `vaccine_name` + `custom_vaccine_name`, "the date given", "the next dose date", "the weight", "where it was given"). Saved values are snapshotted in `__init__` (the ModelForm writes posted values onto the instance after `clean()`); comparison is normalised (None == "", strings stripped, ints/floats → Decimal, so 12.50 == 12.5), and a stale typed name on a listed vaccine compares as "". Fixes the old bug where a blank weight or next date counted as a change. `form.changed_clinical` = [(label, old value)]: dates "Tue, Oct 6" (year when not this year, no today/yesterday labels), weight "12.5", empty → "empty", the vaccine by `display_vaccine_name`. A change with a blank reason → on `correction_reason`: "You changed the date given (was Tue, Oct 6) and the weight (was 12.5). Write why, so the change is on record." (three or more: "a, b and c").
+    - `medical/utils.py` (new): `save_vaccination_edit(form, today)` — on a clinical change `is_corrected = True` and `correction_line(reason, today)` ("Tue, Nov 3, 2026: wrong date typed", reason whitespace collapsed to one line) is appended to `correction_note` after a newline; existing text kept exactly, never cleared. No clinical change → correction fields untouched (a typed reason is ignored). `admin_vaccination_edit` calls it with `timezone.localdate()` (46 lines now).
+    - Templates (legacy styling kept): `admin/medical/vaccination_edit.html` renders `correction_reason`, a "Changed: the date given (was Tue, Oct 6)" line when that field has an error, and the old `correction_note` lines under "Corrected before" (replaces the "already marked as corrected / Previous note" banner). `next_due_date` errors are now rendered in `vaccination_edit.html` and `vaccination_form.html` (neither showed them, so the new rule would have failed silently).
+    - Tests (medical): `VaccinationEditFormTests`, `VaccinationFormDateTests` (both forms; frozen at 00:30 Manila on Nov 3, 2026, still Nov 2 in UTC), `CorrectViewRemovedTests`. No existing test changed; pets/ and dashboard/ tests only create corrected vaccinations directly (no Correct URL, no edit-form posts) — 2026-11-03
 - Slice 6 billing (receipt print must stay a direct child of `<body>`, with no transform/filter on any ancestor)
 - Slice 7 health + clinic settings (`escapejs` on article titles; server-rendered settings tabs)
 - Slice 8 admin mobile pass (incl. dashboard schedule rows keep a 3-column grid that is tight at phone width); then the owner side
@@ -368,7 +377,7 @@ to needs-approval) and the appointments list.
 - Notification messages store raw dates ('November 09, 2026 at 03:00 PM'), so the Notifications panel shows them; format them on display or when created [backend]
 - `vaccinations_due` counts corrected vaccinations; `followups_due` includes archived pets — Done 2026-11-02 (dashboard v5 D1) [backend]
 - Delete the unused admin calendar files: `admin/appointments/_calendar_grid.html`, `_calendar_day_panel.html`, their views `admin_appointment_calendar_grid` / `admin_appointment_calendar_day` and URLs (no template or JS uses them; found in the dashboard v5 audit) [both]
-- DATA_MODELS and HANDOFF §6 say MedicalRecord has `is_corrected`; only Vaccination does — fix the docs [backend]
+- DATA_MODELS and HANDOFF §6 say MedicalRecord has `is_corrected`; only Vaccination does — fix the docs — Done 2026-11-03 (5a-1: §6 reworded; DATA_MODELS already only had it on Vaccination) [backend]
 - owner_login and admin_login ignore ?next=, so after logging in users always land on their dashboard instead of the page they were on [backend]
 - `base.html`'s "commented-out" messages loop still runs (Django tags run inside HTML comments), silently using up messages on owner pages that have no loop of their own. Fix on the owner side: delete the block, don't un-comment it. [frontend]
 - Admin password reset: the reset flow is owner-branded and ends on the owner login; build an admin version if needed. [both]
@@ -376,6 +385,7 @@ to needs-approval) and the appointments list.
 - Password reset email hard-codes `http://` (ignores the protocol). [backend]
 - Pet-mismatch guard: `admin_medical_record_create` (`?appointment=` is never checked against the `pet_pk` in the URL) and `admin_receipt_create` (no check that the appointment can take a receipt) — refuse an appointment that belongs to another pet [backend]
 - DATA_MODELS says the admin gets an EMAIL_FAILED notification when an email fails; nothing creates it and `related_notification` is never set. Decide: build it or fix the doc. [backend]
+- Read-only count on live of vaccinations wrongly flagged Corrected by the old edit bug (before 5a-1 a blank weight or next date counted as a clinical change, so saving without changes set `is_corrected`). Count only; any data fix needs its own plan (from `medical_v1_decisions.md`) [backend]
 - Walk-in same-day cutoff bug: `AdminWalkInAppointmentForm` said walk-ins bypass the same-day cutoff, but its time choices came from `get_available_slots`, which dropped today's slots before the cutoff — Done 2026-11-01 (3c-1, `walk_in=True`)
 
 ### FRONTEND BRANCH REVIEW
@@ -392,6 +402,7 @@ to needs-approval) and the appointments list.
 - Walk-ins without email are saved with `email=""` (`accounts/utils.py` `create_walkin_owner`), which collides on the unique email constraint for the second one. Since 3c-1 the admin sees a plain message instead of an error. Decided: nullable `User.email`, as its own migration batch after 3c — write the migration plan first (existing `""` rows → NULL; every `email=` lookup and `if user.email` check) [backend]
 - Distinct "declined" cancellation reason: a clinic decline and a clinic cancel with reason Other are stored the same way (`cancellation_reason=other`, `cancelled_by`=admin), so the detail page can't tell them apart. Needs a new `CANCEL_CHOICES` value (choices change = new migration) [backend]
 - Notes "last saved" timestamp: the detail page can't show when the internal notes were last saved (`updated_at` changes on every save). Needs a new field; low priority [backend]
+- Record-created notification type: the medical record created notification is kept (Slice 5) but has no type of its own; a new `Notification` type is a choices change = new migration (from `medical_v1_decisions.md`) [backend]
 - Resend failed emails: review b6e0ad3's logic (written for Gmail SMTP before the Brevo switch in 8548613; must catch anymail errors). Model/migration already synced. [both]
 
 ### POLISH
@@ -410,12 +421,13 @@ to needs-approval) and the appointments list.
 - Local master is behind origin/master — verified: 7 commits behind
 - Hosting: Render free tier has uptime problems (cause unconfirmed). Candidates: Railway (Hobby, Asia region), Fly.io, VPS with Coolify/Appliku. On any host change update ALLOWED_HOSTS, CSRF_TRUSTED_ORIGINS, Google OAuth redirect URIs, the Django sites domain and all env vars.
 - Production DB: plan is a NEW Supabase project (Singapore) for the clinic handover, not wiping the current one; the current project becomes staging. At cutover: update DATABASE_URL, AWS_*, MEDIA_URL and AWS_S3_CUSTOM_DOMAIN on Render, migrate, and create the admin with the clinic's real email.
+- Test result files are public URLs (S3 `public-read`, no signed URLs); archived files keep their link. Decide before the clinic goes live (a storage change affects every upload) (from `medical_v1_decisions.md`)
 - django-tailwind: no longer planned; replaced by the Tailwind standalone CLI (CONVENTIONS §11).
 - Project documentation report: needs screenshots, ERD (Mermaid ERD already generated) and source artifacts. Deadline: ___
 - Add .gitattributes (* text=auto) to stop LF/CRLF warnings — deferred until after B1 so line-ending churn doesn't mix with a deploy.
 
 ### DECISIONS PENDING
-- PrescriptionItem delete path: allowed while editing a record, or immutable as the doc says?
+- PrescriptionItem delete path: allowed while editing a record, or immutable as the doc says? — Decided 2026-11-03 (`medical_v1_decisions.md`): removable only on the day the record was written (Manila date of `created_at`), with a confirm dialog; after that the list is kept as it is. Built in 5a-2.
 - HealthArticle hard delete: keep (update doc) or switch to unpublish?
 - Double-booking approach (see above)
 - `frontend/hannah-user`: which parts (if any) are worth keeping, and whether to discard the rest (see B3)
@@ -439,8 +451,10 @@ appointments. An admin reschedule cancels the original and creates a new
 CONFIRMED appointment linked by `rescheduled_from` (the clinic chose the
 slot). Appointment notes are internal (never shown to owners). Only Admin
 writes medical records.
-Medical records and vaccinations are never deleted (corrections use
-`is_corrected` + `correction_note`). Private notes are never visible to
+Medical records and vaccinations are never deleted. Medical records are
+edited in place; only Vaccination has `is_corrected` + `correction_note`
+(a clinical change needs a reason, added as a dated line; old lines are
+never replaced). Private notes are never visible to
 owners. Receipts lock when PAID or CANCELLED. No double-booking. Archives are soft
 deletes.
 

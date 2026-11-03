@@ -399,16 +399,17 @@ Can be created through an appointment or as a standalone entry.
 | `pet` | ForeignKey | Pet, on_delete=CASCADE | Always required |
 | `medical_record` | ForeignKey | MedicalRecord, null=True, blank=True, on_delete=SET_NULL | Null if standalone |
 | `appointment` | ForeignKey | Appointment, null=True, blank=True, on_delete=SET_NULL | Null if standalone |
-| `vaccine_name` | CharField | max_length=20 | Predefined list + custom input |
-| `date_administered` | DateField | — | — |
+| `vaccine_name` | CharField | max_length=20, choices | Predefined list, or `Other` |
+| `custom_vaccine_name` | CharField | max_length=100, blank=True | The typed name when `vaccine_name` is `Other`; cleared to "" for a listed vaccine |
+| `date_administered` | DateField | — | Not in the future (Manila date) |
 | `weight_at_vaccination` | DecimalField | max_digits=6, decimal_places=2, null=True | Pet weight at time of vaccination |
-| `next_due_date` | DateField | null=True, blank=True | Triggers reminder |
+| `next_due_date` | DateField | null=True, blank=True | Triggers reminder; when set, after `date_administered` |
 | `batch_number` | CharField | max_length=50, blank=True | Lot number from physical booklet |
 | `manufacturer` | CharField | max_length=100, blank=True | — |
 | `administered_by` | CharField | max_length=100, blank=True | Veterinarian name |
 | `site_of_injection` | CharField | max_length=50, blank=True | — |
-| `is_corrected` | BooleanField | default=False | Marks record as corrected |
-| `correction_note` | TextField | blank=True | Explains what was corrected and why |
+| `is_corrected` | BooleanField | default=False | Set when a clinical field is changed |
+| `correction_note` | TextField | blank=True | One dated line per correction ("Tue, Nov 3, 2026: wrong date typed"); lines are only added, never replaced or cleared |
 | `created_at` | DateTimeField | auto_now_add=True | — |
 | `updated_at` | DateTimeField | auto_now=True | — |
 
@@ -422,20 +423,33 @@ Anti-rabies
 8-in-1
 Bordetella
 ```
-Custom input allowed if not in list.
+`Other` plus a typed `custom_vaccine_name` if not in the list.
 
 **Rules:**
 - If `medical_record` and `appointment` are null — standalone entry
 - Both paths update the pet's vaccination history
 - `next_due_date` is used to trigger vaccination reminders
 - Vaccination records cannot be deleted — ever
-- All fields are editable by Admin
-- A correction note is required only when clinical fields are changed:
-  `vaccine_name`, `custom_vaccine_name`, `date_administered`,
-  `next_due_date`, `weight_at_vaccination`, `site_of_injection`
-- When a clinical field is changed, `is_corrected` is set to `True` automatically
+- All fields are editable by Admin, on one edit page (there is no separate
+  "correct" action)
+- Vaccine name (add and edit): a listed vaccine clears `custom_vaccine_name`
+  to ""; `Other` needs a typed name ("Type the vaccine name.")
+- Dates (add and edit, Manila date via `timezone.localdate()`):
+  `date_administered` can't be in the future (today is allowed);
+  `next_due_date`, when set, must be after `date_administered`
+- Clinical fields: `vaccine_name` + `custom_vaccine_name` (count as one, "the
+  vaccine"), `date_administered`, `next_due_date`, `weight_at_vaccination`,
+  `site_of_injection`. A change is found by comparing normalised values
+  (None and "" equal, strings stripped, decimals as Decimal), so saving a
+  blank weight or next date again is not a change
+- A clinical change needs a reason (form-only field `correction_reason`).
+  On save, `is_corrected` becomes `True` and the reason is added to
+  `correction_note` as a new line `"<Ddd, Mmm D, YYYY>: <reason>"` (today's
+  Manila date) after the existing text. Earlier lines are kept exactly;
+  `correction_note` is never cleared
 - Administrative fields (`batch_number`, `manufacturer`, `administered_by`)
-  can be edited freely without a correction note
+  can be edited freely without a reason; a reason typed with no clinical
+  change is ignored
 - Corrected records remain visible but are flagged in the UI with the correction note
 
 ---

@@ -21,15 +21,6 @@
     {% endif %}
   </div>
 
-  {% if vaccination.is_corrected %}
-    <div class="warning-banner">
-      <p>This record has already been marked as corrected.</p>
-      <p class="correction-note-display">
-        Previous note: {{ vaccination.correction_note }}
-      </p>
-    </div>
-  {% endif %}
-
   <form method="post" class="medical-form">
     {% csrf_token %}
     <input type="hidden" name="next" value="{{ next }}" />
@@ -80,6 +71,9 @@
             Next Due Date <span class="form-optional">(optional)</span>
           </label>
           {{ form.next_due_date }}
+          {% if form.next_due_date.errors %}
+            <p class="form-error">{{ form.next_due_date.errors.0 }}</p>
+          {% endif %}
         </div>
       </div>
 
@@ -130,19 +124,33 @@
       </div>
     </div>
 
-    <!-- Correction note — required only when clinical fields change -->
+    <!-- Reason — required only when clinical fields change; saved as a dated line -->
     <div class="form-section">
-      <h2 class="form-section-title">Correction Note</h2>
+      <h2 class="form-section-title">
+        <label for="{{ form.correction_reason.id_for_label }}">{{ form.correction_reason.label }}</label>
+      </h2>
       <p class="form-help">
         Only required if you changed a clinical field above.
-        Explain what was incorrect and what the correct value is.
       </p>
       <div class="form-group">
-        {{ form.correction_note }}
-        {% if form.correction_note.errors %}
-          <p class="form-error">{{ form.correction_note.errors.0 }}</p>
+        {% if form.correction_reason.errors %}
+          <!-- What changed, from the form (label, old value) -->
+          <p class="form-help">
+            Changed:
+            {% for label, old in form.changed_clinical %}{{ label }} (was {{ old }}){% if not forloop.last %}, {% endif %}{% endfor %}
+          </p>
+        {% endif %}
+        {{ form.correction_reason }}
+        {% if form.correction_reason.errors %}
+          <p class="form-error">{{ form.correction_reason.errors.0 }}</p>
         {% endif %}
       </div>
+      {% if vaccination.correction_note %}
+        <h3 class="form-section-title">Corrected before</h3>
+        {% for line in vaccination.correction_note.splitlines %}
+          <p class="correction-note-display">{{ line }}</p>
+        {% endfor %}
+      {% endif %}
     </div>
 
     {% if form.non_field_errors %}

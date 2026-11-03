@@ -62,6 +62,9 @@
           Next Due Date <span class="form-optional">(optional)</span>
         </label>
         {{ form.next_due_date }}
+        {% if form.next_due_date.errors %}
+          <p class="form-error">{{ form.next_due_date.errors.0 }}</p>
+        {% endif %}
       </div>
     </div>
 
