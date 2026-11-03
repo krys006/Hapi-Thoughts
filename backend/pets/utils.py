@@ -90,6 +90,89 @@ def barangay_choices(town):
     return [("", "Choose a barangay")] + [(name, name) for name in barangays]
 
 
+# ── Pet species and breeds ───────────────────────────────────────────────────
+
+# Keep in sync with PET_SPECIES_OPTIONS / PET_BREEDS_BY_SPECIES in
+# static/js/shared/pet_species_breed.js (the owner-side pet forms use it).
+# Same names, same order. "Other" is not a species; the forms add it.
+PET_BREEDS_BY_SPECIES = {
+    "Dog": [
+        "Aspin (Native)",
+        "Labrador Retriever",
+        "Shih Tzu",
+        "Chihuahua",
+        "Poodle",
+        "Siberian Husky",
+        "Golden Retriever",
+        "Beagle",
+        "Pomeranian",
+        "Dachshund",
+        "German Shepherd",
+        "Rottweiler",
+        "Shiba Inu",
+        "French Bulldog",
+        "Pug",
+        "Mixed Breed",
+    ],
+    "Cat": [
+        "Puspin (Native)",
+        "Persian",
+        "Siamese",
+        "British Shorthair",
+        "Maine Coon",
+        "Ragdoll",
+        "American Shorthair",
+        "Scottish Fold",
+        "Munchkin",
+        "Mixed Breed",
+    ],
+    "Bird": [
+        "Parakeet (Budgerigar)",
+        "Lovebird",
+        "Cockatiel",
+        "Cockatoo",
+        "Philippine Hanging Parrot (Colasisi)",
+        "Mynah",
+        "Canary",
+    ],
+    "Rabbit": ["Holland Lop", "Netherland Dwarf", "Rex", "Dutch", "Mixed Breed"],
+    "Hamster": ["Syrian", "Dwarf Campbell", "Roborovski", "Winter White"],
+}
+PET_OTHER = "__other__"
+
+
+def species_options():
+    """The species in the list, in order (no "Other")."""
+    return list(PET_BREEDS_BY_SPECIES)
+
+
+def match_species(value):
+    """The official spelling of a species in the list, or None."""
+    return _match(value, species_options())
+
+
+def breeds_for(species):
+    """The breeds of a species in the list (any case); [] for another species."""
+    official = match_species(species)
+    if official is None:
+        return []
+    return list(PET_BREEDS_BY_SPECIES[official])
+
+
+def match_breed(species, value):
+    """The official spelling of a breed in that species' list, or None."""
+    return _match(value, breeds_for(species))
+
+
+def breed_choices(species):
+    """Options for the Breed select: "Not sure" first and "Other (type it)"
+    last, or only "Choose the species first" for an empty or unknown one."""
+    if not match_species(species):
+        return [("", "Choose the species first")]
+    breeds = [(name, name) for name in breeds_for(species)]
+    return [("", "Not sure")] + breeds + [(PET_OTHER, "Other (type it)")]
+
+
 # ── Admin owners list ────────────────────────────────────────────────────────
 
 

@@ -1,0 +1,3 @@
+{# HTMX: the Breed <option> list for a species ("Not sure" first, "Other (type it)" last), swapped into the pet form's Breed select #}
+{% for value, label in options %}<option value="{{ value }}">{{ label }}</option>
+{% endfor %}

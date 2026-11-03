@@ -274,7 +274,15 @@ templates/
 │   │   │   ├── owner_card.html
 │   │   │   ├── archive_dialog.html   ← direct Archive with Reason + Details (admin_pet_archive)
 │   │   │   └── restore_dialog.html
-│   │   ├── pet_form.html
+│   │   ├── pet_form.html             ← Add pet and Edit pet (one form, AdminPetForm)
+│   │   ├── pet_form_parts/           ← Includes for pet_form.html (not HTMX partials, so no `_`; the error summary is owner_form_parts/error_summary.html)
+│   │   │   ├── header.html           ← back link (owner page, walk-in step 2 or pet page), title, subtitle
+│   │   │   ├── owner_line.html       ← Add only: owner avatar + "Owner" + name
+│   │   │   ├── about_card.html       ← Name, Sex, Species select, Breed select, typed species/breed boxes
+│   │   │   ├── size_card.html        ← Birthday (with the age on Edit), Weight, Color, Registration no.
+│   │   │   ├── photo_card.html
+│   │   │   └── buttons.html          ← Cancel + "Add pet" / "Save changes" (+ the Add note)
+│   │   ├── _breed_options.html       ← HTMX: a species' Breed <option> list ("Not sure" first, "Other (type it)" last)
 │   │   ├── deletion_requests.html
 │   │   └── deletion_requests_parts/  ← Includes for deletion_requests.html (not HTMX partials, so no `_`; dialogs reuse appointments' detail_parts/dialog_buttons.html)
 │   │       ├── intro.html
@@ -366,7 +374,7 @@ static/
 │   ├── owner/              ← Pet owner page styles
 │   └── shared/             ← Styles used by both roles (header, clinic info)
 ├── js/
-│   ├── admin/              ← Admin page scripts; dialogs.js and auto_submit.js are loaded by layouts/admin.html on every page; owner_form.js only by admin/pets/owner_form.html (extra_js)
+│   ├── admin/              ← Admin page scripts; dialogs.js and auto_submit.js are loaded by layouts/admin.html on every page; photo_input.js by admin/pets/owner_form.html and pet_form.html, owner_form.js / pet_form.js only by their form (extra_js)
 │   ├── owner/              ← Pet owner page scripts
 │   └── shared/             ← Scripts used by both roles
 ├── vendor/
@@ -387,7 +395,8 @@ static/
 > (Slice 4a-4; added: `js/admin/owner_form.js`), `js/admin/pets_list.js`,
 > `css/admin/pets_list.css`, `js/admin/deletion_requests.js` and
 > `css/admin/deletion_requests.css` (Slice 4b-2), `css/admin/pet_detail.css`
-> (Slice 4b-3). Other old files still
+> (Slice 4b-3), `css/admin/pet_form.css` (Slice 4b-4; added: `js/admin/photo_input.js`,
+> shared by the owner and pet forms, and `js/admin/pet_form.js`). Other old files still
 > mention them in comments; those comments go when their own pages migrate.
 
 ### Media files (user uploads)
@@ -460,6 +469,7 @@ urlpatterns = [
 /admin/pets/<pk>/archive/       ← pets (POST: archive a pet directly with a reason, name admin_pet_archive)
 /admin/pets/<pk>/restore/       ← pets (POST: restore an archived pet, name admin_pet_restore)
 /admin/pets/address/barangays/  ← pets (HTMX: Barangay options for ?town=, name admin_address_barangays)
+/admin/pets/breed-options/      ← pets (HTMX: Breed options for ?species=, name admin_pet_breed_options)
 /admin/medical/  /admin/vaccinations/  ← medical
 /admin/billing/  /admin/services/  ← billing
 /admin/health/                  ← health
@@ -918,7 +928,7 @@ The main admin user is an elderly vet. Every migrated admin page follows these:
 | `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 53 icons (`calendar-check` added in dashboard v5, `archive` in Slice 4a-2, `map-pin`, `link`, `pencil`, `rotate-ccw`, `send` in Slice 4a-3, `upload` in Slice 4a-4). To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
 | `pet_avatar.html` | `{% include "components/pet_avatar.html" with pet=appointment.pet size="lg" %}`. `lg` 64px (`size-16 rounded-2xl`), `sm` 40px (`size-10 rounded-xl`). The pet's photo, or a violet tile with the `species_icon` icon (dog, cat, rabbit, bird, paw-print) at stroke 1.5, labelled "No photo of {name} yet". Optional `muted=True`: gray tile (`bg-gray-100 text-gray-600 ring-gray-300`) for archived pets, or every pet of an archived owner (owner page); a photo is unchanged. |
 | `owner_avatar.html` | `{% include "components/owner_avatar.html" with owner=appointment.owner size="xs" %}`. Circle; `lg` 64px (`size-16`, `text-xl` initials; owner page header), `sm` 40px, `xs` 32px. The profile photo, or initials (one letter when the last name is blank). Optional `muted=True`: gray initials tile (`bg-gray-100 text-gray-700 ring-gray-300`) for archived owners (owners list Archived tab, owner page). |
-| `form_field.html` | `{% include "components/form_field.html" with field=form.email %}`. Label, control, help text, errors (red text with the `triangle-alert` icon). Optional `optional=True` adds a gray "(optional)" after the label. Needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple field uses it. |
+| `form_field.html` | `{% include "components/form_field.html" with field=form.email %}`. Label, control, help text, errors (red text with the `triangle-alert` icon). Optional `optional=True` adds a gray "(optional)" after the label; `required=True` adds the red * for a field only `clean()` requires (the pet form's "Type the species"). Needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple field uses it. |
 | `status_badge.html` | `{% include "components/status_badge.html" with status=obj.status label=obj.get_status_display %}` |
 | `flash_messages.html` | Rendered once by the admin layout; pages must not loop over `messages`. |
 | `empty_state.html` | `{% include "components/empty_state.html" with icon="calendar" title="No appointments on this day" text="Pick another date on the calendar." %}`. Optional `live=True` makes the title a polite live region (results that change as you type). |

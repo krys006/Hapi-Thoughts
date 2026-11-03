@@ -95,6 +95,12 @@ urlpatterns = [
         views.admin_address_barangays,
         name="admin_address_barangays",
     ),
+    # HTMX: the pet form's Breed options for a species
+    path(
+        "admin/pets/breed-options/",
+        views.admin_pet_breed_options,
+        name="admin_pet_breed_options",
+    ),
     # --- Admin: Pets ---
     path(
         "admin/pets/",

@@ -37,6 +37,7 @@ from .utils import (
     archive_pet_directly,
     archived_pet_refusal,
     barangay_choices,
+    breed_choices,
     create_owner,
     deletion_answer_refusal,
     deletion_requests_context,
@@ -722,6 +723,25 @@ def admin_address_barangays(request):
     )
 
 
+@login_required
+def admin_pet_breed_options(request):
+    """
+    HTMX: the Breed <option> list for ?species= (the pet form's Species
+    select sends its own value as ?species_choice=, which works too).
+    A plain GET gets the same partial.
+    """
+    guard = _require_admin(request)
+    if guard:
+        return guard
+
+    species = request.GET.get("species", request.GET.get("species_choice", ""))
+    return render(
+        request,
+        "admin/pets/_breed_options.html",
+        {"options": breed_choices(species)},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Admin — Edit Pet Owner
 # ---------------------------------------------------------------------------
@@ -969,8 +989,8 @@ def admin_pet_add(request, owner_pk):
     if refused:
         return refused
 
-    # A fixed value, never a URL. The form posts back to the same URL, so
-    # ?return= survives a failed POST; a "return" field also counts.
+    # A fixed value, never a URL. The form posts back to the same URL and
+    # carries a hidden "return" field, so it survives a failed POST.
     return_to = request.POST.get("return") or request.GET.get("return")
     return_to = "walkin" if return_to == "walkin" else ""
 
@@ -992,16 +1012,35 @@ def admin_pet_add(request, owner_pk):
     else:
         form = AdminPetForm()
 
+    return _render_pet_form(request, form, owner, return_to=return_to)
+
+
+def _render_pet_form(request, form, owner, pet=None, return_to=""):
+    """Add pet (pet=None) or Edit pet, with the back / Cancel target:
+    the owner page, walk-in step 2 (?return=walkin) or the pet page."""
+    if pet:
+        back_url = reverse("admin_pet_detail", args=[pet.pk])
+        back_label = f"Back to {pet.name}"
+    elif return_to == "walkin":
+        query = urlencode({"owner": owner.pk})
+        back_url = f"{reverse('admin_walkin_appointment_visit')}?{query}"
+        back_label = "Back to the walk-in"
+    else:
+        back_url = reverse("admin_owner_detail", args=[owner.pk])
+        back_label = f"Back to {owner.full_name}"
+
     return render(
         request,
         "admin/pets/pet_form.html",
         {
             "form": form,
-            "owner": owner,  # used for cancel button and context
-            "pet": None,  # signals template this is a create, not edit
-            "form_title": f"Add Pet for {owner.full_name}",
-            "submit_label": "Add Pet",
+            "owner": owner,
+            "pet": pet,
+            "is_add": pet is None,
             "return_to": return_to,
+            "return_to_walkin": return_to == "walkin",
+            "back_url": back_url,
+            "back_label": back_label,
         },
     )
 
@@ -1156,6 +1195,10 @@ def admin_pet_edit(request, pk):
         messages.error(request, refusal)
         return redirect("admin_pet_detail", pk=pet.pk)
 
+    # A failed POST writes the typed values onto the form's instance; the
+    # header, back link and photo show the saved pet from this copy
+    saved_pet = copy.copy(pet)
+
     if request.method == "POST":
         form = AdminPetForm(request.POST, request.FILES, instance=pet)
         if form.is_valid():
@@ -1168,16 +1211,7 @@ def admin_pet_edit(request, pk):
     else:
         form = AdminPetForm(instance=pet)
 
-    return render(
-        request,
-        "admin/pets/pet_form.html",
-        {
-            "form": form,
-            "pet": pet,
-            "form_title": f"Edit {pet.name}",
-            "submit_label": "Save Changes",
-        },
-    )
+    return _render_pet_form(request, form, pet.owner, pet=saved_pet)
 
 
 # ---------------------------------------------------------------------------

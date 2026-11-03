@@ -129,10 +129,10 @@ Phase 7 — Dashboards & Polish
 | Photo | Optional | Placeholder when no photo: species icon (dog, cat, rabbit, bird, or a paw) on admin pages; initials avatar on owner pages |
 | Registration number | Optional | Government-issued |
 | Name | Required | — |
-| Species | Required | Dropdown + custom input |
-| Breed | Optional | Cascading dropdown based on species + custom input |
+| Species | Required | Dropdown (Dog, Cat, Bird, Rabbit, Hamster) with "Other (type it)" for a typed species |
+| Breed | Optional | Dropdown for the chosen species ("Not sure" first) with "Other (type it)" for a typed breed; a typed species gets a plain typed breed |
 | Color | Optional | — |
-| Gender | Required | Male / Female / Unknown |
+| Sex (`gender`) | Required | Not sure / Male / Female (admin form starts on "Not sure"; stored as unknown / male / female) |
 | Date of birth | Optional | Can't be in the future |
 | Age | Auto | Calculated from date of birth |
 | Weight | Optional | In kg |

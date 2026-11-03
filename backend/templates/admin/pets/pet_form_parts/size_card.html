@@ -1,0 +1,21 @@
+{% comment %}
+  Age and size (all optional). The Birthday field is written out here
+  (same markup as components/form_field.html) so its help line can start
+  with the saved age on Edit: "3 yrs old · A rough date is fine."
+{% endcomment %}
+<section class="card" aria-labelledby="size-title">
+  <h2 id="size-title" class="text-xl font-semibold text-gray-900">Age and size <span class="text-base font-normal text-gray-600">(optional)</span></h2>
+  <div class="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-2">
+    {% with field=form.date_of_birth %}
+      <div class="form-field space-y-1.5{% if field.errors %} has-error{% endif %}">
+        <label for="{{ field.id_for_label }}" class="block text-base font-medium text-gray-800">{{ field.label }}</label>
+        {{ field }}
+        <p class="text-sm text-gray-600" data-age-line>{% if pet.date_of_birth %}<b class="font-semibold text-gray-800">{{ pet.age }} old</b> · {% endif %}{{ field.help_text }}</p>
+        {% for error in field.errors %}<p class="flex items-start gap-1 text-sm font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-4 shrink-0" %}{{ error }}</p>{% endfor %}
+      </div>
+    {% endwith %}
+    {% include "components/form_field.html" with field=form.weight %}
+    {% include "components/form_field.html" with field=form.color %}
+    {% include "components/form_field.html" with field=form.registration_number %}
+  </div>
+</section>

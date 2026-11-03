@@ -2,9 +2,11 @@ import re
 from datetime import datetime, time, timedelta
 from datetime import timezone as dt_timezone
 from decimal import Decimal
+from pathlib import Path
 from unittest.mock import patch
 
 from allauth.socialaccount.models import SocialAccount
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
 from django.core import mail
@@ -21,20 +23,26 @@ from billing.models import Service
 from dashboard.templatetags.friendly_dates import friendly_date
 from medical.models import MedicalRecord, Vaccination
 from notifications.models import Notification
-from pets.forms import AdminOwnerEmailForm, AdminPetOwnerForm
+from pets.forms import AdminOwnerEmailForm, AdminPetForm, AdminPetOwnerForm
 from pets.models import Pet, PetDeletionRequest, PetOwner
 from pets.templatetags.pet_display import species_icon, weight_kg
 from pets.utils import (
+    PET_BREEDS_BY_SPECIES,
     answer_deletion_request,
     archive_pet_directly,
     barangay_choices,
     barangays_for,
+    breed_choices,
+    breeds_for,
     marinduque_towns,
     match_barangay,
+    match_breed,
+    match_species,
     match_town,
     owner_list_context,
     pet_list_context,
     psgc_marinduque,
+    species_options,
 )
 
 User = get_user_model()
@@ -3283,7 +3291,8 @@ class ArchivedPetGuardTests(TestCase):
 class AddPetReturnToWalkInTests(TestCase):
     """admin_pet_add ?return=walkin goes back to walk-in step 2."""
 
-    POST = {"name": "Bantay", "species": "Dog", "gender": "unknown"}
+    # Slice 4b-4: the species is picked from the list (species_choice)
+    POST = {"name": "Bantay", "species_choice": "Dog", "gender": "unknown"}
 
     def setUp(self):
         _admin(self)
@@ -4910,3 +4919,628 @@ class PetDetailPageTests(TestCase):
         add(1, 4)
         with self.assertNumQueries(len(small)):
             self._get()
+
+
+# ─── Slice 4b-4: pet form (species / breed dropdowns) ────────────────────────
+
+SHARED_SPECIES_JS = (
+    Path(settings.BASE_DIR) / "static" / "js" / "shared" / "pet_species_breed.js"
+)
+
+
+def _js_species_lists():
+    """PET_SPECIES_OPTIONS and PET_BREEDS_BY_SPECIES read from the shared JS."""
+    text = SHARED_SPECIES_JS.read_text(encoding="utf-8")
+    species_block = re.search(r"PET_SPECIES_OPTIONS = \[(.*?)\];", text, re.S)
+    species = re.findall(r'"([^"]*)"', species_block.group(1))
+    breeds_block = re.search(r"PET_BREEDS_BY_SPECIES = \{(.*?)\n\};", text, re.S)
+    breeds = {
+        name: re.findall(r'"([^"]*)"', items)
+        for name, items in re.findall(r"(\w+): \[(.*?)\]", breeds_block.group(1), re.S)
+    }
+    return species, breeds
+
+
+def _select(html, name):
+    """The <select name=…> tag and its (value, label) options."""
+    match = re.search(rf'(?s)(<select name="{name}"[^>]*>)(.*?)</select>', html)
+    return match.group(1), _options(match.group(2))
+
+
+def _selected(html, name):
+    """The value of the selected option of <select name=…>, or None."""
+    match = re.search(rf'(?s)<select name="{name}"[^>]*>(.*?)</select>', html)
+    picked = re.search(r'<option value="([^"]*)"[^>]*selected', match.group(1))
+    return picked.group(1) if picked else None
+
+
+def _wrapper_hidden(html, attr):
+    """True when the <div … data-attr> wrapper has the hidden class."""
+    tag = re.search(rf'<div class="([^"]*)" {attr}\b', html)
+    return "hidden" in tag.group(1).split()
+
+
+class SpeciesBreedListTests(SimpleTestCase):
+    """pets/utils.py: the species / breed lists and their helpers."""
+
+    def test_lists_match_the_shared_js(self):
+        species, breeds = _js_species_lists()
+        self.assertEqual(species_options(), species)
+        self.assertEqual(list(PET_BREEDS_BY_SPECIES), list(breeds))
+        self.assertEqual(PET_BREEDS_BY_SPECIES, breeds)
+        self.assertNotIn("Other", species_options())
+
+    def test_species_match_ignores_case_and_spaces(self):
+        self.assertEqual(match_species("dog"), "Dog")
+        self.assertEqual(match_species("  HAMSTER "), "Hamster")
+        for value in ("Turtle", "", None, "Dogs"):
+            with self.subTest(value=value):
+                self.assertIsNone(match_species(value))
+
+    def test_breeds_for_and_match_breed(self):
+        self.assertEqual(breeds_for("dog"), PET_BREEDS_BY_SPECIES["Dog"])
+        self.assertEqual(breeds_for("Turtle"), [])
+        self.assertEqual(
+            match_breed("DOG", "  golden   RETRIEVER "), "Golden Retriever"
+        )
+        self.assertEqual(match_breed("cat", "puspin (native)"), "Puspin (Native)")
+        self.assertIsNone(match_breed("Cat", "Golden Retriever"))
+        self.assertIsNone(match_breed("Turtle", "Golden Retriever"))
+
+    def test_breed_choices(self):
+        for species in ("", "Turtle", None):
+            with self.subTest(species=species):
+                self.assertEqual(
+                    breed_choices(species), [("", "Choose the species first")]
+                )
+        choices = breed_choices("rabbit")
+        self.assertEqual(choices[0], ("", "Not sure"))
+        self.assertEqual(choices[-1], ("__other__", "Other (type it)"))
+        self.assertEqual(
+            [value for value, _ in choices[1:-1]], PET_BREEDS_BY_SPECIES["Rabbit"]
+        )
+
+
+class BreedOptionsEndpointTests(TestCase):
+    """admin_pet_breed_options: the Breed <option> list over HTMX."""
+
+    def setUp(self):
+        self.url = reverse("admin_pet_breed_options")
+
+    def test_url(self):
+        self.assertEqual(self.url, "/admin/pets/breed-options/")
+
+    def test_admin_only(self):
+        response = self.client.get(self.url, {"species": "Dog"})
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn("<option", response.content.decode())
+        owner = _owner(email="ana@example.com", password="pw-12345!")
+        self.client.force_login(owner.user)
+        response = self.client.get(self.url, {"species": "Dog"})
+        self.assertRedirects(
+            response, reverse("owner_dashboard"), fetch_redirect_response=False
+        )
+
+    def test_known_species(self):
+        _admin(self)
+        for params in ({"species": "dog"}, {"species_choice": "Dog"}):
+            with self.subTest(params=params):
+                response = self.client.get(
+                    self.url, params, headers={"HX-Request": "true"}
+                )
+                options = _options(response.content.decode())
+                self.assertEqual(options[0], ("", "Not sure"))
+                self.assertEqual(options[-1], ("__other__", "Other (type it)"))
+                self.assertEqual(
+                    [v for v, _ in options[1:-1]], PET_BREEDS_BY_SPECIES["Dog"]
+                )
+                self.assertEqual(
+                    [t for _, t in options[1:-1]], PET_BREEDS_BY_SPECIES["Dog"]
+                )
+
+    def test_unknown_or_empty_species(self):
+        _admin(self)
+        for params in ({"species": ""}, {"species": "Turtle"}, {}):
+            with self.subTest(params=params):
+                response = self.client.get(self.url, params)
+                self.assertEqual(
+                    _options(response.content.decode()),
+                    [("", "Choose the species first")],
+                )
+
+
+class PetFormTests(TestCase):
+    """AdminPetForm: species / breed picks, labels and errors."""
+
+    def _form(self, **data):
+        return AdminPetForm(data={"name": "bantay", "gender": "unknown", **data})
+
+    def _cleaned(self, **data):
+        form = self._form(**data)
+        self.assertTrue(form.is_valid(), form.errors)
+        return form.cleaned_data
+
+    def test_list_species_and_breed_save_the_official_spellings(self):
+        cleaned = self._cleaned(
+            species_choice="Dog", breed_choice="golden retriever", species="Cat"
+        )
+        self.assertEqual(cleaned["species"], "Dog")
+        self.assertEqual(cleaned["breed"], "Golden Retriever")
+        self.assertEqual(cleaned["name"], "Bantay")
+
+    def test_saved_through_the_add_page(self):
+        _admin(self)
+        owner = _owner()
+        self.client.post(
+            reverse("admin_pet_add", args=[owner.pk]),
+            {
+                "name": "Brownie",
+                "gender": "male",
+                "species_choice": "Cat",
+                "breed_choice": "Puspin (Native)",
+            },
+        )
+        pet = Pet.objects.get(owner=owner)
+        self.assertEqual((pet.species, pet.breed), ("Cat", "Puspin (Native)"))
+        self.assertEqual(pet.gender, Pet.MALE)
+
+    def test_breed_from_another_species(self):
+        form = self._form(species_choice="Cat", breed_choice="Golden Retriever")
+        self.assertFalse(form.is_valid())
+        self.assertEqual(
+            form.errors["breed_choice"],
+            ["Choose a breed for Cat, or pick Other."],
+        )
+
+    def test_other_species_needs_the_typed_text(self):
+        form = self._form(species_choice="__other__", species="  ")
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors["species"], ["Type the species."])
+
+    def test_other_species_with_a_typed_breed(self):
+        cleaned = self._cleaned(
+            species_choice="__other__",
+            species="turtle",
+            breed_choice="Beagle",
+            breed="Red-eared slider",
+        )
+        self.assertEqual(cleaned["species"], "Turtle")
+        self.assertEqual(cleaned["breed"], "Red-eared slider")
+
+    def test_breed_not_sure_saves_empty(self):
+        cleaned = self._cleaned(species_choice="Dog", breed_choice="", breed="Askal")
+        self.assertEqual(cleaned["breed"], "")
+
+    def test_breed_other_uses_the_typed_breed(self):
+        cleaned = self._cleaned(
+            species_choice="Dog", breed_choice="__other__", breed=" Askal mix "
+        )
+        self.assertEqual(cleaned["breed"], "Askal mix")
+        cleaned = self._cleaned(species_choice="Dog", breed_choice="__other__")
+        self.assertEqual(cleaned["breed"], "")
+
+    def test_species_is_required(self):
+        cases = (
+            ("", "Choose the species."),
+            ("Turtle", "Choose a species from the list."),
+        )
+        for value, message in cases:
+            with self.subTest(value=value):
+                form = self._form(species_choice=value)
+                self.assertFalse(form.is_valid())
+                self.assertEqual(form.errors["species_choice"], [message])
+
+    def test_species_options(self):
+        choices = AdminPetForm().fields["species_choice"].choices
+        self.assertEqual(choices[0], ("", "Choose one"))
+        self.assertEqual([v for v, _ in choices[1:-1]], species_options())
+        self.assertEqual(choices[-1], ("__other__", "Other (type it)"))
+
+    def test_sex_defaults_to_not_sure(self):
+        form = AdminPetForm()
+        self.assertEqual(form.fields["gender"].label, "Sex")
+        self.assertEqual(
+            form.fields["gender"].choices,
+            [("unknown", "Not sure"), ("male", "Male"), ("female", "Female")],
+        )
+        self.assertEqual(form["gender"].value(), "unknown")
+        cleaned = self._cleaned(species_choice="Dog", gender="")
+        self.assertEqual(cleaned["gender"], "unknown")
+
+    def test_labels_help_and_placeholders(self):
+        form = AdminPetForm()
+        labels = {
+            "name": "Name",
+            "species_choice": "Species",
+            "species": "Type the species",
+            "breed_choice": "Breed",
+            "breed": "Type the breed",
+            "date_of_birth": "Birthday",
+            "weight": "Weight (kg)",
+            "color": "Color",
+            "registration_number": "Registration no.",
+        }
+        for name, label in labels.items():
+            with self.subTest(name=name):
+                self.assertEqual(form.fields[name].label, label)
+        self.assertEqual(
+            form.fields["date_of_birth"].help_text, "A rough date is fine."
+        )
+        self.assertEqual(
+            form.fields["registration_number"].widget.attrs["placeholder"],
+            "From the pet's ID card, if any",
+        )
+        self.assertTrue(form.fields["species_choice"].required)
+        self.assertFalse(form.fields["breed_choice"].required)
+
+    def test_name_weight_and_birthday_errors(self):
+        tomorrow = timezone.localdate() + timedelta(days=1)
+        form = AdminPetForm(
+            data={
+                "name": "",
+                "species_choice": "Dog",
+                "weight": "0",
+                "date_of_birth": tomorrow.isoformat(),
+            }
+        )
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors["name"], ["Enter the pet's name."])
+        self.assertEqual(form.errors["weight"], ["Weight must be more than 0."])
+        self.assertEqual(
+            form.errors["date_of_birth"], ["The birthday can't be in the future."]
+        )
+        self.assertEqual(form.error_count, 3)
+
+
+class PetFormInitialTests(TestCase):
+    """AdminPetForm on Edit: the saved text picks the dropdowns."""
+
+    def setUp(self):
+        self.owner = _owner()
+
+    def test_matching_text_in_another_case_picks_the_choices(self):
+        pet = _pet(self.owner, species="dog", breed="GOLDEN retriever")
+        form = AdminPetForm(instance=pet)
+        self.assertEqual(form["species_choice"].value(), "Dog")
+        self.assertEqual(form["breed_choice"].value(), "Golden Retriever")
+        self.assertEqual(form.species_mode, "list")
+        self.assertFalse(form.show_breed_text)
+        self.assertNotIn("disabled", form.fields["breed_choice"].widget.attrs)
+        self.assertEqual(
+            [v for v, _ in form.fields["breed_choice"].choices[1:-1]],
+            PET_BREEDS_BY_SPECIES["Dog"],
+        )
+
+    def test_empty_breed_is_not_sure(self):
+        form = AdminPetForm(instance=_pet(self.owner, species="Cat", breed=""))
+        self.assertEqual(form["breed_choice"].value(), "")
+        self.assertFalse(form.show_breed_text)
+
+    def test_species_not_in_the_list_is_other_with_the_text_kept(self):
+        pet = _pet(self.owner, name="Shelly", species="Turtle", breed="Box turtle")
+        form = AdminPetForm(instance=pet)
+        self.assertEqual(form["species_choice"].value(), "__other__")
+        self.assertEqual(form["species"].value(), "Turtle")
+        self.assertEqual(form["breed"].value(), "Box turtle")
+        self.assertEqual(form.species_mode, "other")
+        self.assertTrue(form.show_breed_text)
+        self.assertEqual(form.fields["breed"].label, "Breed")
+        self.assertTrue(form.fields["breed_choice"].widget.attrs["disabled"])
+
+    def test_breed_not_in_the_list_is_other_with_the_text_kept(self):
+        # "Golden Retriever" is a Dog breed, so it isn't on the Cat list
+        pet = _pet(self.owner, name="Max", species="Cat", breed="Golden Retriever")
+        form = AdminPetForm(instance=pet)
+        self.assertEqual(form["species_choice"].value(), "Cat")
+        self.assertEqual(form["breed_choice"].value(), "__other__")
+        self.assertEqual(form["breed"].value(), "Golden Retriever")
+        self.assertTrue(form.show_breed_text)
+        self.assertEqual(form.fields["breed"].label, "Type the breed")
+
+    def test_saving_the_page_as_it_opened_keeps_the_saved_text(self):
+        _admin(self)
+        cases = [
+            ("Turtle", "Box turtle", "Turtle", "Box turtle"),
+            ("Cat", "Golden Retriever", "Cat", "Golden Retriever"),
+            ("dog", "aspin (native)", "Dog", "Aspin (Native)"),
+        ]
+        fields = (
+            "name",
+            "gender",
+            "species_choice",
+            "species",
+            "breed_choice",
+            "breed",
+        )
+        for species, breed, saved_species, saved_breed in cases:
+            with self.subTest(species=species, breed=breed):
+                pet = _pet(self.owner, species=species, breed=breed)
+                url = reverse("admin_pet_edit", args=[pet.pk])
+                form = self.client.get(url).context["form"]
+                data = {name: form[name].value() or "" for name in fields}
+                if form.species_mode == "other":
+                    data.pop("breed_choice")  # a disabled select isn't sent
+                self.client.post(url, data)
+                pet.refresh_from_db()
+                self.assertEqual((pet.species, pet.breed), (saved_species, saved_breed))
+
+
+class PetFormPageTests(TestCase):
+    """admin/pets/pet_form.html: Add pet and Edit pet."""
+
+    def setUp(self):
+        _admin(self)
+        self.owner = _owner(first="Liza", email="liza@example.com")
+        self.pet = _pet(self.owner, name="Brownie", breed="Aspin (Native)")
+        self.add = reverse("admin_pet_add", args=[self.owner.pk])
+        self.edit = reverse("admin_pet_edit", args=[self.pet.pk])
+        self.owner_url = reverse("admin_owner_detail", args=[self.owner.pk])
+        self.pet_url = reverse("admin_pet_detail", args=[self.pet.pk])
+        self.walkin_url = (
+            f"{reverse('admin_walkin_appointment_visit')}?owner={self.owner.pk}"
+        )
+
+    def _html(self, url, data=None):
+        if data is None:
+            return self.client.get(url).content.decode()
+        return self.client.post(url, data).content.decode()
+
+    def test_new_layout(self):
+        inline = r"<script(?![^>]*\bsrc=)[^>]*>"
+        owner_form = self._html(reverse("admin_owner_edit", args=[self.owner.pk]))
+        for url in (self.add, self.edit):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                html = response.content.decode()
+                self.assertTemplateUsed(response, "layouts/admin.html")
+                self.assertNotIn("pet_form.css", html)
+                self.assertNotIn("admin-page", html)
+                self.assertNotIn("pet_species_breed.js", html)
+                # Only the layout's own inline script, as on the owner form
+                self.assertEqual(
+                    len(re.findall(inline, html)), len(re.findall(inline, owner_form))
+                )
+                self.assertIn('<div class="mx-auto max-w-3xl">', html)
+                self.assertIn("js/admin/photo_input", html)
+                self.assertIn("js/admin/pet_form", html)
+                self.assertRegex(html, r"<form [^>]*novalidate")
+                self.assertRegex(html, r'<form [^>]*enctype="multipart/form-data"')
+                self.assertIn("csrfmiddlewaretoken", html)
+
+    def test_owner_form_loads_the_shared_photo_script(self):
+        html = self._html(reverse("admin_owner_edit", args=[self.owner.pk]))
+        self.assertIn("js/admin/photo_input", html)
+        self.assertIn("js/admin/owner_form", html)
+
+    def test_add_header(self):
+        html = self._html(self.add)
+        self.assertRegex(
+            html,
+            rf'(?s)<a href="{self.owner_url}" [^>]*>\s*<svg.*?</svg>'
+            r"\s*Back to Liza Cruz</a>",
+        )
+        self.assertRegex(html, r"<h1[^>]*>Add pet</h1>")
+        self.assertIn("Add a pet to Liza Cruz's account.", html)
+
+    def test_add_from_the_walkin_header(self):
+        html = self._html(f"{self.add}?return=walkin")
+        self.assertRegex(
+            html,
+            rf'(?s)<a href="{re.escape(self.walkin_url)}" [^>]*>\s*<svg.*?</svg>'
+            r"\s*Back to the walk-in</a>",
+        )
+        self.assertRegex(html, r"<h1[^>]*>Add pet</h1>")
+        self.assertIn("Add a pet to Liza Cruz's account.", html)
+
+    def test_edit_header(self):
+        html = self._html(self.edit)
+        self.assertRegex(
+            html,
+            rf'(?s)<a href="{self.pet_url}" [^>]*>\s*<svg.*?</svg>'
+            r"\s*Back to Brownie</a>",
+        )
+        self.assertRegex(html, r"<h1[^>]*>Edit Brownie</h1>")
+        self.assertIn(
+            '<p class="mt-1 text-base text-gray-600">Owner: Liza Cruz</p>', html
+        )
+
+    def test_failed_edit_keeps_the_saved_name_in_the_header(self):
+        html = self._html(self.edit, {"name": "Rex", "species_choice": ""})
+        self.assertRegex(html, r"<h1[^>]*>Edit Brownie</h1>")
+        self.assertIn("Back to Brownie", html)
+        self.assertIn('value="Rex"', html)
+
+    def test_required_note_or_error_summary(self):
+        html = self._html(self.add)
+        self.assertIn(
+            'Fields marked <span class="text-red-700">*</span> are required. '
+            "Everything else can be added later.",
+            html,
+        )
+        self.assertNotIn('role="alert"', html)
+        html = self._html(self.add, {"name": "", "species_choice": "Dog"})
+        self.assertIn('role="alert"', html)
+        self.assertIn("Please fix the item below.", html)
+        self.assertIn("Enter the pet&#x27;s name.", html)
+        self.assertNotIn("Everything else can be added later.", html)
+        html = self._html(self.add, {"name": "", "species_choice": ""})
+        self.assertIn("Please fix the 2 items below.", html)
+
+    def test_owner_line_only_on_add(self):
+        add = self._html(self.add)
+        self.assertRegex(
+            add,
+            r'(?s)data-owner-line>.*?<p class="text-sm text-gray-600">Owner</p>\s*'
+            r'<p class="text-base font-semibold text-gray-900">Liza Cruz</p>',
+        )
+        self.assertNotIn("data-owner-line", self._html(self.edit))
+
+    def test_one_primary_button(self):
+        for url, label in ((self.add, "Add pet"), (self.edit, "Save changes")):
+            with self.subTest(label=label):
+                html = self._html(url)
+                self.assertEqual(html.count("btn-primary"), 1)
+                self.assertRegex(
+                    html,
+                    r'(?s)<button type="submit" class="btn btn-primary[^"]*">'
+                    rf"\s*<svg.*?</svg>\s*{label}</button>",
+                )
+
+    def test_cancel_targets_and_add_notes(self):
+        cases = (
+            (
+                self.add,
+                self.owner_url,
+                "After saving you'll see Liza Cruz's page with the new pet.",
+            ),
+            (
+                f"{self.add}?return=walkin",
+                self.walkin_url,
+                "After saving you'll go back to the walk-in "
+                "with the new pet picked.",
+            ),
+            (self.edit, self.pet_url, None),
+        )
+        for url, cancel, note in cases:
+            with self.subTest(url=url):
+                html = self._html(url)
+                self.assertIn(
+                    f'<a href="{cancel}" '
+                    'class="btn btn-outline w-full font-semibold sm:w-auto">Cancel</a>',
+                    html,
+                )
+                if note:
+                    self.assertIn(note, html)
+                else:
+                    self.assertNotIn("After saving", html)
+
+    def test_hidden_return_kept_after_a_failed_post(self):
+        hidden = '<input type="hidden" name="return" value="walkin">'
+        self.assertIn(hidden, self._html(f"{self.add}?return=walkin"))
+        self.assertNotIn('name="return"', self._html(self.add))
+        # A failed POST to the plain URL keeps the posted field
+        html = self._html(self.add, {"return": "walkin", "species_choice": "Dog"})
+        self.assertIn(hidden, html)
+        self.assertIn("Back to the walk-in", html)
+        # Anything else is dropped
+        html = self._html(self.add, {"return": "https://example.com/"})
+        self.assertNotIn('name="return"', html)
+
+    def test_species_and_breed_selects(self):
+        html = self._html(self.add)
+        tag, options = _select(html, "species_choice")
+        self.assertIn(f'hx-get="{reverse("admin_pet_breed_options")}"', tag)
+        self.assertIn('hx-trigger="change"', tag)
+        self.assertIn('hx-target="#id_breed_choice"', tag)
+        self.assertEqual(options[0], ("", "Choose one"))
+        self.assertEqual(options[-1], ("__other__", "Other (type it)"))
+        tag, options = _select(html, "breed_choice")
+        self.assertIn("disabled", tag)
+        self.assertEqual(options, [("", "Choose the species first")])
+        self.assertTrue(_wrapper_hidden(html, "data-species-other"))
+        self.assertFalse(_wrapper_hidden(html, "data-breed-pick"))
+        self.assertTrue(_wrapper_hidden(html, "data-breed-other"))
+        _, sex = _select(html, "gender")
+        self.assertEqual(
+            sex, [("unknown", "Not sure"), ("male", "Male"), ("female", "Female")]
+        )
+        self.assertEqual(_selected(html, "gender"), "unknown")
+
+    def test_edit_picks_the_saved_species_and_breed(self):
+        html = self._html(self.edit)
+        self.assertEqual(_selected(html, "species_choice"), "Dog")
+        self.assertEqual(_selected(html, "breed_choice"), "Aspin (Native)")
+        tag, _ = _select(html, "breed_choice")
+        self.assertNotIn("disabled", tag)
+        self.assertTrue(_wrapper_hidden(html, "data-species-other"))
+        self.assertFalse(_wrapper_hidden(html, "data-breed-pick"))
+        self.assertTrue(_wrapper_hidden(html, "data-breed-other"))
+
+    def test_edit_with_species_other(self):
+        turtle = _pet(self.owner, name="Shelly", species="Turtle")
+        html = self._html(reverse("admin_pet_edit", args=[turtle.pk]))
+        self.assertEqual(_selected(html, "species_choice"), "__other__")
+        self.assertIn('value="Turtle"', html)
+        self.assertFalse(_wrapper_hidden(html, "data-species-other"))
+        self.assertTrue(_wrapper_hidden(html, "data-breed-pick"))
+        self.assertFalse(_wrapper_hidden(html, "data-breed-other"))
+        self.assertRegex(
+            html,
+            r'(?s)for="id_species"[^>]*>\s*Type the species '
+            r'<span class="text-red-700" aria-hidden="true">\*</span>',
+        )
+        self.assertRegex(html, r'(?s)for="id_breed"[^>]*>\s*Breed <span')
+
+    def test_failed_post_keeps_the_breed_list_of_the_posted_species(self):
+        html = self._html(
+            self.add, {"name": "", "species_choice": "Cat", "breed_choice": "Persian"}
+        )
+        _, options = _select(html, "breed_choice")
+        self.assertEqual([v for v, _ in options[1:-1]], PET_BREEDS_BY_SPECIES["Cat"])
+        self.assertEqual(_selected(html, "breed_choice"), "Persian")
+
+    def test_photo_card_on_add(self):
+        html = self._html(self.add)
+        self.assertIn("Choose a photo", html)
+        self.assertNotIn("Choose a new photo", html)
+        self.assertIn("Without a photo, a picture of the species is shown.", html)
+        self.assertNotIn("Remove the photo", html)
+        self.assertNotIn("Choose the photo again.", html)
+        self.assertIn("data-photo-input", html)
+        self.assertIn("data-photo-name", html)
+
+    def test_photo_card_on_edit_without_a_photo(self):
+        html = self._html(self.edit)
+        self.assertIn('aria-label="No photo of Brownie yet"', html)
+        self.assertIn("Choose a photo", html)
+        self.assertIn("Without a photo, a picture of the species is shown.", html)
+        self.assertNotIn("Remove the photo", html)
+
+    def test_photo_card_on_edit_with_a_photo(self):
+        Pet.objects.filter(pk=self.pet.pk).update(photo="pets/brownie.jpg")
+        html = self._html(self.edit)
+        self.assertIn('alt="Photo of Brownie"', html)
+        self.assertIn("Choose a new photo", html)
+        self.assertIn("Leave it as it is to keep the current photo.", html)
+        self.assertRegex(
+            html,
+            r'(?s)<label for="photo-clear_id"[^>]*>\s*<input type="checkbox" '
+            r'name="photo-clear" id="photo-clear_id"[^>]*>\s*Remove the photo',
+        )
+
+    def test_photo_repick_line_after_errors(self):
+        html = self._html(self.add, {"name": "", "species_choice": "Dog"})
+        self.assertIn(
+            "Choose the photo again. Browsers can't keep it after a problem.",
+            html,
+        )
+
+    def test_age_line_on_edit(self):
+        born = timezone.localdate() - timedelta(days=3 * 365 + 10)
+        Pet.objects.filter(pk=self.pet.pk).update(date_of_birth=born)
+        html = self._html(self.edit)
+        self.assertIn(
+            '<p class="text-sm text-gray-600" data-age-line>'
+            '<b class="font-semibold text-gray-800">3 yrs old</b> · '
+            "A rough date is fine.</p>",
+            html,
+        )
+        no_birthday = reverse("admin_pet_edit", args=[_pet(self.owner).pk])
+        for url in (self.add, no_birthday):
+            with self.subTest(url=url):
+                self.assertIn(
+                    '<p class="text-sm text-gray-600" data-age-line>'
+                    "A rough date is fine.</p>",
+                    self._html(url),
+                )
+
+    def test_every_link_on_one_line(self):
+        pages = [
+            self._html(self.add),
+            self._html(f"{self.add}?return=walkin"),
+            self._html(self.edit),
+            self._html(self.add, {"name": "", "species_choice": "Dog"}),
+        ]
+        for html in pages:
+            for tag in re.findall(r"<a\b[^>]*>", html):
+                self.assertNotIn("\n", tag)

@@ -1,0 +1,8 @@
+{# Add pet only: whose pet this is #}
+<div class="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white px-5 py-3 shadow-sm" data-owner-line>
+  {% include "components/owner_avatar.html" with owner=owner size="sm" %}
+  <div class="min-w-0 flex-1">
+    <p class="text-sm text-gray-600">Owner</p>
+    <p class="text-base font-semibold text-gray-900">{{ owner.full_name }}</p>
+  </div>
+</div>
