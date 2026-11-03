@@ -1,17 +1,20 @@
 """Helpers for the medical views."""
 
 from datetime import timedelta
+from urllib.parse import urlencode
 
+from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Count, Exists, OuterRef, Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
 from appointments.models import Appointment
+from appointments.utils import paging_links
 from notifications.utils import notify
-from pets.utils import ARCHIVED_PET
+from pets.utils import ARCHIVED_PET, pet_state
 
 from .models import MedicalRecord, Vaccination
 
@@ -19,6 +22,9 @@ RECORD_VISIT_STATUSES = (Appointment.CONFIRMED, Appointment.COMPLETED)
 RECORD_EXISTS = "A medical record already exists for this appointment."
 # "This week" on the dashboard and the Due / Follow-ups tabs: today to today + 7
 DUE_DAYS = 7
+LIST_PAGE_SIZE = 25
+VACCINATION_TABS = ("due", "overdue", "all")
+RECORD_TABS = ("followups", "all")
 
 
 # ── Due rule (one shared helper) ─────────────────────────────────────────────
@@ -119,6 +125,182 @@ def vaccination_reminder_refusal(vaccination):
             "given, so no reminder is needed."
         )
     return None
+
+
+# ── Admin lists (Vaccinations, Medical records) ──────────────────────────────
+
+
+def _list_search(params):
+    """?q=, or the old ?search= when q is missing, stripped."""
+    q = params.get("q")
+    if q is None:
+        q = params.get("search", "")
+    return q.strip()
+
+
+def _list_page(rows, params, active_tab, q):
+    """(page_obj, paging links); the pager keeps the tab and the search."""
+    page_obj = Paginator(rows, LIST_PAGE_SIZE).get_page(params.get("page"))
+    page_query = urlencode({"tab": active_tab, "q": q} if q else {"tab": active_tab})
+    return page_obj, paging_links(page_obj, page_query)
+
+
+def _vaccine_label_values(word):
+    """The listed vaccines whose label contains word ("rabies" →
+    ["Anti-rabies"]). Other is left out: its label is the typed name."""
+    return [
+        value
+        for value, label in Vaccination.VACCINE_CHOICES
+        if value != Vaccination.OTHER and word.casefold() in label.casefold()
+    ]
+
+
+def search_vaccinations(vaccinations, q):
+    """Every word in q must match the pet's name, the owner's first or last
+    name, the vaccine's label or the typed vaccine name."""
+    for word in q.split():
+        vaccinations = vaccinations.filter(
+            Q(pet__name__icontains=word)
+            | Q(pet__owner__first_name__icontains=word)
+            | Q(pet__owner__last_name__icontains=word)
+            | Q(vaccine_name__in=_vaccine_label_values(word))
+            | Q(custom_vaccine_name__icontains=word)
+        )
+    return vaccinations
+
+
+def vaccination_due_state(vaccination, today):
+    """
+    ("due" | "overdue" | "", days) by the due rule: days until the next
+    dose, or days overdue; None when the state is "". Needs the
+    is_superseded annotation and pet__owner selected.
+    """
+    due = vaccination.next_due_date
+    # Same rule as vaccinations_due / vaccinations_overdue, on the loaded row
+    if (
+        due is None
+        or vaccination.is_superseded
+        or pet_state(vaccination.pet) != "active"
+    ):
+        return "", None
+    if due < today:
+        return "overdue", (today - due).days
+    if due <= today + timedelta(days=DUE_DAYS):
+        return "due", (due - today).days
+    return "", None
+
+
+def vaccination_list_context(params, today):
+    """
+    Context for the admin Vaccinations list from the request's GET params:
+    ?tab=due|overdue|all (anything else → due), ?q= (the old ?search= when
+    q is missing) and ?page=. The search stays inside the tab; the tab
+    counts ignore it.
+    """
+    tab = params.get("tab")
+    active_tab = tab if tab in VACCINATION_TABS else "due"
+    q = _list_search(params)
+
+    # One query: the due and overdue counts reuse the due rule as subqueries
+    counts = Vaccination.objects.aggregate(
+        due_count=Count("pk", filter=Q(pk__in=vaccinations_due(today).values("pk"))),
+        overdue_count=Count(
+            "pk", filter=Q(pk__in=vaccinations_overdue(today).values("pk"))
+        ),
+        all_count=Count("pk"),
+    )
+
+    if active_tab == "due":
+        rows = vaccinations_due(today).order_by("next_due_date", "pk")
+    elif active_tab == "overdue":
+        rows = vaccinations_overdue(today).order_by("-next_due_date", "-pk")
+    else:
+        rows = Vaccination.objects.order_by("-date_administered", "-pk")
+    rows = search_vaccinations(rows, q).select_related(
+        "pet", "pet__owner", "pet__owner__user"
+    )
+    rows = rows.annotate(is_superseded=later_dose_exists())
+
+    page_obj, links = _list_page(rows, params, active_tab, q)
+    page_obj.object_list = list(page_obj.object_list)
+    for vaccination in page_obj.object_list:
+        vaccination.due_state, vaccination.days = vaccination_due_state(
+            vaccination, today
+        )
+    return {
+        "page_obj": page_obj,
+        "vaccinations": page_obj.object_list,
+        "q": q,
+        "is_searching": bool(q),
+        "active_tab": active_tab,
+        **counts,
+        **links,
+        "today": today,
+        # Old template's keys (until the 5b-1 redesign)
+        "search_query": q,
+        "total_count": page_obj.paginator.count,
+    }
+
+
+def search_records(records, q):
+    """Every word in q must match the pet's name, the owner's first or last
+    name or the diagnosis. private_notes is never searched."""
+    for word in q.split():
+        records = records.filter(
+            Q(pet__name__icontains=word)
+            | Q(pet__owner__first_name__icontains=word)
+            | Q(pet__owner__last_name__icontains=word)
+            | Q(diagnosis__icontains=word)
+        )
+    return records
+
+
+def record_list_context(params, today):
+    """
+    Context for the admin Medical records list from the request's GET
+    params: ?tab=followups|all (anything else → all), ?q= (the old ?search=
+    when q is missing) and ?page=. The search stays inside the tab; the
+    tab counts ignore it.
+    """
+    tab = params.get("tab")
+    active_tab = tab if tab in RECORD_TABS else "all"
+    q = _list_search(params)
+
+    counts = MedicalRecord.objects.aggregate(
+        followups_count=Count("pk", filter=Q(pk__in=followups_due(today).values("pk"))),
+        all_count=Count("pk"),
+    )
+
+    if active_tab == "followups":
+        rows = followups_due(today).order_by("follow_up_date", "pk")
+    else:
+        rows = MedicalRecord.objects.order_by("-record_date", "-created_at", "-pk")
+    rows = search_records(rows, q).select_related(
+        "pet", "pet__owner", "pet__owner__user"
+    )
+
+    page_obj, links = _list_page(rows, params, active_tab, q)
+    page_obj.object_list = list(page_obj.object_list)
+    for record in page_obj.object_list:
+        # "Follow-up in N days" on the pill
+        record.follow_up_days = (
+            (record.follow_up_date - today).days
+            if record.follow_up_required and record.follow_up_date
+            else None
+        )
+    return {
+        "page_obj": page_obj,
+        "records": page_obj.object_list,
+        "q": q,
+        "is_searching": bool(q),
+        "active_tab": active_tab,
+        **counts,
+        **links,
+        "today": today,
+        # Old template's keys (until the 5b-1 redesign)
+        "search_query": q,
+        "total_count": page_obj.paginator.count,
+    }
 
 
 def correction_line(reason, today):

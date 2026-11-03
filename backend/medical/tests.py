@@ -7,7 +7,10 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
+from django.http import QueryDict
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
@@ -26,7 +29,9 @@ from .utils import (
     can_remove_medicines,
     followups_due,
     is_superseded,
+    record_list_context,
     save_vaccination_edit,
+    vaccination_list_context,
     vaccinations_due,
     vaccinations_overdue,
 )
@@ -1198,3 +1203,457 @@ class VaccinationReminderTests(FrozenMedicalTestBase):
             ["A later dose of Lepto was already given, so no reminder is needed."],
         )
         self.assertEqual(self._sent(), 0)
+
+
+class MedicalListTestBase(FrozenMedicalTestBase):
+    """Two owners: Ana Cruz with Bantay (dog), Ben Santos with Muning (cat)."""
+
+    def setUp(self):
+        super().setUp()
+        self.today = timezone.localdate()
+        ben_user = User.objects.create_user(
+            username="ben_santos", email="ben@example.com", role=User.PET_OWNER
+        )
+        self.ben = PetOwner.objects.create(
+            user=ben_user, first_name="Ben", last_name="Santos"
+        )
+        self.muning = Pet.objects.create(owner=self.ben, name="Muning", species="Cat")
+
+    def _context(self, **params):
+        response = self.client.get(self.url, params)
+        self.assertEqual(response.status_code, 200)
+        return response.context
+
+    def _rows(self, **params):
+        return list(self._context(**params)[self.rows_key])
+
+    def _queries(self, tab):
+        """Queries run by the list helper for one tab (rows evaluated)."""
+        params = QueryDict(f"tab={tab}")
+        with CaptureQueriesContext(connection) as queries:
+            context = self.list_context(params, self.today)
+            list(context[self.rows_key])
+        return len(queries)
+
+
+class VaccinationListViewTests(MedicalListTestBase):
+    """Batch 5a-4: vaccination_list_context (tabs, search, paging, rows)."""
+
+    rows_key = "vaccinations"
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("admin_vaccination_list")
+
+    def list_context(self, params, today):
+        return vaccination_list_context(params, today)
+
+    def _dose(self, due_days, given_days=-300, pet=None, **fields):
+        fields.setdefault("vaccine_name", Vaccination.ANTI_RABIES)
+        return Vaccination.objects.create(
+            pet=pet or self.pet,
+            date_administered=_days(given_days),
+            next_due_date=None if due_days is None else _days(due_days),
+            **fields,
+        )
+
+    def test_default_and_unknown_tab_are_due(self):
+        for params in ({}, {"tab": "bogus"}, {"tab": ""}):
+            with self.subTest(params=params):
+                self.assertEqual(self._context(**params)["active_tab"], "due")
+
+    def test_due_tab_soonest_first(self):
+        in_5 = self._dose(5)
+        today = self._dose(0, vaccine_name=Vaccination.DEWORMING)
+        in_7 = self._dose(7, vaccine_name=Vaccination.BORDETELLA)
+        in_7_too = self._dose(7, pet=self.muning)
+        self._dose(8, vaccine_name=Vaccination.SIX_IN_ONE)
+        self._dose(-1, vaccine_name=Vaccination.IVERMECTIN)
+        self.assertEqual(self._rows(), [today, in_5, in_7, in_7_too])
+
+    def test_overdue_tab_most_recently_due_first(self):
+        long_ago = self._dose(-30)
+        yesterday = self._dose(-1, vaccine_name=Vaccination.DEWORMING)
+        yesterday_too = self._dose(-1, pet=self.muning)
+        self._dose(3, vaccine_name=Vaccination.BORDETELLA)
+        self.assertEqual(
+            self._rows(tab="overdue"), [yesterday_too, yesterday, long_ago]
+        )
+
+    def test_all_tab_newest_given_first_with_archived_pets(self):
+        oldest = self._dose(None, given_days=-10)
+        older = self._dose(None, given_days=-5, vaccine_name=Vaccination.DEWORMING)
+        older_too = self._dose(None, given_days=-5, pet=self.muning)
+        archived = Pet.objects.create(
+            owner=self.owner, name="Kulot", species="Dog", is_archived=True
+        )
+        newest = self._dose(None, given_days=-1, pet=archived)
+        self.assertEqual(self._rows(tab="all"), [newest, older_too, older, oldest])
+
+    def test_due_and_overdue_follow_the_due_rule(self):
+        superseded = self._dose(3)
+        self._dose(360, given_days=-2)
+        archived = Pet.objects.create(
+            owner=self.owner, name="Kulot", species="Dog", is_archived=True
+        )
+        self._dose(3, pet=archived)
+        self._dose(-3, pet=archived)
+        rows = self._rows()
+        self.assertNotIn(superseded, rows)
+        self.assertEqual(rows, [])
+        self.assertEqual(self._rows(tab="overdue"), [])
+
+    def test_search_each_field(self):
+        bantay = self._dose(None, given_days=-3)
+        muning = self._dose(None, given_days=-2, pet=self.muning)
+        typed = self._dose(
+            None,
+            given_days=-1,
+            vaccine_name=Vaccination.OTHER,
+            custom_vaccine_name="Leptospirosis",
+        )
+        deworm = self._dose(None, given_days=-4, vaccine_name=Vaccination.DEWORMING)
+        cases = {
+            "bantay": [typed, bantay, deworm],
+            "MUNING": [muning],
+            "ben": [muning],
+            "cruz": [typed, bantay, deworm],
+            "lepto": [typed],
+            # The vaccine's label: "rabies" finds Anti-rabies
+            "rabies": [muning, bantay],
+            "Anti-rabies": [muning, bantay],
+            "worm": [deworm],
+            "nothing": [],
+        }
+        for q, expected in cases.items():
+            with self.subTest(q=q):
+                self.assertEqual(self._rows(tab="all", q=q), expected)
+
+    def test_other_label_is_not_searched(self):
+        self._dose(
+            None, vaccine_name=Vaccination.OTHER, custom_vaccine_name="Leptospirosis"
+        )
+        self.assertEqual(self._rows(tab="all", q="specify"), [])
+
+    def test_every_word_must_match(self):
+        bantay_rabies = self._dose(None, given_days=-3)
+        self._dose(None, given_days=-2, vaccine_name=Vaccination.DEWORMING)
+        self._dose(None, given_days=-1, pet=self.muning)
+        self.assertEqual(self._rows(tab="all", q="bantay rabies"), [bantay_rabies])
+        self.assertEqual(self._rows(tab="all", q="  ana   anti  "), [bantay_rabies])
+
+    def test_search_stays_inside_the_tab(self):
+        due = self._dose(3, pet=self.muning)
+        self._dose(-3, pet=self.muning, vaccine_name=Vaccination.DEWORMING)
+        self._dose(3)
+        context = self._context(q="muning")
+        self.assertEqual(list(context["vaccinations"]), [due])
+        self.assertEqual(context["active_tab"], "due")
+        self.assertEqual(context["q"], "muning")
+        self.assertTrue(context["is_searching"])
+
+    def test_old_search_param_still_works(self):
+        muning = self._dose(None, pet=self.muning)
+        bantay = self._dose(None)
+        context = self._context(tab="all", search=" Muning ")
+        self.assertEqual(list(context["vaccinations"]), [muning])
+        self.assertEqual(context["q"], "Muning")
+        # q wins when both are sent
+        self.assertEqual(self._rows(tab="all", q="bantay", search="muning"), [bantay])
+
+    def test_counts_ignore_the_search(self):
+        self._dose(3)
+        self._dose(-3, vaccine_name=Vaccination.DEWORMING)
+        self._dose(5, pet=self.muning)
+        self._dose(None, given_days=-1000, vaccine_name=Vaccination.BORDETELLA)
+        for q in ("", "muning", "nothing"):
+            with self.subTest(q=q):
+                context = self._context(q=q)
+                self.assertEqual(context["due_count"], 2)
+                self.assertEqual(context["overdue_count"], 1)
+                self.assertEqual(context["all_count"], 4)
+
+    def test_paging_keeps_tab_and_q(self):
+        for days in range(26):
+            self._dose(None, given_days=-1 - days)
+        context = self._context(tab="all", q="Bantay")
+        self.assertEqual(len(context["vaccinations"]), 25)
+        self.assertEqual(context["page_obj"].paginator.count, 26)
+        self.assertEqual(context["prev_page_query"], "")
+        self.assertEqual(context["next_page_query"], "?tab=all&q=Bantay&page=2")
+        page_2 = self._context(tab="all", q="Bantay", page="2")
+        self.assertEqual(len(page_2["vaccinations"]), 1)
+        self.assertEqual(page_2["prev_page_query"], "?tab=all&q=Bantay&page=1")
+        self.assertEqual(page_2["next_page_query"], "")
+        # Without a search the pager keeps only the tab
+        self.assertEqual(self._context(tab="all")["next_page_query"], "?tab=all&page=2")
+
+    def test_due_state_and_days(self):
+        in_3 = self._dose(3)
+        today = self._dose(0, vaccine_name=Vaccination.DEWORMING)
+        late = self._dose(-4, vaccine_name=Vaccination.BORDETELLA)
+        later = self._dose(20, vaccine_name=Vaccination.SIX_IN_ONE)
+        none = self._dose(None, vaccine_name=Vaccination.IVERMECTIN)
+        archived = Pet.objects.create(
+            owner=self.owner, name="Kulot", species="Dog", is_archived=True
+        )
+        archived_due = self._dose(3, pet=archived)
+        expected = {
+            in_3: ("due", 3),
+            today: ("due", 0),
+            late: ("overdue", 4),
+            later: ("", None),
+            none: ("", None),
+            archived_due: ("", None),
+        }
+        rows = {row: row for row in self._rows(tab="all")}
+        for dose, state in expected.items():
+            with self.subTest(dose=dose):
+                self.assertEqual((rows[dose].due_state, rows[dose].days), state)
+        due_rows = self._rows()
+        self.assertEqual(
+            [(row.due_state, row.days) for row in due_rows], [("due", 0), ("due", 3)]
+        )
+        late_row = self._rows(tab="overdue")[0]
+        self.assertEqual((late_row.due_state, late_row.days), ("overdue", 4))
+
+    def test_is_superseded_on_all(self):
+        old = self._dose(-3, given_days=-400)
+        new = self._dose(360, given_days=-5)
+        rows = {row.pk: row for row in self._rows(tab="all")}
+        self.assertTrue(rows[old.pk].is_superseded)
+        self.assertFalse(rows[new.pk].is_superseded)
+        # A later dose given: never due, never overdue
+        self.assertEqual(rows[old.pk].due_state, "")
+
+    def test_rows_have_pet_and_owner_selected(self):
+        self._dose(3)
+        row = self._rows()[0]
+        with self.assertNumQueries(0):
+            self.assertEqual(row.pet.owner.user.username, "ana_cruz")
+
+    def test_context_keys(self):
+        self._dose(3)
+        context = self._context()
+        for key in (
+            "page_obj",
+            "vaccinations",
+            "q",
+            "is_searching",
+            "active_tab",
+            "due_count",
+            "overdue_count",
+            "all_count",
+            "prev_page_query",
+            "next_page_query",
+        ):
+            self.assertIn(key, context)
+        self.assertEqual(context["today"], TODAY)
+        # Old template's keys
+        self.assertEqual(context["search_query"], "")
+        self.assertEqual(context["total_count"], 1)
+        self.assertFalse(context["is_searching"])
+
+    def test_old_template_still_renders(self):
+        self._dose(3, vaccine_name=Vaccination.DEWORMING)
+        response = self.client.get(self.url, {"search": "bantay"})
+        self.assertContains(response, "Bantay")
+        self.assertContains(response, "Deworming")
+        self.assertContains(response, "1 record")
+
+    def test_query_count_is_flat(self):
+        def make(n, due_days):
+            Vaccination.objects.all().delete()
+            for i in range(n):
+                pet = Pet.objects.create(owner=self.ben, name=f"Pet {i}", species="Cat")
+                self._dose(due_days, pet=pet)
+
+        for tab, due_days in (("due", 3), ("overdue", -3), ("all", 3)):
+            with self.subTest(tab=tab):
+                make(3, due_days)
+                few = self._queries(tab)
+                make(30, due_days)
+                many = self._queries(tab)
+                self.assertEqual(len(self._rows(tab=tab)), 25)
+                self.assertEqual(few, many)
+
+
+class RecordListViewTests(MedicalListTestBase):
+    """Batch 5a-4: record_list_context (tabs, search, paging, rows)."""
+
+    rows_key = "records"
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("admin_medical_record_list")
+
+    def list_context(self, params, today):
+        return record_list_context(params, today)
+
+    def _rec(self, record_days=-10, follow_days=None, pet=None, **fields):
+        if follow_days is not None:
+            fields.setdefault("follow_up_required", True)
+            fields["follow_up_date"] = _days(follow_days)
+        return MedicalRecord.objects.create(
+            pet=pet or self.pet, record_date=_days(record_days), **fields
+        )
+
+    def test_default_and_unknown_tab_are_all(self):
+        for params in ({}, {"tab": "bogus"}, {"tab": "due"}):
+            with self.subTest(params=params):
+                self.assertEqual(self._context(**params)["active_tab"], "all")
+
+    def test_followups_tab_soonest_first(self):
+        in_5 = self._rec(follow_days=5)
+        today = self._rec(follow_days=0)
+        in_7 = self._rec(follow_days=7)
+        in_7_too = self._rec(follow_days=7, pet=self.muning)
+        self._rec(follow_days=8)
+        self._rec(follow_days=-1)
+        self._rec(follow_days=3, follow_up_required=False)
+        archived = Pet.objects.create(
+            owner=self.owner, name="Kulot", species="Dog", is_archived=True
+        )
+        self._rec(follow_days=3, pet=archived)
+        self.assertEqual(self._rows(tab="followups"), [today, in_5, in_7, in_7_too])
+
+    def test_all_tab_newest_first(self):
+        oldest = self._rec(-20)
+        same_day = self._rec(-5)
+        same_day_later = self._rec(-5)
+        # Written later in the day, so it comes first though its pk is lower
+        MedicalRecord.objects.filter(pk=same_day.pk).update(
+            created_at=JUST_AFTER_MIDNIGHT + datetime.timedelta(hours=1)
+        )
+        archived = Pet.objects.create(
+            owner=self.owner, name="Kulot", species="Dog", is_archived=True
+        )
+        newest = self._rec(-1, pet=archived)
+        self.assertEqual(self._rows(), [newest, same_day, same_day_later, oldest])
+
+    def test_search_each_field(self):
+        bantay = self._rec(-3, diagnosis="Ear infection, left ear")
+        muning = self._rec(-2, pet=self.muning, diagnosis="Upper respiratory")
+        cases = {
+            "bantay": [bantay],
+            "muning": [muning],
+            "ANA": [bantay],
+            "santos": [muning],
+            "ear": [bantay],
+            "respiratory": [muning],
+            "nothing": [],
+        }
+        for q, expected in cases.items():
+            with self.subTest(q=q):
+                self.assertEqual(self._rows(q=q), expected)
+
+    def test_private_notes_are_never_searched(self):
+        self._rec(private_notes="Owner seemed upset about parvo cost")
+        self.assertEqual(self._rows(q="parvo"), [])
+        self.assertEqual(self._rows(q="upset"), [])
+
+    def test_every_word_must_match(self):
+        ear = self._rec(-3, diagnosis="Ear infection")
+        self._rec(-2, diagnosis="Skin rash")
+        self._rec(-1, pet=self.muning, diagnosis="Ear mites")
+        self.assertEqual(self._rows(q="bantay ear"), [ear])
+        self.assertEqual(self._rows(q="  cruz   infection "), [ear])
+
+    def test_search_stays_inside_the_tab(self):
+        due = self._rec(follow_days=3, pet=self.muning)
+        self._rec(pet=self.muning)
+        self._rec(follow_days=3)
+        context = self._context(tab="followups", q="muning")
+        self.assertEqual(list(context["records"]), [due])
+        self.assertEqual(context["active_tab"], "followups")
+        self.assertTrue(context["is_searching"])
+
+    def test_old_search_param_still_works(self):
+        muning = self._rec(pet=self.muning)
+        self._rec()
+        context = self._context(search=" Muning ")
+        self.assertEqual(list(context["records"]), [muning])
+        self.assertEqual(context["q"], "Muning")
+
+    def test_counts_ignore_the_search(self):
+        self._rec(follow_days=3)
+        self._rec(follow_days=5, pet=self.muning)
+        self._rec(follow_days=20)
+        self._rec()
+        for q in ("", "muning", "nothing"):
+            with self.subTest(q=q):
+                context = self._context(q=q)
+                self.assertEqual(context["followups_count"], 2)
+                self.assertEqual(context["all_count"], 4)
+
+    def test_paging_keeps_tab_and_q(self):
+        for days in range(26):
+            self._rec(-1 - days, follow_days=3)
+        context = self._context(tab="followups", q="Bantay")
+        self.assertEqual(len(context["records"]), 25)
+        self.assertEqual(context["next_page_query"], "?tab=followups&q=Bantay&page=2")
+        page_2 = self._context(tab="followups", q="Bantay", page="2")
+        self.assertEqual(len(page_2["records"]), 1)
+        self.assertEqual(page_2["prev_page_query"], "?tab=followups&q=Bantay&page=1")
+        self.assertEqual(self._context()["next_page_query"], "?tab=all&page=2")
+
+    def test_follow_up_days(self):
+        in_3 = self._rec(-3, follow_days=3)
+        past = self._rec(-2, follow_days=-2)
+        not_required = self._rec(-1, follow_days=4, follow_up_required=False)
+        none = self._rec(-4)
+        rows = {row: row for row in self._rows()}
+        self.assertEqual(rows[in_3].follow_up_days, 3)
+        self.assertEqual(rows[past].follow_up_days, -2)
+        self.assertIsNone(rows[not_required].follow_up_days)
+        self.assertIsNone(rows[none].follow_up_days)
+
+    def test_rows_have_pet_and_owner_selected(self):
+        self._rec()
+        row = self._rows()[0]
+        with self.assertNumQueries(0):
+            self.assertEqual(row.pet.owner.user.username, "ana_cruz")
+
+    def test_context_keys(self):
+        self._rec()
+        context = self._context()
+        for key in (
+            "page_obj",
+            "records",
+            "q",
+            "is_searching",
+            "active_tab",
+            "followups_count",
+            "all_count",
+            "prev_page_query",
+            "next_page_query",
+        ):
+            self.assertIn(key, context)
+        self.assertEqual(context["today"], TODAY)
+        # Old template's keys
+        self.assertEqual(context["search_query"], "")
+        self.assertEqual(context["total_count"], 1)
+
+    def test_old_template_still_renders(self):
+        self._rec(diagnosis="Ear infection", private_notes="Secret note")
+        response = self.client.get(self.url, {"search": "bantay"})
+        self.assertContains(response, "Bantay")
+        self.assertContains(response, "Ear infection")
+        self.assertContains(response, "1 record")
+        self.assertNotContains(response, "Secret note")
+
+    def test_query_count_is_flat(self):
+        def make(n):
+            MedicalRecord.objects.all().delete()
+            for i in range(n):
+                pet = Pet.objects.create(owner=self.ben, name=f"Pet {i}", species="Cat")
+                self._rec(follow_days=3, pet=pet)
+
+        for tab in ("followups", "all"):
+            with self.subTest(tab=tab):
+                make(3)
+                few = self._queries(tab)
+                make(30)
+                many = self._queries(tab)
+                self.assertEqual(len(self._rows(tab=tab)), 25)
+                self.assertEqual(few, many)

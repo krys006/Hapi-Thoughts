@@ -15,8 +15,10 @@ from .utils import (
     RECORD_EXISTS,
     can_remove_medicines,
     notify_record_created,
+    record_list_context,
     save_new_record,
     save_vaccination_edit,
+    vaccination_list_context,
     vaccination_reminder_refusal,
     visit_for_record,
     visit_stop,
@@ -24,7 +26,7 @@ from .utils import (
 
 from notifications.utils import notify
 
-from django.db.models import Prefetch, Q
+from django.db.models import Prefetch
 
 from notifications.models import Notification
 
@@ -421,67 +423,27 @@ def admin_pet_medical_history(request, pk):
 @login_required
 def admin_medical_record_list(request):
     """
-    Admin view — list all medical records across all pets.
-    Searchable by pet name and pet owner name.
+    Admin view — every medical record, tabs Follow-ups in 7 days / All
+    (default), searchable, 25 per page (record_list_context).
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    search_query = request.GET.get("search", "").strip()
-
-    records = MedicalRecord.objects.select_related("pet", "pet__owner").order_by(
-        "-record_date", "-created_at"
-    )
-
-    if search_query:
-        records = records.filter(
-            Q(pet__name__icontains=search_query)
-            | Q(pet__owner__first_name__icontains=search_query)
-            | Q(pet__owner__last_name__icontains=search_query)
-        )
-
-    return render(
-        request,
-        "admin/medical/record_list.html",
-        {
-            "records": records,
-            "search_query": search_query,
-            "total_count": records.count(),
-        },
-    )
+    context = record_list_context(request.GET, timezone.localdate())
+    return render(request, "admin/medical/record_list.html", context)
 
 
 @login_required
 def admin_vaccination_list(request):
     """
-    Admin view — list all vaccination records across all pets.
-    Searchable by pet name and pet owner name.
+    Admin view — every vaccination, tabs Due in 7 days (default) / Overdue /
+    All, searchable, 25 per page (vaccination_list_context).
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    search_query = request.GET.get("search", "").strip()
-
-    vaccinations = Vaccination.objects.select_related("pet", "pet__owner").order_by(
-        "-date_administered"
-    )
-
-    if search_query:
-        vaccinations = vaccinations.filter(
-            Q(pet__name__icontains=search_query)
-            | Q(pet__owner__first_name__icontains=search_query)
-            | Q(pet__owner__last_name__icontains=search_query)
-        )
-
-    return render(
-        request,
-        "admin/medical/vaccination_list.html",
-        {
-            "vaccinations": vaccinations,
-            "search_query": search_query,
-            "total_count": vaccinations.count(),
-        },
-    )
+    context = vaccination_list_context(request.GET, timezone.localdate())
+    return render(request, "admin/medical/vaccination_list.html", context)
 
 
 @login_required

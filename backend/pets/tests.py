@@ -3207,6 +3207,21 @@ class PetDetailContextTests(TestCase):
         self._shot(-2, 363, name=Vaccination.OTHER, custom_vaccine_name="Giardia")
         self.assertEqual(self._context()["vaccination_due_soon"], due)
 
+    def test_vaccination_due_soon_is_none_for_an_archived_pet(self):
+        # 5a-4: reminders are refused there, so the line isn't shown
+        self._shot(-300, 5)
+        Pet.objects.filter(pk=self.pet.pk).update(is_archived=True)
+        context = self._context()
+        self.assertIsNone(context["vaccination_due_soon"])
+        self.assertIsNone(context["due_soon_days"])
+
+    def test_vaccination_due_soon_is_none_for_an_archived_owner(self):
+        self._shot(-300, 5)
+        _archive(self.owner)
+        context = self._context()
+        self.assertIsNone(context["vaccination_due_soon"])
+        self.assertIsNone(context["due_soon_days"])
+
     def test_pet_state_and_flags(self):
         context = self._context()
         self.assertEqual(context["pet_state"], "active")

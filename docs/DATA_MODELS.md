@@ -736,7 +736,7 @@ PetDeletionRequest (ForeignKey to Pet)
 | User | Soft delete | `is_active = False` | Preserve all linked data |
 | PetOwner | Soft delete | `is_archived = True` | Preserve pet, appointment, billing history |
 | Pet | Soft delete | `is_archived = True` | Preserve medical and vaccination history |
-| MedicalRecord | Immutable | No delete, no archive | Legal and ethical obligation |
+| MedicalRecord | Edited in place; never deleted | No delete, no archive | Legal and ethical obligation |
 | PrescriptionItem | Kept after the record's day | Hard delete only on the day the record was written | Fix a same-day mistake; then part of the clinical record |
 | TestResultFile | Soft delete | `is_archived = True` | Wrong uploads can be hidden |
 | Vaccination | Editable + correction flag | `is_corrected` + `correction_note` | Permanent health history |

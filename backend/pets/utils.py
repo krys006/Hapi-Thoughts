@@ -614,12 +614,15 @@ def vaccination_due_soon(pet, today):
     The vaccination with the earliest next_due_date from today to today + 30
     days, or None. A shot already followed by a later dose of the same
     vaccine doesn't count. Corrected entries count like any other: a
-    correction edits the real record, it stays valid. The archived rule is
-    not applied: the pet page of an archived pet still shows the line.
+    correction edits the real record, it stays valid. Always None for an
+    archived pet or a pet whose owner is archived (reminders are refused
+    there, so the line isn't shown).
     """
     # Imported here: medical.utils imports ARCHIVED_PET from this module
     from medical.utils import later_dose_exists
 
+    if pet_state(pet) != "active":
+        return None
     return (
         pet.vaccinations.filter(
             next_due_date__range=(today, today + timedelta(days=VACCINATION_DUE_DAYS)),

@@ -1283,8 +1283,10 @@ class DashboardMarkupTests(DashboardV5TestBase):
         links = {
             "Waiting for approval": reverse("admin_appointments") + "?status=pending",
             "Unpaid bills": reverse("admin_receipt_list") + "?status=pending",
-            "Vaccinations due this week": reverse("admin_vaccination_list"),
-            "Follow-ups due this week": reverse("admin_medical_record_list"),
+            "Vaccinations due this week": reverse("admin_vaccination_list")
+            + "?tab=due",
+            "Follow-ups due this week": reverse("admin_medical_record_list")
+            + "?tab=followups",
         }
         for label, url in links.items():
             with self.subTest(label=label):
