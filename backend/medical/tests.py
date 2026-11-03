@@ -3,17 +3,26 @@ from decimal import Decimal
 from unittest import mock
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
-from django.test import SimpleTestCase, TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
+from appointments.models import Appointment
+from notifications.models import Notification
 from pets.models import Pet, PetOwner
 
-from .forms import VaccinationEditForm, VaccinationForm
-from .models import MedicalRecord, Vaccination
-from .utils import save_vaccination_edit
+from .forms import (
+    MedicalRecordForm,
+    TestResultFileForm,
+    VaccinationEditForm,
+    VaccinationForm,
+)
+from .models import MedicalRecord, PrescriptionItem, TestResultFile, Vaccination
+from .utils import can_remove_medicines, save_vaccination_edit
 
 User = get_user_model()
 
@@ -74,13 +83,75 @@ class ArchivedPetGuardTests(TestCase):
                     self.assertEqual(messages, [message])
                     self.assertEqual(model.objects.count(), before)
 
+    def _actions(self):
+        """Batch 5a-2: the record actions guarded the same way, each with a
+        count that must not change when refused."""
+        MedicalRecord.objects.filter(pk=self.record.pk).update(
+            follow_up_required=True,
+            follow_up_date=timezone.localdate() + datetime.timedelta(days=7),
+        )
+        item = PrescriptionItem.objects.create(record=self.record, medicine_name="Amox")
+        test_file = TestResultFile.objects.create(
+            record=self.record, file="test_results/xray.pdf"
+        )
+        shot = Vaccination.objects.create(
+            pet=self.pet,
+            vaccine_name=Vaccination.ANTI_RABIES,
+            date_administered=timezone.localdate(),
+            next_due_date=timezone.localdate() + datetime.timedelta(days=365),
+        )
+        items = PrescriptionItem.objects.count
+        active_files = TestResultFile.objects.filter(is_archived=False).count
+        sent = Notification.objects.count
+        upload = SimpleUploadedFile("scan.pdf", b"%PDF-1.4", "application/pdf")
+        return [
+            (
+                reverse("admin_prescription_item_add", args=[self.record.pk]),
+                {"medicine_name": "Doxy"},
+                items,
+            ),
+            (reverse("admin_prescription_item_delete", args=[item.pk]), {}, items),
+            (
+                reverse("admin_test_result_file_upload", args=[self.record.pk]),
+                {"file": upload},
+                TestResultFile.objects.count,
+            ),
+            (
+                reverse("admin_test_result_file_archive", args=[test_file.pk]),
+                {},
+                active_files,
+            ),
+            (reverse("admin_trigger_vaccination_reminder", args=[shot.pk]), {}, sent),
+            (
+                reverse("admin_trigger_followup_reminder", args=[self.record.pk]),
+                {},
+                sent,
+            ),
+        ]
+
+    def _check_actions_refused(self, message):
+        for url, post, count in self._actions():
+            for method in ("get", "post"):
+                with self.subTest(url=url, method=method):
+                    before = count()
+                    self.client.cookies.pop("messages", None)
+                    response = getattr(self.client, method)(url, post)
+                    self.assertRedirects(
+                        response, self.pet_url, fetch_redirect_response=False
+                    )
+                    messages = [str(m) for m in get_messages(response.wsgi_request)]
+                    self.assertEqual(messages, [message])
+                    self.assertEqual(count(), before)
+
     def test_archived_pet(self):
         Pet.objects.filter(pk=self.pet.pk).update(is_archived=True)
         self._check_refused("Restore Bantay first.")
+        self._check_actions_refused("Restore Bantay first.")
 
     def test_archived_owner(self):
         self.owner.archive()
         self._check_refused("Restore Ana Cruz first.")
+        self._check_actions_refused("Restore Ana Cruz first.")
 
     def test_active_pet_opens_both_create_pages(self):
         for url, _post, _model in self.pages[:2]:
@@ -416,3 +487,495 @@ class CorrectViewRemovedTests(SimpleTestCase):
     def test_correct_url_name_no_longer_resolves(self):
         with self.assertRaises(NoReverseMatch):
             reverse("admin_vaccination_correct", args=[1])
+
+
+# ── Batch 5a-2: record, medicine and file rules ──────────────────────────────
+
+MB = 1024 * 1024
+IN_MEMORY_FILES = {
+    **settings.STORAGES,
+    "default": {"BACKEND": "django.core.files.storage.InMemoryStorage"},
+}
+
+
+class FrozenMedicalTestBase(TestCase):
+    """An admin (logged in), Ana Cruz and her dog Bantay, with time frozen
+    at self.now (default: 00:30 Manila on Tue, Nov 3, 2026, still Nov 2 in
+    UTC). Change self.now to move the clock."""
+
+    def setUp(self):
+        self.now = JUST_AFTER_MIDNIGHT
+        patcher = mock.patch("django.utils.timezone.now", side_effect=lambda: self.now)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.admin = User.objects.create_user(
+            username="admin1", email="admin@example.com", role=User.ADMIN
+        )
+        self.client.force_login(self.admin)
+        self.owner_user = User.objects.create_user(
+            username="ana_cruz", email="ana@example.com", role=User.PET_OWNER
+        )
+        self.owner = PetOwner.objects.create(
+            user=self.owner_user, first_name="Ana", last_name="Cruz"
+        )
+        self.pet = Pet.objects.create(owner=self.owner, name="Bantay", species="Dog")
+
+    def _messages(self, response):
+        return [str(m) for m in get_messages(response.wsgi_request)]
+
+    def _record(self, **fields):
+        fields.setdefault("record_date", TODAY)
+        return MedicalRecord.objects.create(pet=self.pet, **fields)
+
+
+class RecordFormDateTests(FrozenMedicalTestBase):
+    """Visit date and follow-up rules on MedicalRecordForm (Manila date)."""
+
+    def _form(self, **changes):
+        data = {
+            "record_date": "2026-11-03",
+            "diagnosis": "Checkup",
+            "follow_up_date": "",
+        }
+        data.update(changes)
+        return MedicalRecordForm(data)
+
+    def test_visit_date_in_the_future_fails(self):
+        form = self._form(record_date="2026-11-04")
+        self.assertFalse(form.is_valid())
+        self.assertEqual(
+            form.errors["record_date"], ["The visit date can't be in the future."]
+        )
+
+    def test_today_manila_is_allowed(self):
+        # Still Nov 2 in UTC: a UTC date would call Nov 3 the future
+        form = self._form(record_date="2026-11-03")
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_follow_up_without_a_date_fails_on_the_date(self):
+        form = self._form(follow_up_required="on")
+        self.assertFalse(form.is_valid())
+        self.assertEqual(
+            form.errors["follow_up_date"],
+            ["Pick the follow-up date, or untick “Needs a follow-up visit”."],
+        )
+        self.assertEqual(form.non_field_errors(), [])
+
+    def test_follow_up_on_or_before_the_visit_date_fails(self):
+        for follow_up in ("2026-11-03", "2026-11-01"):
+            with self.subTest(follow_up=follow_up):
+                form = self._form(follow_up_required="on", follow_up_date=follow_up)
+                self.assertFalse(form.is_valid())
+                self.assertEqual(
+                    form.errors["follow_up_date"],
+                    ["The follow-up date must be after the visit date."],
+                )
+
+    def test_follow_up_after_the_visit_date_passes(self):
+        form = self._form(follow_up_required="on", follow_up_date="2026-11-10")
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(
+            form.save(commit=False).follow_up_date, datetime.date(2026, 11, 10)
+        )
+
+    def test_unticked_follow_up_clears_the_date(self):
+        # Even a date that would fail the rule is simply dropped
+        for follow_up in ("2026-11-10", "2026-11-01"):
+            with self.subTest(follow_up=follow_up):
+                form = self._form(follow_up_date=follow_up)
+                self.assertTrue(form.is_valid(), form.errors)
+                self.assertIsNone(form.save(commit=False).follow_up_date)
+
+    def test_edit_unticked_saves_the_date_as_none(self):
+        record = self._record(
+            follow_up_required=True, follow_up_date=datetime.date(2026, 11, 10)
+        )
+        url = reverse("admin_medical_record_edit", args=[record.pk])
+        self.client.post(
+            url, {"record_date": "2026-11-03", "follow_up_date": "2026-11-10"}
+        )
+        record.refresh_from_db()
+        self.assertFalse(record.follow_up_required)
+        self.assertIsNone(record.follow_up_date)
+
+    def test_errors_show_on_the_record_page(self):
+        url = reverse("admin_medical_record_create", args=[self.pet.pk])
+        response = self.client.post(
+            url, {"record_date": "2026-11-04", "follow_up_required": "on"}
+        )
+        self.assertContains(response, "The visit date can&#x27;t be in the future.")
+        self.assertContains(
+            response, "Pick the follow-up date, or untick “Needs a follow-up visit”."
+        )
+        self.assertFalse(MedicalRecord.objects.exists())
+
+
+class RecordFromVisitTests(FrozenMedicalTestBase):
+    """A record started from a visit (?appointment= or the POST field)."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("admin_medical_record_create", args=[self.pet.pk])
+        self.visit = self._visit(Appointment.CONFIRMED)
+
+    def _visit(self, status, pet=None, hour=9):
+        pet = pet or self.pet
+        return Appointment.objects.create(
+            owner=pet.owner,
+            pet=pet,
+            date=TODAY,
+            time=datetime.time(hour, 0),
+            status=status,
+        )
+
+    def _post(self, appointment_pk, **data):
+        post = {"record_date": "2026-11-03", "diagnosis": "Checkup"}
+        post.update(data)
+        return self.client.post(
+            f"{self.url}?appointment={appointment_pk}",
+            {**post, "appointment": appointment_pk},
+        )
+
+    def _check_refused(self, visit, message):
+        for method in ("get", "post"):
+            with self.subTest(method=method):
+                self.client.cookies.pop("messages", None)
+                if method == "get":
+                    response = self.client.get(f"{self.url}?appointment={visit.pk}")
+                else:
+                    response = self._post(visit.pk)
+                self.assertRedirects(
+                    response,
+                    reverse("admin_appointment_detail", args=[visit.pk]),
+                    fetch_redirect_response=False,
+                )
+                self.assertEqual(self._messages(response), [message])
+                self.assertFalse(MedicalRecord.objects.exists())
+
+    def test_confirmed_and_completed_visits_get_a_record(self):
+        completed = self._visit(Appointment.COMPLETED, hour=10)
+        for visit in (self.visit, completed):
+            with self.subTest(status=visit.status):
+                get = self.client.get(f"{self.url}?appointment={visit.pk}")
+                self.assertEqual(get.status_code, 200)
+                response = self._post(visit.pk)
+                record = MedicalRecord.objects.get(appointment=visit)
+                self.assertRedirects(
+                    response,
+                    reverse("admin_medical_record_detail", args=[record.pk]),
+                    fetch_redirect_response=False,
+                )
+                self.assertEqual(record.pet, self.pet)
+
+    def test_another_pets_visit_is_refused(self):
+        other = Pet.objects.create(owner=self.owner, name="Muning", species="Cat")
+        visit = self._visit(Appointment.CONFIRMED, pet=other, hour=11)
+        self._check_refused(visit, "That visit belongs to another pet.")
+
+    def test_pending_cancelled_and_no_show_visits_are_refused(self):
+        for hour, status in enumerate(
+            (Appointment.PENDING, Appointment.CANCELLED, Appointment.NO_SHOW), start=12
+        ):
+            with self.subTest(status=status):
+                self._check_refused(
+                    self._visit(status, hour=hour),
+                    "A record can only be added to a confirmed or completed visit.",
+                )
+
+    def test_an_id_that_isnt_a_whole_number_is_a_404(self):
+        for value in ("abc", "1.5", "1e3", "%20"):
+            with self.subTest(value=value):
+                response = self.client.get(f"{self.url}?appointment={value}")
+                self.assertEqual(response.status_code, 404)
+        response = self.client.post(
+            self.url, {"record_date": "2026-11-03", "appointment": "abc"}
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(MedicalRecord.objects.exists())
+
+    def test_an_unknown_visit_is_a_404(self):
+        response = self.client.get(f"{self.url}?appointment=999999")
+        self.assertEqual(response.status_code, 404)
+
+    def test_a_visit_with_a_record_goes_to_that_record(self):
+        record = self._record(appointment=self.visit)
+        for method in ("get", "post"):
+            with self.subTest(method=method):
+                self.client.cookies.pop("messages", None)
+                if method == "get":
+                    response = self.client.get(
+                        f"{self.url}?appointment={self.visit.pk}"
+                    )
+                else:
+                    response = self._post(self.visit.pk)
+                self.assertRedirects(
+                    response,
+                    reverse("admin_medical_record_detail", args=[record.pk]),
+                    fetch_redirect_response=False,
+                )
+                self.assertEqual(
+                    self._messages(response),
+                    ["A medical record already exists for this appointment."],
+                )
+                self.assertEqual(MedicalRecord.objects.count(), 1)
+
+    def test_two_saves_at_once_go_to_the_existing_record(self):
+        # The other save lands after this request's check: the OneToOne
+        # raises IntegrityError, which must become a redirect, not a 500
+        record = self._record(appointment=self.visit)
+        with mock.patch("medical.utils.existing_visit_record", return_value=None):
+            response = self._post(self.visit.pk)
+        self.assertRedirects(
+            response,
+            reverse("admin_medical_record_detail", args=[record.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(
+            self._messages(response),
+            ["A medical record already exists for this appointment."],
+        )
+        self.assertEqual(MedicalRecord.objects.count(), 1)
+        self.assertFalse(Notification.objects.exists())
+
+    def _visit_on(self, day, hour):
+        return Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=day,
+            time=datetime.time(hour, 0),
+            status=Appointment.CONFIRMED,
+        )
+
+    def test_a_future_visit_is_refused(self):
+        cases = [
+            (datetime.date(2026, 11, 9), 15, "Mon, Nov 9"),
+            (datetime.date(2027, 1, 5), 16, "Tue, Jan 5, 2027"),
+        ]
+        for day, hour, shown in cases:
+            with self.subTest(day=day):
+                self._check_refused(
+                    self._visit_on(day, hour),
+                    "This visit hasn't happened yet. "
+                    f"Write the record on or after {shown}.",
+                )
+
+    def test_todays_visit_opens_with_todays_date(self):
+        # 00:30 Manila on Nov 3 is still Nov 2 in UTC: a UTC date would
+        # call today's visit the future
+        response = self.client.get(f"{self.url}?appointment={self.visit.pk}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["form"].initial["record_date"], TODAY)
+
+    def test_a_past_visit_prefills_its_date(self):
+        visit = self._visit_on(datetime.date(2026, 11, 1), 17)
+        response = self.client.get(f"{self.url}?appointment={visit.pk}")
+        self.assertEqual(
+            response.context["form"].initial["record_date"], datetime.date(2026, 11, 1)
+        )
+
+
+class MedicineRemoveTests(FrozenMedicalTestBase):
+    """Medicines can be removed only on the Manila day the record was written."""
+
+    def setUp(self):
+        super().setUp()
+        # Written Mon, Nov 2 at 22:30 Manila (14:30 UTC)
+        self.now = datetime.datetime(2026, 11, 2, 22, 30, tzinfo=MANILA)
+        self.record = self._record(record_date=datetime.date(2026, 11, 2))
+        self.item = PrescriptionItem.objects.create(
+            record=self.record, medicine_name="Amoxicillin"
+        )
+        self.url = reverse("admin_prescription_item_delete", args=[self.item.pk])
+        self.record_url = reverse("admin_medical_record_detail", args=[self.record.pk])
+
+    def test_same_day_removal_works(self):
+        self.now = datetime.datetime(2026, 11, 2, 23, 50, tzinfo=MANILA)
+        response = self.client.post(self.url)
+        self.assertRedirects(response, self.record_url, fetch_redirect_response=False)
+        self.assertEqual(self._messages(response), ["Prescription item removed."])
+        self.assertFalse(PrescriptionItem.objects.exists())
+
+    def test_next_morning_is_refused(self):
+        # 07:00 Manila on Nov 3 is still Nov 2 in UTC: a UTC date would allow it
+        self.now = datetime.datetime(2026, 11, 3, 7, 0, tzinfo=MANILA)
+        response = self.client.post(self.url)
+        self.assertRedirects(response, self.record_url, fetch_redirect_response=False)
+        self.assertEqual(
+            self._messages(response),
+            ["Medicines can only be removed on the day the record was written."],
+        )
+        self.assertTrue(PrescriptionItem.objects.filter(pk=self.item.pk).exists())
+
+    def test_get_removes_nothing(self):
+        response = self.client.get(self.url)
+        self.assertRedirects(response, self.record_url, fetch_redirect_response=False)
+        self.assertTrue(PrescriptionItem.objects.filter(pk=self.item.pk).exists())
+
+    def test_can_remove_medicines_helper(self):
+        self.assertTrue(can_remove_medicines(self.record, datetime.date(2026, 11, 2)))
+        self.assertFalse(can_remove_medicines(self.record, datetime.date(2026, 11, 3)))
+
+
+class TestFileUploadTests(FrozenMedicalTestBase):
+    """Test files: PDF, JPG or PNG (any case), up to 10 MB."""
+
+    def _form(self, name, size=10, content_type="application/pdf"):
+        upload = SimpleUploadedFile(name, b"x" * size, content_type)
+        return TestResultFileForm({"description": ""}, {"file": upload})
+
+    def test_allowed_types_in_any_case(self):
+        for name in ("scan.pdf", "SCAN.PDF", "xray.jpg", "xray.JPEG", "blood.Png"):
+            with self.subTest(name=name):
+                form = self._form(name)
+                self.assertTrue(form.is_valid(), form.errors)
+
+    def test_other_types_are_refused(self):
+        for name in ("notes.docx", "photo.gif", "virus.exe", "pdf", "scan.pdf.exe"):
+            with self.subTest(name=name):
+                form = self._form(name)
+                self.assertFalse(form.is_valid())
+                self.assertEqual(
+                    form.errors["file"], ["Only PDF, JPG or PNG files can be added."]
+                )
+
+    def test_exactly_10_mb_is_allowed(self):
+        form = self._form("scan.pdf", size=10 * MB)
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_just_over_10_mb_is_refused(self):
+        form = self._form("scan.pdf", size=10 * MB + 1)
+        self.assertFalse(form.is_valid())
+        self.assertEqual(
+            form.errors["file"],
+            ["This file is 10.1 MB. Please choose one up to 10 MB."],
+        )
+
+    def test_size_is_rounded_up(self):
+        form = self._form("scan.pdf", size=int(12.31 * MB))
+        self.assertFalse(form.is_valid())
+        self.assertEqual(
+            form.errors["file"],
+            ["This file is 12.4 MB. Please choose one up to 10 MB."],
+        )
+
+    def test_size_is_rounded_to_one_decimal(self):
+        form = self._form("scan.pdf", size=int(12.36 * MB))
+        self.assertFalse(form.is_valid())
+        self.assertEqual(
+            form.errors["file"],
+            ["This file is 12.4 MB. Please choose one up to 10 MB."],
+        )
+
+    def test_widget_accepts_only_the_allowed_types(self):
+        widget = TestResultFileForm().fields["file"].widget
+        self.assertEqual(widget.attrs["accept"], ".pdf,.jpg,.jpeg,.png")
+
+    @override_settings(STORAGES=IN_MEMORY_FILES)
+    def test_upload_view_saves_a_good_file(self):
+        record = self._record()
+        url = reverse("admin_test_result_file_upload", args=[record.pk])
+        upload = SimpleUploadedFile("xray.png", b"\x89PNG", "image/png")
+        response = self.client.post(url, {"file": upload, "description": "X-ray"})
+        self.assertEqual(self._messages(response), ["File uploaded."])
+        self.assertEqual(record.test_result_files.count(), 1)
+
+    def test_upload_view_flashes_the_real_error(self):
+        record = self._record()
+        url = reverse("admin_test_result_file_upload", args=[record.pk])
+        upload = SimpleUploadedFile("notes.docx", b"x", "application/msword")
+        response = self.client.post(url, {"file": upload})
+        self.assertRedirects(
+            response,
+            reverse("admin_medical_record_detail", args=[record.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(
+            self._messages(response), ["Only PDF, JPG or PNG files can be added."]
+        )
+        self.assertFalse(TestResultFile.objects.exists())
+
+
+class TestFileArchiveTests(FrozenMedicalTestBase):
+    """Remove = archive, once; the second time changes nothing."""
+
+    def setUp(self):
+        super().setUp()
+        self.record = self._record()
+        self.file = TestResultFile.objects.create(
+            record=self.record, file="test_results/xray.pdf"
+        )
+        self.url = reverse("admin_test_result_file_archive", args=[self.file.pk])
+
+    def test_archive_hides_the_file(self):
+        response = self.client.post(self.url)
+        self.assertRedirects(
+            response,
+            reverse("admin_medical_record_detail", args=[self.record.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(
+            self._messages(response), ["File removed. It's hidden from Ana Cruz."]
+        )
+        self.file.refresh_from_db()
+        self.assertTrue(self.file.is_archived)
+        self.assertEqual(self.file.archived_at, JUST_AFTER_MIDNIGHT)
+
+    def test_archive_twice_keeps_archived_at(self):
+        self.client.post(self.url)
+        self.now = JUST_AFTER_MIDNIGHT + datetime.timedelta(hours=5)
+        self.client.cookies.pop("messages", None)
+        response = self.client.post(self.url)
+        self.assertEqual(self._messages(response), ["That file was already removed."])
+        self.file.refresh_from_db()
+        self.assertEqual(self.file.archived_at, JUST_AFTER_MIDNIGHT)
+
+    def test_get_archives_nothing(self):
+        self.client.get(self.url)
+        self.file.refresh_from_db()
+        self.assertFalse(self.file.is_archived)
+
+
+class OwnerMedicalHistoryTests(FrozenMedicalTestBase):
+    """The owner's read-only history page."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.owner_user)
+        self.url = reverse("owner_pet_medical_history", args=[self.pet.pk])
+
+    def test_archived_files_never_show(self):
+        record = self._record()
+        TestResultFile.objects.create(
+            record=record, file="test_results/wrong.pdf", is_archived=True
+        )
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Test Results:")
+        self.assertEqual(response.context["records"][0].active_test_files, [])
+
+    def test_active_files_still_show(self):
+        record = self._record()
+        TestResultFile.objects.create(record=record, file="test_results/xray.pdf")
+        response = self.client.get(self.url)
+        self.assertContains(response, "Test Results:")
+
+    def test_follow_up_date_only_when_required(self):
+        self._record(
+            follow_up_required=False, follow_up_date=datetime.date(2026, 12, 1)
+        )
+        response = self.client.get(self.url)
+        self.assertNotContains(response, "December 1, 2026")
+        self.assertNotContains(response, "Follow-up Date:")
+
+        self._record(follow_up_required=True, follow_up_date=datetime.date(2026, 12, 9))
+        response = self.client.get(self.url)
+        self.assertContains(response, "December 9, 2026")
+        self.assertNotContains(response, "December 1, 2026")
+
+    def test_private_notes_never_show(self):
+        self._record(
+            public_notes="Give food slowly", private_notes="Owner seemed upset"
+        )
+        response = self.client.get(self.url)
+        self.assertContains(response, "Give food slowly")
+        self.assertNotContains(response, "Owner seemed upset")

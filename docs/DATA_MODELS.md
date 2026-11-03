@@ -347,7 +347,10 @@ Immutable — no deletion allowed.
 - No deletion allowed — enforce at view level
 - Pet owners see all fields EXCEPT `private_notes`
 - One record per appointment (enforced at view level)
-- `appointment` is a OneToOneField, not a ForeignKey — this enforces "one medical record per appointment" at the database level, not just in view logic. Attempting to create a second record for the same appointment redirects to the existing one instead.
+- `appointment` is a OneToOneField, not a ForeignKey — this enforces "one medical record per appointment" at the database level, not just in view logic. Attempting to create a second record for the same appointment redirects to the existing one instead (also when two saves race: the IntegrityError is caught inside `transaction.atomic` and redirects to the record that won).
+- Dates (Manila date, `timezone.localdate()`): `record_date` can't be in the future (today is fine). With `follow_up_required` the `follow_up_date` is required and must be after `record_date`. With `follow_up_required` unticked, `follow_up_date` is saved as None.
+- Record from a visit (`?appointment=` or the POST field): the appointment must belong to the pet in the URL, be CONFIRMED or COMPLETED and not be dated after today (Manila date), otherwise the admin is sent back to the appointment page; a value that isn't a whole number is a 404.
+- Adding medicines or files and sending reminders is refused for an archived pet or a pet whose owner is archived; editing a record stays allowed (corrections).
 
 ---
 
@@ -366,6 +369,9 @@ Multiple items allowed per record.
 | `notes` | TextField | blank=True | Additional instructions |
 | `created_at` | DateTimeField | auto_now_add=True | — |
 
+**Rules:**
+- Removable (hard delete) only on the day the record was written: the Manila date of the record's `created_at` must be today (`can_remove_medicines(record, today)` in `medical/utils.py`). This fixes a same-day mistake; after that day the list is kept as it is.
+
 ---
 
 ### TestResultFile
@@ -376,7 +382,7 @@ Multiple files allowed per record.
 |---|---|---|---|
 | `id` | AutoField | PK | Auto |
 | `record` | ForeignKey | MedicalRecord, on_delete=CASCADE | — |
-| `file` | FileField | upload_to='test_results/' | PDF or image |
+| `file` | FileField | upload_to='test_results/' | PDF, JPG or PNG, up to 10 MB |
 | `description` | CharField | max_length=100, blank=True | Optional label |
 | `is_archived` | BooleanField | default=False | Soft delete for wrongly uploaded files |
 | `archived_at` | DateTimeField | null=True, blank=True | Set when archived |
@@ -386,6 +392,9 @@ Multiple files allowed per record.
 - Soft delete only — file reference preserved but hidden from views
 - Used when a file was uploaded by mistake (wrong file, wrong patient)
 - Parent MedicalRecord remains immutable and unaffected
+- Allowed types: `.pdf`, `.jpg`, `.jpeg`, `.png` (any letter case); up to 10 MB (`TestResultFileForm`)
+- Archiving a file that is already archived changes nothing (`archived_at` kept)
+- Owners never see archived files
 
 ---
 
@@ -712,7 +721,7 @@ PetDeletionRequest (ForeignKey to Pet)
 | PetOwner | Soft delete | `is_archived = True` | Preserve pet, appointment, billing history |
 | Pet | Soft delete | `is_archived = True` | Preserve medical and vaccination history |
 | MedicalRecord | Immutable | No delete, no archive | Legal and ethical obligation |
-| PrescriptionItem | Immutable | Follows MedicalRecord | Part of clinical record |
+| PrescriptionItem | Kept after the record's day | Hard delete only on the day the record was written | Fix a same-day mistake; then part of the clinical record |
 | TestResultFile | Soft delete | `is_archived = True` | Wrong uploads can be hidden |
 | Vaccination | Editable + correction flag | `is_corrected` + `correction_note` | Permanent health history |
 | Appointment | Status-based | CANCELLED status | Status tells the full story |

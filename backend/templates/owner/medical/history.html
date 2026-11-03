@@ -220,19 +220,9 @@
 
         <div class="header-links">
 
-            <a href="{% url 'owner_vaccination_history' pet.pk %}"
-               class="btn-link">
+            <a href="{% url 'owner_vaccination_history' pet.pk %}" class="btn-link">💉 Vaccination History</a>
 
-                💉 Vaccination History
-
-            </a>
-
-            <a href="{% url 'owner_pet_detail' pet.pk %}"
-               class="btn-link">
-
-                ← Back to Pet
-
-            </a>
+            <a href="{% url 'owner_pet_detail' pet.pk %}" class="btn-link">← Back to Pet</a>
 
         </div>
 
@@ -336,7 +326,8 @@
 
                     {% endif %}
 
-                    {% if record.test_result_files.all %}
+                    {# active_test_files: archived files are left out in the view #}
+                    {% if record.active_test_files %}
 
                         <p class="record-field">
 
@@ -350,7 +341,7 @@
 
                     {% endif %}
 
-                    {% if record.follow_up_date %}
+                    {% if record.follow_up_required and record.follow_up_date %}
 
                         <p class="record-field">
 

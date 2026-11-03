@@ -1,3 +1,5 @@
+import math
+import os
 from datetime import date
 from decimal import Decimal
 
@@ -37,14 +39,31 @@ class MedicalRecordForm(forms.ModelForm):
         }
 
     def clean(self):
+        """
+        Date rules (Manila date):
+        - the visit date can't be in the future (today is fine)
+        - a follow-up needs a date, after the visit date
+        - with the follow-up box unticked the date is cleared
+        """
         cleaned_data = super().clean()
-        follow_up_required = cleaned_data.get("follow_up_required")
+        record_date = cleaned_data.get("record_date")
         follow_up_date = cleaned_data.get("follow_up_date")
 
-        # If follow-up is required, a date must be provided
-        if follow_up_required and not follow_up_date:
-            raise forms.ValidationError(
-                "Please provide a follow-up date when follow-up is required."
+        if record_date and record_date > timezone.localdate():
+            self.add_error("record_date", "The visit date can't be in the future.")
+
+        if not cleaned_data.get("follow_up_required"):
+            cleaned_data["follow_up_date"] = None
+        elif not follow_up_date:
+            # A date that didn't parse already has its own error
+            if "follow_up_date" not in self.errors:
+                self.add_error(
+                    "follow_up_date",
+                    "Pick the follow-up date, or untick “Needs a follow-up visit”.",
+                )
+        elif record_date and follow_up_date <= record_date:
+            self.add_error(
+                "follow_up_date", "The follow-up date must be after the visit date."
             )
 
         return cleaned_data
@@ -69,19 +88,41 @@ class PrescriptionItemForm(forms.ModelForm):
         }
 
 
+TEST_FILE_TYPES = (".pdf", ".jpg", ".jpeg", ".png")
+TEST_FILE_MAX_MB = 10
+MB = 1024 * 1024
+
+
 class TestResultFileForm(forms.ModelForm):
     """
     Admin form — upload a test result file to a medical record.
+    Only PDF, JPG or PNG (any letter case), up to 10 MB.
     """
 
     class Meta:
         model = TestResultFile
         fields = ["file", "description"]
         widgets = {
+            "file": forms.FileInput(attrs={"accept": ",".join(TEST_FILE_TYPES)}),
             "description": forms.TextInput(
                 attrs={"placeholder": "e.g. X-ray, Blood test results"}
             ),
         }
+
+    def clean_file(self):
+        upload = self.cleaned_data.get("file")
+        if not upload:
+            return upload
+        if os.path.splitext(upload.name)[1].lower() not in TEST_FILE_TYPES:
+            raise forms.ValidationError("Only PDF, JPG or PNG files can be added.")
+        if upload.size > TEST_FILE_MAX_MB * MB:
+            # Rounded up, so a file just over the limit never reads "10.0 MB"
+            size = math.ceil(upload.size * 10 / MB) / 10
+            raise forms.ValidationError(
+                f"This file is {size:.1f} MB. "
+                f"Please choose one up to {TEST_FILE_MAX_MB} MB."
+            )
+        return upload
 
 
 class VaccinationRulesMixin:

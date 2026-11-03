@@ -11,11 +11,19 @@ from .forms import (
     VaccinationForm,
     VaccinationEditForm,
 )
-from .utils import save_vaccination_edit
+from .utils import (
+    RECORD_EXISTS,
+    can_remove_medicines,
+    notify_record_created,
+    save_new_record,
+    save_vaccination_edit,
+    visit_for_record,
+    visit_stop,
+)
 
 from notifications.utils import notify
 
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 
 from notifications.models import Notification
 
@@ -28,14 +36,14 @@ from pets.utils import archived_pet_refusal
 def admin_medical_record_create(request, pet_pk):
     """
     Admin view — create a medical record for a pet.
-    Can be linked to an appointment via ?appointment=<pk> query param.
-    One record per appointment — enforced here.
+    Can be linked to a visit via ?appointment=<pk> (or the POST field): the
+    visit must be this pet's, confirmed or completed and not in the future;
+    a visit with a record goes to that record (visit_stop, save_new_record).
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
     from pets.models import Pet
-    from appointments.models import Appointment
 
     pet = get_object_or_404(Pet.objects.select_related("owner"), pk=pet_pk)
     refusal = archived_pet_refusal(pet)
@@ -43,67 +51,35 @@ def admin_medical_record_create(request, pet_pk):
         messages.error(request, refusal)
         return redirect("admin_pet_detail", pk=pet.pk)
 
-    # Check if linking to an appointment
-    appointment = None
-    appointment_pk = request.GET.get("appointment") or request.POST.get("appointment")
-    if appointment_pk:
-        appointment = get_object_or_404(Appointment, pk=appointment_pk)
-
-        # Enforce one record per appointment
-        if hasattr(appointment, "medical_record"):
-            messages.error(
-                request,
-                "A medical record already exists for this appointment.",
-            )
-            return redirect(
-                "admin_medical_record_detail",
-                pk=appointment.medical_record.pk,
-            )
+    appointment = visit_for_record(
+        request.GET.get("appointment") or request.POST.get("appointment")
+    )
+    today = timezone.localdate()
+    stop = visit_stop(pet, appointment, today) if appointment else None
+    if stop:
+        message, url_name, pk = stop
+        messages.error(request, message)
+        return redirect(url_name, pk=pk)
 
     if request.method == "POST":
         form = MedicalRecordForm(request.POST)
         if form.is_valid():
-            record = form.save(commit=False)
-            record.pet = pet
-            record.appointment = appointment
-            record.created_by = request.user
-            record.save()
-
-            # Notify pet owner that a medical record has been created
-            notify(
-                recipient=pet.owner.user,
-                notification_type="appointment_approved",
-                title="Medical Record Created",
-                message=(
-                    f"A medical record has been created for {pet.name} "
-                    f"on {record.record_date.strftime('%B %d, %Y')}. "
-                    f"You can view the details in your pet's medical history."
-                ),
-                related_appointment=appointment,
-                related_pet=pet,
-                email_subject="Medical Record Created — Hapi Vet",
-            )
-
-            messages.success(request, "Medical record created.")
+            record, created = save_new_record(form, pet, appointment, request.user)
+            if created:
+                notify_record_created(record)
+                messages.success(request, "Medical record created.")
+            else:
+                messages.error(request, RECORD_EXISTS)
             return redirect("admin_medical_record_detail", pk=record.pk)
-        else:
-            messages.error(request, "Please correct the errors below.")
+        messages.error(request, "Please correct the errors below.")
     else:
-        # Pre-fill record date with today
-        initial = {"record_date": timezone.localdate()}
-        # If linked to appointment, pre-fill date with appointment date
-        if appointment:
-            initial["record_date"] = appointment.date
-        form = MedicalRecordForm(initial=initial)
+        record_date = appointment.date if appointment else today
+        form = MedicalRecordForm(initial={"record_date": record_date})
 
     return render(
         request,
         "admin/medical/record_form.html",
-        {
-            "form": form,
-            "pet": pet,
-            "appointment": appointment,
-        },
+        {"form": form, "pet": pet, "appointment": appointment},
     )
 
 
@@ -196,7 +172,13 @@ def admin_prescription_item_add(request, record_pk):
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    record = get_object_or_404(MedicalRecord, pk=record_pk)
+    record = get_object_or_404(
+        MedicalRecord.objects.select_related("pet__owner"), pk=record_pk
+    )
+    refusal = archived_pet_refusal(record.pet)
+    if refusal:
+        messages.error(request, refusal)
+        return redirect("admin_pet_detail", pk=record.pet.pk)
 
     if request.method == "POST":
         form = PrescriptionItemForm(request.POST)
@@ -214,30 +196,49 @@ def admin_prescription_item_add(request, record_pk):
 @login_required
 def admin_prescription_item_delete(request, pk):
     """
-    Admin view — delete a prescription item.
-    Prescription items are part of a medical record but are individually
-    removable (unlike the record itself which is immutable).
+    Admin view — delete a prescription item (POST only).
+    Allowed only on the day the record was written (Manila date of
+    created_at), to fix a same-day mistake; after that the list is kept.
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    item = get_object_or_404(PrescriptionItem, pk=pk)
-    record_pk = item.record.pk
+    item = get_object_or_404(
+        PrescriptionItem.objects.select_related("record__pet__owner"), pk=pk
+    )
+    record = item.record
+    refusal = archived_pet_refusal(record.pet)
+    if refusal:
+        messages.error(request, refusal)
+        return redirect("admin_pet_detail", pk=record.pet.pk)
 
     if request.method == "POST":
-        item.delete()
-        messages.success(request, "Prescription item removed.")
+        if can_remove_medicines(record, timezone.localdate()):
+            item.delete()
+            messages.success(request, "Prescription item removed.")
+        else:
+            messages.error(
+                request,
+                "Medicines can only be removed on the day the record was written.",
+            )
 
-    return redirect("admin_medical_record_detail", pk=record_pk)
+    return redirect("admin_medical_record_detail", pk=record.pk)
 
 
 @login_required
 def admin_test_result_file_upload(request, record_pk):
-    """Admin view — upload a test result file to a medical record."""
+    """Admin view — upload a test result file (PDF, JPG or PNG, up to
+    10 MB) to a medical record."""
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    record = get_object_or_404(MedicalRecord, pk=record_pk)
+    record = get_object_or_404(
+        MedicalRecord.objects.select_related("pet__owner"), pk=record_pk
+    )
+    refusal = archived_pet_refusal(record.pet)
+    if refusal:
+        messages.error(request, refusal)
+        return redirect("admin_pet_detail", pk=record.pet.pk)
 
     if request.method == "POST":
         form = TestResultFileForm(request.POST, request.FILES)
@@ -247,7 +248,9 @@ def admin_test_result_file_upload(request, record_pk):
             file_obj.save()
             messages.success(request, "File uploaded.")
         else:
-            messages.error(request, "Please correct the errors.")
+            # The page isn't re-rendered yet (5a-5), so flash the real errors
+            errors = [error for field in form.errors.values() for error in field]
+            messages.error(request, " ".join(errors))
 
     return redirect("admin_medical_record_detail", pk=record_pk)
 
@@ -255,20 +258,32 @@ def admin_test_result_file_upload(request, record_pk):
 @login_required
 def admin_test_result_file_archive(request, pk):
     """
-    Admin view — soft delete (archive) a test result file.
-    Used when a file was uploaded by mistake.
+    Admin view — soft delete (archive) a test result file (POST only).
+    Used when a file was uploaded by mistake. A file already archived is
+    left as it is (archived_at kept).
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    file_obj = get_object_or_404(TestResultFile, pk=pk)
-    record_pk = file_obj.record.pk
+    file_obj = get_object_or_404(
+        TestResultFile.objects.select_related("record__pet__owner"), pk=pk
+    )
+    pet = file_obj.record.pet
+    refusal = archived_pet_refusal(pet)
+    if refusal:
+        messages.error(request, refusal)
+        return redirect("admin_pet_detail", pk=pet.pk)
 
     if request.method == "POST":
-        file_obj.archive()
-        messages.success(request, "File removed.")
+        if file_obj.is_archived:
+            messages.info(request, "That file was already removed.")
+        else:
+            file_obj.archive()
+            messages.success(
+                request, f"File removed. It's hidden from {pet.owner.full_name}."
+            )
 
-    return redirect("admin_medical_record_detail", pk=record_pk)
+    return redirect("admin_medical_record_detail", pk=file_obj.record.pk)
 
 
 @login_required
@@ -526,7 +541,13 @@ def admin_trigger_vaccination_reminder(request, pk):
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    vaccination = get_object_or_404(Vaccination, pk=pk)
+    vaccination = get_object_or_404(
+        Vaccination.objects.select_related("pet__owner"), pk=pk
+    )
+    refusal = archived_pet_refusal(vaccination.pet)
+    if refusal:
+        messages.error(request, refusal)
+        return redirect("admin_pet_detail", pk=vaccination.pet.pk)
 
     if request.method == "POST":
         owner_user = vaccination.pet.owner.user
@@ -571,7 +592,13 @@ def admin_trigger_followup_reminder(request, pk):
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    record = get_object_or_404(MedicalRecord, pk=pk)
+    record = get_object_or_404(
+        MedicalRecord.objects.select_related("pet__owner"), pk=pk
+    )
+    refusal = archived_pet_refusal(record.pet)
+    if refusal:
+        messages.error(request, refusal)
+        return redirect("admin_pet_detail", pk=record.pet.pk)
 
     if request.method == "POST":
         if not record.follow_up_required:
@@ -617,7 +644,8 @@ def admin_trigger_followup_reminder(request, pk):
 def owner_pet_medical_history(request, pk):
     """
     Pet Owner view — view their pet's medical history.
-    Read-only. Public notes only — private_notes never sent to template.
+    Read-only. The template never shows private_notes, and archived test
+    files never reach it (active_test_files).
     """
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
@@ -627,7 +655,18 @@ def owner_pet_medical_history(request, pk):
     owner = request.user.petowner
     pet = get_object_or_404(Pet, pk=pk, owner=owner, is_archived=False)
 
-    records = MedicalRecord.objects.filter(pet=pet).order_by("-record_date")
+    records = (
+        MedicalRecord.objects.filter(pet=pet)
+        .order_by("-record_date")
+        .prefetch_related(
+            "prescription_items",
+            Prefetch(
+                "test_result_files",
+                queryset=TestResultFile.objects.filter(is_archived=False),
+                to_attr="active_test_files",
+            ),
+        )
+    )
 
     return render(
         request,

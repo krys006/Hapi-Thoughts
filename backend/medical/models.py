@@ -5,8 +5,9 @@ from django.utils import timezone
 class MedicalRecord(models.Model):
     """
     Clinical documentation for each pet visit.
-    Immutable — no deletion allowed. Ever.
-    Admin creates and edits. Pet owners see all fields except private_notes.
+    Edited in place by the admin; never deleted.
+    One record per appointment (OneToOne). Pet owners see all fields
+    except private_notes.
     """
 
     # ── Relationships ────────────────────────────────────────────────────────
@@ -58,7 +59,8 @@ class PrescriptionItem(models.Model):
     """
     Individual medicine items within a medical record.
     Multiple items allowed per record.
-    Immutable — follows the parent MedicalRecord.
+    Removable only on the day the record was written (Manila date of the
+    record's created_at); after that the list is kept as it is.
     """
 
     # ── Relationship ─────────────────────────────────────────────────────────
@@ -120,7 +122,8 @@ class Vaccination(models.Model):
     """
     Vaccination records for each pet.
     Can be created through an appointment or as a standalone entry.
-    Immutable — use is_corrected + correction_note if wrong.
+    Edited in place; never deleted. A clinical change needs a reason,
+    added to correction_note as a dated line, and sets is_corrected.
     """
 
     # ── Predefined vaccine choices ───────────────────────────────────────────
