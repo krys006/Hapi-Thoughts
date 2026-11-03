@@ -3,17 +3,21 @@
 from datetime import timedelta
 from urllib.parse import urlencode
 
+from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Exists, OuterRef, Q
+from django.db.models import Count, Exists, Max, OuterRef, Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
-from appointments.models import Appointment
+from appointments.models import Appointment, ClinicSettings
 from appointments.utils import paging_links
-from notifications.utils import notify
+from notifications.models import Notification
+from notifications.utils import EMAIL_NO_ADDRESS, EMAIL_OFF, EMAIL_SENT, notify
+from pets.models import Pet
 from pets.utils import ARCHIVED_PET, pet_state
 
 from .models import MedicalRecord, Vaccination
@@ -127,6 +131,113 @@ def vaccination_reminder_refusal(vaccination):
     return None
 
 
+# ── Reminders ────────────────────────────────────────────────────────────────
+# The "last reminder" line is per pet and kind: a Notification is not linked
+# to its Vaccination or MedicalRecord (a schema change, see HANDOFF).
+
+
+def last_reminders(kind, pet_ids):
+    """{pet id: created_at of the newest Notification of kind
+    (VACCINATION_REMINDER / FOLLOWUP_REMINDER) about that pet}, in one
+    grouped query. Pets never reminded are missing."""
+    rows = (
+        Notification.objects.filter(notification_type=kind, related_pet_id__in=pet_ids)
+        .values("related_pet")
+        .annotate(last=Max("created_at"))
+        .order_by()
+    )
+    return {row["related_pet"]: row["last"] for row in rows}
+
+
+def last_reminder(pet, kind):
+    """last_reminders for one pet: a datetime, or None."""
+    return last_reminders(kind, [pet.pk]).get(pet.pk)
+
+
+def message_date(value):
+    """The date in a notification message: 'Thursday, November 5, 2026'."""
+    return date_format(value, "l, F j, Y")
+
+
+def reminder_flash(owner, notification):
+    """(message level, text) saying how the reminder reached the owner,
+    from what notify() did (email_outcome)."""
+    name = owner.full_name
+    outcome = notification.email_outcome
+    if outcome == EMAIL_SENT:
+        return messages.SUCCESS, f"Reminder sent to {name} (app and email)."
+    if outcome == EMAIL_NO_ADDRESS:
+        return (
+            messages.SUCCESS,
+            f"Reminder sent to {name} in the app only (no email on file).",
+        )
+    if outcome == EMAIL_OFF:
+        return (
+            messages.SUCCESS,
+            f"Reminder sent to {name} in the app only "
+            "(their email reminders are off).",
+        )
+    return (
+        messages.WARNING,
+        f"Reminder sent to {name} in the app. The email couldn't be sent.",
+    )
+
+
+def send_vaccination_reminder(vaccination):
+    """notify() the owner that the next dose is due; reminder_flash's
+    (level, text). Needs a next_due_date (vaccination_reminder_refusal)."""
+    pet = vaccination.pet
+    notification = notify(
+        recipient=pet.owner.user,
+        notification_type=Notification.VACCINATION_REMINDER,
+        title=f"Vaccination Reminder — {pet.name}",
+        message=(
+            f"This is a reminder that {pet.name}'s "
+            f"{vaccination.display_vaccine_name} vaccination is due on "
+            f"{message_date(vaccination.next_due_date)}. "
+            f"Please contact the clinic to schedule an appointment."
+        ),
+        related_pet=pet,
+        email_subject="Vaccination Reminder — Hapi Vet",
+    )
+    return reminder_flash(pet.owner, notification)
+
+
+def send_followup_reminder(record):
+    """notify() the owner about the record's follow-up visit;
+    reminder_flash's (level, text)."""
+    pet = record.pet
+    if record.follow_up_date:
+        message = (
+            f"This is a reminder that {pet.name} has a follow-up visit "
+            f"scheduled for {message_date(record.follow_up_date)}. "
+            f"Please contact the clinic to confirm your appointment."
+        )
+    else:
+        message = (
+            f"This is a reminder that {pet.name} has a follow-up visit "
+            f"recommended. Please contact the clinic to schedule."
+        )
+    notification = notify(
+        recipient=pet.owner.user,
+        notification_type=Notification.FOLLOWUP_REMINDER,
+        title=f"Follow-up Reminder — {pet.name}",
+        message=message,
+        related_appointment=record.appointment,
+        related_pet=pet,
+        email_subject="Follow-up Reminder — Hapi Vet",
+    )
+    return reminder_flash(pet.owner, notification)
+
+
+def _owner_contact(pet):
+    """owner_has_email / owner_phone for the reminder dialogs."""
+    return {
+        "owner_has_email": bool(pet.owner.user.email),
+        "owner_phone": pet.owner.contact_number,
+    }
+
+
 # ── Admin lists (Vaccinations, Medical records) ──────────────────────────────
 
 
@@ -223,10 +334,15 @@ def vaccination_list_context(params, today):
 
     page_obj, links = _list_page(rows, params, active_tab, q)
     page_obj.object_list = list(page_obj.object_list)
+    reminders = last_reminders(
+        Notification.VACCINATION_REMINDER,
+        {vaccination.pet_id for vaccination in page_obj.object_list},
+    )
     for vaccination in page_obj.object_list:
         vaccination.due_state, vaccination.days = vaccination_due_state(
             vaccination, today
         )
+        vaccination.last_reminder = reminders.get(vaccination.pet_id)
     return {
         "page_obj": page_obj,
         "vaccinations": page_obj.object_list,
@@ -255,6 +371,14 @@ def search_records(records, q):
     return records
 
 
+def _follow_up_days(record, today):
+    """Days until the follow-up ("Follow-up in N days" on the pill; negative
+    when past), or None when none is required or it has no date."""
+    if record.follow_up_required and record.follow_up_date:
+        return (record.follow_up_date - today).days
+    return None
+
+
 def record_list_context(params, today):
     """
     Context for the admin Medical records list from the request's GET
@@ -281,13 +405,13 @@ def record_list_context(params, today):
 
     page_obj, links = _list_page(rows, params, active_tab, q)
     page_obj.object_list = list(page_obj.object_list)
+    reminders = last_reminders(
+        Notification.FOLLOWUP_REMINDER,
+        {record.pet_id for record in page_obj.object_list},
+    )
     for record in page_obj.object_list:
-        # "Follow-up in N days" on the pill
-        record.follow_up_days = (
-            (record.follow_up_date - today).days
-            if record.follow_up_required and record.follow_up_date
-            else None
-        )
+        record.follow_up_days = _follow_up_days(record, today)
+        record.last_reminder = reminders.get(record.pet_id)
     return {
         "page_obj": page_obj,
         "records": page_obj.object_list,
@@ -419,7 +543,7 @@ def notify_record_created(record):
         title="Medical Record Created",
         message=(
             f"A medical record has been created for {pet.name} "
-            f"on {record.record_date.strftime('%B %d, %Y')}. "
+            f"on {message_date(record.record_date)}. "
             f"You can view the details in your pet's medical history."
         ),
         related_appointment=record.appointment,
@@ -435,3 +559,173 @@ def can_remove_medicines(record, today):
     """Medicines can be removed only on the day the record was written
     (the Manila date of created_at). After that the list is kept."""
     return timezone.localtime(record.created_at).date() == today
+
+
+# ── Record page ──────────────────────────────────────────────────────────────
+
+
+def record_detail_context(record, today):
+    """
+    Context for the admin record page (5b-2). Needs pet__owner__user
+    selected. Old keys kept for the old template: prescription_items,
+    test_files (both the same querysets as medicines / active_files).
+    """
+    pet = record.pet
+    state = pet_state(pet)
+    medicines = record.prescription_items.order_by("created_at", "pk")
+    active_files = record.test_result_files.filter(is_archived=False).order_by(
+        "uploaded_at", "pk"
+    )
+    follow_up = None
+    if record.follow_up_required:
+        follow_up = {
+            "date": record.follow_up_date,
+            "days": _follow_up_days(record, today),
+        }
+    return {
+        "record": record,
+        "pet_state": state,
+        "can_add": state == "active",
+        "can_remove_medicines": can_remove_medicines(record, today),
+        "medicines": medicines,
+        "active_files": active_files,
+        "removed_files": record.test_result_files.filter(is_archived=True).order_by(
+            "-archived_at", "-pk"
+        ),
+        "vaccinations": record.vaccinations.order_by("-date_administered", "-pk"),
+        "follow_up": follow_up,
+        "last_followup_reminder": last_reminder(pet, Notification.FOLLOWUP_REMINDER),
+        **_owner_contact(pet),
+        "today": today,
+        "prescription_items": medicines,
+        "test_files": active_files,
+    }
+
+
+# ── New vaccination ──────────────────────────────────────────────────────────
+
+
+def record_for_vaccination(value, pet):
+    """The record named by ?record= (or the POST field), or None when it's
+    empty. It must be this pet's; anything else is a 404."""
+    if not value:
+        return None
+    try:
+        pk = int(value)
+    except (TypeError, ValueError):
+        raise Http404("No such record.")
+    return get_object_or_404(
+        MedicalRecord.objects.select_related("appointment"), pk=pk, pet=pet
+    )
+
+
+def clinic_vet_name():
+    """ClinicSettings.veterinarian_name, or "" when there are no settings."""
+    clinic = ClinicSettings.objects.first()
+    return clinic.veterinarian_name if clinic else ""
+
+
+def new_vaccination_initial(record, today):
+    """A new vaccination starts on the record's date (else today), given by
+    the clinic's vet. Never used on edit."""
+    return {
+        "date_administered": record.record_date if record else today,
+        "administered_by": clinic_vet_name(),
+    }
+
+
+def save_new_vaccination(form, pet, record=None):
+    """Save a valid VaccinationForm for the pet, linked to the record and
+    its visit when there is one."""
+    vaccination = form.save(commit=False)
+    vaccination.pet = pet
+    if record:
+        vaccination.medical_record = record
+        vaccination.appointment = record.appointment
+    vaccination.save()
+    return vaccination
+
+
+def vaccination_history_url(vaccination):
+    """The pet's vaccinations with this dose highlighted and scrolled to."""
+    url = reverse("admin_pet_vaccination_history", args=[vaccination.pet_id])
+    return f"{url}?highlight={vaccination.pk}#vaccination-{vaccination.pk}"
+
+
+# ── Pet history pages ────────────────────────────────────────────────────────
+
+
+def _history_header(pet):
+    """The shared header of both history pages (one query for the counts)."""
+    state = pet_state(pet)
+    counts = Pet.objects.filter(pk=pet.pk).aggregate(
+        records_count=Count("medical_records", distinct=True),
+        vaccinations_count=Count("vaccinations", distinct=True),
+    )
+    return {"pet": pet, "pet_state": state, "can_add": state == "active", **counts}
+
+
+def medical_history_context(pet, today):
+    """Context for the pet's medical history (5b-5). Needs owner selected."""
+    records = (
+        MedicalRecord.objects.filter(pet=pet)
+        .annotate(
+            medicine_count=Count("prescription_items", distinct=True),
+            active_file_count=Count(
+                "test_result_files",
+                filter=Q(test_result_files__is_archived=False),
+                distinct=True,
+            ),
+            vaccination_count=Count("vaccinations", distinct=True),
+        )
+        .order_by("-record_date", "-created_at", "-pk")
+    )
+    return {
+        **_history_header(pet),
+        "records": records,
+        "next_follow_up": followups_due(today)
+        .filter(pet=pet)
+        .order_by("follow_up_date", "pk")
+        .first(),
+        "last_followup_reminder": last_reminder(pet, Notification.FOLLOWUP_REMINDER),
+        "today": today,
+    }
+
+
+def _highlight_id(value, vaccinations):
+    """The pk from ?highlight= when it is one of these doses, else None."""
+    try:
+        pk = int(value)
+    except (TypeError, ValueError):
+        return None
+    return pk if any(v.pk == pk for v in vaccinations) else None
+
+
+def vaccination_history_context(pet, today, highlight=None):
+    """
+    Context for the pet's vaccinations (5b-5). Needs owner and owner.user
+    selected. Each dose gets is_superseded, due_state, days and can_remind
+    (due or overdue by the due rule, so it has a next date, isn't
+    superseded and the pet and owner are active).
+    """
+    vaccinations = list(
+        Vaccination.objects.filter(pet=pet)
+        .annotate(is_superseded=later_dose_exists())
+        .order_by("-date_administered", "-pk")
+    )
+    for vaccination in vaccinations:
+        vaccination.pet = pet
+        vaccination.due_state, vaccination.days = vaccination_due_state(
+            vaccination, today
+        )
+        vaccination.can_remind = vaccination.due_state in ("due", "overdue")
+    return {
+        **_history_header(pet),
+        "vaccinations": vaccinations,
+        "highlight_id": _highlight_id(highlight, vaccinations),
+        "last_vaccination_reminder": last_reminder(
+            pet, Notification.VACCINATION_REMINDER
+        ),
+        **_owner_contact(pet),
+        "today": today,
+    }

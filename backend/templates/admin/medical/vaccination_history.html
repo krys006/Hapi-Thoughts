@@ -30,7 +30,7 @@
   <!-- Last reminder sent note -->
   <p class="reminder-last-sent">
     {% if last_reminder %}
-      Last vaccination reminder sent to {{ pet.owner.full_name }}: {{ last_reminder.created_at|date:"F j, Y, g:i A" }}
+      Last vaccination reminder sent to {{ pet.owner.full_name }}: {{ last_reminder|date:"F j, Y, g:i A" }}
     {% else %}
       No vaccination reminder has been sent to {{ pet.owner.full_name }} yet.
     {% endif %}

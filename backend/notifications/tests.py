@@ -4,12 +4,20 @@ from unittest import mock
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.core.management import call_command
 from django.test import TestCase
 
 from appointments.models import Appointment
 from medical.models import MedicalRecord, Vaccination
-from notifications.models import Notification
+from notifications.models import Notification, NotificationPreference
+from notifications.utils import (
+    EMAIL_FAILED,
+    EMAIL_NO_ADDRESS,
+    EMAIL_OFF,
+    EMAIL_SENT,
+    notify,
+)
 from pets.models import Pet, PetOwner
 
 User = get_user_model()
@@ -158,3 +166,72 @@ class SendRemindersDueRuleTests(FrozenRemindersTestBase):
         self._run()
         self.assertEqual(self._sent(Notification.VACCINATION_REMINDER), [])
         self.assertEqual(self._sent(Notification.FOLLOWUP_REMINDER), [])
+
+
+class NotifyOutcomeTests(TestCase):
+    """notify() returns the Notification with email_outcome (not saved),
+    so a caller can say how the recipient was reached (5a-5)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="ana_cruz", email="ana@example.com", role=User.PET_OWNER
+        )
+
+    def _notify(self, kind=Notification.VACCINATION_REMINDER):
+        return notify(
+            recipient=self.user, notification_type=kind, title="T", message="M"
+        )
+
+    def test_sent(self):
+        notification = self._notify()
+        self.assertEqual(notification.email_outcome, EMAIL_SENT)
+        self.assertTrue(Notification.objects.get().email_sent)
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_no_address(self):
+        User.objects.filter(pk=self.user.pk).update(email="")
+        self.user.refresh_from_db()
+        notification = self._notify()
+        self.assertEqual(notification.email_outcome, EMAIL_NO_ADDRESS)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_no_address_wins_over_a_preference_that_is_off(self):
+        NotificationPreference.objects.filter(user=self.user).update(
+            email_vaccination=False
+        )
+        User.objects.filter(pk=self.user.pk).update(email="")
+        self.user.refresh_from_db()
+        self.assertEqual(self._notify().email_outcome, EMAIL_NO_ADDRESS)
+
+    def test_preference_off(self):
+        NotificationPreference.objects.filter(user=self.user).update(
+            email_vaccination=False
+        )
+        self.user.refresh_from_db()
+        notification = self._notify()
+        self.assertEqual(notification.email_outcome, EMAIL_OFF)
+        self.assertEqual(len(mail.outbox), 0)
+        # Another type with its preference on still emails
+        followup = self._notify(Notification.FOLLOWUP_REMINDER)
+        self.assertEqual(followup.email_outcome, EMAIL_SENT)
+
+    def test_failed(self):
+        with mock.patch(
+            "notifications.utils.send_mail", side_effect=Exception("Brevo down")
+        ):
+            notification = self._notify()
+        self.assertEqual(notification.email_outcome, EMAIL_FAILED)
+        saved = Notification.objects.get()
+        self.assertTrue(saved.email_failed)
+        self.assertEqual(saved.email_error, "Brevo down")
+
+    def test_provider_returned_no_send(self):
+        with mock.patch("notifications.utils.send_mail", return_value=0):
+            notification = self._notify()
+        self.assertEqual(notification.email_outcome, EMAIL_FAILED)
+
+    def test_in_app_notification_always_saved(self):
+        User.objects.filter(pk=self.user.pk).update(email="")
+        self.user.refresh_from_db()
+        notification = self._notify()
+        self.assertEqual(Notification.objects.get(), notification)

@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
+from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django.http import QueryDict
@@ -14,8 +15,8 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
-from appointments.models import Appointment
-from notifications.models import Notification
+from appointments.models import Appointment, ClinicSettings
+from notifications.models import Notification, NotificationPreference
 from pets.models import Pet, PetOwner
 
 from .forms import (
@@ -29,8 +30,12 @@ from .utils import (
     can_remove_medicines,
     followups_due,
     is_superseded,
+    last_reminder,
+    last_reminders,
+    medical_history_context,
     record_list_context,
     save_vaccination_edit,
+    vaccination_history_context,
     vaccination_list_context,
     vaccinations_due,
     vaccinations_overdue,
@@ -891,19 +896,16 @@ class TestFileUploadTests(FrozenMedicalTestBase):
         self.assertEqual(self._messages(response), ["File uploaded."])
         self.assertEqual(record.test_result_files.count(), 1)
 
-    def test_upload_view_flashes_the_real_error(self):
+    def test_upload_view_shows_the_real_error(self):
+        # 5a-5: the record page is re-rendered with the error (was a redirect
+        # with the error flashed)
         record = self._record()
         url = reverse("admin_test_result_file_upload", args=[record.pk])
         upload = SimpleUploadedFile("notes.docx", b"x", "application/msword")
         response = self.client.post(url, {"file": upload})
-        self.assertRedirects(
-            response,
-            reverse("admin_medical_record_detail", args=[record.pk]),
-            fetch_redirect_response=False,
-        )
-        self.assertEqual(
-            self._messages(response), ["Only PDF, JPG or PNG files can be added."]
-        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["open_dialog"], "add-file")
+        self.assertContains(response, "Only PDF, JPG or PNG files can be added.")
         self.assertFalse(TestResultFile.objects.exists())
 
 
@@ -1168,7 +1170,9 @@ class VaccinationReminderTests(FrozenMedicalTestBase):
 
     def test_due_dose_is_sent(self):
         dose = self._dose()
-        self.assertEqual(self._send(dose), ["Reminder sent to Ana Cruz."])
+        self.assertEqual(
+            self._send(dose), ["Reminder sent to Ana Cruz (app and email)."]
+        )
         self.assertEqual(self._sent(), 1)
 
     def test_no_next_date_is_refused(self):
@@ -1657,3 +1661,701 @@ class RecordListViewTests(MedicalListTestBase):
                 many = self._queries(tab)
                 self.assertEqual(len(self._rows(tab=tab)), 25)
                 self.assertEqual(few, many)
+
+
+# ── Batch 5a-5: detail, form and reminder backend ────────────────────────────
+
+
+class RecordDetailContextTests(FrozenMedicalTestBase):
+    """record_detail_context: the record page's keys for 5b-2."""
+
+    def setUp(self):
+        super().setUp()
+        self.record = self._record(
+            record_date=_days(-2),
+            follow_up_required=True,
+            follow_up_date=_days(3),
+        )
+        self.url = reverse("admin_medical_record_detail", args=[self.record.pk])
+
+    def _context(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        return response.context
+
+    def test_keys_for_an_active_pet(self):
+        PrescriptionItem.objects.create(record=self.record, medicine_name="Amox")
+        context = self._context()
+        self.assertEqual(context["pet_state"], "active")
+        self.assertTrue(context["can_add"])
+        # Written today (00:30 Manila Nov 3), so medicines can still go
+        self.assertTrue(context["can_remove_medicines"])
+        self.assertEqual([i.medicine_name for i in context["medicines"]], ["Amox"])
+        self.assertEqual(context["follow_up"], {"date": _days(3), "days": 3})
+        self.assertIsNone(context["last_followup_reminder"])
+        self.assertTrue(context["owner_has_email"])
+        self.assertEqual(context["owner_phone"], "")
+        self.assertIsNone(context["open_dialog"])
+
+    def test_old_keys_are_kept(self):
+        context = self._context()
+        for key in (
+            "record",
+            "prescription_items",
+            "test_files",
+            "vaccinations",
+            "prescription_form",
+            "file_form",
+            "vaccination_form",
+            "last_followup_reminder",
+        ):
+            with self.subTest(key=key):
+                self.assertIn(key, context)
+
+    def test_archived_pet_and_owner(self):
+        self.pet.is_archived = True
+        self.pet.save()
+        context = self._context()
+        self.assertEqual(context["pet_state"], "archived")
+        self.assertFalse(context["can_add"])
+        self.pet.is_archived = False
+        self.pet.save()
+        self.owner.is_archived = True
+        self.owner.save()
+        context = self._context()
+        self.assertEqual(context["pet_state"], "owner_archived")
+        self.assertFalse(context["can_add"])
+
+    def test_files_split_into_active_and_removed(self):
+        keep = TestResultFile.objects.create(
+            record=self.record, file="test_results/a.pdf"
+        )
+        older = TestResultFile.objects.create(
+            record=self.record,
+            file="test_results/b.pdf",
+            is_archived=True,
+            archived_at=JUST_AFTER_MIDNIGHT - datetime.timedelta(days=1),
+        )
+        newer = TestResultFile.objects.create(
+            record=self.record,
+            file="test_results/c.pdf",
+            is_archived=True,
+            archived_at=JUST_AFTER_MIDNIGHT,
+        )
+        context = self._context()
+        self.assertEqual(list(context["active_files"]), [keep])
+        self.assertEqual(list(context["test_files"]), [keep])
+        self.assertEqual(list(context["removed_files"]), [newer, older])
+
+    def test_vaccinations_at_this_record_only(self):
+        here = Vaccination.objects.create(
+            pet=self.pet,
+            medical_record=self.record,
+            vaccine_name=Vaccination.ANTI_RABIES,
+            date_administered=_days(-2),
+        )
+        Vaccination.objects.create(
+            pet=self.pet,
+            vaccine_name=Vaccination.DEWORMING,
+            date_administered=_days(-2),
+        )
+        self.assertEqual(list(self._context()["vaccinations"]), [here])
+
+    def test_follow_up_none_when_not_required(self):
+        MedicalRecord.objects.filter(pk=self.record.pk).update(
+            follow_up_required=False, follow_up_date=None
+        )
+        self.assertIsNone(self._context()["follow_up"])
+
+    def test_owner_without_email_with_phone(self):
+        User.objects.filter(pk=self.owner_user.pk).update(email="")
+        PetOwner.objects.filter(pk=self.owner.pk).update(contact_number="0917 123 4567")
+        context = self._context()
+        self.assertFalse(context["owner_has_email"])
+        self.assertEqual(context["owner_phone"], "0917 123 4567")
+
+    def test_medicines_not_removable_on_a_later_day(self):
+        self.now = JUST_AFTER_MIDNIGHT + datetime.timedelta(days=1)
+        self.assertFalse(self._context()["can_remove_medicines"])
+
+
+class DialogErrorRenderTests(FrozenMedicalTestBase):
+    """An invalid Add medicine / Add file POST re-renders the record page
+    with the bound form and the dialog to open; nothing is saved."""
+
+    def setUp(self):
+        super().setUp()
+        self.record = self._record()
+
+    def test_invalid_medicine(self):
+        url = reverse("admin_prescription_item_add", args=[self.record.pk])
+        response = self.client.post(url, {"medicine_name": "", "dosage": "5 ml"})
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "admin/medical/record_detail.html")
+        self.assertEqual(response.context["open_dialog"], "add-medicine")
+        form = response.context["prescription_form"]
+        self.assertTrue(form.is_bound)
+        self.assertIn("medicine_name", form.errors)
+        self.assertContains(response, form.errors["medicine_name"][0])
+        # The typed value is kept
+        self.assertContains(response, 'value="5 ml"')
+        self.assertFalse(PrescriptionItem.objects.exists())
+        self.assertEqual(self._messages(response), [])
+
+    def test_invalid_file(self):
+        url = reverse("admin_test_result_file_upload", args=[self.record.pk])
+        upload = SimpleUploadedFile("notes.docx", b"x", "application/msword")
+        response = self.client.post(url, {"file": upload, "description": "Blood"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["open_dialog"], "add-file")
+        self.assertTrue(response.context["file_form"].is_bound)
+        self.assertFalse(response.context["prescription_form"].is_bound)
+        self.assertContains(response, "Only PDF, JPG or PNG files can be added.")
+        self.assertFalse(TestResultFile.objects.exists())
+
+    def test_valid_medicine_still_redirects(self):
+        url = reverse("admin_prescription_item_add", args=[self.record.pk])
+        response = self.client.post(url, {"medicine_name": "Amox"})
+        self.assertRedirects(
+            response,
+            reverse("admin_medical_record_detail", args=[self.record.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(self._messages(response), ["Prescription item added."])
+        self.assertEqual(PrescriptionItem.objects.count(), 1)
+
+
+class VaccinationFromRecordTests(FrozenMedicalTestBase):
+    """admin_vaccination_standalone_create?record=<pk>."""
+
+    def setUp(self):
+        super().setUp()
+        self.visit = Appointment.objects.create(
+            pet=self.pet,
+            owner=self.owner,
+            date=_days(-5),
+            time=datetime.time(9, 0),
+            status=Appointment.COMPLETED,
+        )
+        self.record = self._record(record_date=_days(-5), appointment=self.visit)
+        self.url = reverse("admin_vaccination_standalone_create", args=[self.pet.pk])
+
+    def _post_data(self, **changes):
+        data = {
+            "vaccine_name": Vaccination.ANTI_RABIES,
+            "custom_vaccine_name": "",
+            "date_administered": _days(-5).isoformat(),
+            "next_due_date": "",
+        }
+        data.update(changes)
+        return data
+
+    def test_get_starts_on_the_record_date(self):
+        response = self.client.get(self.url, {"record": self.record.pk})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["record"], self.record)
+        form = response.context["form"]
+        self.assertEqual(form.initial["date_administered"], _days(-5))
+
+    def test_get_without_a_record_starts_today(self):
+        response = self.client.get(self.url)
+        self.assertIsNone(response.context["record"])
+        self.assertEqual(response.context["form"].initial["date_administered"], TODAY)
+
+    def test_post_links_record_and_visit_and_goes_back_to_the_record(self):
+        response = self.client.post(
+            f"{self.url}?record={self.record.pk}", self._post_data()
+        )
+        self.assertRedirects(
+            response,
+            reverse("admin_medical_record_detail", args=[self.record.pk]),
+            fetch_redirect_response=False,
+        )
+        shot = Vaccination.objects.get()
+        self.assertEqual(shot.medical_record, self.record)
+        self.assertEqual(shot.appointment, self.visit)
+        self.assertEqual(shot.pet, self.pet)
+
+    def test_post_field_works_too(self):
+        self.client.post(self.url, self._post_data(record=self.record.pk))
+        self.assertEqual(Vaccination.objects.get().medical_record, self.record)
+
+    def test_record_of_another_pet_is_a_404(self):
+        other = Pet.objects.create(owner=self.owner, name="Muning", species="Cat")
+        other_record = MedicalRecord.objects.create(pet=other, record_date=TODAY)
+        url = f"{self.url}?record={other_record.pk}"
+        # A GET's data replaces the query string, so it carries the record
+        for response in (
+            self.client.get(self.url, {"record": other_record.pk}),
+            self.client.post(url, self._post_data()),
+            self.client.post(self.url, self._post_data(record=other_record.pk)),
+        ):
+            self.assertEqual(response.status_code, 404)
+        self.assertFalse(Vaccination.objects.exists())
+
+    def test_junk_record_is_a_404(self):
+        for value in ("abc", "999999"):
+            with self.subTest(value=value):
+                response = self.client.get(self.url, {"record": value})
+                self.assertEqual(response.status_code, 404)
+
+    def test_archived_pet_is_refused_first(self):
+        self.pet.is_archived = True
+        self.pet.save()
+        response = self.client.get(self.url, {"record": self.record.pk})
+        self.assertRedirects(
+            response,
+            reverse("admin_pet_detail", args=[self.pet.pk]),
+            fetch_redirect_response=False,
+        )
+
+
+class GivenByPrefillTests(FrozenMedicalTestBase):
+    """administered_by starts with ClinicSettings.veterinarian_name on a new
+    vaccination; edit never touches it."""
+
+    def _clinic(self, vet):
+        ClinicSettings.objects.create(
+            clinic_name="Hapi Vet",
+            address="Gasan",
+            veterinarian_name=vet,
+            opening_time=datetime.time(8, 0),
+            closing_time=datetime.time(17, 0),
+            same_day_cutoff_time=datetime.time(15, 0),
+        )
+
+    def _initial(self, **params):
+        url = reverse("admin_vaccination_standalone_create", args=[self.pet.pk])
+        return self.client.get(url, params).context["form"].initial
+
+    def test_set(self):
+        self._clinic("Dr. Edgar Sadiwa")
+        self.assertEqual(self._initial()["administered_by"], "Dr. Edgar Sadiwa")
+        record = self._record()
+        self.assertEqual(
+            self._initial(record=record.pk)["administered_by"], "Dr. Edgar Sadiwa"
+        )
+
+    def test_no_settings(self):
+        self.assertEqual(self._initial()["administered_by"], "")
+
+    def test_settings_without_a_vet_name(self):
+        self._clinic("")
+        self.assertEqual(self._initial()["administered_by"], "")
+
+    def test_edit_is_untouched(self):
+        self._clinic("Dr. Edgar Sadiwa")
+        shot = Vaccination.objects.create(
+            pet=self.pet,
+            vaccine_name=Vaccination.ANTI_RABIES,
+            date_administered=_days(-3),
+            administered_by="Dr. Reyes",
+        )
+        response = self.client.get(reverse("admin_vaccination_edit", args=[shot.pk]))
+        self.assertEqual(
+            response.context["form"]["administered_by"].value(), "Dr. Reyes"
+        )
+        blank = Vaccination.objects.create(
+            pet=self.pet,
+            vaccine_name=Vaccination.DEWORMING,
+            date_administered=_days(-3),
+        )
+        response = self.client.get(reverse("admin_vaccination_edit", args=[blank.pk]))
+        self.assertEqual(response.context["form"]["administered_by"].value(), "")
+
+
+class HighlightTests(FrozenMedicalTestBase):
+    """?highlight=<pk> on the pet's vaccinations, and the redirects to it."""
+
+    def setUp(self):
+        super().setUp()
+        self.shot = Vaccination.objects.create(
+            pet=self.pet,
+            vaccine_name=Vaccination.ANTI_RABIES,
+            date_administered=_days(-3),
+        )
+        self.url = reverse("admin_pet_vaccination_history", args=[self.pet.pk])
+
+    def _highlight(self, value):
+        response = self.client.get(self.url, {"highlight": value})
+        self.assertEqual(response.status_code, 200)
+        return response.context["highlight_id"]
+
+    def test_own_dose(self):
+        self.assertEqual(self._highlight(self.shot.pk), self.shot.pk)
+
+    def test_other_pets_dose_is_ignored(self):
+        other = Pet.objects.create(owner=self.owner, name="Muning", species="Cat")
+        theirs = Vaccination.objects.create(
+            pet=other, vaccine_name=Vaccination.DEWORMING, date_administered=_days(-3)
+        )
+        self.assertIsNone(self._highlight(theirs.pk))
+
+    def test_junk_is_ignored(self):
+        for value in ("abc", "", "-1", "1.5", "999999"):
+            with self.subTest(value=value):
+                self.assertIsNone(self._highlight(value))
+
+    def test_no_param(self):
+        self.assertIsNone(self.client.get(self.url).context["highlight_id"])
+
+    def test_redirect_after_a_new_dose(self):
+        url = reverse("admin_vaccination_standalone_create", args=[self.pet.pk])
+        response = self.client.post(
+            url,
+            {
+                "vaccine_name": Vaccination.DEWORMING,
+                "date_administered": TODAY.isoformat(),
+            },
+        )
+        new = Vaccination.objects.latest("pk")
+        self.assertRedirects(
+            response,
+            f"{self.url}?highlight={new.pk}#vaccination-{new.pk}",
+            fetch_redirect_response=False,
+        )
+
+    def test_redirect_after_an_edit(self):
+        edit = reverse("admin_vaccination_edit", args=[self.shot.pk])
+        response = self.client.post(
+            edit,
+            {
+                "vaccine_name": Vaccination.ANTI_RABIES,
+                "date_administered": _days(-3).isoformat(),
+                "batch_number": "B2",
+            },
+        )
+        self.assertRedirects(
+            response,
+            f"{self.url}?highlight={self.shot.pk}#vaccination-{self.shot.pk}",
+            fetch_redirect_response=False,
+        )
+
+    def test_edit_with_next_record_still_goes_to_the_record(self):
+        record = self._record()
+        Vaccination.objects.filter(pk=self.shot.pk).update(medical_record=record)
+        edit = reverse("admin_vaccination_edit", args=[self.shot.pk])
+        response = self.client.post(
+            f"{edit}?next=record",
+            {
+                "vaccine_name": Vaccination.ANTI_RABIES,
+                "date_administered": _days(-3).isoformat(),
+            },
+        )
+        self.assertRedirects(
+            response,
+            reverse("admin_medical_record_detail", args=[record.pk]),
+            fetch_redirect_response=False,
+        )
+
+
+class ReminderFlashTests(FrozenMedicalTestBase):
+    """The flash says how the reminder reached the owner (notify()'s
+    email_outcome); messages use a friendly date with the year."""
+
+    def setUp(self):
+        super().setUp()
+        self.dose = Vaccination.objects.create(
+            pet=self.pet,
+            vaccine_name=Vaccination.ANTI_RABIES,
+            date_administered=_days(-300),
+            next_due_date=_days(2),
+        )
+        self.record = self._record(
+            record_date=_days(-1), follow_up_required=True, follow_up_date=_days(2)
+        )
+        self.urls = [
+            reverse("admin_trigger_vaccination_reminder", args=[self.dose.pk]),
+            reverse("admin_trigger_followup_reminder", args=[self.record.pk]),
+        ]
+
+    def _flashes(self):
+        result = []
+        for url in self.urls:
+            self.client.cookies.pop("messages", None)
+            response = self.client.post(url)
+            result.append(
+                [(m.level_tag, str(m)) for m in get_messages(response.wsgi_request)]
+            )
+        return result
+
+    def _check(self, level, text):
+        for flash in self._flashes():
+            self.assertEqual(flash, [(level, text)])
+
+    def test_app_and_email(self):
+        self._check("success", "Reminder sent to Ana Cruz (app and email).")
+        self.assertEqual(len(mail.outbox), 2)
+
+    def test_no_email_on_file(self):
+        User.objects.filter(pk=self.owner_user.pk).update(email="")
+        self._check(
+            "success", "Reminder sent to Ana Cruz in the app only (no email on file)."
+        )
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_email_reminders_off(self):
+        NotificationPreference.objects.filter(user=self.owner_user).update(
+            email_vaccination=False, email_followup=False
+        )
+        self._check(
+            "success",
+            "Reminder sent to Ana Cruz in the app only "
+            "(their email reminders are off).",
+        )
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_email_failed(self):
+        with mock.patch(
+            "notifications.utils.send_mail", side_effect=Exception("Brevo down")
+        ):
+            self._check(
+                "warning",
+                "Reminder sent to Ana Cruz in the app. The email couldn't be sent.",
+            )
+        self.assertEqual(Notification.objects.filter(email_failed=True).count(), 2)
+
+    def test_friendly_date_in_the_messages(self):
+        self._flashes()
+        vaccination = Notification.objects.get(
+            notification_type=Notification.VACCINATION_REMINDER
+        )
+        followup = Notification.objects.get(
+            notification_type=Notification.FOLLOWUP_REMINDER
+        )
+        self.assertIn("is due on Thursday, November 5, 2026.", vaccination.message)
+        self.assertIn("scheduled for Thursday, November 5, 2026.", followup.message)
+        self.assertNotIn("November 05", vaccination.message + followup.message)
+
+    def test_record_created_message_uses_a_friendly_date(self):
+        url = reverse("admin_medical_record_create", args=[self.pet.pk])
+        self.client.post(url, {"record_date": _days(-1).isoformat()})
+        created = Notification.objects.get(title="Medical Record Created")
+        self.assertIn("on Monday, November 2, 2026.", created.message)
+
+
+class LastReminderTests(FrozenMedicalTestBase):
+    """The newest reminder of a kind for a pet (per pet and kind)."""
+
+    def _notice(self, pet, kind, when):
+        notice = Notification.objects.create(
+            recipient=pet.owner.user,
+            notification_type=kind,
+            title="Reminder",
+            message="Reminder",
+            related_pet=pet,
+        )
+        # created_at is auto_now_add; set it afterwards
+        Notification.objects.filter(pk=notice.pk).update(created_at=when)
+        return when
+
+    def test_newest_of_the_kind_for_the_pet(self):
+        other = Pet.objects.create(owner=self.owner, name="Muning", species="Cat")
+        vacc = Notification.VACCINATION_REMINDER
+        old = JUST_AFTER_MIDNIGHT - datetime.timedelta(days=5)
+        new = JUST_AFTER_MIDNIGHT - datetime.timedelta(days=1)
+        self._notice(self.pet, vacc, old)
+        self._notice(self.pet, vacc, new)
+        # Another kind and another pet don't count
+        self._notice(self.pet, Notification.FOLLOWUP_REMINDER, JUST_AFTER_MIDNIGHT)
+        self._notice(other, vacc, JUST_AFTER_MIDNIGHT)
+        self.assertEqual(last_reminder(self.pet, vacc), new)
+        self.assertEqual(
+            last_reminders(vacc, [self.pet.pk, other.pk]),
+            {self.pet.pk: new, other.pk: JUST_AFTER_MIDNIGHT},
+        )
+
+    def test_none_when_never_sent(self):
+        self.assertIsNone(last_reminder(self.pet, Notification.FOLLOWUP_REMINDER))
+
+    def test_pages_show_it(self):
+        when = self._notice(
+            self.pet, Notification.FOLLOWUP_REMINDER, JUST_AFTER_MIDNIGHT
+        )
+        record = self._record(follow_up_required=True, follow_up_date=_days(3))
+        for url in (
+            reverse("admin_medical_record_detail", args=[record.pk]),
+            reverse("admin_pet_medical_history", args=[self.pet.pk]),
+        ):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertEqual(response.context["last_followup_reminder"], when)
+        vacc_when = self._notice(
+            self.pet, Notification.VACCINATION_REMINDER, JUST_AFTER_MIDNIGHT
+        )
+        response = self.client.get(
+            reverse("admin_pet_vaccination_history", args=[self.pet.pk])
+        )
+        self.assertEqual(response.context["last_vaccination_reminder"], vacc_when)
+        # The old template's line still shows it
+        self.assertContains(response, "November 3, 2026, 12:30 AM")
+
+    def test_list_rows(self):
+        vacc_when = self._notice(
+            self.pet,
+            Notification.VACCINATION_REMINDER,
+            JUST_AFTER_MIDNIGHT - datetime.timedelta(hours=3),
+        )
+        follow_when = self._notice(
+            self.pet, Notification.FOLLOWUP_REMINDER, JUST_AFTER_MIDNIGHT
+        )
+        Vaccination.objects.create(
+            pet=self.pet,
+            vaccine_name=Vaccination.ANTI_RABIES,
+            date_administered=_days(-300),
+            next_due_date=_days(2),
+        )
+        self._record(follow_up_required=True, follow_up_date=_days(2))
+        today = timezone.localdate()
+        rows = vaccination_list_context(QueryDict("tab=due"), today)["vaccinations"]
+        self.assertEqual([v.last_reminder for v in rows], [vacc_when])
+        rows = record_list_context(QueryDict("tab=followups"), today)["records"]
+        self.assertEqual([r.last_reminder for r in rows], [follow_when])
+
+
+class HistoryContextTests(FrozenMedicalTestBase):
+    """The pet's medical history and vaccinations pages (5b-5 context)."""
+
+    def _get(self, name):
+        response = self.client.get(reverse(name, args=[self.pet.pk]))
+        self.assertEqual(response.status_code, 200)
+        return response.context
+
+    def _dose(self, given, due=None, **fields):
+        fields.setdefault("vaccine_name", Vaccination.ANTI_RABIES)
+        return Vaccination.objects.create(
+            pet=self.pet,
+            date_administered=_days(given),
+            next_due_date=None if due is None else _days(due),
+            **fields,
+        )
+
+    def test_medical_history(self):
+        busy = self._record(
+            record_date=_days(-1), follow_up_required=True, follow_up_date=_days(5)
+        )
+        PrescriptionItem.objects.create(record=busy, medicine_name="Amox")
+        PrescriptionItem.objects.create(record=busy, medicine_name="Doxy")
+        TestResultFile.objects.create(record=busy, file="test_results/a.pdf")
+        TestResultFile.objects.create(
+            record=busy, file="test_results/b.pdf", is_archived=True
+        )
+        self._dose(-1, medical_record=busy)
+        soon = self._record(
+            record_date=_days(-3), follow_up_required=True, follow_up_date=_days(2)
+        )
+        context = self._get("admin_pet_medical_history")
+        self.assertEqual(context["pet_state"], "active")
+        self.assertTrue(context["can_add"])
+        self.assertEqual(context["records_count"], 2)
+        self.assertEqual(context["vaccinations_count"], 1)
+        rows = list(context["records"])
+        self.assertEqual(rows, [busy, soon])
+        self.assertEqual(
+            [
+                (r.medicine_count, r.active_file_count, r.vaccination_count)
+                for r in rows
+            ],
+            [(2, 1, 1), (0, 0, 0)],
+        )
+        self.assertEqual(context["next_follow_up"], soon)
+        self.assertIsNone(context["last_followup_reminder"])
+
+    def test_no_next_follow_up_outside_the_week(self):
+        self._record(follow_up_required=True, follow_up_date=_days(20))
+        self.assertIsNone(self._get("admin_pet_medical_history")["next_follow_up"])
+
+    def test_archived_pet(self):
+        self.pet.is_archived = True
+        self.pet.save()
+        self._record(
+            record_date=_days(-1), follow_up_required=True, follow_up_date=_days(2)
+        )
+        for name in ("admin_pet_medical_history", "admin_pet_vaccination_history"):
+            with self.subTest(name=name):
+                context = self._get(name)
+                self.assertEqual(context["pet_state"], "archived")
+                self.assertFalse(context["can_add"])
+        self.assertIsNone(self._get("admin_pet_medical_history")["next_follow_up"])
+
+    def test_vaccination_history(self):
+        superseded = self._dose(-400, due=-35)
+        overdue = self._dose(-35, due=-3, vaccine_name=Vaccination.DEWORMING)
+        due = self._dose(-30, due=3)
+        later = self._dose(-20, due=60, vaccine_name=Vaccination.SIX_IN_ONE)
+        no_date = self._dose(-10, vaccine_name=Vaccination.BORDETELLA)
+        PetOwner.objects.filter(pk=self.owner.pk).update(contact_number="0917 123 4567")
+        context = self._get("admin_pet_vaccination_history")
+        self.assertEqual(context["records_count"], 0)
+        self.assertEqual(context["vaccinations_count"], 5)
+        self.assertEqual(
+            [v.pk for v in context["vaccinations"]],
+            [no_date.pk, later.pk, due.pk, overdue.pk, superseded.pk],
+        )
+        rows = {v.pk: v for v in context["vaccinations"]}
+        expected = {
+            superseded.pk: (True, "", None, False),
+            overdue.pk: (False, "overdue", 3, True),
+            due.pk: (False, "due", 3, True),
+            later.pk: (False, "", None, False),
+            no_date.pk: (False, "", None, False),
+        }
+        for pk, values in expected.items():
+            row = rows[pk]
+            with self.subTest(pk=pk):
+                self.assertEqual(
+                    (row.is_superseded, row.due_state, row.days, row.can_remind),
+                    values,
+                )
+        self.assertIsNone(context["highlight_id"])
+        self.assertIsNone(context["last_vaccination_reminder"])
+        self.assertTrue(context["owner_has_email"])
+        self.assertEqual(context["owner_phone"], "0917 123 4567")
+
+    def test_no_reminders_for_an_archived_owner(self):
+        self._dose(-30, due=3)
+        self.owner.is_archived = True
+        self.owner.save()
+        context = self._get("admin_pet_vaccination_history")
+        self.assertEqual([v.can_remind for v in context["vaccinations"]], [False])
+
+    def _make(self, n):
+        MedicalRecord.objects.all().delete()
+        Vaccination.objects.all().delete()
+        for i in range(n):
+            record = self._record(record_date=_days(-i - 1))
+            PrescriptionItem.objects.create(record=record, medicine_name="Amox")
+            TestResultFile.objects.create(record=record, file="test_results/a.pdf")
+            self._dose(-i - 1, due=3, medical_record=record)
+
+    def _helper_queries(self, helper, rows_key):
+        """Queries run by the context helper (rows evaluated)."""
+        pet = Pet.objects.select_related("owner__user").get(pk=self.pet.pk)
+        with CaptureQueriesContext(connection) as queries:
+            list(helper(pet, timezone.localdate())[rows_key])
+        return len(queries)
+
+    def test_helper_query_counts_are_flat(self):
+        for helper, rows_key, expected in (
+            (medical_history_context, "records", 4),
+            (vaccination_history_context, "vaccinations", 3),
+        ):
+            with self.subTest(helper=helper.__name__):
+                self._make(3)
+                few = self._helper_queries(helper, rows_key)
+                self._make(30)
+                many = self._helper_queries(helper, rows_key)
+                self.assertEqual(few, many)
+                self.assertEqual(many, expected)
+
+    def test_page_query_counts_are_flat(self):
+        for name in ("admin_pet_medical_history", "admin_pet_vaccination_history"):
+            with self.subTest(name=name):
+                url = reverse(name, args=[self.pet.pk])
+                self._make(3)
+                with CaptureQueriesContext(connection) as few:
+                    self.client.get(url)
+                self._make(30)
+                with CaptureQueriesContext(connection) as many:
+                    self.client.get(url)
+                self.assertEqual(len(few), len(many))

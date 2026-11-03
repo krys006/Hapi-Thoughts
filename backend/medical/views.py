@@ -14,21 +14,26 @@ from .forms import (
 from .utils import (
     RECORD_EXISTS,
     can_remove_medicines,
+    medical_history_context,
+    new_vaccination_initial,
     notify_record_created,
+    record_detail_context,
+    record_for_vaccination,
     record_list_context,
     save_new_record,
+    save_new_vaccination,
     save_vaccination_edit,
+    send_followup_reminder,
+    send_vaccination_reminder,
+    vaccination_history_context,
+    vaccination_history_url,
     vaccination_list_context,
     vaccination_reminder_refusal,
     visit_for_record,
     visit_stop,
 )
 
-from notifications.utils import notify
-
 from django.db.models import Prefetch
-
-from notifications.models import Notification
 
 from pets.utils import archived_pet_refusal
 
@@ -86,52 +91,44 @@ def admin_medical_record_create(request, pet_pk):
     )
 
 
+RECORD_PAGE_RELATED = ("pet__owner__user", "appointment", "created_by")
+
+
+def _render_record_detail(
+    request, record, prescription_form=None, file_form=None, open_dialog=None
+):
+    """
+    The record page. Shared by admin_medical_record_detail and the add
+    medicine / add file views, which pass their bound form and the dialog
+    to reopen ("add-medicine" / "add-file") when it has errors.
+    """
+    return render(
+        request,
+        "admin/medical/record_detail.html",
+        {
+            **record_detail_context(record, timezone.localdate()),
+            "prescription_form": prescription_form or PrescriptionItemForm(),
+            "file_form": file_form or TestResultFileForm(),
+            # The old inline vaccination form (removed in 5b-2)
+            "vaccination_form": VaccinationForm(),
+            "open_dialog": open_dialog,
+        },
+    )
+
+
 @login_required
 def admin_medical_record_detail(request, pk):
     """
-    Admin view — view a medical record with all related data.
-    Also handles adding prescription items and uploading test result files.
+    Admin view — a medical record with its medicines, files, vaccinations
+    and follow-up (record_detail_context).
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
     record = get_object_or_404(
-        MedicalRecord.objects.select_related("pet", "appointment", "created_by"),
-        pk=pk,
+        MedicalRecord.objects.select_related(*RECORD_PAGE_RELATED), pk=pk
     )
-
-    prescription_items = record.prescription_items.all()
-    test_files = record.test_result_files.filter(is_archived=False)
-    vaccinations = record.vaccinations.all()
-
-    prescription_form = PrescriptionItemForm()
-    file_form = TestResultFileForm()
-    vaccination_form = VaccinationForm()
-
-    last_followup_reminder = (
-        Notification.objects.filter(
-            recipient=record.pet.owner.user,
-            notification_type=Notification.FOLLOWUP_REMINDER,
-            related_pet=record.pet,
-        )
-        .order_by("-created_at")
-        .first()
-    )
-
-    return render(
-        request,
-        "admin/medical/record_detail.html",
-        {
-            "record": record,
-            "prescription_items": prescription_items,
-            "test_files": test_files,
-            "vaccinations": vaccinations,
-            "prescription_form": prescription_form,
-            "file_form": file_form,
-            "vaccination_form": vaccination_form,
-            "last_followup_reminder": last_followup_reminder,
-        },
-    )
+    return _render_record_detail(request, record)
 
 
 @login_required
@@ -171,12 +168,15 @@ def admin_medical_record_edit(request, pk):
 
 @login_required
 def admin_prescription_item_add(request, record_pk):
-    """Admin view — add a prescription item to a medical record."""
+    """
+    Admin view — add a prescription item to a medical record (POST).
+    Errors re-render the record page with the Add medicine dialog open.
+    """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
     record = get_object_or_404(
-        MedicalRecord.objects.select_related("pet__owner"), pk=record_pk
+        MedicalRecord.objects.select_related(*RECORD_PAGE_RELATED), pk=record_pk
     )
     refusal = archived_pet_refusal(record.pet)
     if refusal:
@@ -185,13 +185,14 @@ def admin_prescription_item_add(request, record_pk):
 
     if request.method == "POST":
         form = PrescriptionItemForm(request.POST)
-        if form.is_valid():
-            item = form.save(commit=False)
-            item.record = record
-            item.save()
-            messages.success(request, "Prescription item added.")
-        else:
-            messages.error(request, "Please correct the errors.")
+        if not form.is_valid():
+            return _render_record_detail(
+                request, record, prescription_form=form, open_dialog="add-medicine"
+            )
+        item = form.save(commit=False)
+        item.record = record
+        item.save()
+        messages.success(request, "Prescription item added.")
 
     return redirect("admin_medical_record_detail", pk=record_pk)
 
@@ -230,13 +231,16 @@ def admin_prescription_item_delete(request, pk):
 
 @login_required
 def admin_test_result_file_upload(request, record_pk):
-    """Admin view — upload a test result file (PDF, JPG or PNG, up to
-    10 MB) to a medical record."""
+    """
+    Admin view — upload a test result file (PDF, JPG or PNG, up to 10 MB)
+    to a medical record (POST). Errors re-render the record page with the
+    Add file dialog open.
+    """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
     record = get_object_or_404(
-        MedicalRecord.objects.select_related("pet__owner"), pk=record_pk
+        MedicalRecord.objects.select_related(*RECORD_PAGE_RELATED), pk=record_pk
     )
     refusal = archived_pet_refusal(record.pet)
     if refusal:
@@ -245,15 +249,14 @@ def admin_test_result_file_upload(request, record_pk):
 
     if request.method == "POST":
         form = TestResultFileForm(request.POST, request.FILES)
-        if form.is_valid():
-            file_obj = form.save(commit=False)
-            file_obj.record = record
-            file_obj.save()
-            messages.success(request, "File uploaded.")
-        else:
-            # The page isn't re-rendered yet (5a-5), so flash the real errors
-            errors = [error for field in form.errors.values() for error in field]
-            messages.error(request, " ".join(errors))
+        if not form.is_valid():
+            return _render_record_detail(
+                request, record, file_form=form, open_dialog="add-file"
+            )
+        file_obj = form.save(commit=False)
+        file_obj.record = record
+        file_obj.save()
+        messages.success(request, "File uploaded.")
 
     return redirect("admin_medical_record_detail", pk=record_pk)
 
@@ -293,7 +296,9 @@ def admin_test_result_file_archive(request, pk):
 def admin_vaccination_add(request, record_pk):
     """
     Admin view — add a vaccination record linked to a medical record.
-    The pet is derived from the medical record.
+    The pet is derived from the medical record. Only the old record page's
+    inline form posts here; 5b-2 removes both (the new page links to
+    admin_vaccination_standalone_create?record=).
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
@@ -309,11 +314,7 @@ def admin_vaccination_add(request, record_pk):
     if request.method == "POST":
         form = VaccinationForm(request.POST)
         if form.is_valid():
-            vaccination = form.save(commit=False)
-            vaccination.pet = record.pet
-            vaccination.medical_record = record
-            vaccination.appointment = record.appointment
-            vaccination.save()
+            save_new_vaccination(form, record.pet, record)
             messages.success(request, "Vaccination record added.")
         else:
             messages.error(request, "Please correct the errors.")
@@ -324,8 +325,11 @@ def admin_vaccination_add(request, record_pk):
 @login_required
 def admin_vaccination_standalone_create(request, pet_pk):
     """
-    Admin view — create a standalone vaccination record (no appointment needed).
-    Accessed from the pet detail page.
+    Admin view — add a vaccination from the pet page, or for a visit record
+    with ?record=<pk> (or the POST field; the record must be this pet's,
+    else 404). Given by starts with the clinic's vet and the date given
+    with the record's date (else today). Saved: back to the record, or to
+    the pet's vaccinations with the new dose highlighted.
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
@@ -337,87 +341,66 @@ def admin_vaccination_standalone_create(request, pet_pk):
     if refusal:
         messages.error(request, refusal)
         return redirect("admin_pet_detail", pk=pet.pk)
+    record = record_for_vaccination(
+        request.GET.get("record") or request.POST.get("record"), pet
+    )
 
     if request.method == "POST":
         form = VaccinationForm(request.POST)
         if form.is_valid():
-            vaccination = form.save(commit=False)
-            vaccination.pet = pet
-            vaccination.save()
+            vaccination = save_new_vaccination(form, pet, record)
             messages.success(request, "Vaccination record added.")
-            return redirect("admin_pet_vaccination_history", pk=pet_pk)
-        else:
-            messages.error(request, "Please correct the errors below.")
+            if record:
+                return redirect("admin_medical_record_detail", pk=record.pk)
+            return redirect(vaccination_history_url(vaccination))
+        messages.error(request, "Please correct the errors below.")
     else:
-        form = VaccinationForm(initial={"date_administered": timezone.localdate()})
+        initial = new_vaccination_initial(record, timezone.localdate())
+        form = VaccinationForm(initial=initial)
 
     return render(
         request,
         "admin/medical/vaccination_form.html",
-        {
-            "form": form,
-            "pet": pet,
-        },
+        {"form": form, "pet": pet, "record": record},
     )
 
 
 @login_required
 def admin_pet_vaccination_history(request, pk):
     """
-    Admin view — view all vaccination records for a specific pet.
-    Accessible from the pet detail page.
+    Admin view — every vaccination of a pet, newest first, with its due
+    state and Send reminder rule (vaccination_history_context).
+    ?highlight=<pk> marks the dose the admin opened; only this pet's
+    doses count, anything else is ignored.
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
     from pets.models import Pet
 
-    pet = get_object_or_404(Pet, pk=pk)
-    vaccinations = Vaccination.objects.filter(pet=pet).order_by("-date_administered")
-
-    last_reminder = (
-        Notification.objects.filter(
-            recipient=pet.owner.user,
-            notification_type=Notification.VACCINATION_REMINDER,
-            related_pet=pet,
-        )
-        .order_by("-created_at")
-        .first()
+    pet = get_object_or_404(Pet.objects.select_related("owner__user"), pk=pk)
+    context = vaccination_history_context(
+        pet, timezone.localdate(), request.GET.get("highlight")
     )
-
-    return render(
-        request,
-        "admin/medical/vaccination_history.html",
-        {
-            "pet": pet,
-            "vaccinations": vaccinations,
-            "last_reminder": last_reminder,
-        },
-    )
+    # Old template's key (until the 5b-5 redesign)
+    context["last_reminder"] = context["last_vaccination_reminder"]
+    return render(request, "admin/medical/vaccination_history.html", context)
 
 
 @login_required
 def admin_pet_medical_history(request, pk):
     """
-    Admin view — view all medical records for a specific pet.
-    Accessible from the pet detail page.
+    Admin view — every medical record of a pet, newest first, with counts
+    and the next follow-up (medical_history_context).
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
     from pets.models import Pet
 
-    pet = get_object_or_404(Pet, pk=pk)
-    records = MedicalRecord.objects.filter(pet=pet).order_by("-record_date")
-
-    return render(
-        request,
-        "admin/medical/pet_history.html",
-        {
-            "pet": pet,
-            "records": records,
-        },
-    )
+    pet = get_object_or_404(Pet.objects.select_related("owner__user"), pk=pk)
+    context = medical_history_context(pet, timezone.localdate())
+    return render(request, "admin/medical/pet_history.html", context)
 
 
 @login_required
@@ -452,7 +435,8 @@ def admin_vaccination_edit(request, pk):
     Admin view — edit a vaccination record in place.
     A clinical change needs a reason; the save marks the record corrected
     and adds a dated line to correction_note (save_vaccination_edit).
-    Redirects back to where the admin came from via ?next= param.
+    Redirects back to where the admin came from via ?next= param (the
+    history opens with this dose highlighted).
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
@@ -475,7 +459,7 @@ def admin_vaccination_edit(request, pk):
                     "admin_medical_record_detail",
                     pk=vaccination.medical_record.pk,
                 )
-            return redirect("admin_pet_vaccination_history", pk=vaccination.pet.pk)
+            return redirect(vaccination_history_url(vaccination))
         else:
             messages.error(request, "Please correct the errors below.")
     else:
@@ -506,7 +490,7 @@ def admin_trigger_vaccination_reminder(request, pk):
         return redirect("owner_dashboard")
 
     vaccination = get_object_or_404(
-        Vaccination.objects.select_related("pet__owner"), pk=pk
+        Vaccination.objects.select_related("pet__owner__user"), pk=pk
     )
     refusal = archived_pet_refusal(vaccination.pet)
     if refusal:
@@ -519,23 +503,9 @@ def admin_trigger_vaccination_reminder(request, pk):
             messages.error(request, refusal)
             return redirect("admin_pet_vaccination_history", pk=vaccination.pet.pk)
 
-        notify(
-            recipient=vaccination.pet.owner.user,
-            notification_type=Notification.VACCINATION_REMINDER,
-            title=f"Vaccination Reminder — {vaccination.pet.name}",
-            message=(
-                f"This is a reminder that {vaccination.pet.name}'s "
-                f"{vaccination.display_vaccine_name} vaccination is due on "
-                f"{vaccination.next_due_date.strftime('%B %d, %Y')}. "
-                f"Please contact the clinic to schedule an appointment."
-            ),
-            related_pet=vaccination.pet,
-            email_subject="Vaccination Reminder — Hapi Vet",
-        )
-        messages.success(
-            request,
-            f"Reminder sent to {vaccination.pet.owner.full_name}.",
-        )
+        # The flash says how it reached the owner (app, email, or why not)
+        level, text = send_vaccination_reminder(vaccination)
+        messages.add_message(request, level, text)
 
     return redirect("admin_pet_vaccination_history", pk=vaccination.pet.pk)
 
@@ -545,12 +515,14 @@ def admin_trigger_followup_reminder(request, pk):
     """
     Admin action — manually send a follow-up reminder to the pet owner.
     Bypasses the duplicate-prevention check used by the automated cron job.
+    The flash says how it reached the owner (send_followup_reminder).
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
     record = get_object_or_404(
-        MedicalRecord.objects.select_related("pet__owner"), pk=pk
+        MedicalRecord.objects.select_related("pet__owner__user", "appointment"),
+        pk=pk,
     )
     refusal = archived_pet_refusal(record.pet)
     if refusal:
@@ -558,38 +530,11 @@ def admin_trigger_followup_reminder(request, pk):
         return redirect("admin_pet_detail", pk=record.pet.pk)
 
     if request.method == "POST":
-        if not record.follow_up_required:
-            messages.error(request, "This record does not have a follow-up scheduled.")
-            return redirect("admin_medical_record_detail", pk=pk)
-
-        owner_user = record.pet.owner.user
-
-        if record.follow_up_date:
-            message = (
-                f"This is a reminder that {record.pet.name} has a follow-up "
-                f"visit scheduled for "
-                f"{record.follow_up_date.strftime('%B %d, %Y')}. "
-                f"Please contact the clinic to confirm your appointment."
-            )
+        if record.follow_up_required:
+            level, text = send_followup_reminder(record)
+            messages.add_message(request, level, text)
         else:
-            message = (
-                f"This is a reminder that {record.pet.name} has a follow-up "
-                f"visit recommended. Please contact the clinic to schedule."
-            )
-
-        notify(
-            recipient=owner_user,
-            notification_type=Notification.FOLLOWUP_REMINDER,
-            title=f"Follow-up Reminder — {record.pet.name}",
-            message=message,
-            related_appointment=record.appointment,
-            related_pet=record.pet,
-            email_subject="Follow-up Reminder — Hapi Vet",
-        )
-        messages.success(
-            request,
-            f"Follow-up reminder sent to {record.pet.owner.full_name}.",
-        )
+            messages.error(request, "This record does not have a follow-up scheduled.")
 
     return redirect("admin_medical_record_detail", pk=pk)
 

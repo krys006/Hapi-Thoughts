@@ -124,7 +124,7 @@
             <div class="reminder-trigger-box">
               <p class="reminder-last-sent">
                 {% if last_followup_reminder %}
-                  Last follow-up reminder sent: {{ last_followup_reminder.created_at|date:"F j, Y, g:i A" }}
+                  Last follow-up reminder sent: {{ last_followup_reminder|date:"F j, Y, g:i A" }}
                 {% else %}
                   No follow-up reminder has been sent yet.
                 {% endif %}
@@ -192,10 +192,17 @@
         <form method="post"
           action="{% url 'admin_prescription_item_add' record.pk %}">
           {% csrf_token %}
+          {# A failed add re-renders this page with the bound form (open_dialog "add-medicine") #}
+          {% for error in prescription_form.non_field_errors %}
+            <p class="form-error">{{ error }}</p>
+          {% endfor %}
           <div class="inline-form-grid">
             <div class="form-group">
               <label class="form-label">Medicine Name</label>
               {{ prescription_form.medicine_name }}
+              {% if prescription_form.medicine_name.errors %}
+                <p class="form-error">{{ prescription_form.medicine_name.errors.0 }}</p>
+              {% endif %}
             </div>
             <div class="form-group">
               <label class="form-label">Dosage</label>
@@ -255,12 +262,19 @@
           <div class="form-group">
             <label class="form-label">File</label>
             {{ file_form.file }}
+            {# A failed upload re-renders this page with the bound form (open_dialog "add-file") #}
+            {% for error in file_form.file.errors %}
+              <p class="form-error">{{ error }}</p>
+            {% endfor %}
           </div>
           <div class="form-group">
             <label class="form-label">
               Description <span class="form-optional">(optional)</span>
             </label>
             {{ file_form.description }}
+            {% if file_form.description.errors %}
+              <p class="form-error">{{ file_form.description.errors.0 }}</p>
+            {% endif %}
           </div>
           <button type="submit" class="btn-secondary">Upload File</button>
         </form>
