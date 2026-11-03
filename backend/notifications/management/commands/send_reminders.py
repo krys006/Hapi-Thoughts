@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from appointments.models import Appointment
 from medical.models import MedicalRecord, Vaccination
+from medical.utils import active_pet_filter, later_dose_exists
 from notifications.models import Notification, NotificationPreference
 from notifications.utils import notify
 
@@ -134,11 +135,15 @@ class Command(BaseCommand):
         Sends reminders for vaccinations coming due.
         Reminder timing is per pet owner's NotificationPreference.
         Also sends a day-of reminder as a safety net.
+        Superseded doses (a later dose of the same vaccine) and archived
+        pets/owners are skipped (the shared due rule in medical/utils.py).
         """
         count = 0
 
         # Get all vaccinations with a future or today due date
         upcoming = Vaccination.objects.filter(
+            active_pet_filter(),
+            ~later_dose_exists(),
             next_due_date__gte=today,
         ).select_related("pet", "pet__owner", "pet__owner__user")
 
@@ -219,11 +224,13 @@ class Command(BaseCommand):
         """
         Sends reminders for medical record follow-ups.
         Fixed timing: 3 days before + day-of as safety net.
+        Archived pets/owners are skipped.
         """
         count = 0
 
         # Get all records with a future or today follow-up date
         upcoming = MedicalRecord.objects.filter(
+            active_pet_filter(),
             follow_up_required=True,
             follow_up_date__gte=today,
         ).select_related("pet", "pet__owner", "pet__owner__user")

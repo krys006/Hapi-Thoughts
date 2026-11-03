@@ -1,6 +1,9 @@
 """Helpers for the medical views."""
 
+from datetime import timedelta
+
 from django.db import IntegrityError, transaction
+from django.db.models import Exists, OuterRef, Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -8,11 +11,114 @@ from django.utils.dateformat import format as date_format
 
 from appointments.models import Appointment
 from notifications.utils import notify
+from pets.utils import ARCHIVED_PET
 
-from .models import MedicalRecord
+from .models import MedicalRecord, Vaccination
 
 RECORD_VISIT_STATUSES = (Appointment.CONFIRMED, Appointment.COMPLETED)
 RECORD_EXISTS = "A medical record already exists for this appointment."
+# "This week" on the dashboard and the Due / Follow-ups tabs: today to today + 7
+DUE_DAYS = 7
+
+
+# ── Due rule (one shared helper) ─────────────────────────────────────────────
+# Every helper takes today (timezone.localdate() from the caller) and never
+# reads the clock.
+
+
+def _prefixed(q, prefix):
+    """A copy of q with prefix in front of every lookup:
+    Q(is_archived=True) → Q(pet__is_archived=True)."""
+    children = [
+        (
+            _prefixed(child, prefix)
+            if isinstance(child, Q)
+            else (prefix + child[0], child[1])
+        )
+        for child in q.children
+    ]
+    return Q(*children, _connector=q.connector, _negated=q.negated)
+
+
+def active_pet_filter(prefix="pet__"):
+    """Not ARCHIVED_PET (pets/utils.py) through prefix: the pet and its
+    owner are both active."""
+    return ~_prefixed(ARCHIVED_PET, prefix)
+
+
+def _later_doses(pet, vaccine_name, custom_vaccine_name, date_administered):
+    return Vaccination.objects.filter(
+        pet=pet,
+        vaccine_name=vaccine_name,
+        custom_vaccine_name=custom_vaccine_name,
+        date_administered__gt=date_administered,
+    )
+
+
+def later_dose_exists():
+    """Exists: the same pet got the same vaccine (and the same typed name)
+    on a later date, so this dose is superseded."""
+    return Exists(
+        _later_doses(
+            OuterRef("pet"),
+            OuterRef("vaccine_name"),
+            OuterRef("custom_vaccine_name"),
+            OuterRef("date_administered"),
+        )
+    )
+
+
+def is_superseded(vaccination):
+    """later_dose_exists for one dose."""
+    return _later_doses(
+        vaccination.pet_id,
+        vaccination.vaccine_name,
+        vaccination.custom_vaccine_name,
+        vaccination.date_administered,
+    ).exists()
+
+
+def _open_doses():
+    """Doses that can be due: not superseded, pet and owner active.
+    Corrected doses count like any other."""
+    return Vaccination.objects.filter(active_pet_filter(), ~later_dose_exists())
+
+
+def vaccinations_due(today, days=DUE_DAYS):
+    """next_due_date from today to today + days (both included)."""
+    return _open_doses().filter(
+        next_due_date__range=(today, today + timedelta(days=days))
+    )
+
+
+def vaccinations_overdue(today):
+    """next_due_date before today."""
+    return _open_doses().filter(next_due_date__lt=today)
+
+
+def followups_due(today, days=DUE_DAYS):
+    """Required follow-ups dated today to today + days, pet and owner active."""
+    return MedicalRecord.objects.filter(
+        active_pet_filter(),
+        follow_up_required=True,
+        follow_up_date__range=(today, today + timedelta(days=days)),
+    )
+
+
+def vaccination_reminder_refusal(vaccination):
+    """Why the Send reminder button can't remind about this dose, or None.
+    (Archived pets and owners are refused before this.)"""
+    if vaccination.next_due_date is None:
+        return (
+            "This vaccination has no next dose date, so there is nothing "
+            "to remind about."
+        )
+    if is_superseded(vaccination):
+        return (
+            f"A later dose of {vaccination.display_vaccine_name} was already "
+            "given, so no reminder is needed."
+        )
+    return None
 
 
 def correction_line(reason, today):

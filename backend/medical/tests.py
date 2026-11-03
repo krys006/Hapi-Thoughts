@@ -22,7 +22,14 @@ from .forms import (
     VaccinationForm,
 )
 from .models import MedicalRecord, PrescriptionItem, TestResultFile, Vaccination
-from .utils import can_remove_medicines, save_vaccination_edit
+from .utils import (
+    can_remove_medicines,
+    followups_due,
+    is_superseded,
+    save_vaccination_edit,
+    vaccinations_due,
+    vaccinations_overdue,
+)
 
 User = get_user_model()
 
@@ -979,3 +986,215 @@ class OwnerMedicalHistoryTests(FrozenMedicalTestBase):
         response = self.client.get(self.url)
         self.assertContains(response, "Give food slowly")
         self.assertNotContains(response, "Owner seemed upset")
+
+
+def _days(n):
+    return TODAY + datetime.timedelta(days=n)
+
+
+class DueRuleTests(FrozenMedicalTestBase):
+    """Batch 5a-3: the shared due rule in medical/utils.py. today is
+    timezone.localdate() at 00:30 Manila on Nov 3 (a UTC date would be
+    Nov 2 and move every edge by a day)."""
+
+    def setUp(self):
+        super().setUp()
+        self.today = timezone.localdate()
+
+    def _dose(self, due_days, given_days=-300, pet=None, **fields):
+        fields.setdefault("vaccine_name", Vaccination.ANTI_RABIES)
+        return Vaccination.objects.create(
+            pet=pet or self.pet,
+            date_administered=_days(given_days),
+            next_due_date=None if due_days is None else _days(due_days),
+            **fields,
+        )
+
+    def _followup(self, days, pet=None, required=True):
+        return MedicalRecord.objects.create(
+            pet=pet or self.pet,
+            record_date=_days(-10),
+            follow_up_required=required,
+            follow_up_date=_days(days),
+        )
+
+    def _due(self):
+        return list(vaccinations_due(self.today))
+
+    def _overdue(self):
+        return list(vaccinations_overdue(self.today))
+
+    def _followups(self):
+        return list(followups_due(self.today))
+
+    def test_today_is_the_manila_date(self):
+        self.assertEqual(self.today, TODAY)
+
+    def test_due_window_edges(self):
+        # (days until next due, in due, in overdue)
+        cases = (
+            (0, True, False),
+            (7, True, False),
+            (8, False, False),
+            (-1, False, True),
+        )
+        for due_days, due, overdue in cases:
+            with self.subTest(due_days=due_days):
+                Vaccination.objects.all().delete()
+                dose = self._dose(due_days)
+                self.assertEqual(self._due(), [dose] if due else [])
+                self.assertEqual(self._overdue(), [dose] if overdue else [])
+
+    def test_no_next_date_is_never_due(self):
+        self._dose(None)
+        self.assertEqual(self._due(), [])
+        self.assertEqual(self._overdue(), [])
+
+    def test_superseded_dose_is_left_out(self):
+        due = self._dose(3)
+        overdue = self._dose(-3, given_days=-400)
+        later = self._dose(360, given_days=-5)
+        self.assertEqual(self._due(), [])
+        self.assertEqual(self._overdue(), [])
+        self.assertTrue(is_superseded(due))
+        self.assertTrue(is_superseded(overdue))
+        self.assertFalse(is_superseded(later))
+
+    def test_a_later_dose_of_another_vaccine_does_not_supersede(self):
+        due = self._dose(3)
+        self._dose(360, given_days=-5, vaccine_name=Vaccination.DEWORMING)
+        self.assertEqual(self._due(), [due])
+        self.assertFalse(is_superseded(due))
+
+    def test_a_later_dose_with_another_typed_name_does_not_supersede(self):
+        due = self._dose(3, vaccine_name=Vaccination.OTHER, custom_vaccine_name="Lepto")
+        self._dose(
+            360,
+            given_days=-5,
+            vaccine_name=Vaccination.OTHER,
+            custom_vaccine_name="Giardia",
+        )
+        self.assertEqual(self._due(), [due])
+        self.assertFalse(is_superseded(due))
+        # The same typed name does supersede it
+        self._dose(
+            360,
+            given_days=-4,
+            vaccine_name=Vaccination.OTHER,
+            custom_vaccine_name="Lepto",
+        )
+        self.assertEqual(self._due(), [])
+        self.assertTrue(is_superseded(due))
+
+    def test_another_pets_later_dose_does_not_supersede(self):
+        other = Pet.objects.create(owner=self.owner, name="Muning", species="Cat")
+        due = self._dose(3)
+        self._dose(360, given_days=-5, pet=other)
+        self.assertEqual(self._due(), [due])
+
+    def test_corrected_dose_counts(self):
+        due = self._dose(3, is_corrected=True, correction_note="Fixed batch")
+        overdue = self._dose(
+            -3,
+            vaccine_name=Vaccination.DEWORMING,
+            is_corrected=True,
+            correction_note="Fixed batch",
+        )
+        self.assertEqual(self._due(), [due])
+        self.assertEqual(self._overdue(), [overdue])
+
+    def test_followup_window_edges(self):
+        for days, due in ((0, True), (7, True), (8, False), (-1, False)):
+            with self.subTest(days=days):
+                MedicalRecord.objects.all().delete()
+                record = self._followup(days)
+                self.assertEqual(self._followups(), [record] if due else [])
+
+    def test_followup_not_required_is_left_out(self):
+        self._followup(3, required=False)
+        self.assertEqual(self._followups(), [])
+
+    def test_archived_pet_is_left_out(self):
+        self._dose(3)
+        self._dose(-3, vaccine_name=Vaccination.DEWORMING)
+        self._followup(3)
+        Pet.objects.filter(pk=self.pet.pk).update(is_archived=True)
+        self.assertEqual(self._due(), [])
+        self.assertEqual(self._overdue(), [])
+        self.assertEqual(self._followups(), [])
+
+    def test_archived_owner_is_left_out(self):
+        self._dose(3)
+        self._dose(-3, vaccine_name=Vaccination.DEWORMING)
+        self._followup(3)
+        self.owner.archive()
+        self.assertEqual(self._due(), [])
+        self.assertEqual(self._overdue(), [])
+        self.assertEqual(self._followups(), [])
+
+
+class VaccinationReminderTests(FrozenMedicalTestBase):
+    """Batch 5a-3: the Send reminder button refuses a dose with no next
+    dose date and a superseded dose."""
+
+    def _dose(self, due_days=3, given_days=-300, **fields):
+        fields.setdefault("vaccine_name", Vaccination.ANTI_RABIES)
+        return Vaccination.objects.create(
+            pet=self.pet,
+            date_administered=_days(given_days),
+            next_due_date=None if due_days is None else _days(due_days),
+            **fields,
+        )
+
+    def _send(self, dose):
+        url = reverse("admin_trigger_vaccination_reminder", args=[dose.pk])
+        response = self.client.post(url)
+        self.assertRedirects(
+            response,
+            reverse("admin_pet_vaccination_history", args=[self.pet.pk]),
+            fetch_redirect_response=False,
+        )
+        return self._messages(response)
+
+    def _sent(self):
+        return Notification.objects.filter(
+            notification_type=Notification.VACCINATION_REMINDER
+        ).count()
+
+    def test_due_dose_is_sent(self):
+        dose = self._dose()
+        self.assertEqual(self._send(dose), ["Reminder sent to Ana Cruz."])
+        self.assertEqual(self._sent(), 1)
+
+    def test_no_next_date_is_refused(self):
+        dose = self._dose(None)
+        self.assertEqual(
+            self._send(dose),
+            [
+                "This vaccination has no next dose date, so there is nothing "
+                "to remind about."
+            ],
+        )
+        self.assertEqual(self._sent(), 0)
+
+    def test_superseded_dose_is_refused(self):
+        dose = self._dose()
+        self._dose(360, given_days=-5)
+        self.assertEqual(
+            self._send(dose),
+            [
+                "A later dose of Anti-rabies was already given, so no reminder "
+                "is needed."
+            ],
+        )
+        self.assertEqual(self._sent(), 0)
+
+    def test_superseded_typed_vaccine_uses_the_typed_name(self):
+        named = {"vaccine_name": Vaccination.OTHER, "custom_vaccine_name": "Lepto"}
+        dose = self._dose(**named)
+        self._dose(360, given_days=-5, **named)
+        self.assertEqual(
+            self._send(dose),
+            ["A later dose of Lepto was already given, so no reminder is needed."],
+        )
+        self.assertEqual(self._sent(), 0)

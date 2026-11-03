@@ -323,7 +323,7 @@ OTHER = 'other'
 
 ### MedicalRecord
 Clinical documentation for each pet visit.
-Immutable — no deletion allowed.
+Edited in place; never deleted.
 
 | Field | Type | Options | Notes |
 |---|---|---|---|
@@ -460,6 +460,22 @@ Bordetella
   can be edited freely without a reason; a reason typed with no clinical
   change is ignored
 - Corrected records remain visible but are flagged in the UI with the correction note
+- Superseded: a dose is superseded when the same pet has another vaccination
+  with the same `vaccine_name` AND the same `custom_vaccine_name` and a later
+  `date_administered`. A superseded dose is never due, overdue or reminded
+  about. Corrected doses (`is_corrected`) count like any other
+- Due and overdue (one shared rule, `medical/utils.py`: `vaccinations_due`,
+  `vaccinations_overdue`, `later_dose_exists`, `is_superseded`): due =
+  `next_due_date` from today to today + 7 (both included); overdue =
+  `next_due_date` before today. Both leave out superseded doses, archived pets
+  and pets whose owner is archived (the `ARCHIVED_PET` rule in
+  `pets/utils.py`, through `pet__`). Today is the Manila date
+  (`timezone.localdate()`), passed in by the caller. Follow-ups due
+  (`followups_due`, on MedicalRecord) = `follow_up_required` and
+  `follow_up_date` in the same window, same archived rule
+- The pet page's "due soon" line (`vaccination_due_soon`) keeps its own
+  30-day window and skips superseded doses; it does not apply the archived
+  rule (the page is for that one pet)
 
 ---
 

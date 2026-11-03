@@ -17,6 +17,7 @@ from .utils import (
     notify_record_created,
     save_new_record,
     save_vaccination_edit,
+    vaccination_reminder_refusal,
     visit_for_record,
     visit_stop,
 )
@@ -536,7 +537,8 @@ def admin_trigger_vaccination_reminder(request, pk):
     Admin action — manually send a vaccination reminder to the pet owner.
     Bypasses the duplicate-prevention check used by the automated cron job,
     since this is an intentional resend. Called from the vaccination
-    history page.
+    history page. A dose with no next dose date or with a later dose of the
+    same vaccine is refused (vaccination_reminder_refusal).
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
@@ -550,28 +552,21 @@ def admin_trigger_vaccination_reminder(request, pk):
         return redirect("admin_pet_detail", pk=vaccination.pet.pk)
 
     if request.method == "POST":
-        owner_user = vaccination.pet.owner.user
-        vaccine_display = vaccination.display_vaccine_name
-
-        if vaccination.next_due_date:
-            message = (
-                f"This is a reminder that {vaccination.pet.name}'s "
-                f"{vaccine_display} vaccination is due on "
-                f"{vaccination.next_due_date.strftime('%B %d, %Y')}. "
-                f"Please contact the clinic to schedule an appointment."
-            )
-        else:
-            message = (
-                f"This is a reminder regarding {vaccination.pet.name}'s "
-                f"{vaccine_display} vaccination. "
-                f"Please contact the clinic for more information."
-            )
+        refusal = vaccination_reminder_refusal(vaccination)
+        if refusal:
+            messages.error(request, refusal)
+            return redirect("admin_pet_vaccination_history", pk=vaccination.pet.pk)
 
         notify(
-            recipient=owner_user,
+            recipient=vaccination.pet.owner.user,
             notification_type=Notification.VACCINATION_REMINDER,
             title=f"Vaccination Reminder — {vaccination.pet.name}",
-            message=message,
+            message=(
+                f"This is a reminder that {vaccination.pet.name}'s "
+                f"{vaccination.display_vaccine_name} vaccination is due on "
+                f"{vaccination.next_due_date.strftime('%B %d, %Y')}. "
+                f"Please contact the clinic to schedule an appointment."
+            ),
             related_pet=vaccination.pet,
             email_subject="Vaccination Reminder — Hapi Vet",
         )
