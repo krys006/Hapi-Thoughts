@@ -425,17 +425,68 @@ def notify_deletion_answer(pet, approved):
             f"The clinic kept {pet.name} on your account. If you still want it "
             "removed, please contact the clinic."
         )
+    _send_removal_notice(pet, title, message, related_pet=None if approved else pet)
+
+
+def _send_removal_notice(pet, title, message, related_pet):
+    """notify() the pet's owner (PET_DELETION_ANSWERED); never raises."""
     try:
         notify(
             recipient=pet.owner.user,
             notification_type=Notification.PET_DELETION_ANSWERED,
             title=title,
             message=message,
-            related_pet=None if approved else pet,
+            related_pet=related_pet,
             email_subject=f"{title} — Hapi Vet",
         )
     except Exception:
         logger.exception("Deletion answer not sent to the owner of pet %s", pet.pk)
+
+
+# ── Direct archive (no owner request) ────────────────────────────────────────
+
+
+def pet_archive_refusal(pet):
+    """Why the clinic can't archive the pet directly, or None. A waiting
+    owner request is answered instead (Archive / Keep)."""
+    if pet.is_archived:
+        return "This pet is already archived."
+    if pet.owner.is_archived:
+        return f"Restore {pet.owner.full_name} first."
+    if pet.deletion_requests.filter(status=PetDeletionRequest.PENDING).exists():
+        return "Answer the waiting request instead."
+    return None
+
+
+def archive_pet_directly(pet, admin, reason, reason_detail):
+    """
+    Archives the pet with no owner request. The reason is kept on a
+    PetDeletionRequest made by the clinic (requested_by = the admin), saved
+    already APPROVED, so it shows in the deletion history. The request and
+    the pet are saved in one transaction; the owner is told after it.
+    """
+    now = timezone.now()
+    with transaction.atomic():
+        deletion_request = PetDeletionRequest.objects.create(
+            pet=pet,
+            requested_by=admin,
+            reason=reason,
+            reason_detail=reason_detail,
+            status=PetDeletionRequest.APPROVED,
+            reviewed_by=admin,
+            reviewed_at=now,
+        )
+        pet.is_archived = True
+        pet.archived_at = now
+        pet.save()
+    reason_label = deletion_request.get_reason_display().lower()
+    _send_removal_notice(
+        pet,
+        f"{pet.name} was removed",
+        f"The clinic removed {pet.name} from your account (reason: {reason_label}).",
+        related_pet=None,
+    )
+    return deletion_request
 
 
 # ── Archived pets ────────────────────────────────────────────────────────────
@@ -499,8 +550,21 @@ def vaccination_due_soon(pet, today):
     )
 
 
+def archive_request(pet):
+    """For an archived pet: the latest APPROVED deletion request (the one
+    that archived it, by the owner or by the clinic), or None."""
+    if not pet.is_archived:
+        return None
+    return (
+        pet.deletion_requests.filter(status=PetDeletionRequest.APPROVED)
+        .select_related("requested_by")
+        .order_by(F("reviewed_at").desc(nulls_last=True), "-pk")
+        .first()
+    )
+
+
 def pet_detail_context(pet, today):
-    """Extra context for the pet page (for the 4b-3 redesign)."""
+    """Extra context for the pet page (4b-1, used by the 4b-3 redesign)."""
     visits = pet.appointments.select_related("service")
     upcoming = list(
         visits.filter(
@@ -510,6 +574,11 @@ def pet_detail_context(pet, today):
     )
     records = pet.medical_records.order_by("-record_date", "-pk")
     vaccinations = pet.vaccinations.order_by("-date_administered", "-pk")
+    due_soon = vaccination_due_soon(pet, today)
+    pending_deletion = pet.deletion_requests.filter(
+        status=PetDeletionRequest.PENDING
+    ).first()
+    state = pet_state(pet)
     return {
         "recent_visits": visits.order_by("-date", "-time", "-pk")[:RECENT_PET_ITEMS],
         # The appointments list searched by the pet's name, on "All"
@@ -518,9 +587,14 @@ def pet_detail_context(pet, today):
         "records_count": records.count(),
         "recent_vaccinations": vaccinations[:RECENT_PET_ITEMS],
         "vaccinations_count": vaccinations.count(),
-        "vaccination_due_soon": vaccination_due_soon(pet, today),
+        "vaccination_due_soon": due_soon,
+        # "(in N days)" on the due-soon line
+        "due_soon_days": (due_soon.next_due_date - today).days if due_soon else None,
         "owner_archived": pet.owner.is_archived,
-        "pet_state": pet_state(pet),
+        "pet_state": state,
         "upcoming_count": len(upcoming),
         "next_upcoming_visit": upcoming[0] if upcoming else None,
+        "pending_deletion": pending_deletion,
+        "archive_request": archive_request(pet),
+        "show_archive_button": state == "active" and pending_deletion is None,
     }

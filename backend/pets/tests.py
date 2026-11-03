@@ -1,6 +1,7 @@
 import re
 from datetime import datetime, time, timedelta
 from datetime import timezone as dt_timezone
+from decimal import Decimal
 from unittest.mock import patch
 
 from allauth.socialaccount.models import SocialAccount
@@ -17,13 +18,15 @@ from django.utils import timezone
 
 from appointments.models import Appointment
 from billing.models import Service
+from dashboard.templatetags.friendly_dates import friendly_date
 from medical.models import MedicalRecord, Vaccination
 from notifications.models import Notification
 from pets.forms import AdminOwnerEmailForm, AdminPetOwnerForm
 from pets.models import Pet, PetDeletionRequest, PetOwner
-from pets.templatetags.pet_display import species_icon
+from pets.templatetags.pet_display import species_icon, weight_kg
 from pets.utils import (
     answer_deletion_request,
+    archive_pet_directly,
     barangay_choices,
     barangays_for,
     marinduque_towns,
@@ -150,6 +153,22 @@ class SpeciesIconTests(SimpleTestCase):
         for species, icon in cases.items():
             with self.subTest(species=species):
                 self.assertEqual(species_icon(species), icon)
+
+
+class WeightKgTests(SimpleTestCase):
+    """weight_kg drops trailing zeros, never scientific notation."""
+
+    def test_trailing_zero_is_dropped(self):
+        self.assertEqual(weight_kg(Decimal("12.50")), "12.5")
+
+    def test_whole_number_has_no_point(self):
+        self.assertEqual(weight_kg(Decimal("10.00")), "10")
+
+    def test_two_decimals_are_kept(self):
+        self.assertEqual(weight_kg(Decimal("8.25")), "8.25")
+
+    def test_none_is_empty(self):
+        self.assertEqual(weight_kg(None), "")
 
 
 class PetAvatarTests(SimpleTestCase):
@@ -422,12 +441,6 @@ class BookWalkInLinkTests(TestCase):
     def _pet_page(self):
         return self.client.get(reverse("admin_pet_detail", args=[self.pet.pk]))
 
-    def _pet_link(self):
-        return (
-            f'<a href="{self.visit_url}?owner={self.owner.pk}&amp;pet={self.pet.pk}" '
-            'class="btn-secondary">Book walk-in</a>'
-        )
-
     def test_owner_page_links_to_the_visit_step(self):
         # The redesigned owner page (4a-3): the primary button in the actions card
         self.assertRegex(
@@ -438,7 +451,13 @@ class BookWalkInLinkTests(TestCase):
         )
 
     def test_pet_page_links_to_the_visit_step_with_the_pet(self):
-        self.assertContains(self._pet_page(), self._pet_link(), html=True)
+        # The redesigned pet page (4b-3): the primary button in the actions card
+        self.assertRegex(
+            self._pet_page().content.decode(),
+            rf'<a href="{self.visit_url}\?owner={self.owner.pk}&amp;pet={self.pet.pk}" '
+            r'class="btn btn-primary [^"]*">\s*<svg[^>]*>(?s:.*?)</svg>\s*'
+            r"Book walk-in</a>",
+        )
 
     def test_archived_owner_has_no_link(self):
         self.owner.is_archived = True
@@ -2856,6 +2875,207 @@ class RestorePetTests(TestCase):
         self.assertEqual(_messages(response), ["This pet isn't archived."])
 
 
+class DirectArchiveTests(TestCase):
+    """admin_pet_archive: the clinic archives a pet with no owner request
+    (Slice 4b-3), saved as an APPROVED PetDeletionRequest by the admin."""
+
+    VALID = {"reason": PetDeletionRequest.PASSED_AWAY, "reason_detail": ""}
+
+    def setUp(self):
+        self.admin = _admin(self)
+        self.owner = _owner(email="ana@example.com")
+        self.pet = _pet(self.owner)
+        self.url = reverse("admin_pet_archive", args=[self.pet.pk])
+        self.pet_url = reverse("admin_pet_detail", args=[self.pet.pk])
+
+    def _post(self, **data):
+        return self.client.post(self.url, {**self.VALID, **data})
+
+    def _answers(self):
+        return Notification.objects.filter(
+            notification_type=Notification.PET_DELETION_ANSWERED
+        )
+
+    def _assert_nothing_saved(self):
+        self.pet.refresh_from_db()
+        self.assertFalse(self.pet.is_archived)
+        self.assertIsNone(self.pet.archived_at)
+        self.assertFalse(
+            PetDeletionRequest.objects.exclude(
+                status=PetDeletionRequest.PENDING
+            ).exists()
+        )
+        self.assertFalse(self._answers().exists())
+        self.assertEqual(mail.outbox, [])
+
+    def test_url(self):
+        self.assertEqual(self.url, f"/admin/pets/{self.pet.pk}/archive/")
+
+    def test_get_does_nothing(self):
+        response = self.client.get(self.url, self.VALID)
+        self.assertRedirects(response, self.pet_url, fetch_redirect_response=False)
+        self._assert_nothing_saved()
+
+    def test_refused_for_an_archived_pet(self):
+        Pet.objects.filter(pk=self.pet.pk).update(is_archived=True)
+        response = self._post()
+        self.assertRedirects(response, self.pet_url, fetch_redirect_response=False)
+        self.assertEqual(_messages(response), ["This pet is already archived."])
+        self.assertFalse(PetDeletionRequest.objects.exists())
+        self.assertFalse(self._answers().exists())
+
+    def test_refused_for_an_archived_owner(self):
+        _archive(self.owner)
+        response = self._post()
+        self.assertRedirects(response, self.pet_url, fetch_redirect_response=False)
+        self.assertEqual(_messages(response), ["Restore Ana Cruz first."])
+        self._assert_nothing_saved()
+
+    def test_refused_while_a_request_is_waiting(self):
+        waiting = _request(self.pet)
+        response = self._post()
+        self.assertRedirects(response, self.pet_url, fetch_redirect_response=False)
+        self.assertEqual(_messages(response), ["Answer the waiting request instead."])
+        self._assert_nothing_saved()
+        waiting.refresh_from_db()
+        self.assertEqual(waiting.status, PetDeletionRequest.PENDING)
+
+    def test_missing_reason_reopens_the_dialog_with_the_values(self):
+        response = self._post(reason="", reason_detail="Told us at the counter.")
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "admin/pets/pet_detail.html")
+        html = response.content.decode()
+        dialog = re.search(
+            r'(?s)<dialog id="archive-pet-dialog"[^>]*>.*?</dialog>', html
+        ).group()
+        self.assertRegex(
+            dialog, r'<dialog id="archive-pet-dialog"[^>]* data-open-on-load>'
+        )
+        self.assertIn("Choose a reason.</p>", dialog)
+        self.assertIn("Told us at the counter.</textarea>", dialog)
+        self.assertEqual(response.context["archive_form"].data["reason"], "")
+        self._assert_nothing_saved()
+
+    def test_other_without_detail_reopens_the_dialog(self):
+        response = self._post(reason=PetDeletionRequest.OTHER, reason_detail="   ")
+        self.assertEqual(response.status_code, 200)
+        dialog = re.search(
+            r'(?s)<dialog id="archive-pet-dialog"[^>]*>.*?</dialog>',
+            response.content.decode(),
+        ).group()
+        self.assertIn("data-open-on-load", dialog)
+        self.assertIn("Please write a short reason.</p>", dialog)
+        self.assertIn('<option value="other" selected>Other</option>', dialog)
+        self.assertEqual(
+            response.context["archive_form"].errors,
+            {"reason_detail": ["Please write a short reason."]},
+        )
+        self._assert_nothing_saved()
+
+    def test_archive(self):
+        before = timezone.now()
+        response = self._post(
+            reason=PetDeletionRequest.OTHER, reason_detail="  Moved to Manila.  "
+        )
+        self.assertRedirects(response, self.pet_url, fetch_redirect_response=False)
+        self.assertEqual(
+            _messages(response), ["Archived Bantay. Ana Cruz was notified."]
+        )
+        self.pet.refresh_from_db()
+        self.assertTrue(self.pet.is_archived)
+        self.assertGreaterEqual(self.pet.archived_at, before)
+        deletion_request = PetDeletionRequest.objects.get()
+        self.assertEqual(deletion_request.pet, self.pet)
+        self.assertEqual(deletion_request.requested_by, self.admin)
+        self.assertEqual(deletion_request.reason, PetDeletionRequest.OTHER)
+        self.assertEqual(deletion_request.reason_detail, "Moved to Manila.")
+        self.assertEqual(deletion_request.status, PetDeletionRequest.APPROVED)
+        self.assertEqual(deletion_request.reviewed_by, self.admin)
+        self.assertEqual(deletion_request.reviewed_at, self.pet.archived_at)
+
+    def test_saves_both_or_neither(self):
+        with patch.object(Pet, "save", side_effect=RuntimeError("db down")):
+            with self.assertRaises(RuntimeError):
+                archive_pet_directly(
+                    self.pet, self.admin, PetDeletionRequest.PASSED_AWAY, ""
+                )
+        self.assertFalse(PetDeletionRequest.objects.exists())
+        self._assert_nothing_saved()
+
+    def test_one_notification_without_related_pet(self):
+        self._post(reason=PetDeletionRequest.DUPLICATE)
+        answer = self._answers().get()
+        self.assertEqual(Notification.objects.count(), 1)
+        self.assertEqual(answer.recipient, self.owner.user)
+        self.assertIsNone(answer.related_pet)
+        self.assertEqual(answer.title, "Bantay was removed")
+        self.assertEqual(
+            answer.message,
+            "The clinic removed Bantay from your account (reason: duplicate entry).",
+        )
+
+    def test_email_when_the_owner_has_one(self):
+        self._post()
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["ana@example.com"])
+        self.assertEqual(mail.outbox[0].subject, "Bantay was removed — Hapi Vet")
+
+    def test_no_email_still_notifies_in_app(self):
+        owner = _owner(first="Lito", last="Reyes")
+        pet = _pet(owner, "Choco")
+        response = self.client.post(
+            reverse("admin_pet_archive", args=[pet.pk]), self.VALID
+        )
+        self.assertEqual(
+            _messages(response), ["Archived Choco. Lito Reyes was notified."]
+        )
+        self.assertEqual(mail.outbox, [])
+        self.assertEqual(self._answers().get().recipient, owner.user)
+
+    def test_notify_error_is_logged_and_keeps_the_save(self):
+        with patch("pets.utils.notify", side_effect=RuntimeError("boom")):
+            with self.assertLogs("pets.utils", level="ERROR"):
+                response = self._post()
+        self.assertRedirects(response, self.pet_url, fetch_redirect_response=False)
+        self.pet.refresh_from_db()
+        self.assertTrue(self.pet.is_archived)
+        self.assertEqual(
+            PetDeletionRequest.objects.get().status, PetDeletionRequest.APPROVED
+        )
+
+    def test_history_says_by_the_clinic(self):
+        self._post()
+        by_owner = _request(
+            _pet(self.owner, "Choco"),
+            status=PetDeletionRequest.REJECTED,
+            reviewed=timezone.now() - timedelta(days=1),
+        )
+        html = self.client.get(reverse("admin_deletion_requests")).content.decode()
+        self.assertIn(
+            '<b class="font-semibold">Bantay</b> · Ana Cruz · Passed Away '
+            '<span class="text-sm text-gray-600">· By the clinic</span></span>',
+            html,
+        )
+        self.assertIn(
+            f'<b class="font-semibold">{by_owner.pet.name}</b> · Ana Cruz · '
+            "Passed Away</span>",
+            html,
+        )
+        self.assertEqual(html.count("By the clinic"), 1)
+
+    def test_restore_works_afterwards(self):
+        self._post()
+        response = self.client.post(reverse("admin_pet_restore", args=[self.pet.pk]))
+        self.assertEqual(_messages(response)[-1], "Restored Bantay.")
+        self.pet.refresh_from_db()
+        self.assertFalse(self.pet.is_archived)
+        self.assertIsNone(self.pet.archived_at)
+        # The clinic's request stays in the history
+        self.assertEqual(
+            PetDeletionRequest.objects.get().status, PetDeletionRequest.APPROVED
+        )
+
+
 class PetDetailContextTests(TestCase):
     """admin_pet_detail: context for the 4b-3 redesign (old keys kept)."""
 
@@ -2997,6 +3217,26 @@ class PetDetailContextTests(TestCase):
         context = self._context()
         self.assertEqual(context["pet_state"], "archived")
         self.assertTrue(context["owner_archived"])
+
+    def test_4b3_keys(self):
+        context = self._context()
+        self.assertTrue(context["show_archive_button"])
+        self.assertIsNone(context["archive_request"])
+        self.assertIsNone(context["due_soon_days"])
+        self.assertFalse(context["archive_form"].is_bound)
+
+        self._shot(-300, 13)
+        self.assertEqual(self._context()["due_soon_days"], 13)
+
+        waiting = _request(self.pet)
+        self.assertFalse(self._context()["show_archive_button"])
+        PetDeletionRequest.objects.filter(pk=waiting.pk).update(
+            status=PetDeletionRequest.APPROVED, reviewed_at=timezone.now()
+        )
+        Pet.objects.filter(pk=self.pet.pk).update(is_archived=True)
+        context = self._context()
+        self.assertFalse(context["show_archive_button"])
+        self.assertEqual(context["archive_request"], waiting)
 
 
 class ArchivedPetGuardTests(TestCase):
@@ -3946,3 +4186,727 @@ class DeletionRequestsPageTests(TestCase):
         self._answered("Spot", PetDeletionRequest.APPROVED)
         for tag in re.findall(r"<a\b[^>]*>", self._html()):
             self.assertNotIn("\n", tag)
+
+
+class PetDetailPageTests(TestCase):
+    """admin/pets/pet_detail.html on the new layout (Slice 4b-3)."""
+
+    def setUp(self):
+        self.admin = _admin(self)
+        self.owner = _owner(
+            email="ana@example.com",
+            password="pw-12345!",
+            contact_number="0917 123 4567",
+        )
+        self.pet = _pet(self.owner, breed="Aspin")
+        self.today = timezone.localdate()
+
+    def _get(self, pet=None):
+        url = reverse("admin_pet_detail", args=[(pet or self.pet).pk])
+        return self.client.get(url)
+
+    def _html(self, pet=None):
+        return self._get(pet).content.decode()
+
+    def _page(self, pet=None):
+        """The page without its <dialog>s: the cards and their buttons."""
+        return _outside_dialogs(self._html(pet))
+
+    def _dialogs(self, pet=None):
+        """{dialog id: its markup}."""
+        return dict(
+            re.findall(r'(?s)<dialog id="([a-z0-9-]+)"(.*?)</dialog>', self._html(pet))
+        )
+
+    def _archive_pet(self, pet=None):
+        pet = pet or self.pet
+        Pet.objects.filter(pk=pet.pk).update(
+            is_archived=True, archived_at=timezone.now()
+        )
+        pet.refresh_from_db()
+        return pet
+
+    def _visit(self, days=0, status=Appointment.CONFIRMED, hour=9, **fields):
+        return Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=self.today + timedelta(days=days),
+            time=time(hour, 0),
+            status=status,
+            **fields,
+        )
+
+    def _record(self, days=-1, **fields):
+        return MedicalRecord.objects.create(
+            pet=self.pet, record_date=self.today + timedelta(days=days), **fields
+        )
+
+    def _shot(self, given_days=-1, due_days=None, name=Vaccination.ANTI_RABIES, **kw):
+        return Vaccination.objects.create(
+            pet=self.pet,
+            vaccine_name=name,
+            date_administered=self.today + timedelta(days=given_days),
+            next_due_date=(
+                None if due_days is None else self.today + timedelta(days=due_days)
+            ),
+            **kw,
+        )
+
+    def _card(self, html, title_id):
+        return re.search(
+            rf'(?s)<section class="card" aria-labelledby="{title_id}">.*?</section>',
+            html,
+        ).group()
+
+    # ─── Layout and header ────────────────────────────────────────────────────
+
+    def test_new_layout_and_the_page_parses(self):
+        response = self._get()
+        self.assertTemplateUsed(response, "layouts/admin.html")
+        for old in ("pet_detail.css", "layer(legacy)", "admin-page", "back-link"):
+            with self.subTest(old=old):
+                self.assertNotContains(response, old)
+        self.assertContains(response, "<title>Bantay — Hapi Vet Admin</title>")
+        # html=True parses the whole page (the old one was missing a </div>)
+        self.assertContains(
+            response,
+            '<h1 class="text-2xl font-bold text-gray-900">Bantay</h1>',
+            html=True,
+        )
+
+    def test_header(self):
+        Pet.objects.filter(pk=self.pet.pk).update(
+            date_of_birth=self.today - timedelta(days=3 * 365 + 10)
+        )
+        html = self._html()
+        self.assertRegex(
+            html,
+            rf'<a href="{reverse("admin_pet_list")}" class="[^"]*">'
+            r"\s*<svg[^>]*>(?s:.*?)</svg>\s*Back to pets</a>",
+        )
+        self.assertRegex(html, r'<span class="grid size-16 rounded-2xl [^"]*bg-violet')
+        owner_url = reverse("admin_owner_detail", args=[self.owner.pk])
+        self.assertIn(
+            f'Dog · Aspin · 3 yrs · Owner: <a href="{owner_url}" class="font-medium '
+            'text-blue-600 underline underline-offset-2">Ana Cruz</a></p>',
+            html,
+        )
+        self.assertNotRegex(html, r"</svg>\s*Archived</span>")
+        self.assertNotIn("Deletion requested</span>", html)
+
+    def test_header_leaves_out_empty_parts(self):
+        pet = _pet(self.owner, "Mingming", "Cat")
+        self.assertIn(
+            '<p class="mt-1 text-base text-gray-600">Cat · Owner: <a ',
+            self._html(pet),
+        )
+
+    def test_tags_and_gray_picture(self):
+        _request(self.pet)
+        html = self._html()
+        self.assertRegex(html, r"</svg>\s*Deletion requested</span>")
+        self.assertRegex(html, r'<span class="grid size-16 rounded-2xl [^"]*bg-violet')
+        self._archive_pet()
+        PetDeletionRequest.objects.all().delete()
+        html = self._html()
+        self.assertRegex(html, r"</svg>\s*Archived</span>")
+        self.assertNotIn("Deletion requested</span>", html)
+        self.assertRegex(html, r'<span class="grid size-16 rounded-2xl [^"]*bg-gray')
+
+    def test_owner_archived_mutes_the_picture_without_the_tag(self):
+        _archive(self.owner)
+        html = self._html()
+        self.assertRegex(html, r'<span class="grid size-16 rounded-2xl [^"]*bg-gray')
+        self.assertNotRegex(html, r"</svg>\s*Archived</span>")
+
+    # ─── Banners ──────────────────────────────────────────────────────────────
+
+    def test_deletion_banner(self):
+        waiting = _request(self.pet)
+        waiting.reason = PetDeletionRequest.OTHER
+        waiting.reason_detail = "We moved abroad."
+        waiting.save()
+        page = self._page()
+        self.assertIn(
+            '<p class="text-lg font-semibold">Ana Cruz asked to remove Bantay</p>',
+            page,
+        )
+        self.assertIn("Asked today. Reason: <b>other</b>.</p>", page)
+        self.assertIn("“We moved abroad.”</p>", page)
+        self.assertRegex(
+            page,
+            r'<button type="button" class="btn btn-outline [^"]*" '
+            rf'data-dialog-open="keep-dialog-{waiting.pk}"[^>]*>\s*<svg[^>]*>'
+            r"(?s:.*?)</svg>\s*Keep Bantay</button>",
+        )
+        self.assertRegex(
+            page,
+            r'<button type="button" class="btn [^"]*text-red-700[^"]*" '
+            rf'data-dialog-open="archive-dialog-{waiting.pk}"[^>]*>\s*<svg[^>]*>'
+            r"(?s:.*?)</svg>\s*Archive Bantay</button>",
+        )
+
+    def test_deletion_banner_without_archive_while_the_owner_is_archived(self):
+        waiting = _request(self.pet)
+        _archive(self.owner)
+        page = self._page()
+        self.assertIn("Ana Cruz asked to remove Bantay", page)
+        self.assertIn(f'data-dialog-open="keep-dialog-{waiting.pk}"', page)
+        self.assertNotIn(f'data-dialog-open="archive-dialog-{waiting.pk}"', page)
+
+    def test_no_banners_for_an_active_pet(self):
+        html = self._html()
+        for text in ("asked to remove", "is archived</p>", "owner is archived"):
+            with self.subTest(text=text):
+                self.assertNotIn(text, html)
+
+    def test_archived_banner_after_the_owner_asked(self):
+        _request(
+            self.pet,
+            status=PetDeletionRequest.APPROVED,
+            reviewed=timezone.now() - timedelta(days=1),
+        )
+        self._archive_pet()
+        html = self._html()
+        self.assertIn('<p class="text-lg font-semibold">Bantay is archived</p>', html)
+        self.assertIn(
+            "Archived on today after Ana Cruz asked to remove the pet (reason: "
+            "passed away). Records and vaccinations are kept.</p>",
+            html,
+        )
+
+    def test_archived_banner_by_the_clinic(self):
+        # An older owner request was kept; the clinic archived the pet later
+        _request(
+            self.pet,
+            status=PetDeletionRequest.REJECTED,
+            reviewed=timezone.now() - timedelta(days=3),
+        )
+        archive_pet_directly(self.pet, self.admin, PetDeletionRequest.REHOMED, "")
+        self.assertIn(
+            "Archived on today by the clinic (reason: rehomed). Records and "
+            "vaccinations are kept.</p>",
+            self._html(),
+        )
+
+    def test_archived_banner_without_a_request(self):
+        self._archive_pet()
+        self.assertIn(
+            "Archived on today. Records and vaccinations are kept.</p>", self._html()
+        )
+
+    def test_owner_archived_banner(self):
+        _archive(self.owner)
+        html = self._html()
+        self.assertIn(
+            '<p class="text-lg font-semibold">Bantay\'s owner is archived</p>', html
+        )
+        self.assertIn(
+            "Ana Cruz was archived on today, so Bantay is hidden from walk-ins and "
+            "online booking. Records and vaccinations are kept.</p>",
+            html,
+        )
+
+    # ─── Pet details ──────────────────────────────────────────────────────────
+
+    def test_info_card_values(self):
+        born = self.today - timedelta(days=3 * 365 + 10)
+        Pet.objects.filter(pk=self.pet.pk).update(
+            gender=Pet.MALE,
+            date_of_birth=born,
+            color="Brown and white",
+            weight="12.50",
+            registration_number="MRQ-2023-0412",
+        )
+        card = self._card(self._html(), "info-title")
+        self.assertIn(">Pet details</h2>", card)
+        self.assertIn('<dl class="grid grid-cols-1 gap-x-8 sm:grid-cols-2">', card)
+        for label, value in (
+            ("Species", "Dog"),
+            ("Breed", "Aspin"),
+            ("Sex", "Male"),
+            ("Born", f"{born.strftime('%b')} {born.day}, {born.year} · 3 yrs"),
+            ("Color", "Brown and white"),
+            ("Weight", "12.5 kg"),
+            ("Registration no.", "MRQ-2023-0412"),
+        ):
+            with self.subTest(label=label):
+                self.assertRegex(
+                    card,
+                    rf'<dt class="text-sm text-gray-600">{re.escape(label)}</dt>\s*'
+                    rf'<dd class="[^"]*">{re.escape(value)}</dd>',
+                )
+        self.assertNotIn("Not given", card)
+
+    def test_info_card_empty_texts(self):
+        pet = _pet(self.owner, "Mingming", "Cat")
+        card = self._card(self._html(pet), "info-title")
+        self.assertEqual(card.count('<span class="text-gray-600">Not given</span>'), 4)
+        self.assertIn('<span class="text-gray-600">Unknown</span>', card)
+        self.assertIn('<span class="text-gray-600">None</span>', card)
+
+    # ─── Recent visits ────────────────────────────────────────────────────────
+
+    def test_recent_visits(self):
+        grooming = Service.objects.create(
+            service_name="Grooming", status=Service.ACTIVE
+        )
+        for days in range(-5, -1):
+            self._visit(days, Appointment.COMPLETED)
+        latest = self._visit(0, hour=14, service=grooming)
+        card = self._card(self._html(), "visits-title")
+        self.assertEqual(card.count("<li "), 3)
+        self.assertIn(
+            '<span class="w-32 text-base font-medium text-gray-900">Today</span>', card
+        )
+        self.assertIn("2:00 PM</span>", card)
+        self.assertIn("Grooming</span>", card)
+        self.assertIn("Appointment</span>", card)
+        self.assertIn(
+            '<span class="badge bg-blue-100 text-blue-800">Confirmed</span>', card
+        )
+        self.assertIn(
+            f'<a href="{reverse("admin_appointment_detail", args=[latest.pk])}" '
+            'class="inline-flex min-h-11 items-center px-2 text-base font-medium '
+            'text-blue-600 underline underline-offset-2">Open'
+            '<span class="sr-only"> visit on today</span></a>',
+            card,
+        )
+        self.assertRegex(
+            card,
+            rf'<a href="{reverse("admin_appointments")}\?status=all&amp;q=Bantay" '
+            r'class="[^"]*">See all visits for Bantay\s*<svg',
+        )
+        self.assertNotIn("No visits yet.", card)
+
+    def test_no_visits_yet(self):
+        card = self._card(self._html(), "visits-title")
+        self.assertIn('<p class="text-base text-gray-600">No visits yet.</p>', card)
+        self.assertNotIn("See all visits", card)
+
+    # ─── Medical records ──────────────────────────────────────────────────────
+
+    def test_records(self):
+        self._record(-30, diagnosis="Old")
+        followup = self._record(
+            -10,
+            diagnosis="Mild skin allergy",
+            follow_up_required=True,
+            follow_up_date=self.today + timedelta(days=1),
+            private_notes="SECRET-NOTE",
+        )
+        self._record(-5, diagnosis="x" * 100)
+        self._record(-2)
+        html = self._html()
+        card = self._card(html, "records-title")
+        self.assertEqual(card.count("<li "), 3)
+        self.assertNotIn(">Old</span>", card)
+        self.assertIn(
+            '<span class="w-32 text-base font-medium text-gray-900">'
+            f"{friendly_date(followup.record_date)}</span>",
+            card,
+        )
+        self.assertIn("Mild skin allergy</span>", card)
+        self.assertIn(f"{'x' * 79}…</span>", card)
+        self.assertIn('<span class="text-gray-600">No diagnosis written</span>', card)
+        self.assertRegex(
+            card,
+            r'<span class="[^"]*bg-blue-100[^"]*text-blue-800">\s*<svg[^>]*>'
+            r"(?s:.*?)</svg>\s*Follow-up tomorrow</span>",
+        )
+        self.assertEqual(card.count("Follow-up "), 1)
+        detail = reverse("admin_medical_record_detail", args=[followup.pk])
+        self.assertIn(f'<a href="{detail}" ', card)
+        history = reverse("admin_pet_medical_history", args=[self.pet.pk])
+        self.assertRegex(
+            card,
+            rf'<a href="{history}" class="[^"]*">'
+            r"See full medical history \(4 records\)\s*<svg",
+        )
+        self.assertNotIn("SECRET-NOTE", html)
+
+    def test_follow_up_without_a_date_has_no_pill(self):
+        self._record(-1, follow_up_required=True)
+        self.assertNotIn("Follow-up ", self._card(self._html(), "records-title"))
+
+    def test_no_records_yet(self):
+        card = self._card(self._html(), "records-title")
+        self.assertIn(
+            '<p class="text-base text-gray-600">No medical records yet.</p>', card
+        )
+        self.assertNotIn("See full medical history", card)
+
+    def test_add_buttons_only_while_active(self):
+        add_record = reverse("admin_medical_record_create", args=[self.pet.pk])
+        add_shot = reverse("admin_vaccination_standalone_create", args=[self.pet.pk])
+        html = self._html()
+        self.assertRegex(
+            self._card(html, "records-title"),
+            rf'<a href="{add_record}" class="btn btn-outline font-semibold">\s*<svg'
+            r"(?s:.*?)</svg>\s*Add record</a>",
+        )
+        self.assertRegex(
+            self._card(html, "vaccinations-title"),
+            rf'<a href="{add_shot}" class="btn btn-outline font-semibold">\s*<svg'
+            r"(?s:.*?)</svg>\s*Add vaccination</a>",
+        )
+        archived = self._archive_pet(_pet(self.owner, "Old"))
+        lito = _owner("Lito", "Reyes")
+        spot = _pet(lito, "Spot")
+        _archive(lito)
+        for pet in (archived, spot):
+            with self.subTest(pet=pet.name):
+                html = self._html(pet)
+                for url_name in (
+                    "admin_medical_record_create",
+                    "admin_vaccination_standalone_create",
+                ):
+                    self.assertNotIn(reverse(url_name, args=[pet.pk]), html)
+
+    # ─── Vaccinations ─────────────────────────────────────────────────────────
+
+    def test_vaccinations(self):
+        self._shot(-400)
+        other = self._shot(
+            -20,
+            name=Vaccination.OTHER,
+            custom_vaccine_name="Lepto",
+            is_corrected=True,
+            correction_note="Fixed the batch",
+        )
+        self._shot(-10, 365, name=Vaccination.SIX_IN_ONE)
+        self._shot(-1, name=Vaccination.DEWORMING)
+        card = self._card(self._html(), "vaccinations-title")
+        self.assertEqual(card.count("<li "), 3)
+        given = friendly_date(other.date_administered, "mid")
+        self.assertIn(
+            f'<b class="font-semibold">Lepto</b> · given {given}</span>', card
+        )
+        self.assertIn(
+            '<b class="font-semibold">Deworming</b> · given yesterday</span>', card
+        )
+        self.assertRegex(card, r"</svg>\s*Corrected</span>")
+        self.assertEqual(card.count("Corrected</span>"), 1)
+        due = friendly_date(self.today + timedelta(days=365), "mid")
+        self.assertIn(f"Next due {due}</span>", card)
+        self.assertEqual(card.count("No next date</span>"), 2)
+        edit = reverse("admin_vaccination_edit", args=[other.pk])
+        self.assertIn(f'<a href="{edit}" ', card)
+        history = reverse("admin_pet_vaccination_history", args=[self.pet.pk])
+        self.assertRegex(
+            card,
+            rf'<a href="{history}" class="[^"]*">See all vaccinations \(4\)\s*<svg',
+        )
+
+    def test_no_vaccinations_yet(self):
+        card = self._card(self._html(), "vaccinations-title")
+        self.assertIn(
+            '<p class="text-base text-gray-600">No vaccinations yet.</p>', card
+        )
+        self.assertNotIn("See all vaccinations", card)
+        self.assertNotIn(" is due ", card)
+
+    def test_due_soon_line(self):
+        in_13 = friendly_date(self.today + timedelta(days=13), "mid")
+        cases = [
+            (13, f"<b>Anti-rabies is due {in_13}</b> (in 13 days).</p>"),
+            (1, "<b>Anti-rabies is due tomorrow</b>.</p>"),
+            (0, "<b>Anti-rabies is due today</b>.</p>"),
+        ]
+        for due_days, text in cases:
+            with self.subTest(due_days=due_days):
+                Vaccination.objects.all().delete()
+                self._shot(-300, due_days)
+                card = self._card(self._html(), "vaccinations-title")
+                self.assertIn(text, card)
+                self.assertIn("border-yellow-300 bg-yellow-50", card)
+        Vaccination.objects.all().delete()
+        self._shot(-300, 31)
+        self.assertNotIn(" is due ", self._card(self._html(), "vaccinations-title"))
+
+    # ─── Actions ──────────────────────────────────────────────────────────────
+
+    def test_actions_when_active(self):
+        page = self._page()
+        self.assertEqual(page.count("btn-primary"), 1)
+        self.assertRegex(
+            page,
+            rf'<a href="{reverse("admin_walkin_appointment_visit")}'
+            rf'\?owner={self.owner.pk}&amp;pet={self.pet.pk}" class="btn btn-primary '
+            r'[^"]*">\s*<svg[^>]*>(?s:.*?)</svg>\s*Book walk-in</a>',
+        )
+        pk = self.pet.pk
+        for url, label in (
+            (reverse("admin_medical_record_create", args=[pk]), "Add medical record"),
+            (
+                reverse("admin_vaccination_standalone_create", args=[pk]),
+                "Add vaccination",
+            ),
+            (reverse("admin_pet_edit", args=[pk]), "Edit details"),
+        ):
+            with self.subTest(label=label):
+                self.assertRegex(
+                    page,
+                    rf'<a href="{url}" class="btn btn-outline min-h-12 [^"]*">'
+                    rf"\s*<svg[^>]*>(?s:.*?)</svg>\s*{label}</a>",
+                )
+        self.assertRegex(
+            page,
+            r'(?s)<hr [^>]*>\s*<button type="button" class="btn [^"]*text-red-700'
+            r'[^"]*" data-dialog-open="archive-pet-dialog"[^>]*>.*?'
+            r"Archive Bantay\s*</button>",
+        )
+        self.assertNotIn("Restore Bantay", page)
+
+    def test_actions_when_the_pet_is_archived(self):
+        self._archive_pet()
+        page = self._page()
+        self.assertEqual(page.count("btn-primary"), 1)
+        self.assertRegex(
+            page,
+            r'(?s)<button type="button" class="btn btn-primary [^"]*" '
+            r'data-dialog-open="restore-pet-dialog"[^>]*>.*?Restore Bantay\s*</button>',
+        )
+        self.assertIn(
+            "<span>Restore Bantay to book visits or add records.</span>", page
+        )
+        for gone in (
+            "Book walk-in",
+            "Add medical record",
+            "Edit details",
+            "Archive Bantay",
+        ):
+            with self.subTest(gone=gone):
+                self.assertNotIn(gone, page)
+        self.assertNotIn(reverse("admin_pet_edit", args=[self.pet.pk]), page)
+
+    def test_actions_when_the_owner_is_archived(self):
+        owner_url = reverse("admin_owner_detail", args=[self.owner.pk])
+        _archive(self.owner)
+        # Both archived: Restore would be refused, so the owner hint wins
+        for pet_archived in (False, True):
+            if pet_archived:
+                self._archive_pet()
+            with self.subTest(pet_archived=pet_archived):
+                page = self._page()
+                self.assertEqual(page.count("btn-primary"), 0)
+                self.assertIn(
+                    "<span>Bantay's owner is archived. Restore Ana Cruz on their "
+                    "page to book visits or add records.</span>",
+                    page,
+                )
+                self.assertRegex(
+                    page,
+                    rf'<a href="{owner_url}" class="btn btn-outline min-h-12 [^"]*">'
+                    r"\s*<svg[^>]*>(?s:.*?)</svg>\s*Open Ana Cruz's page</a>",
+                )
+                for gone in (
+                    "Book walk-in",
+                    "Restore Bantay",
+                    "Archive Bantay",
+                    "Edit details",
+                ):
+                    self.assertNotIn(gone, page)
+
+    def test_archive_button_hidden_while_a_request_waits(self):
+        _request(self.pet)
+        page = self._page()
+        self.assertNotIn('data-dialog-open="archive-pet-dialog"', page)
+        self.assertNotIn("<hr ", page)
+        self.assertEqual(page.count("btn-primary"), 1)
+        self.assertIn("Book walk-in</a>", page)
+
+    # ─── Dialogs ──────────────────────────────────────────────────────────────
+
+    def test_dialogs_only_with_their_buttons_and_post_to_the_right_url(self):
+        waiting = _request(_pet(self.owner, "Choco"))
+        archived = self._archive_pet(_pet(self.owner, "Old"))
+        lito = _owner("Lito", "Reyes")
+        spot = _pet(lito, "Spot")
+        lito_waiting = _request(_pet(lito, "Muning"))
+        _archive(lito)
+        reject, approve = "admin_reject_deletion", "admin_approve_deletion"
+        cases = [
+            (self.pet, {"archive-pet-dialog": ("admin_pet_archive", self.pet.pk)}),
+            (
+                waiting.pet,
+                {
+                    f"keep-dialog-{waiting.pk}": (reject, waiting.pk),
+                    f"archive-dialog-{waiting.pk}": (approve, waiting.pk),
+                },
+            ),
+            (archived, {"restore-pet-dialog": ("admin_pet_restore", archived.pk)}),
+            (spot, {}),
+            (
+                lito_waiting.pet,
+                {f"keep-dialog-{lito_waiting.pk}": (reject, lito_waiting.pk)},
+            ),
+        ]
+        for pet, expected in cases:
+            with self.subTest(pet=pet.name):
+                dialogs = self._dialogs(pet)
+                self.assertEqual(set(dialogs), set(expected))
+                page = self._page(pet)
+                for dialog_id, (url_name, pk) in expected.items():
+                    self.assertIn(f'data-dialog-open="{dialog_id}"', page)
+                    markup = dialogs[dialog_id]
+                    action = reverse(url_name, args=[pk])
+                    self.assertIn(f'<form method="post" action="{action}"', markup)
+                    self.assertIn('name="csrfmiddlewaretoken"', markup)
+                    self.assertIn(
+                        "data-dialog-close autofocus>Go back</button>", markup
+                    )
+                    if url_name in (reject, approve):
+                        self.assertIn(
+                            '<input type="hidden" name="return_to" value="pet">',
+                            markup,
+                        )
+
+    def test_archive_dialog_text_and_fields(self):
+        dialog = self._dialogs()["archive-pet-dialog"]
+        self.assertNotIn("data-open-on-load", dialog)
+        self.assertIn(">Archive Bantay?</h2>", dialog)
+        self.assertIn(
+            "Bantay will be hidden from Ana Cruz's account, the Pets list and "
+            "walk-ins. Medical records and vaccinations are kept, and you can "
+            "restore Bantay later.</p>",
+            dialog,
+        )
+        self.assertRegex(
+            dialog,
+            r'(?s)<label for="id_reason" [^>]*>\s*Reason <span[^>]*>\*</span>',
+        )
+        self.assertRegex(
+            dialog,
+            r'(?s)<select name="reason" [^>]*id="id_reason">\s*'
+            r'<option value="" selected>Choose one</option>\s*'
+            r'<option value="passed_away">Passed Away</option>',
+        )
+        self.assertRegex(
+            dialog,
+            r'(?s)<label for="id_reason_detail" [^>]*>\s*Details <span '
+            r'class="font-normal text-gray-600">\(optional\)</span>',
+        )
+        self.assertIn('<textarea name="reason_detail"', dialog)
+        self.assertIn("Needed when the reason is Other.</p>", dialog)
+        self.assertIn(
+            "Ana Cruz gets a notification, and an email if they have one.", dialog
+        )
+        self.assertRegex(
+            dialog,
+            r'(?s)<button type="submit" class="btn btn-danger [^"]*">\s*<svg[^>]*>'
+            r".*?</svg>\s*Yes, archive Bantay\s*</button>",
+        )
+        self.assertNotIn("Archiving doesn't cancel", dialog)
+
+    def test_restore_dialog_text(self):
+        dialog = self._dialogs(self._archive_pet())["restore-pet-dialog"]
+        self.assertIn(">Restore Bantay?</h2>", dialog)
+        self.assertIn(
+            "Bantay comes back on Ana Cruz's account and on the Pets list. You can "
+            "book visits and add records again. Any old deletion request stays in "
+            "the history.</p>",
+            dialog,
+        )
+        self.assertRegex(
+            dialog,
+            r'(?s)<button type="submit" class="btn btn-primary [^"]*">\s*<svg[^>]*>'
+            r".*?</svg>\s*Yes, restore Bantay\s*</button>",
+        )
+
+    def test_waiting_request_archive_dialog_text_on_the_pet_page(self):
+        waiting = _request(self.pet)
+        dialog = self._dialogs()[f"archive-dialog-{waiting.pk}"]
+        self.assertIn(
+            "Ana Cruz asked to remove Bantay (reason: passed away). Bantay will be "
+            "hidden from their account and from walk-ins. Medical records and "
+            "vaccinations are kept, and you can restore Bantay later.</p>",
+            dialog,
+        )
+
+    def test_visit_warning_for_0_1_2_and_3_upcoming_visits(self):
+        self._visit(-1)  # past: not counted
+        self._visit(3, Appointment.CANCELLED)  # cancelled: not counted
+        dialog = self._dialogs()["archive-pet-dialog"]
+        self.assertNotIn("Archiving doesn't cancel", dialog)
+        self._visit(1)
+        first = "<b>Bantay has a visit tomorrow at 9:00 AM.</b>"
+        them = (
+            "Archiving doesn't cancel them. Cancel them on the appointment page "
+            "if they won't happen."
+        )
+        cases = [
+            (
+                1,
+                f"{first} Archiving doesn't cancel it. Cancel it on the "
+                "appointment page if it won't happen.",
+            ),
+            (2, f"{first} There is 1 more. {them}"),
+            (3, f"{first} There are 2 more. {them}"),
+        ]
+        for count, text in cases:
+            if count > 1:
+                self._visit(count + 1, Appointment.PENDING)
+            with self.subTest(count=count):
+                self.assertIn(text, self._dialogs()["archive-pet-dialog"])
+        # The waiting request's Archive dialog warns too
+        waiting = _request(self.pet)
+        self.assertIn(cases[2][1], self._dialogs()[f"archive-dialog-{waiting.pk}"])
+
+    # ─── Owner card ───────────────────────────────────────────────────────────
+
+    def test_owner_card(self):
+        card = self._card(self._html(), "owner-title")
+        owner_url = reverse("admin_owner_detail", args=[self.owner.pk])
+        self.assertIn(
+            f'<a href="{owner_url}" class="font-medium text-blue-600 underline '
+            'underline-offset-2">Ana Cruz</a>',
+            card,
+        )
+        self.assertIn(">AC</span>", card)
+        self.assertIn("bg-violet-50", card)
+        self.assertIn('<p class="text-sm text-gray-700">0917 123 4567</p>', card)
+        self.assertIn('<span class="break-all">ana@example.com</span>', card)
+
+    def test_owner_card_empty_and_archived(self):
+        lito = _archive(_owner("Lito", "Reyes"))
+        card = self._card(self._html(_pet(lito, "Spot")), "owner-title")
+        self.assertIn('<span class="text-gray-600">No phone number</span>', card)
+        self.assertIn('<span class="text-gray-600">No email</span>', card)
+        self.assertIn("bg-gray-100", card)
+        self.assertNotIn("bg-violet-50", card)
+
+    # ─── Whole page ───────────────────────────────────────────────────────────
+
+    def test_every_link_is_on_one_line(self):
+        self._visit(1)
+        self._record(-1)
+        self._shot(-1, 10)
+        waiting = _request(_pet(self.owner, "Choco"))
+        archived = self._archive_pet(_pet(self.owner, "Old"))
+        lito = _owner("Lito", "Reyes")
+        spot = _pet(lito, "Spot")
+        _archive(lito)
+        for pet in (self.pet, waiting.pet, archived, spot):
+            with self.subTest(pet=pet.name):
+                for tag in re.findall(r"<a\b[^>]*>", self._html(pet)):
+                    self.assertNotIn("\n", tag)
+
+    def test_query_count_is_flat(self):
+        """The page costs the same with 1 visit, record and vaccination as
+        with 5 of each."""
+        service = Service.objects.create(service_name="Check-up", status=Service.ACTIVE)
+
+        def add(start, count):
+            for i in range(start, start + count):
+                self._visit(-i - 1, Appointment.COMPLETED, service=service)
+                self._record(-i - 1, diagnosis=f"Visit {i}")
+                self._shot(-i - 1, 10 + i)
+
+        add(0, 1)
+        self._get()  # warm-up: one-time lookups don't count
+        with CaptureQueriesContext(connection) as small:
+            self._get()
+        add(1, 4)
+        with self.assertNumQueries(len(small)):
+            self._get()

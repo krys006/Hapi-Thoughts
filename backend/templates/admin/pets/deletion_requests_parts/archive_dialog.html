@@ -1,11 +1,19 @@
-{# Archive (approves the request): one dialog per waiting request; return_to brings the admin back here #}
+{% comment %}
+  Archive (approves the request): one dialog per waiting request.
+  Usage: {% include "admin/pets/deletion_requests_parts/archive_dialog.html" with deletion_request=… return_to="requests" %}
+  return_to: "requests" (the Deletion requests page) or "pet" (the pet
+  page, which also shows the visit warning from its upcoming_count).
+{% endcomment %}
 {% with pet=deletion_request.pet owner=deletion_request.pet.owner %}
   <dialog id="archive-dialog-{{ deletion_request.pk }}" aria-labelledby="archive-dialog-{{ deletion_request.pk }}-title" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50">
     <form method="post" action="{% url 'admin_approve_deletion' deletion_request.pk %}" class="p-6 sm:p-7">
       {% csrf_token %}
-      <input type="hidden" name="return_to" value="requests">
+      <input type="hidden" name="return_to" value="{{ return_to }}">
       <h2 id="archive-dialog-{{ deletion_request.pk }}-title" class="text-xl font-bold">Archive {{ pet.name }}?</h2>
-      <p class="mt-2 text-base text-gray-700">{{ owner.full_name }} asked to remove {{ pet.name }} (reason: {{ deletion_request.get_reason_display|lower }}). {{ pet.name }} will be hidden from their account and from walk-ins. Medical records and vaccinations are kept, and the pet stays on the Archived tab.</p>
+      <p class="mt-2 text-base text-gray-700">{{ owner.full_name }} asked to remove {{ pet.name }} (reason: {{ deletion_request.get_reason_display|lower }}). {{ pet.name }} will be hidden from their account and from walk-ins. Medical records and vaccinations are kept, and {% if return_to == "pet" %}you can restore {{ pet.name }} later{% else %}the pet stays on the Archived tab{% endif %}.</p>
+      {% if return_to == "pet" %}
+        {% include "admin/pets/owner_detail_parts/visit_warning.html" %}
+      {% endif %}
       <p class="mt-3 flex items-start gap-2 text-sm text-gray-700">{% include "components/icon.html" with name="mail" class="mt-0.5 size-4 shrink-0" %}<span>{{ owner.full_name }} gets a notification, and an email if they have one.</span></p>
       {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, archive "|add:pet.name icon="archive" danger=True %}
     </form>

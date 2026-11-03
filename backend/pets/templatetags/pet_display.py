@@ -1,6 +1,7 @@
 """Display helpers for pets in the admin UI."""
 
 import re
+from decimal import Decimal
 
 from django import template
 
@@ -43,3 +44,16 @@ def species_icon(species):
         if pattern.search(text):
             return icon
     return "paw-print"
+
+
+@register.filter
+def weight_kg(weight):
+    """Pet.weight without trailing zeros: 12.50 → "12.5", 10.00 → "10",
+    8.25 → "8.25", None → "". Plain digits, never "1E+1" (which
+    Decimal.normalize() would give for 10)."""
+    if weight is None:
+        return ""
+    text = f"{Decimal(weight):f}"
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text

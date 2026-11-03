@@ -213,6 +213,39 @@ class PetDeletionRequestForm(forms.ModelForm):
         return cleaned_data
 
 
+class AdminPetArchiveForm(forms.Form):
+    """
+    The pet page's direct Archive (no owner request): the reason is saved
+    on an already-approved PetDeletionRequest made by the clinic.
+    """
+
+    reason = forms.ChoiceField(
+        label="Reason",
+        choices=[("", "Choose one")] + PetDeletionRequest.REASON_CHOICES,
+        error_messages={"required": "Choose a reason."},
+    )
+    reason_detail = forms.CharField(
+        label="Details",
+        required=False,
+        strip=True,
+        help_text="Needed when the reason is Other.",
+        widget=forms.Textarea(
+            attrs={
+                "rows": 3,
+                "placeholder": "For example: the owner said he passed away last week.",
+            }
+        ),
+    )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        reason = cleaned_data.get("reason")
+        detail = cleaned_data.get("reason_detail")
+        if reason == PetDeletionRequest.OTHER and not detail:
+            self.add_error("reason_detail", "Please write a short reason.")
+        return cleaned_data
+
+
 PROVINCE_MARINDUQUE = "Marinduque"
 PROVINCE_OTHER = "other"
 

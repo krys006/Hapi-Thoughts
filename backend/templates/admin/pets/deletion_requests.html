@@ -30,9 +30,9 @@
 
     {# Keep and Archive dialogs for each waiting request (no Archive while the owner is archived) #}
     {% for deletion_request in pending %}
-      {% include "admin/pets/deletion_requests_parts/keep_dialog.html" %}
+      {% include "admin/pets/deletion_requests_parts/keep_dialog.html" with return_to="requests" %}
       {% if not deletion_request.pet.owner.is_archived %}
-        {% include "admin/pets/deletion_requests_parts/archive_dialog.html" %}
+        {% include "admin/pets/deletion_requests_parts/archive_dialog.html" with return_to="requests" %}
       {% endif %}
     {% endfor %}
   {% else %}

@@ -1,0 +1,41 @@
+{% comment %}
+  Right-hand actions card, by state. Active: Book walk-in is the one primary
+  button, then the outline links, and (no request waiting) the red-outline
+  Archive, whose dialog asks for the reason. Pet archived: Restore. Owner
+  archived (checked first, since Restore is refused then): a hint and a
+  link to the owner's page.
+{% endcomment %}
+<section class="card" aria-labelledby="actions-title">
+  <h2 id="actions-title" class="mb-4 text-xl font-semibold">What would you like to do?</h2>
+  <div class="space-y-3">
+    {% if owner_archived %}
+      <p class="flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-3 text-base text-gray-700">
+        {% include "components/icon.html" with name="info" class="mt-0.5 size-5 shrink-0" %}
+        <span>{{ pet.name }}'s owner is archived. Restore {{ pet.owner.full_name }} on their page to book visits or add records.</span>
+      </p>
+      <a href="{% url 'admin_owner_detail' pet.owner.pk %}" class="btn btn-outline min-h-12 w-full font-semibold">{% include "components/icon.html" with name="users" %}Open {{ pet.owner.full_name }}'s page</a>
+    {% elif pet_state == "archived" %}
+      <button type="button" class="btn btn-primary min-h-12 w-full font-semibold" data-dialog-open="restore-pet-dialog" aria-haspopup="dialog">
+        {% include "components/icon.html" with name="rotate-ccw" %}
+        Restore {{ pet.name }}
+      </button>
+      <p class="flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-3 text-sm text-gray-700">
+        {% include "components/icon.html" with name="info" class="mt-0.5 size-4 shrink-0" %}
+        <span>Restore {{ pet.name }} to book visits or add records.</span>
+      </p>
+    {% else %}
+      {# Walk-in step 2 with this owner and pet chosen (skips "Who is it for?") #}
+      <a href="{% url 'admin_walkin_appointment_visit' %}?owner={{ pet.owner.pk }}&amp;pet={{ pet.pk }}" class="btn btn-primary min-h-12 w-full font-semibold">{% include "components/icon.html" with name="calendar" %}Book walk-in</a>
+      <a href="{% url 'admin_medical_record_create' pet.pk %}" class="btn btn-outline min-h-12 w-full font-semibold">{% include "components/icon.html" with name="file-text" %}Add medical record</a>
+      <a href="{% url 'admin_vaccination_standalone_create' pet.pk %}" class="btn btn-outline min-h-12 w-full font-semibold">{% include "components/icon.html" with name="syringe" %}Add vaccination</a>
+      <a href="{% url 'admin_pet_edit' pet.pk %}" class="btn btn-outline min-h-12 w-full font-semibold">{% include "components/icon.html" with name="pencil" %}Edit details</a>
+      {% if show_archive_button %}
+        <hr class="my-4! border-gray-200">
+        <button type="button" class="btn min-h-12 w-full border border-red-300 bg-white font-semibold text-red-700 hover:bg-red-50" data-dialog-open="archive-pet-dialog" aria-haspopup="dialog">
+          {% include "components/icon.html" with name="archive" %}
+          Archive {{ pet.name }}
+        </button>
+      {% endif %}
+    {% endif %}
+  </div>
+</section>

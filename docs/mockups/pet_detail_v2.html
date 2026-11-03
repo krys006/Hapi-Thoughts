@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pet detail v1</title>
+<title>Pet detail v2</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   :root { color-scheme: light; }
@@ -13,7 +13,7 @@
 <body class="bg-gray-200 text-gray-900 antialiased">
 
 <header class="sticky top-0 z-30 border-b border-gray-300 bg-white/95 px-6 py-3 backdrop-blur">
-  <p class="mb-2 text-sm font-semibold text-gray-700">Pet detail v1 · frame copied from layouts/admin.html · pick a state</p>
+  <p class="mb-2 text-sm font-semibold text-gray-700">Pet detail v2 (direct Archive) · frame copied from layouts/admin.html · pick a state</p>
   <div id="switcher" class="flex flex-wrap gap-2"></div>
 </header>
 
@@ -187,7 +187,8 @@ const actionsCard = kind => `
     : `${act.primary('calendar','Book walk-in')}
       ${act.outline('fileText','Add medical record')}
       ${act.outline('syringe','Add vaccination')}
-      ${act.outline('pencil','Edit details')}`
+      ${act.outline('pencil','Edit details')}
+      ${kind === 'pending' ? '' : hr + act.danger('archive','Archive Brownie')}`
   }</div>
 </section>`;
 
@@ -220,7 +221,7 @@ const page = (kind, overlay = '') => {
     : kind === 'archived' ? banner('gray','archive','Brownie is archived','Archived on Sun, Sep 20 after Liza Cruz asked to remove the pet (reason: rehomed). Records and vaccinations are kept.')
     : kind === 'ownerArchived' ? banner('gray','archive','Brownie\'s owner is archived','Liza Cruz was archived on Tue, Oct 27, so Brownie is hidden from walk-ins and online booking. Records and vaccinations are kept.') : '';
   const tag = kind === 'archived' ? pill('bg-gray-200 text-gray-800','archive','Archived') : kind === 'pending' ? pill('bg-yellow-100 text-yellow-900','clock','Deletion requested') : '';
-  const right = actionsCard(archived ? kind : 'active') + ownerCard(kind === 'ownerArchived');
+  const right = actionsCard(archived ? kind : (kind === 'pending' ? 'pending' : 'active')) + ownerCard(kind === 'ownerArchived');
   const left = infoCard(kind !== 'new') + visitsCard(has) + recordsCard(has, archived) + vaccCard(has, archived);
   return frame(head(archived, tag) + pre + grid(left, right), overlay);
 };
@@ -234,6 +235,21 @@ const dialogButtons = (ok, cls, icon) => `<div class="mt-6 flex flex-wrap justif
 const archiveDialog = dialogBox(`
   <h2 class="text-xl font-bold">Archive Brownie?</h2>
   <p class="mt-2 text-base text-gray-700">Liza Cruz asked to remove Brownie (reason: rehomed). Brownie will be hidden from their account and from walk-ins. Medical records and vaccinations are kept, and you can restore Brownie later.</p>
+  <div class="mt-4 flex items-start gap-3 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-base text-yellow-900">${ic('alert','mt-0.5 size-5 shrink-0')}<p><b>Brownie has a visit today at 2:00 PM.</b> Archiving doesn't cancel it. Cancel it on the appointment page if it won't happen.</p></div>
+  <p class="mt-3 flex items-start gap-2 text-sm text-gray-700">${ic('mail','mt-0.5 size-4 shrink-0')}<span>Liza Cruz gets a notification, and an email if they have one.</span></p>
+  ${dialogButtons('Yes, archive Brownie', BTN_DANGER, 'archive')}`);
+const directArchiveDialog = dialogBox(`
+  <h2 class="text-xl font-bold">Archive Brownie?</h2>
+  <p class="mt-2 text-base text-gray-700">Brownie will be hidden from Liza Cruz's account, the Pets list and walk-ins. Medical records and vaccinations are kept, and you can restore Brownie later.</p>
+  <div class="form-field mt-5">
+    <label class="mb-1.5 block text-base font-medium text-gray-800">Reason <span class="text-red-700">*</span></label>
+    <select class="${INPUT}"><option>Choose one</option><option selected>Passed away</option><option>Rehomed</option><option>Duplicate entry</option><option>Other</option></select>
+  </div>
+  <div class="form-field mt-4">
+    <label class="mb-1.5 block text-base font-medium text-gray-800">Details <span class="font-normal text-gray-600">(optional)</span></label>
+    <textarea class="${INPUT} min-h-20" placeholder="For example: Liza said he passed away last week."></textarea>
+    <p class="mt-1.5 text-sm text-gray-600">Needed when the reason is Other.</p>
+  </div>
   <div class="mt-4 flex items-start gap-3 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-base text-yellow-900">${ic('alert','mt-0.5 size-5 shrink-0')}<p><b>Brownie has a visit today at 2:00 PM.</b> Archiving doesn't cancel it. Cancel it on the appointment page if it won't happen.</p></div>
   <p class="mt-3 flex items-start gap-2 text-sm text-gray-700">${ic('mail','mt-0.5 size-4 shrink-0')}<span>Liza Cruz gets a notification, and an email if they have one.</span></p>
   ${dialogButtons('Yes, archive Brownie', BTN_DANGER, 'archive')}`);
@@ -261,9 +277,11 @@ const phoneView = () => `
 
 const states = [
   { id:'full', label:'1 · Active pet', html: page('active'),
-    caption:`<b>Pet detail.</b> Same frame and grid as the owner page. Header: back link, 64 px pet picture, name, and “Dog · Aspin · 3 yrs · Owner: Liza Cruz”. Right column (sticky): actions with <b>Book walk-in</b> as the one violet button, then Add medical record, Add vaccination, Edit details; below it an <b>Owner</b> card (name links to the owner page, phone, email). Left column: <b>Pet details</b> (two columns of label/value; empty ones say “Not given”), <b>Recent visits</b> (last 3), <b>Medical records</b> (last 3: date, diagnosis, a blue “Follow-up” pill; private notes are not shown here, only on the record), <b>Vaccinations</b> (last 3, with a yellow line when one is due within 30 days, and a “Corrected” pill). Each list links to its full page (the existing medical history and vaccination history pages). Today's page shows every record in full, with private notes; this keeps it short.` },
+    caption:`<b>Pet detail.</b> Same frame and grid as the owner page. New in v2: <b>Archive Brownie</b> at the bottom of the actions card (state 2b). Header: back link, 64 px pet picture, name, and “Dog · Aspin · 3 yrs · Owner: Liza Cruz”. Right column (sticky): actions with <b>Book walk-in</b> as the one violet button, then Add medical record, Add vaccination, Edit details; below it an <b>Owner</b> card (name links to the owner page, phone, email). Left column: <b>Pet details</b> (two columns of label/value; empty ones say “Not given”), <b>Recent visits</b> (last 3), <b>Medical records</b> (last 3: date, diagnosis, a blue “Follow-up” pill; private notes are not shown here, only on the record), <b>Vaccinations</b> (last 3, with a yellow line when one is due within 30 days, and a “Corrected” pill). Each list links to its full page (the existing medical history and vaccination history pages). Today's page shows every record in full, with private notes; this keeps it short.` },
   { id:'new', label:'2 · New pet, nothing yet', html: page('new'),
     caption:`<b>A pet with no visits, records or vaccinations.</b> Each card says so in one line; the “Add record” / “Add vaccination” buttons stay in the card headers and in the actions card.` },
+  { id:'directarchive', label:'2b · Dialog: archive (no request)', html: page('active', directArchiveDialog),
+    caption:`<b>New: Archive without an owner request</b> (for example the owner tells the vet at the counter that the pet passed away). The red-outline <b>Archive Brownie</b> sits at the bottom of the actions card, below a divider, like “Archive owner”. The dialog asks for the <b>Reason</b> (same list as owner requests) and optional <b>Details</b> (required for Other). Behind it, the app records an already-approved deletion request made by the clinic, so it shows in the Deletion requests history, and the owner gets the same notification. Same visit warning as the other archive dialogs. Hidden when a request is already waiting (state 3 answers that one instead), for archived pets, and when the owner is archived.` },
   { id:'pending', label:'3 · Deletion request waiting', html: page('pending'),
     caption:`<b>A deletion request is waiting.</b> Yellow tag next to the name, and a yellow banner with who asked, when and why, plus <b>Keep Brownie</b> and <b>Archive Brownie</b> right in the banner (same dialogs as the Deletion requests page). After answering you stay on this page.` },
   { id:'archive', label:'4 · Dialog: archive', html: page('pending', archiveDialog),

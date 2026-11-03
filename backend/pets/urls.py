@@ -117,6 +117,11 @@ urlpatterns = [
         name="admin_pet_edit",
     ),
     path(
+        "admin/pets/<int:pk>/archive/",
+        views.admin_pet_archive,
+        name="admin_pet_archive",
+    ),
+    path(
         "admin/pets/<int:pk>/restore/",
         views.admin_pet_restore,
         name="admin_pet_restore",

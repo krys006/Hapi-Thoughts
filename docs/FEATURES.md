@@ -153,13 +153,14 @@ Phase 7 — Dashboards & Polish
 | Restore archived pet owner account (asks first) | `complete` |
 | View all registered pets (tabs Active / Archived / Deletion requests, with counts; a pet of an archived owner is on Archived; split rows: the pet with its tags, then the owner with a link and phone number; 25 per page) | `complete` |
 | Search and filter pets (every word matches pet name, species, breed or owner name; filter by owner) | `complete` |
-| View individual pet profile | `complete` |
+| View individual pet profile: pet details, the 3 most recent visits, medical records and vaccinations (each with a link to the full list; no private notes), a yellow line when a vaccination is due within 30 days, the owner, and banners for a waiting deletion request (answer it right there), an archived pet or an archived owner | `complete` |
+| Archive a pet directly with a reason (recorded in the deletion history; owner notified) | `complete` |
 | Add a pet manually | `complete` |
 | Edit pet details | `complete` |
 | Approve pet deletion request ("Archive {pet}" on the Deletion requests tab, asks first) | `complete` |
 | Reject pet deletion request ("Keep {pet}", asks first); answered requests listed below, newest first, as Archived or Kept | `complete` |
 | Owner is notified (in the app, and by email if they have one) when a deletion request is approved or rejected | `complete` |
-| Restore an archived pet from the Archived tab of the Pets list (asks first; only while its owner is active; a pet of an archived owner comes back with the owner) | `complete` |
+| Restore an archived pet from the Archived tab of the Pets list or the pet's page (asks first; only while its owner is active; a pet of an archived owner comes back with the owner) | `complete` |
 | Archived pets and pets of archived owners can't be edited or get new medical records or vaccinations | `complete` |
 
 ### 2.5 Walk-in Client Flow

@@ -111,7 +111,7 @@ Never use per-app template folders.
 - `base_dashboard.html` is the base for logged-in owner pages (header,
   bell, sidebar, flash messages). No admin page uses it.
 - `layouts/admin.html` is the base for every admin page (see §10). Pages
-  not redesigned yet (e.g. `admin/pets/pet_detail.html`) import their old
+  not redesigned yet (e.g. `admin/billing/receipt_detail.html`) import their old
   `static/css/admin/` file in the `legacy_css` block, inside the `legacy`
   cascade layer.
 - `layouts/auth.html` is the base for the admin login: a standalone card
@@ -237,7 +237,8 @@ templates/
 │   │   │   ├── account_card.html     ← one message per account_state
 │   │   │   ├── archive_dialog.html
 │   │   │   ├── restore_dialog.html
-│   │   │   └── resend_dialog.html
+│   │   │   ├── resend_dialog.html
+│   │   │   └── visit_warning.html    ← yellow "has a visit …" box; also used by the pet page's archive dialogs
 │   │   ├── owner_form.html           ← Add owner and Edit details (one form, AdminPetOwnerForm)
 │   │   ├── owner_form_parts/         ← Includes for owner_form.html (not HTMX partials, so no `_`; header and buttons also used by owner_add_email.html)
 │   │   │   ├── header.html           ← back link (owner page or list), title, subtitle
@@ -260,14 +261,27 @@ templates/
 │   │   │   ├── restore_dialog.html   ← one per restorable row (archived pet, active owner)
 │   │   │   └── empty.html
 │   │   ├── pet_detail.html
+│   │   ├── pet_detail_parts/         ← Includes for pet_detail.html (not HTMX partials, so no `_`; the waiting request's Keep / Archive dialogs are deletion_requests_parts/ with return_to="pet")
+│   │   │   ├── header.html           ← back link, pet_avatar lg, name + Archived / Deletion requested tags, "Species · Breed · age · Owner"
+│   │   │   ├── deletion_banner.html  ← yellow banner for the waiting request, with Keep / Archive
+│   │   │   ├── archived_banner.html  ← "after {owner} asked" or "by the clinic"
+│   │   │   ├── owner_archived_banner.html
+│   │   │   ├── info_card.html        ← "Pet details" <dl>
+│   │   │   ├── visits_card.html      ← 3 recent visits + "See all visits for …"
+│   │   │   ├── records_card.html     ← 3 recent records + full history link (never private notes)
+│   │   │   ├── vaccinations_card.html ← due-soon line, 3 recent vaccinations + full list link
+│   │   │   ├── actions_card.html     ← per pet_state: Book walk-in… / Restore / owner hint
+│   │   │   ├── owner_card.html
+│   │   │   ├── archive_dialog.html   ← direct Archive with Reason + Details (admin_pet_archive)
+│   │   │   └── restore_dialog.html
 │   │   ├── pet_form.html
 │   │   ├── deletion_requests.html
 │   │   └── deletion_requests_parts/  ← Includes for deletion_requests.html (not HTMX partials, so no `_`; dialogs reuse appointments' detail_parts/dialog_buttons.html)
 │   │       ├── intro.html
 │   │       ├── request_card.html     ← one waiting request + Keep / Archive buttons
-│   │       ├── archive_dialog.html   ← one per waiting request (approve URL, return_to=requests)
-│   │       ├── keep_dialog.html      ← one per waiting request (reject URL, return_to=requests)
-│   │       └── history_row.html      ← answered request: Archived / Kept pill
+│   │       ├── archive_dialog.html   ← one per waiting request (approve URL; return_to="requests" here, "pet" on the pet page, which adds the visit warning)
+│   │       ├── keep_dialog.html      ← one per waiting request (reject URL; return_to="requests" or "pet")
+│   │       └── history_row.html      ← answered request: Archived / Kept pill, "By the clinic" for a direct archive
 │   ├── medical/
 │   │   ├── record_list.html
 │   │   ├── record_detail.html
@@ -372,8 +386,8 @@ static/
 > (Slice 4a-2), `css/admin/owner_detail.css` (Slice 4a-3), `css/admin/owner_form.css`
 > (Slice 4a-4; added: `js/admin/owner_form.js`), `js/admin/pets_list.js`,
 > `css/admin/pets_list.css`, `js/admin/deletion_requests.js` and
-> `css/admin/deletion_requests.css` (Slice 4b-2; `css/admin/pet_detail.css`
-> stays for `pet_detail.html` until 4b-3). Other old files still
+> `css/admin/deletion_requests.css` (Slice 4b-2), `css/admin/pet_detail.css`
+> (Slice 4b-3). Other old files still
 > mention them in comments; those comments go when their own pages migrate.
 
 ### Media files (user uploads)
@@ -443,6 +457,7 @@ urlpatterns = [
 /admin/settings/                ← appointments (clinic settings)
 /admin/pets/  /admin/pets/owners/  ← pets
 /admin/pets/owners/<pk>/resend-link/  ← pets (POST: send the set-password link again)
+/admin/pets/<pk>/archive/       ← pets (POST: archive a pet directly with a reason, name admin_pet_archive)
 /admin/pets/<pk>/restore/       ← pets (POST: restore an archived pet, name admin_pet_restore)
 /admin/pets/address/barangays/  ← pets (HTMX: Barangay options for ?town=, name admin_address_barangays)
 /admin/medical/  /admin/vaccinations/  ← medical

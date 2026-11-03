@@ -17,6 +17,7 @@ from django.utils import timezone
 
 from .forms import (
     AdminOwnerEmailForm,
+    AdminPetArchiveForm,
     AdminPetForm,
     AdminPetOwnerForm,
     ContactLinkFormSet,
@@ -33,6 +34,7 @@ from .models import (
 
 from .utils import (
     answer_deletion_request,
+    archive_pet_directly,
     archived_pet_refusal,
     barangay_choices,
     create_owner,
@@ -42,6 +44,7 @@ from .utils import (
     owner_detail_context,
     owner_list_context,
     pet_detail_context,
+    pet_archive_refusal,
     pet_list_context,
     pet_restore_refusal,
 )
@@ -1026,6 +1029,29 @@ def admin_pet_list(request):
 # ---------------------------------------------------------------------------
 
 
+def _render_pet_detail(request, pet, archive_form=None):
+    """
+    The pet page. Shared by admin_pet_detail and admin_pet_archive, which
+    passes its bound form so the archive dialog reopens with the errors.
+    """
+    return render(
+        request,
+        "admin/pets/pet_detail.html",
+        {
+            "pet": pet,
+            # Old keys (every record / vaccination); lazy, so unused ones cost nothing
+            "medical_records": MedicalRecord.objects.filter(pet=pet).order_by(
+                "-record_date"
+            ),
+            "vaccinations": Vaccination.objects.filter(pet=pet).order_by(
+                "-date_administered"
+            ),
+            "archive_form": archive_form or AdminPetArchiveForm(),
+            **pet_detail_context(pet, timezone.localdate()),
+        },
+    )
+
+
 @login_required
 def admin_pet_detail(request, pk):
     guard = _require_admin(request)
@@ -1033,31 +1059,51 @@ def admin_pet_detail(request, pk):
         return guard
 
     pet = get_object_or_404(Pet.objects.select_related("owner", "owner__user"), pk=pk)
+    return _render_pet_detail(request, pet)
 
-    pending_deletion = PetDeletionRequest.objects.filter(
-        pet=pet,
-        status=PetDeletionRequest.PENDING,
-    ).first()
 
-    medical_records = MedicalRecord.objects.filter(
-        pet=pet,
-    ).order_by("-record_date")
+# ---------------------------------------------------------------------------
+# Admin — Archive Pet (no owner request)
+# ---------------------------------------------------------------------------
 
-    vaccinations = Vaccination.objects.filter(
-        pet=pet,
-    ).order_by("-date_administered")
 
-    return render(
-        request,
-        "admin/pets/pet_detail.html",
-        {
-            "pet": pet,
-            "pending_deletion": pending_deletion,
-            "medical_records": medical_records,
-            "vaccinations": vaccinations,
-            **pet_detail_context(pet, timezone.localdate()),
-        },
+@login_required
+def admin_pet_archive(request, pk):
+    """
+    Archives a pet directly, with a reason (e.g. the owner said at the
+    counter that the pet passed away). Saved as an already-approved
+    PetDeletionRequest made by the clinic. POST only; a bad form reopens
+    the dialog on the pet page.
+
+    URL: /admin/pets/<pk>/archive/
+    """
+    guard = _require_admin(request)
+    if guard:
+        return guard
+
+    pet = get_object_or_404(Pet.objects.select_related("owner", "owner__user"), pk=pk)
+    if request.method != "POST":
+        return redirect("admin_pet_detail", pk=pet.pk)
+
+    refusal = pet_archive_refusal(pet)
+    if refusal:
+        messages.error(request, refusal)
+        return redirect("admin_pet_detail", pk=pet.pk)
+
+    form = AdminPetArchiveForm(request.POST)
+    if not form.is_valid():
+        return _render_pet_detail(request, pet, archive_form=form)
+
+    archive_pet_directly(
+        pet,
+        request.user,
+        form.cleaned_data["reason"],
+        form.cleaned_data["reason_detail"],
     )
+    messages.success(
+        request, f"Archived {pet.name}. {pet.owner.full_name} was notified."
+    )
+    return redirect("admin_pet_detail", pk=pet.pk)
 
 
 # ---------------------------------------------------------------------------

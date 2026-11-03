@@ -1,0 +1,38 @@
+{% load pet_display %}
+{% comment %}
+  "Pet details": label above value, two columns from sm, one below.
+  Missing values in gray ("Not given"; "None" for Registration no.).
+{% endcomment %}
+<section class="card" aria-labelledby="info-title">
+  <h2 id="info-title" class="mb-2 text-xl font-semibold">Pet details</h2>
+  <dl class="grid grid-cols-1 gap-x-8 sm:grid-cols-2">
+    <div class="border-b border-gray-100 py-3">
+      <dt class="text-sm text-gray-600">Species</dt>
+      <dd class="text-base text-gray-900">{{ pet.species }}</dd>
+    </div>
+    <div class="border-b border-gray-100 py-3">
+      <dt class="text-sm text-gray-600">Breed</dt>
+      <dd class="text-base text-gray-900">{% if pet.breed %}{{ pet.breed }}{% else %}<span class="text-gray-600">Not given</span>{% endif %}</dd>
+    </div>
+    <div class="border-b border-gray-100 py-3">
+      <dt class="text-sm text-gray-600">Sex</dt>
+      <dd class="text-base text-gray-900">{% if pet.gender == "unknown" %}<span class="text-gray-600">Unknown</span>{% else %}{{ pet.get_gender_display }}{% endif %}</dd>
+    </div>
+    <div class="border-b border-gray-100 py-3">
+      <dt class="text-sm text-gray-600">Born</dt>
+      <dd class="text-base text-gray-900">{% if pet.date_of_birth %}{{ pet.date_of_birth|date:"M j, Y" }} · {{ pet.age }}{% else %}<span class="text-gray-600">Not given</span>{% endif %}</dd>
+    </div>
+    <div class="border-b border-gray-100 py-3">
+      <dt class="text-sm text-gray-600">Color</dt>
+      <dd class="text-base text-gray-900">{% if pet.color %}{{ pet.color }}{% else %}<span class="text-gray-600">Not given</span>{% endif %}</dd>
+    </div>
+    <div class="border-b border-gray-100 py-3">
+      <dt class="text-sm text-gray-600">Weight</dt>
+      <dd class="text-base text-gray-900">{% if pet.weight is not None %}{{ pet.weight|weight_kg }} kg{% else %}<span class="text-gray-600">Not given</span>{% endif %}</dd>
+    </div>
+    <div class="border-b border-gray-100 py-3">
+      <dt class="text-sm text-gray-600">Registration no.</dt>
+      <dd class="text-base text-gray-900 wrap-anywhere">{% if pet.registration_number %}{{ pet.registration_number }}{% else %}<span class="text-gray-600">None</span>{% endif %}</dd>
+    </div>
+  </dl>
+</section>
