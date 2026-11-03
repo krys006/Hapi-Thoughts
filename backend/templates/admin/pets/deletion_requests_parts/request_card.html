@@ -1,0 +1,28 @@
+{% load friendly_dates %}
+{% comment %}
+  One waiting request: the pet, who asked and when, the reason (plus the
+  owner's own words when given), a link to the pet, and Keep / Archive,
+  which open their dialogs. From sm the buttons sit in a column on the
+  right; below sm they are full width.
+{% endcomment %}
+<li class="flex flex-wrap items-start gap-4 border-t border-gray-100 px-5 py-5 first:border-t-0">
+  {% include "components/pet_avatar.html" with pet=deletion_request.pet size="sm" %}
+  <div class="min-w-0 flex-1">
+    <p class="text-lg font-semibold text-gray-900">{{ deletion_request.pet.name }} <span class="text-base font-normal text-gray-700">· {{ deletion_request.pet.species }}{% if deletion_request.pet.breed %} · {{ deletion_request.pet.breed }}{% endif %}</span></p>
+    <p class="text-base text-gray-800">Asked by <a href="{% url 'admin_owner_detail' deletion_request.pet.owner.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ deletion_request.pet.owner.full_name }}</a> · {{ deletion_request.created_at|friendly_datetime }}</p>
+    <p class="mt-1 text-base text-gray-800"><span class="text-gray-600">Reason:</span> <b class="font-semibold">{{ deletion_request.get_reason_display }}</b></p>
+    {% if deletion_request.reason_detail %}
+      <p class="mt-1 rounded-lg bg-gray-50 px-3 py-2 text-base text-gray-800">“{{ deletion_request.reason_detail }}”</p>
+    {% endif %}
+    <p class="mt-2"><a href="{% url 'admin_pet_detail' deletion_request.pet.pk %}" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="arrow-right" %}Open {{ deletion_request.pet.name }}'s page</a></p>
+  </div>
+  <div class="flex w-full flex-col gap-2 sm:w-auto">
+    <button type="button" class="btn btn-outline min-h-12 font-semibold" data-dialog-open="keep-dialog-{{ deletion_request.pk }}">{% include "components/icon.html" with name="check" %}Keep {{ deletion_request.pet.name }}</button>
+    {# Archive is refused while the owner is archived, so a hint replaces the button #}
+    {% if deletion_request.pet.owner.is_archived %}
+      <p class="flex items-start gap-2 text-sm text-gray-700 sm:max-w-xs">{% include "components/icon.html" with name="info" class="mt-0.5 size-4 shrink-0" %}<span><a href="{% url 'admin_owner_detail' deletion_request.pet.owner.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ deletion_request.pet.owner.full_name }}</a> is archived. Restore {{ deletion_request.pet.owner.full_name }} first to archive {{ deletion_request.pet.name }}.</span></p>
+    {% else %}
+      <button type="button" class="btn min-h-12 border border-red-300 bg-white font-semibold text-red-700 hover:bg-red-50" data-dialog-open="archive-dialog-{{ deletion_request.pk }}">{% include "components/icon.html" with name="archive" %}Archive {{ deletion_request.pet.name }}</button>
+    {% endif %}
+  </div>
+</li>

@@ -357,12 +357,21 @@ def deletion_requests_context(params):
         .order_by(F("reviewed_at").desc(nulls_last=True), "-pk")
     )
     page_obj = Paginator(resolved, REQUEST_PAGE_SIZE).get_page(params.get("page"))
+    # The page shares the pets list's tabs, so it needs their counts too
+    tab_counts = Pet.objects.aggregate(
+        active_count=Count("pk", filter=~ARCHIVED_PET),
+        archived_count=Count("pk", filter=ARCHIVED_PET),
+    )
     return {
         "pending": pending,
         "pending_count": len(pending),
         "page_obj": page_obj,
         "resolved": page_obj.object_list,
         **paging_links(page_obj, ""),
+        "active_tab": "requests",
+        "q": "",
+        **tab_counts,
+        "pending_requests_count": len(pending),
     }
 
 

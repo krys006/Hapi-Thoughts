@@ -1,0 +1,14 @@
+{% comment %}
+  Active / Archived / Deletion requests, same classes as the owners list's
+  tabs. Active and Archived keep the search and the owner filter (their
+  counts follow it) and drop the page; Deletion requests is its own page.
+  Its count is yellow while requests wait. active_tab is "active",
+  "archived" or "requests".
+{% endcomment %}
+<nav class="mb-4 flex flex-wrap gap-2" aria-label="Pets sections">
+  {% with keep_q=q|urlencode %}
+    <a href="{% url 'admin_pet_list' %}?status=active{% if q %}&amp;q={{ keep_q }}{% endif %}{% if owner_filter %}&amp;owner={{ owner_filter.pk }}{% endif %}" class="{% if active_tab == 'active' %}inline-flex min-h-12 items-center gap-2 rounded-lg bg-violet-50 px-4 text-base font-semibold text-violet-800 ring-2 ring-violet-600{% else %}inline-flex min-h-12 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800 hover:bg-gray-50{% endif %}"{% if active_tab == "active" %} aria-current="page"{% endif %}>Active<span class="rounded-full {% if active_tab == 'active' %}bg-violet-100 text-violet-800{% else %}bg-gray-100 text-gray-800{% endif %} px-2 text-sm font-semibold">{{ active_count }}</span></a>
+    <a href="{% url 'admin_pet_list' %}?status=archived{% if q %}&amp;q={{ keep_q }}{% endif %}{% if owner_filter %}&amp;owner={{ owner_filter.pk }}{% endif %}" class="{% if active_tab == 'archived' %}inline-flex min-h-12 items-center gap-2 rounded-lg bg-violet-50 px-4 text-base font-semibold text-violet-800 ring-2 ring-violet-600{% else %}inline-flex min-h-12 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800 hover:bg-gray-50{% endif %}"{% if active_tab == "archived" %} aria-current="page"{% endif %}>Archived<span class="rounded-full {% if active_tab == 'archived' %}bg-violet-100 text-violet-800{% else %}bg-gray-100 text-gray-800{% endif %} px-2 text-sm font-semibold">{{ archived_count }}</span></a>
+  {% endwith %}
+  <a href="{% url 'admin_deletion_requests' %}" class="{% if active_tab == 'requests' %}inline-flex min-h-12 items-center gap-2 rounded-lg bg-violet-50 px-4 text-base font-semibold text-violet-800 ring-2 ring-violet-600{% else %}inline-flex min-h-12 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800 hover:bg-gray-50{% endif %}"{% if active_tab == "requests" %} aria-current="page"{% endif %}>Deletion requests<span class="rounded-full {% if pending_requests_count %}bg-yellow-200 text-yellow-900{% elif active_tab == 'requests' %}bg-violet-100 text-violet-800{% else %}bg-gray-100 text-gray-800{% endif %} px-2 text-sm font-semibold">{{ pending_requests_count }}{% if pending_requests_count %}<span class="sr-only"> waiting</span>{% endif %}</span></a>
+</nav>

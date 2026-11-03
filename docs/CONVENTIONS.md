@@ -249,9 +249,25 @@ templates/
 │   │   ├── _barangay_options.html    ← HTMX: a town's Barangay <option> list (placeholder first)
 │   │   ├── owner_add_email.html
 │   │   ├── pets_list.html
+│   │   ├── pets_list_parts/          ← Includes for pets_list.html and deletion_requests.html (not HTMX partials, so no `_`; the pager is appointments' list_parts/pager.html; replaced `_pets_tabs.html`, deleted in Slice 4b-2)
+│   │   │   ├── search_form.html      ← search (q, + status on Archived, + owner while filtering); top bar md+, page body on phones
+│   │   │   ├── tabs.html             ← Active / Archived / Deletion requests with counts (yellow pill while requests wait)
+│   │   │   ├── list_head.html        ← "Active pets (N)" / "Archived pets (N)" + "A to Z by pet name"
+│   │   │   ├── results_line.html     ← "N pets match “q” in active pets" + Clear search
+│   │   │   ├── owner_filter.html     ← ?owner=: "Showing the pets of {name} (N)" + Show all pets
+│   │   │   ├── archived_note.html    ← gray note on the Archived tab
+│   │   │   ├── row.html              ← split row: pet | divider | owner | Open (+ Restore)
+│   │   │   ├── restore_dialog.html   ← one per restorable row (archived pet, active owner)
+│   │   │   └── empty.html
 │   │   ├── pet_detail.html
 │   │   ├── pet_form.html
-│   │   └── deletion_requests.html
+│   │   ├── deletion_requests.html
+│   │   └── deletion_requests_parts/  ← Includes for deletion_requests.html (not HTMX partials, so no `_`; dialogs reuse appointments' detail_parts/dialog_buttons.html)
+│   │       ├── intro.html
+│   │       ├── request_card.html     ← one waiting request + Keep / Archive buttons
+│   │       ├── archive_dialog.html   ← one per waiting request (approve URL, return_to=requests)
+│   │       ├── keep_dialog.html      ← one per waiting request (reject URL, return_to=requests)
+│   │       └── history_row.html      ← answered request: Archived / Kept pill
 │   ├── medical/
 │   │   ├── record_list.html
 │   │   ├── record_detail.html
@@ -354,7 +370,10 @@ static/
 > and `js/admin/appointments_list.js` (Slice 3b B5), `css/admin/walkin_create.css`
 > (Slice 3c-2), `js/admin/owners_list.js` and `css/admin/owners_list.css`
 > (Slice 4a-2), `css/admin/owner_detail.css` (Slice 4a-3), `css/admin/owner_form.css`
-> (Slice 4a-4; added: `js/admin/owner_form.js`). Other old files still
+> (Slice 4a-4; added: `js/admin/owner_form.js`), `js/admin/pets_list.js`,
+> `css/admin/pets_list.css`, `js/admin/deletion_requests.js` and
+> `css/admin/deletion_requests.css` (Slice 4b-2; `css/admin/pet_detail.css`
+> stays for `pet_detail.html` until 4b-3). Other old files still
 > mention them in comments; those comments go when their own pages migrate.
 
 ### Media files (user uploads)
@@ -648,7 +667,7 @@ class AppointmentBookingForm(forms.ModelForm):
 ### Four base templates
 | Base | Used by | What it provides |
 |---|---|---|
-| `layouts/admin.html` | Every admin page: redesigned ones (e.g. `admin/dashboard/index.html`) and ones not redesigned yet, which add their old CSS in `legacy_css` (e.g. `admin/billing/receipt_detail.html`) | Sidebar with count badges and logout, top bar with search ("Find a pet or owner"; the appointments and pet owners lists put their own search there) and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/admin/dialogs.js`, `static/js/admin/auto_submit.js`, CSRF + `X-Admin-Layout` via `hx-headers`, confirm modal |
+| `layouts/admin.html` | Every admin page: redesigned ones (e.g. `admin/dashboard/index.html`) and ones not redesigned yet, which add their old CSS in `legacy_css` (e.g. `admin/billing/receipt_detail.html`) | Sidebar with count badges and logout, top bar with search ("Find a pet or owner"; the appointments, pet owners and pets lists and the deletion requests page put their own search there) and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/admin/dialogs.js`, `static/js/admin/auto_submit.js`, CSRF + `X-Admin-Layout` via `hx-headers`, confirm modal |
 | `layouts/auth.html` | `admin/login.html` | Admin login: standalone card on a violet background, `app.css`, no HTMX |
 | `base_dashboard.html` | Logged-in owner pages (e.g. `owner/pets/list.html`; `shared/clinic_info.html` for owners, which gets its base from the view) | Header with search and bell, role-based sidebar, flash messages, Tailwind + HTMX, CSRF header for HTMX, confirm modal |
 | `base.html` | Standalone auth pages (e.g. `owner/login.html`, `owner/register.html`, password reset, `owner/onboarding/step1.html`) | Bare page with Tailwind + HTMX, no header or sidebar |
@@ -672,7 +691,8 @@ Migrated pages never loop over `messages` (the layout includes
 {% block extra_head %}{% endblock %}  ← extra tags in <head>
 {% block topbar_search %}…{% endblock %} ← global search in the top bar; a page
                                          with its own search overrides it
-                                         (appointments and owners lists) or empties it
+                                         (appointments, owners and pets lists,
+                                         deletion requests) or empties it
                                          (walk-in step 1)
 {% block page_header %}               ← default header, wraps the three below
   {% block page_title %}{% endblock %}

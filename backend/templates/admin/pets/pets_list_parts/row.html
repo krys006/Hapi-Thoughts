@@ -1,0 +1,49 @@
+{% load friendly_dates %}
+{% comment %}
+  One pet, split in two: the pet (avatar, name, tags, "Species · Breed ·
+  age" with empty parts left out), a thin divider, the owner (avatar, link,
+  phone), then the buttons. From md up a 4-column grid; below md it stacks,
+  the owner sits in a gray box and Open is full width. Restore only for a
+  pet archived on its own (an archived owner's pets come back with them).
+{% endcomment %}
+<li class="flex flex-col gap-3 border-t border-gray-100 p-4 first:border-t-0 hover:bg-gray-50 md:grid md:grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)_auto] md:items-center md:gap-5 md:px-5">
+  <div class="flex min-w-0 items-start gap-3 md:items-center md:gap-4">
+    {% if pet.is_archived or pet.owner.is_archived %}
+      {% include "components/pet_avatar.html" with pet=pet size="sm" muted=True %}
+    {% else %}
+      {% include "components/pet_avatar.html" with pet=pet size="sm" %}
+    {% endif %}
+    <div class="min-w-0">
+      <p class="flex flex-wrap items-center gap-2 text-lg font-semibold text-gray-900">
+        {{ pet.name }}
+        {% if pet.has_pending_deletion %}
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-yellow-100 px-2.5 py-1 text-sm font-medium text-yellow-900">{% include "components/icon.html" with name="clock" class="size-4 shrink-0" %}Deletion requested</span>
+        {% endif %}
+        {% if pet.is_archived %}
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1 text-sm font-medium text-gray-800">{% include "components/icon.html" with name="archive" class="size-4 shrink-0" %}Archived {{ pet.archived_at|friendly_date:"mid" }}</span>
+        {% elif pet.owner.is_archived %}
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1 text-sm font-medium text-gray-800">{% include "components/icon.html" with name="archive" class="size-4 shrink-0" %}Owner archived</span>
+        {% endif %}
+      </p>
+      <p class="text-base text-gray-700">{{ pet.species }}{% if pet.breed %} · {{ pet.breed }}{% endif %}{% if pet.date_of_birth %} · {{ pet.age }}{% endif %}</p>
+    </div>
+  </div>
+
+  <span class="hidden h-10 w-px bg-gray-200 md:block" aria-hidden="true"></span>
+
+  <div class="flex min-w-0 items-center gap-3 rounded-lg bg-gray-50 px-3 py-2 md:rounded-none md:bg-transparent md:p-0">
+    {% include "components/owner_avatar.html" with owner=pet.owner size="sm" muted=pet.owner.is_archived %}
+    <div class="min-w-0">
+      <p class="text-sm text-gray-600">Owner</p>
+      <p class="truncate text-base"><a href="{% url 'admin_owner_detail' pet.owner.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ pet.owner.full_name }}</a></p>
+      <p class="text-sm text-gray-700"><span class="sr-only">Phone: </span>{% if pet.owner.contact_number %}{{ pet.owner.contact_number }}{% else %}<span class="text-gray-600">No phone number</span>{% endif %}</p>
+    </div>
+  </div>
+
+  <div class="flex flex-col gap-2 sm:flex-row md:justify-end">
+    {% if pet.is_archived and not pet.owner.is_archived %}
+      <button type="button" class="btn btn-outline w-full font-semibold sm:w-auto" data-dialog-open="restore-dialog-{{ pet.pk }}">{% include "components/icon.html" with name="rotate-ccw" %}Restore<span class="sr-only"> {{ pet.name }}</span></button>
+    {% endif %}
+    <a href="{% url 'admin_pet_detail' pet.pk %}" class="inline-flex min-h-11 w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-violet-300 bg-violet-50 px-5 text-base font-semibold text-violet-800 hover:border-violet-400 hover:bg-violet-100 sm:w-auto">Open<span class="sr-only"> {{ pet.name }}</span>{% include "components/icon.html" with name="arrow-right" %}</a>
+  </div>
+</li>
