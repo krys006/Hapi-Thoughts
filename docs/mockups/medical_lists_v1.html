@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Medical lists v1</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif; }
+</style>
+</head>
+<body class="bg-gray-200 text-gray-900 antialiased">
+<header class="sticky top-0 z-30 border-b border-gray-300 bg-white/95 px-6 py-3 backdrop-blur">
+  <p class="mb-2 text-sm font-semibold text-gray-700">Slice 5 · Vaccinations list + Medical records list v1 · frame copied from layouts/admin.html · today is Tue, Nov 3, 2026 · pick a state</p>
+  <div id="switcher" class="flex flex-wrap gap-2"></div>
+</header>
+<div class="overflow-x-auto p-6">
+  <div id="caption" class="mb-4 max-w-[1280px] rounded-xl border border-violet-200 bg-violet-50 p-4 text-base text-gray-800"></div>
+  <div id="stage"></div>
+  <p class="mt-3 text-sm text-gray-600">Desktop frame is 1280 px wide: a 1920×1080 screen at 150% zoom. The grey picture tile stands in for an uploaded pet photo.</p>
+</div>
+<script>
+// ---------- Icons (Lucide 1.66 shapes, copied from the Slice 4 mockups) ----------
+const P = {
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  house:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  fileText:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  syringe:'<path d="m18 2 4 4"/><path d="m17 7 3-3"/><path d="M19 9 8.7 19.3c-1 1-2.5 1-3.4 0l-.6-.6c-1-1-1-2.5 0-3.4L15 5"/><path d="m9 11 4 4"/><path d="m5 19-3 3"/><path d="m14 4 6 6"/>',
+  bookOpen:'<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  settings:'<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+  logout:'<path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>',
+  search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  arrowRight:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  pencil:'<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
+  mail:'<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
+  phone:'<path d="M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384"/>',
+  send:'<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>',
+  circleCheck:'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  menu:'<path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/>',
+  x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  chevronLeft:'<path d="m15 18-6-6 6-6"/>',
+  chevronRight:'<path d="m9 18 6-6-6-6"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  image:'<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+  rabbit:'<path d="M13 16a3 3 0 0 1 2.24 5"/><path d="M18 12h.01"/><path d="M18 21h-8a4 4 0 0 1-4-4 7 7 0 0 1 7-7h.2L9.6 6.4a1 1 0 1 1 2.8-2.8L15.8 7h.2c3.3 0 6 2.7 6 6v1a2 2 0 0 1-2 2h-1a3 3 0 0 0-3 3"/><path d="M20 8.54V4a2 2 0 1 0-4 0v3"/><path d="M7.612 12.524a3 3 0 1 0-1.6 4.3"/>',
+  dog:'<path d="M11.25 16.25h1.5L12 17z"/><path d="M16 14v.5"/><path d="M4.42 11.247A13.152 13.152 0 0 0 4 14.556C4 18.728 7.582 21 12 21s8-2.272 8-6.444a11.702 11.702 0 0 0-.493-3.309"/><path d="M8 14v.5"/><path d="M8.5 8.5c-.384 1.05-1.083 2.028-2.344 2.5-1.931.722-3.576-.297-3.656-1-.113-.994 1.177-6.53 4-7 1.923-.321 3.651.845 3.651 2.235A7.497 7.497 0 0 1 14 5.277c0-1.39 1.844-2.598 3.767-2.277 2.823.47 4.113 6.006 4 7-.08.703-1.725 1.722-3.656 1-1.261-.472-1.855-1.45-2.239-2.5"/>',
+  cat:'<path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z"/><path d="M8 14v.5"/><path d="M16 14v.5"/><path d="M11.25 16.25h1.5L12 17l-.75-.75Z"/>'
+};
+const ic = (n, c = 'size-5 shrink-0', s = 2) =>
+  `<svg class="${c}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${s}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// ---------- Shared classes, copied from assets/tailwind/input.css ----------
+const BTN = 'inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-base font-medium whitespace-nowrap transition-colors';
+const BTN_PRIMARY = `${BTN} bg-violet-600 text-white hover:bg-violet-700`;
+const BTN_OUTLINE = `${BTN} border border-gray-300 bg-white text-gray-800 hover:bg-gray-50`;
+const INPUT = 'block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-base text-gray-900 placeholder:text-gray-500';
+
+// ---------- Frame ----------
+const navLink = (icon, label, active = false, count = 0) =>
+  `<a class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base ${active ? 'bg-white font-semibold text-violet-800 shadow-sm ring-1 ring-violet-200' : 'text-gray-800 hover:bg-violet-200/70'}">${ic(icon)}<span class="flex-1">${label}</span>${count ? `<span class="rounded-full bg-violet-600 px-2 text-sm font-semibold text-white">${count}</span>` : ''}</a>`;
+const sidebar = active => `
+<aside class="flex w-56 shrink-0 flex-col border-r border-violet-200 bg-violet-100">
+  <div class="flex h-16 shrink-0 items-center gap-3 px-5">
+    <a class="-mx-2 flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-lg px-2 hover:bg-violet-200/60">
+      <span class="grid size-10 shrink-0 place-content-center rounded-lg bg-gradient-to-br from-amber-300 to-amber-700 text-white">${ic('image')}</span>
+      <div class="min-w-0 flex-1"><p class="line-clamp-2 text-base font-semibold leading-5 text-gray-900">Hapi Tutz Vet. Supplies</p></div>
+    </a>
+  </div>
+  <nav class="flex-1 space-y-1 px-3 py-2">
+    <p class="px-3 pb-1 pt-1 text-sm font-semibold text-violet-800">Daily work</p>
+    ${navLink('house','Dashboard')}${navLink('calendar','Appointments',false,2)}${navLink('users','Pet owners')}${navLink('paw','Pets',false,2)}
+    <p class="px-3 pb-1 pt-5 text-sm font-semibold text-violet-800">Records</p>
+    ${navLink('fileText','Medical records',active==='records')}${navLink('syringe','Vaccinations',active==='vacc')}${navLink('bookOpen','Health library')}
+    <p class="px-3 pb-1 pt-5 text-sm font-semibold text-violet-800">Clinic</p>
+    ${navLink('receipt','Billing')}${navLink('settings','Clinic settings')}
+  </nav>
+  <div class="border-t border-violet-200 px-3 py-3">
+    <a class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base text-gray-800 hover:bg-violet-200/70">${ic('logout')}Log out</a>
+  </div>
+</aside>`;
+const searchForm = (label, placeholder, q, formClass) => `
+<form class="${formClass}" role="search" onsubmit="return false">
+  <label class="sr-only">${label}</label>
+  <div class="relative w-full min-w-0 max-w-[30rem]">
+    <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-600">${ic('search')}</span>
+    <input type="search" value="${q}" placeholder="${placeholder}" class="${INPUT} pl-10">
+  </div>
+  <button type="button" class="${BTN_OUTLINE} font-semibold">${ic('search')}Search</button>
+</form>`;
+const VSEARCH = ['Search vaccinations', 'Search vaccinations: pet, owner or vaccine'];
+const RSEARCH = ['Search medical records', 'Search records: pet, owner or diagnosis'];
+const frame = (active, body, overlay = '', q = '') => {
+  const s = active === 'vacc' ? VSEARCH : RSEARCH;
+  return `
+<div class="relative flex min-h-[800px] w-[1280px] overflow-hidden rounded-xl border border-gray-300 bg-gray-50 shadow-sm">
+  ${sidebar(active)}
+  <div class="min-w-0 flex-1">
+    <header class="flex h-16 shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-8">
+      ${searchForm(s[0], s[1], q, 'flex min-w-0 flex-1 items-center gap-3')}
+      <div class="relative ml-auto"><span class="${BTN_OUTLINE}">${ic('bell')}<span>Notifications</span><span class="rounded-full bg-red-600 px-2 text-sm font-semibold text-white">1 new</span></span></div>
+    </header>
+    <main class="px-8 py-6">${body}</main>
+  </div>
+  ${overlay}
+</div>`;
+};
+
+// ---------- Pieces ----------
+const link = (t, i = '') => `<a class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">${i ? ic(i) : ''}${t}</a>`;
+const pageHeader = (title, subtitle) => `<div class="mb-6"><h1 class="text-2xl font-bold text-gray-900">${title}</h1><p class="mt-1 text-base text-gray-600">${subtitle}</p></div>`;
+const petAvatar = (species, photo = false) => photo
+  ? `<span class="grid size-10 shrink-0 place-content-center rounded-xl bg-gradient-to-br from-stone-300 to-stone-500 text-white">${ic('image')}</span>`
+  : `<span class="grid size-10 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-600 ring-1 ring-violet-200">${ic(species,'size-6 shrink-0',1.5)}</span>`;
+const initials = n => { const p = n.split(' '); return (p[0][0] + p[p.length-1][0]).toUpperCase(); };
+const ownerAvSm = name => `<span class="grid size-10 shrink-0 place-content-center rounded-full bg-violet-50 text-base font-semibold tracking-wide text-violet-700 ring-1 ring-violet-200">${initials(name)}</span>`;
+const ownerAvXs = name => `<span class="grid size-8 shrink-0 place-content-center rounded-full bg-violet-50 text-sm font-semibold tracking-wide text-violet-700 ring-1 ring-violet-200">${initials(name)}</span>`;
+const pill = (cls, icon, text) => `<span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm font-medium ${cls}">${icon ? ic(icon,'size-4 shrink-0') : ''}${text}</span>`;
+const DUE = t => pill('bg-yellow-100 text-yellow-900','clock',t);
+const LATE = t => pill('bg-red-100 text-red-800','alert',t);
+const CORRECTED = pill('bg-gray-100 text-gray-800','pencil','Corrected');
+const LATER = pill('bg-gray-100 text-gray-800','check','Later dose given');
+const FOLLOW = t => pill('bg-blue-100 text-blue-800','calendar',t);
+const openSm = sr => `<a class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-violet-300 bg-violet-50 px-4 text-base font-semibold text-violet-800 hover:border-violet-400 hover:bg-violet-100">Open<span class="sr-only"> ${sr}</span>${ic('arrowRight')}</a>`;
+const remindBtn = sr => `<button type="button" class="${BTN_OUTLINE} font-semibold">${ic('send')}Send reminder<span class="sr-only"> ${sr}</span></button>`;
+const PHONES = {'Rosa Dela Cruz':'0920 444 7788','Grace Domingo':'0917 902 6655','Liza Cruz':'0917 123 4567','Jun Aquino':'','Nena Reyes':'0915 228 6640','Ana Cruz':'','Fe Pascual':'0917 556 1023','Marites Lopez':'0920 778 1145','Carmen Hernandez':'0915 663 2290'};
+const phoneLine = n => PHONES[n] ? PHONES[n] : '<span class="text-gray-600">No phone number</span>';
+const ownerHalf = owner => `
+  <div class="flex min-w-0 items-center gap-3">${ownerAvSm(owner)}
+    <div class="min-w-0"><p class="text-sm text-gray-600">Owner</p><p class="truncate text-base"><a class="font-medium text-blue-600 underline underline-offset-2">${owner}</a></p><p class="text-sm text-gray-700">${phoneLine(owner)}</p></div></div>`;
+const divider = '<span class="h-10 w-px bg-gray-200" aria-hidden="true"></span>';
+const listCard = (rows, foot) => `<div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"><ul>${rows}</ul>${foot}</div>`;
+const pager = (from, to, total) => `
+<div class="flex flex-wrap items-center gap-3 border-t border-gray-200 px-5 py-3">
+  <p class="flex-1 text-base text-gray-700">Showing ${from}–${to} of ${total}</p>
+  <nav class="flex gap-3" aria-label="Pages">
+    <span class="${BTN} border border-gray-200 bg-gray-50 text-gray-600" aria-disabled="true">${ic('chevronLeft')}Previous</span>
+    <a class="${BTN_OUTLINE}">Next${ic('chevronRight')}</a>
+  </nav>
+</div>`;
+const pagerAll = n => `<div class="border-t border-gray-200 px-5 py-3"><p class="text-base text-gray-700">Showing all ${n}</p></div>`;
+const listHead = (title, n, note) => `
+<div class="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+  <h2 class="text-lg font-semibold">${title} <span class="font-normal text-gray-600">(${n})</span></h2>
+  <p class="text-sm text-gray-600">${note}</p>
+</div>`;
+const resultsLine = text => `<div class="mb-3 flex min-h-11 flex-wrap items-center justify-between gap-3"><h2 class="text-base font-normal text-gray-800">${text}</h2>${link('Clear search','x')}</div>`;
+const empty = (icon, title, text, extra = '') => `
+<div class="rounded-xl border border-gray-200 bg-white shadow-sm"><div class="flex flex-col items-center px-6 py-10 text-center">
+  <span class="mb-3 grid size-12 place-content-center rounded-full bg-violet-50 text-violet-600">${ic(icon,'size-6 shrink-0')}</span>
+  <p class="text-lg font-semibold text-gray-900">${title}</p>
+  <p class="mt-1 max-w-md text-base text-gray-600">${text}</p>${extra}
+</div></div>`;
+const note = (icon, cls, html) => `<div class="mb-4 flex items-start gap-3 rounded-lg border px-4 py-3 text-base ${cls}">${ic(icon,'mt-0.5 size-5 shrink-0')}<p>${html}</p></div>`;
+
+// Tabs. color: 'yellow' (Due), 'red' (Overdue) only while count > 0
+const tabs = (items, active, aria) => {
+  const t = ([id, label, count, color]) => {
+    const on = id === active;
+    const pc = color === 'yellow' && count ? 'bg-yellow-200 text-yellow-900'
+      : color === 'red' && count ? 'bg-red-100 text-red-800'
+      : on ? 'bg-violet-100 text-violet-800' : 'bg-gray-100 text-gray-800';
+    return on
+      ? `<a class="inline-flex min-h-12 items-center gap-2 rounded-lg bg-violet-50 px-4 text-base font-semibold text-violet-800 ring-2 ring-violet-600" aria-current="page">${label}<span class="rounded-full px-2 text-sm font-semibold ${pc}">${count}</span></a>`
+      : `<a class="inline-flex min-h-12 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800 hover:bg-gray-50">${label}<span class="rounded-full px-2 text-sm font-semibold ${pc}">${count}</span></a>`;
+  };
+  return `<nav class="mb-4 flex flex-wrap gap-2" aria-label="${aria}">${items.map(t).join('')}</nav>`;
+};
+
+// ======================= VACCINATIONS =======================
+const VTABS = n => [['due','Due in 7 days',n.due,'yellow'],['overdue','Overdue',n.overdue,'red'],['all','All',n.all]];
+const VCOUNT = {due: 5, overdue: 3, all: 214};
+const vHeader = () => pageHeader('Vaccinations', 'Every vaccination given at the clinic.');
+
+// [pet, species, owner, vaccine, given, nextDue, pills(html), withReminder, photo]
+const V_DUE = [
+  ['Max','dog','Rosa Dela Cruz','Anti-rabies','Nov 3, 2025','Today', DUE('Due today'), true],
+  ['Kitty','cat','Grace Domingo','Deworming','Fri, Sep 4','Tomorrow, Wed, Nov 4', DUE('Due tomorrow'), true],
+  ['Brownie','dog','Liza Cruz','8-in-1','Tue, Oct 6','Thu, Nov 5', DUE('In 2 days') + CORRECTED, true, true],
+  ['Snowball','rabbit','Jun Aquino','Ivermectin','Fri, Oct 9','Mon, Nov 9', DUE('In 6 days'), true],
+  ['Chloe','cat','Nena Reyes','FVRCP (typed name)','Tue, Nov 11, 2025','Tue, Nov 10', DUE('In 7 days'), true],
+];
+const V_LATE = [
+  ['Bantay','dog','Ana Cruz','6-in-1','Thu, Oct 1','Sun, Nov 1', LATE('2 days overdue'), true],
+  ['Luna','cat','Fe Pascual','Anti-rabies','Oct 15, 2025','Thu, Oct 15', LATE('19 days overdue'), true],
+  ['Bruno','dog','Jun Aquino','Deworming','Sat, Jun 20','Sat, Sep 19', LATE('45 days overdue'), true],
+];
+const V_ALL = [
+  ['Bella','dog','Marites Lopez','Anti-rabies','Today','Nov 3, 2027', '', false],
+  ['Brownie','dog','Liza Cruz','8-in-1','Tue, Oct 6','Thu, Nov 5', DUE('In 2 days') + CORRECTED, false, true],
+  ['Max','dog','Rosa Dela Cruz','Deworming','Fri, Oct 2','Sat, Jan 2, 2027', '', false],
+  ['Bantay','dog','Ana Cruz','6-in-1','Thu, Oct 1','Sun, Nov 1', LATE('2 days overdue'), false],
+  ['Coco','dog','Carmen Hernandez','Bordetella','Mon, Sep 28','No next date', '', false],
+  ['Max','dog','Rosa Dela Cruz','Deworming','Mon, Jul 6','Sun, Oct 4', LATER, false],
+];
+const vRow = ([pet, species, owner, vaccine, given, due, pills, remind, photo]) => `
+<li class="grid grid-cols-[minmax(0,1.25fr)_1px_minmax(0,0.9fr)_auto] items-center gap-5 border-t border-gray-100 px-5 py-4 first:border-t-0 hover:bg-gray-50">
+  <div class="flex min-w-0 items-start gap-4">${petAvatar(species, photo)}
+    <div class="min-w-0">
+      <p class="text-lg font-semibold text-gray-900">${pet} <span class="font-normal text-gray-500">·</span> <span class="inline-flex items-center gap-1.5">${ic('syringe','size-4 shrink-0 text-gray-600')}${vaccine}</span></p>
+      <p class="text-base text-gray-700">Given ${given} · <span class="${due === 'No next date' ? 'text-gray-600' : ''}">${due === 'No next date' ? due : 'Next due ' + due}</span></p>
+      ${pills ? `<p class="mt-1 flex flex-wrap gap-2">${pills}</p>` : ''}
+    </div></div>
+  ${divider}
+  ${ownerHalf(owner)}
+  <div class="flex flex-wrap items-center justify-end gap-2">${remind ? remindBtn(`to ${owner} about ${pet}`) : ''}${openSm(`${pet}'s ${vaccine}`)}</div>
+</li>`;
+
+const vDuePage = (overlay = '') => frame('vacc', vHeader() + tabs(VTABS(VCOUNT), 'due', 'Vaccinations sections') +
+  listHead('Due in the next 7 days', V_DUE.length, 'Soonest first · Today to Tue, Nov 10') +
+  listCard(V_DUE.map(vRow).join(''), pagerAll(V_DUE.length)), overlay);
+const vLatePage = () => frame('vacc', vHeader() + tabs(VTABS(VCOUNT), 'overdue', 'Vaccinations sections') +
+  note('info','border-gray-300 bg-gray-100 text-gray-900','Next dose date has passed and no later dose of the same vaccine was given. A pet drops off this list as soon as the next dose is recorded.') +
+  listHead('Overdue', V_LATE.length, 'Most recently due first') +
+  listCard(V_LATE.map(vRow).join(''), pagerAll(V_LATE.length)));
+const vAllPage = () => frame('vacc', vHeader() + tabs(VTABS(VCOUNT), 'all', 'Vaccinations sections') +
+  listHead('All vaccinations', VCOUNT.all, 'Newest first') +
+  listCard(V_ALL.map(vRow).join(''), pager(1, 25, VCOUNT.all)));
+const vSearchPage = () => {
+  const hits = V_ALL.filter(r => r[3] === 'Anti-rabies');
+  return frame('vacc', vHeader() + tabs(VTABS(VCOUNT), 'all', 'Vaccinations sections') +
+    resultsLine(`${hits.length} vaccinations match <b>“anti-rabies”</b> in all vaccinations`) +
+    listCard(hits.map(vRow).join(''), pagerAll(hits.length)), '', 'anti-rabies');
+};
+const vEmptyPage = () => frame('vacc', vHeader() + tabs(VTABS({due: 0, overdue: 0, all: 214}), 'due', 'Vaccinations sections') +
+  empty('circleCheck', 'Nothing due in the next 7 days', 'No pet needs a vaccination from today to Tue, Nov 10.', `<p class="mt-2">${link('See all vaccinations','arrowRight')}</p>`));
+
+// Reminder dialogs
+const dialogBox = inner => `<div class="absolute inset-0 flex items-start justify-center bg-gray-900/50 p-8 pt-24">
+  <div class="w-[calc(100%-2rem)] max-w-lg rounded-2xl bg-white p-7 text-gray-900 shadow-xl">${inner}</div></div>`;
+const dialogButtons = (ok, icon) => `<div class="mt-6 flex flex-wrap justify-end gap-3">
+  <button type="button" class="${BTN_OUTLINE} min-h-12 font-semibold ring-2 ring-violet-400 ring-offset-2">Go back</button>
+  <button type="button" class="${BTN_PRIMARY} min-h-12 font-semibold">${ic(icon)}${ok}</button></div>`;
+const vRemindDialog = dialogBox(`
+  <h2 class="text-xl font-bold">Send a reminder to Liza Cruz?</h2>
+  <p class="mt-2 text-base text-gray-700">Brownie's <b>8-in-1</b> is due on <b>Thursday, November 5</b>. The reminder asks Liza Cruz to book a visit.</p>
+  <p class="mt-3 flex items-start gap-2 text-base text-gray-700">${ic('clock','mt-0.5 size-5 shrink-0')}<span>Last reminder for this vaccination: Mon, Nov 2.</span></p>
+  <p class="mt-3 flex items-start gap-2 text-sm text-gray-700">${ic('mail','mt-0.5 size-4 shrink-0')}<span>Liza Cruz gets a notification in the app, and an email if they have one and vaccination emails are on.</span></p>
+  ${dialogButtons('Yes, send reminder','send')}`);
+const vRemindNoEmail = dialogBox(`
+  <h2 class="text-xl font-bold">Send a reminder to Ana Cruz?</h2>
+  <p class="mt-2 text-base text-gray-700">Bantay's <b>6-in-1</b> was due on <b>Sunday, November 1</b> (2 days ago). The reminder asks Ana Cruz to book a visit.</p>
+  <div class="mt-3 flex items-start gap-3 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-base text-gray-900">${ic('alert','mt-0.5 size-5 shrink-0 text-yellow-700')}<p><b>Ana Cruz has no email and no phone number on file.</b> The reminder only shows in the app, the next time they log in.</p></div>
+  ${dialogButtons('Yes, send reminder','send')}`);
+
+// ======================= MEDICAL RECORDS =======================
+const RTABS = n => [['followups','Follow-ups in 7 days',n.followups,'yellow'],['all','All',n.all]];
+const RCOUNT = {followups: 3, all: 148};
+const rHeader = () => pageHeader('Medical records', 'Every visit record written at the clinic.');
+// [date, pet, species, owner, diagnosis, pills, remind, photo]
+const R_ALL = [
+  ['Today','Bella','dog','Marites Lopez','Skin allergy (mild), both front paws', '', false],
+  ['Mon, Nov 2','Brownie','dog','Liza Cruz','Ear infection, left ear', FOLLOW('Follow-up Thu, Nov 5'), false, true],
+  ['Sat, Oct 31','Max','dog','Rosa Dela Cruz','', '', false],
+  ['Fri, Oct 30','Kitty','cat','Grace Domingo','Upper respiratory infection. Sneezing for 3 days, eating less than usual', FOLLOW('Follow-up Mon, Nov 9'), false],
+  ['Wed, Oct 28','Bruno','dog','Jun Aquino','Limping, right hind leg. X-ray advised', FOLLOW('Follow-up Fri, Oct 30'), false],
+];
+const R_FOLLOW = [
+  ['Tue, Oct 27','Coco','dog','Carmen Hernandez','Dental cleaning, two teeth removed', DUE('Follow-up today'), true],
+  ['Mon, Nov 2','Brownie','dog','Liza Cruz','Ear infection, left ear', DUE('Follow-up in 2 days · Thu, Nov 5'), true, true],
+  ['Fri, Oct 30','Kitty','cat','Grace Domingo','Upper respiratory infection. Sneezing for 3 days, eating less than usual', DUE('Follow-up in 6 days · Mon, Nov 9'), true],
+];
+const rRow = ([date, pet, species, owner, diag, pills, remind, photo]) => `
+<li class="grid grid-cols-[7.5rem_minmax(0,1.25fr)_1px_minmax(0,0.9fr)_auto] items-center gap-5 border-t border-gray-100 px-5 py-4 first:border-t-0 hover:bg-gray-50">
+  <div><p class="text-sm text-gray-600">Visit date</p><p class="text-base font-semibold text-gray-900">${date}</p></div>
+  <div class="flex min-w-0 items-start gap-4">${petAvatar(species, photo)}
+    <div class="min-w-0">
+      <p class="text-lg font-semibold text-gray-900">${pet}</p>
+      <p class="truncate text-base ${diag ? 'text-gray-800' : 'text-gray-600'}">${diag ? diag : 'No diagnosis written'}</p>
+      ${pills ? `<p class="mt-1 flex flex-wrap gap-2">${pills}</p>` : ''}
+    </div></div>
+  ${divider}
+  ${ownerHalf(owner)}
+  <div class="flex flex-wrap items-center justify-end gap-2">${remind ? remindBtn(`to ${owner} about ${pet}'s follow-up`) : ''}${openSm(`${pet}'s record from ${date}`)}</div>
+</li>`;
+const rAllPage = () => frame('records', rHeader() + tabs(RTABS(RCOUNT), 'all', 'Medical records sections') +
+  listHead('All medical records', RCOUNT.all, 'Newest visit first') +
+  listCard(R_ALL.map(rRow).join(''), pager(1, 25, RCOUNT.all)));
+const rFollowPage = (overlay = '') => frame('records', rHeader() + tabs(RTABS(RCOUNT), 'followups', 'Medical records sections') +
+  listHead('Follow-ups in the next 7 days', R_FOLLOW.length, 'Soonest first · Today to Tue, Nov 10') +
+  listCard(R_FOLLOW.map(rRow).join(''), pagerAll(R_FOLLOW.length)), overlay);
+const rRemindDialog = dialogBox(`
+  <h2 class="text-xl font-bold">Send a follow-up reminder to Liza Cruz?</h2>
+  <p class="mt-2 text-base text-gray-700">Brownie's follow-up for the visit on Mon, Nov 2 is on <b>Thursday, November 5</b>. The reminder asks Liza Cruz to book it.</p>
+  <p class="mt-3 flex items-start gap-2 text-base text-gray-700">${ic('clock','mt-0.5 size-5 shrink-0')}<span>No reminder sent for this follow-up yet.</span></p>
+  <p class="mt-3 flex items-start gap-2 text-sm text-gray-700">${ic('mail','mt-0.5 size-4 shrink-0')}<span>Liza Cruz gets a notification in the app, and an email if they have one and follow-up emails are on.</span></p>
+  ${dialogButtons('Yes, send reminder','send')}`);
+
+// ======================= PHONE =======================
+const phoneView = () => `
+<div class="w-[390px] overflow-hidden rounded-[2rem] border-8 border-gray-800 bg-gray-50 shadow-lg">
+  <header class="flex h-16 items-center gap-3 border-b border-gray-200 bg-white px-4">
+    <span class="${BTN_OUTLINE}">${ic('menu')}Menu</span>
+    <div class="relative ml-auto"><span class="${BTN_OUTLINE}">${ic('bell')}<span class="rounded-full bg-red-600 px-2 text-sm font-semibold text-white">1 new</span></span></div>
+  </header>
+  <main class="px-4 py-6">
+    ${vHeader()}
+    ${searchForm(VSEARCH[0], 'Pet, owner or vaccine', '', 'mb-4 flex items-center gap-3')}
+    ${tabs(VTABS(VCOUNT), 'due', 'Vaccinations sections')}
+    <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"><ul>
+      ${V_DUE.slice(1, 4).map(([pet, species, owner, vaccine, given, due, pills, remind, photo]) => `
+      <li class="border-t border-gray-100 p-4 first:border-t-0">
+        <div class="flex items-start gap-3">${petAvatar(species, photo)}
+          <div class="min-w-0 flex-1"><p class="text-lg font-semibold">${pet} · ${vaccine}</p>
+            <p class="text-base text-gray-700">Next due ${due}</p>
+            <p class="mt-1 flex flex-wrap gap-2">${pills}</p></div></div>
+        <div class="mt-3 flex items-center gap-3 rounded-lg bg-gray-50 px-3 py-2">${ownerAvXs(owner)}<div class="min-w-0 text-base"><p class="text-sm text-gray-600">Owner</p><p><a class="font-medium text-blue-600 underline underline-offset-2">${owner}</a></p><p class="text-sm text-gray-700">${phoneLine(owner)}</p></div></div>
+        <div class="mt-3 grid grid-cols-2 gap-2"><button type="button" class="${BTN_OUTLINE} font-semibold">${ic('send')}Remind</button><span class="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-violet-300 bg-violet-50 text-base font-semibold text-violet-800">Open${ic('arrowRight')}</span></div>
+      </li>`).join('')}
+    </ul>${pagerAll(5)}</div>
+  </main>
+</div>`;
+
+// ---------- States ----------
+const states = [
+  { id:'vdue', label:'1 · Vaccinations: Due in 7 days', html: vDuePage(),
+    caption:`<b>Vaccinations list, opens on “Due in 7 days”.</b> Same frame, search, tabs and split rows as the Pets list. Three tabs: <b>Due in 7 days</b> (count yellow while any are due), <b>Overdue</b> (count red while any), <b>All</b>. The dashboard card “Vaccinations due this week” links straight here, and both use one shared rule: next due date from today to today + 7; doses with a later dose of the same vaccine are left out; corrected doses count; pets that are archived or whose owner is archived are left out. Row: pet + vaccine, “Given … · Next due …”, a plain pill (“Due today”, “In 2 days”), Corrected when it applies, then the owner with their phone (so the vet can call), then <b>Send reminder</b> and <b>Open</b>. Open goes to the pet's vaccination history with that row highlighted (no separate page). Soonest first. <b>No violet button</b>: a vaccination is added from the pet's page or a medical record.` },
+  { id:'vremind', label:'1b · Dialog: send reminder', html: vDuePage(vRemindDialog),
+    caption:`<b>Send reminder asks first.</b> Says what is due and when, when the last reminder for this vaccination went out (today it's looked up per pet; the backend will look it up per vaccination), and how the owner is told. Violet confirm. After sending, the flash says honestly what happened: “Reminder sent to Liza Cruz (app and email).” or “…in the app only (no email on file).”` },
+  { id:'vremind2', label:'1c · Dialog: owner without email', html: vDuePage(vRemindNoEmail),
+    caption:`<b>Owner with no email and no phone.</b> A yellow note says the reminder only reaches them in the app. With a phone but no email, the note gives the number to call instead.` },
+  { id:'voverdue', label:'2 · Vaccinations: Overdue', html: vLatePage(),
+    caption:`<b>Overdue.</b> Next due date has passed and no later dose of the same vaccine is recorded (so a pet that came back and got its booster drops off). Red pill “19 days overdue”. A gray note explains the rule once. Most recently due first, so the ones still worth chasing are on top; pages of 25 when it grows.` },
+  { id:'vall', label:'3 · Vaccinations: All', html: vAllPage(),
+    caption:`<b>All</b>, newest given first, 25 per page. Extra labels here: <b>Later dose given</b> (gray) on an old dose that was followed by a newer one, so it never looks overdue, and “No next date” in gray text. No Send reminder on this tab, to keep rows calm; it's on Due and Overdue (and on the pet's vaccination history).` },
+  { id:'vsearch', label:'4 · Search “anti-rabies”', html: vSearchPage(),
+    caption:`<b>Search</b> in the top bar (replaces the old search box and split pane): pet name, owner name or vaccine name, including typed names. Stays inside the open tab, like Pets. <b>Clear search</b> keeps the tab.` },
+  { id:'vempty', label:'5 · Nothing due', html: vEmptyPage(),
+    caption:`<b>Nothing due.</b> Calm empty state with a link to All. The Due and Overdue counts turn gray at 0.` },
+  { id:'rall', label:'6 · Medical records: All', html: rAllPage(),
+    caption:`<b>Medical records list.</b> Two tabs: <b>Follow-ups in 7 days</b> and <b>All</b>; opens on <b>All</b> (the sidebar is mostly used to look a record up), and the dashboard card “Follow-ups due this week” links to the Follow-ups tab. Row: the visit date on the left, the pet with the diagnosis on one line (cut off with “…”, or “No diagnosis written”), a blue <b>Follow-up</b> pill when one is set, the owner, Open. <b>Private notes never show on the list</b>, only on the record. Newest visit first, 25 per page. No violet button: a record is added from a visit or the pet's page.` },
+  { id:'rfollow', label:'7 · Records: Follow-ups in 7 days', html: rFollowPage(),
+    caption:`<b>Follow-ups in the next 7 days</b>, soonest first, with the same rule as the dashboard card (follow-up date today to today + 7, archived pets and archived owners left out). The pill turns yellow and says when (“Follow-up in 2 days · Thu, Nov 5”). Each row has <b>Send reminder</b>.` },
+  { id:'rremind', label:'7b · Dialog: follow-up reminder', html: rFollowPage(rRemindDialog),
+    caption:`<b>Follow-up reminder asks first</b>, same pattern as the vaccination one.` },
+  { id:'phone', label:'8 · Phone', html: phoneView(),
+    caption:`<b>Phone width.</b> Search moves into the page; each row becomes a card (pet + vaccine, due line and pill, owner in a gray box, then <b>Remind</b> and <b>Open</b> side by side). The tabs wrap. Medical records works the same way.` }
+];
+
+const sw = document.getElementById('switcher');
+function show(id) {
+  const s = states.find(x => x.id === id);
+  document.getElementById('stage').innerHTML = s.html;
+  document.getElementById('caption').innerHTML = s.caption;
+  [...sw.children].forEach(b => {
+    const on = b.dataset.id === id;
+    b.className = 'min-h-11 rounded-lg px-4 text-base font-medium ' +
+      (on ? 'bg-violet-600 text-white' : 'border border-gray-300 bg-white text-gray-800 hover:bg-gray-50');
+  });
+}
+states.forEach(s => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.dataset.id = s.id; b.textContent = s.label;
+  b.onclick = () => show(s.id);
+  sw.appendChild(b);
+});
+show('vdue');
+</script>
+</body>
+</html>

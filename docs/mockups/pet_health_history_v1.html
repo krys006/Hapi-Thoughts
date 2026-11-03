@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pet health history v1</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif; }
+</style>
+</head>
+<body class="bg-gray-200 text-gray-900 antialiased">
+<header class="sticky top-0 z-30 border-b border-gray-300 bg-white/95 px-6 py-3 backdrop-blur">
+  <p class="mb-2 text-sm font-semibold text-gray-700">Slice 5 · Pet medical history + pet vaccinations v1 · frame copied from layouts/admin.html · today is Tue, Nov 3, 2026 · pick a state</p>
+  <div id="switcher" class="flex flex-wrap gap-2"></div>
+</header>
+<div class="overflow-x-auto p-6">
+  <div id="caption" class="mb-4 max-w-[1280px] rounded-xl border border-violet-200 bg-violet-50 p-4 text-base text-gray-800"></div>
+  <div id="stage"></div>
+  <p class="mt-3 text-sm text-gray-600">Desktop frame is 1280 px wide: a 1920×1080 screen at 150% zoom. The grey picture tile stands in for an uploaded pet photo.</p>
+</div>
+<script>
+// ---------- Icons (Lucide shapes; new ones must be copied from lucide-static@1.66.0 when built) ----------
+const P = {
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  house:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  fileText:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  syringe:'<path d="m18 2 4 4"/><path d="m17 7 3-3"/><path d="M19 9 8.7 19.3c-1 1-2.5 1-3.4 0l-.6-.6c-1-1-1-2.5 0-3.4L15 5"/><path d="m9 11 4 4"/><path d="m5 19-3 3"/><path d="m14 4 6 6"/>',
+  bookOpen:'<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="m4.9 4.9 2.1 2.1"/><path d="m17 17 2.1 2.1"/><path d="M2 12h3"/><path d="M19 12h3"/><path d="m4.9 19.1 2.1-2.1"/><path d="m17 7 2.1-2.1"/>',
+  logout:'<path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>',
+  search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  arrowRight:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  arrowLeft:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  pencil:'<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
+  mail:'<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
+  phone:'<path d="M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384"/>',
+  send:'<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>',
+  clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  lock:'<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  eye:'<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
+  pill:'<path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"/><path d="m8.5 8.5 7 7"/>',
+  upload:'<path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>',
+  archive:'<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
+  menu:'<path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/>',
+  x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  chevronDown:'<path d="m6 9 6 6 6-6"/>',
+  image:'<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+  dog:'<path d="M11.25 16.25h1.5L12 17z"/><path d="M16 14v.5"/><path d="M4.42 11.247A13.152 13.152 0 0 0 4 14.556C4 18.728 7.582 21 12 21s8-2.272 8-6.444a11.702 11.702 0 0 0-.493-3.309"/><path d="M8 14v.5"/><path d="M8.5 8.5c-.384 1.05-1.083 2.028-2.344 2.5-1.931.722-3.576-.297-3.656-1-.113-.994 1.177-6.53 4-7 1.923-.321 3.651.845 3.651 2.235A7.497 7.497 0 0 1 14 5.277c0-1.39 1.844-2.598 3.767-2.277 2.823.47 4.113 6.006 4 7-.08.703-1.725 1.722-3.656 1-1.261-.472-1.855-1.45-2.239-2.5"/>'
+};
+const ic = (n, c = 'size-5 shrink-0', s = 2) =>
+  `<svg class="${c}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${s}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// ---------- Shared classes (assets/tailwind/input.css) ----------
+const BTN = 'inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-base font-medium whitespace-nowrap transition-colors';
+const BTN_PRIMARY = `${BTN} bg-violet-600 text-white hover:bg-violet-700`;
+const BTN_OUTLINE = `${BTN} border border-gray-300 bg-white text-gray-800 hover:bg-gray-50`;
+const BTN_DANGER = `${BTN} bg-red-600 text-white hover:bg-red-700`;
+const BTN_RED_OUTLINE = `${BTN} border border-red-300 bg-white font-semibold text-red-700 hover:bg-red-50`;
+const INPUT = 'block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-base text-gray-900 placeholder:text-gray-500';
+const CARD = 'rounded-xl border border-gray-200 bg-white p-6 shadow-sm';
+
+// ---------- Frame ----------
+const navLink = (icon, label, active = false, count = 0) =>
+  `<a class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base ${active ? 'bg-white font-semibold text-violet-800 shadow-sm ring-1 ring-violet-200' : 'text-gray-800 hover:bg-violet-200/70'}">${ic(icon)}<span class="flex-1">${label}</span>${count ? `<span class="rounded-full bg-violet-600 px-2 text-sm font-semibold text-white">${count}</span>` : ''}</a>`;
+const sidebar = (active = 'records') => `
+<aside class="flex w-56 shrink-0 flex-col border-r border-violet-200 bg-violet-100">
+  <div class="flex h-16 shrink-0 items-center gap-3 px-5">
+    <a class="-mx-2 flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-lg px-2"><span class="grid size-10 shrink-0 place-content-center rounded-lg bg-gradient-to-br from-amber-300 to-amber-700 text-white">${ic('image')}</span>
+      <p class="line-clamp-2 text-base font-semibold leading-5 text-gray-900">Hapi Tutz Vet. Supplies</p></a>
+  </div>
+  <nav class="flex-1 space-y-1 px-3 py-2">
+    <p class="px-3 pb-1 pt-1 text-sm font-semibold text-violet-800">Daily work</p>
+    ${navLink('house','Dashboard')}${navLink('calendar','Appointments',false,2)}${navLink('users','Pet owners')}${navLink('paw','Pets',false,2)}
+    <p class="px-3 pb-1 pt-5 text-sm font-semibold text-violet-800">Records</p>
+    ${navLink('fileText','Medical records',active==='records')}${navLink('syringe','Vaccinations',active==='vacc')}${navLink('bookOpen','Health library')}
+    <p class="px-3 pb-1 pt-5 text-sm font-semibold text-violet-800">Clinic</p>
+    ${navLink('receipt','Billing')}${navLink('settings','Clinic settings')}
+  </nav>
+  <div class="border-t border-violet-200 px-3 py-3"><a class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base text-gray-800">${ic('logout')}Log out</a></div>
+</aside>`;
+const frame = (body, overlay = '', active = 'records') => `
+<div class="relative flex min-h-[900px] w-[1280px] overflow-hidden rounded-xl border border-gray-300 bg-gray-50 shadow-sm">
+  ${sidebar(active)}
+  <div class="min-w-0 flex-1">
+    <header class="flex h-16 shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-8">
+      <div class="relative w-full max-w-[30rem]"><span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-600">${ic('search')}</span><input type="search" placeholder="Find a pet or owner" class="${INPUT} pl-10"></div>
+      <div class="ml-auto"><span class="${BTN_OUTLINE}">${ic('bell')}<span>Notifications</span><span class="rounded-full bg-red-600 px-2 text-sm font-semibold text-white">1 new</span></span></div>
+    </header>
+    <main class="px-8 py-6">${body}</main>
+  </div>
+  ${overlay}
+</div>`;
+
+// ---------- Pieces ----------
+const link = (t, i = '') => `<a class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">${i ? ic(i) : ''}${t}</a>`;
+const pill = (cls, icon, text) => `<span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm font-medium ${cls}">${icon ? ic(icon,'size-4 shrink-0') : ''}${text}</span>`;
+const DUE = t => pill('bg-yellow-100 text-yellow-900','clock',t);
+const LATE = t => pill('bg-red-100 text-red-800','alert',t);
+const CORRECTED = pill('bg-gray-100 text-gray-800','pencil','Corrected');
+const LATER = pill('bg-gray-100 text-gray-800','check','Later dose given');
+const FOLLOW = t => pill('bg-blue-100 text-blue-800','calendar',t);
+const openBtn = sr => `<a class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-violet-300 bg-violet-50 px-4 text-base font-semibold text-violet-800 hover:bg-violet-100">Open<span class="sr-only"> ${sr}</span>${ic('arrowRight')}</a>`;
+
+const PETS = {
+  brownie: { name:'Brownie', species:'dog', photo:true, sb:'Dog · Aspin · 3 yrs', owner:'Liza Cruz', archived:false, records:4, vaccs:5 },
+  spot: { name:'Spot', species:'dog', sb:'Dog · Aspin · 14 yrs', owner:'Noel Gonzales', archived:true, records:6, vaccs:3 },
+  kiwi: { name:'Kiwi', species:'paw', sb:'Bird · Lovebird · 1 yr', owner:'Gina Santos', archived:false, records:0, vaccs:0 },
+};
+
+const avatarLg = p => p.photo
+  ? `<span class="grid size-16 shrink-0 place-content-center rounded-2xl bg-gradient-to-br from-stone-300 to-stone-500 text-white">${ic('image','size-7 shrink-0')}</span>`
+  : `<span class="grid size-16 shrink-0 place-content-center rounded-2xl ${p.archived ? 'bg-gray-100 text-gray-600 ring-gray-300' : 'bg-violet-50 text-violet-600 ring-violet-200'} ring-1">${ic(p.species,'size-9 shrink-0',1.5)}</span>`;
+
+const header = (p, which) => `
+<p class="mb-2">${link(`Back to ${p.name}`,'arrowLeft')}</p>
+<div class="mb-6 flex flex-wrap items-center gap-4">
+  ${avatarLg(p)}
+  <div class="min-w-0 flex-1">
+    <h1 class="flex flex-wrap items-center gap-3 text-2xl font-bold text-gray-900">${p.name}'s ${which === 'vacc' ? 'vaccinations' : 'medical history'}${p.archived ? pill('bg-gray-100 text-gray-800','archive','Archived') : ''}</h1>
+    <p class="mt-1 text-base text-gray-700">${p.sb} · Owner: <a class="font-medium text-blue-600 underline underline-offset-2">${p.owner}</a></p>
+  </div>
+  ${p.archived ? '' : `<a class="${BTN_PRIMARY} font-semibold">${ic('plus')}${which === 'vacc' ? 'Add vaccination' : 'Add medical record'}</a>`}
+</div>
+<nav class="mb-6 flex flex-wrap gap-2" aria-label="${p.name}'s health records">
+  ${[['records','Medical records',p.records,'fileText'],['vacc','Vaccinations',p.vaccs,'syringe']].map(([id, label, n, icon]) => id === which
+    ? `<a class="inline-flex min-h-12 items-center gap-2 rounded-lg bg-violet-50 px-4 text-base font-semibold text-violet-800 ring-2 ring-violet-600" aria-current="page">${ic(icon)}${label}<span class="rounded-full bg-violet-100 px-2 text-sm font-semibold">${n}</span></a>`
+    : `<a class="inline-flex min-h-12 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800 hover:bg-gray-50">${ic(icon)}${label}<span class="rounded-full bg-gray-100 px-2 text-sm font-semibold">${n}</span></a>`).join('')}
+</nav>`;
+
+const archivedBanner = p => p.archived ? `
+<div class="mb-6 flex items-start gap-3 rounded-xl border border-gray-300 bg-gray-100 px-5 py-4 text-base text-gray-900">${ic('archive','mt-0.5 size-5 shrink-0')}
+  <p><b>${p.name} is archived.</b> Everything here is kept and can still be corrected. Nothing new can be added and no reminders are sent. Restore ${p.name} on the pet page to change that.</p></div>` : '';
+
+// ---------- Medical history ----------
+const RECS = [
+  ['Mon','2','Monday, November 2','Ear infection, left ear','Cleaned the left ear. Ear drops started at the clinic.', ['1 medicine','1 test result'], FOLLOW('Follow-up Thu, Nov 5'), 'From the visit Mon, Nov 2 at 10:00 AM'],
+  ['Tue','6','Tuesday, October 6','Vaccination visit, healthy','Checked weight and teeth. 8-in-1 given.', ['1 vaccination'], '', 'From the visit Tue, Oct 6 at 9:00 AM'],
+  ['Sat','15','Saturday, August 15','','Nail trim.', [], '', 'Not linked to a visit'],
+  ['Fri','12','Friday, June 12','Diarrhea for 2 days, mild dehydration','Fluids under the skin. Bland food for 3 days.', ['2 medicines'], FOLLOW('Follow-up was Mon, Jun 15'), 'From the visit Fri, Jun 12 at 2:00 PM'],
+];
+const recCard = ([wd, day, date, diag, treat, counts, follow, visit]) => `
+<li class="flex gap-5 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+  <div class="flex w-16 shrink-0 flex-col overflow-hidden rounded-lg border border-gray-300 text-center"><span class="bg-gray-700 py-0.5 text-sm font-semibold text-white">${wd}</span><span class="py-1 text-2xl font-bold text-gray-900">${day}</span></div>
+  <div class="min-w-0 flex-1">
+    <h2 class="text-lg font-semibold text-gray-900">${date}</h2>
+    <p class="mt-1 text-base ${diag ? 'text-gray-900' : 'text-gray-600'}"><span class="text-gray-600">Diagnosis:</span> ${diag || 'No diagnosis written'}</p>
+    <p class="text-base text-gray-800"><span class="text-gray-600">Treatment:</span> ${treat}</p>
+    <p class="mt-2 flex flex-wrap items-center gap-2 text-sm text-gray-700">${ic('calendar','size-4 shrink-0')}${visit}${counts.length ? ' · ' + counts.join(' · ') : ''}</p>
+    ${follow ? `<p class="mt-2">${follow}</p>` : ''}
+  </div>
+  <div class="self-center">${openBtn(`record from ${date}`)}</div>
+</li>`;
+const followBanner = `
+<div class="mb-6 flex flex-wrap items-center gap-4 rounded-xl border-2 border-yellow-300 bg-yellow-50 px-5 py-4">
+  ${ic('calendar','size-6 shrink-0 text-yellow-800')}
+  <p class="min-w-0 flex-1 text-base text-gray-900"><b>Follow-up on Thursday, November 5</b> (in 2 days), for the ear infection seen on Mon, Nov 2.</p>
+  <button type="button" class="${BTN_OUTLINE} font-semibold">${ic('send')}Send reminder</button>
+</div>`;
+const historyPage = (key = 'brownie') => {
+  const p = PETS[key];
+  return frame(header(p, 'records') + archivedBanner(p) + (p.archived ? '' : followBanner) +
+    `<div class="mb-2 flex items-baseline justify-between"><h2 class="text-lg font-semibold">All records <span class="font-normal text-gray-600">(${RECS.length})</span></h2><p class="text-sm text-gray-600">Newest first · private notes are only on each record</p></div>
+     <ul class="space-y-4">${RECS.map(recCard).join('')}</ul>`, '', 'records');
+};
+const emptyHistory = () => {
+  const p = PETS.kiwi;
+  return frame(header(p, 'records') + `
+<div class="rounded-xl border border-gray-200 bg-white shadow-sm"><div class="flex flex-col items-center px-6 py-10 text-center">
+  <span class="mb-3 grid size-12 place-content-center rounded-full bg-violet-50 text-violet-600">${ic('fileText','size-6 shrink-0')}</span>
+  <p class="text-lg font-semibold">No medical records yet</p>
+  <p class="mt-1 max-w-md text-base text-gray-600">A record is usually added from a visit. Use “Add medical record” for a check-up written without one.</p></div></div>`, '', 'records');
+};
+
+// ---------- Vaccinations ----------
+// [vaccine, given, due, weight, site, batch, pills, remind, record, correction, highlight]
+const VACCS = [
+  ['8-in-1','Tue, Oct 6','Thu, Nov 5','12.5 kg','Right hind leg','A2311-07', DUE('Due in 2 days') + CORRECTED, true, 'Tue, Oct 6', 'Wed, Oct 7, 2026: Next dose date was typed as Oct 5, 2027. It is Nov 5, 2026.', true],
+  ['Anti-rabies','Fri, Jul 10','Jul 10, 2027','12.1 kg','Left shoulder','RB-0921', '', false, '', '', false],
+  ['Deworming','Fri, Jun 12','Sat, Sep 12', '11.8 kg','By mouth','', LATE('52 days overdue'), true, 'Fri, Jun 12', '', false],
+  ['8-in-1','Mon, Oct 6, 2025','Tue, Oct 6','9.0 kg','Right hind leg','Z-4410', LATER, false, '', '', false],
+  ['Deworming','Thu, Mar 12','Fri, Jun 12','11.2 kg','By mouth','', LATER, false, '', '', false],
+];
+const dl = (k, v) => `<div><dt class="text-sm text-gray-600">${k}</dt><dd class="text-base ${v ? 'text-gray-900' : 'text-gray-600'}">${v || 'Not given'}</dd></div>`;
+const vaccRow = (archived) => ([name, given, due, weight, site, batch, pills, remind, record, corr, hl]) => `
+<li class="rounded-xl border ${hl ? 'border-violet-400 bg-violet-50/60 ring-2 ring-violet-300' : 'border-gray-200 bg-white'} p-5 shadow-sm">
+  ${hl ? `<p class="mb-2 inline-flex items-center gap-1.5 rounded-full bg-violet-600 px-2.5 py-1 text-sm font-semibold text-white">${ic('arrowRight','size-4 shrink-0')}The one you opened</p>` : ''}
+  <div class="flex flex-wrap items-start gap-4">
+    <span class="grid size-10 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-700 ring-1 ring-violet-200">${ic('syringe')}</span>
+    <div class="min-w-0 flex-1">
+      <p class="flex flex-wrap items-center gap-2 text-lg font-semibold text-gray-900">${name}${pills}</p>
+      <dl class="mt-2 grid grid-cols-5 gap-x-4 gap-y-2">${dl('Given', given)}${dl('Next due', due === '' ? '' : due)}${dl('Weight', weight)}${dl('Where', site)}${dl('Batch / lot', batch)}</dl>
+      ${record ? `<p class="mt-2 text-sm text-gray-700">${ic('fileText','mr-1 inline size-4 -translate-y-px')}Part of the record from <a class="font-medium text-blue-600 underline underline-offset-2">${record}</a></p>` : ''}
+      ${corr ? `<div class="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"><p class="text-sm font-semibold text-gray-800">${ic('pencil','mr-1 inline size-4 -translate-y-px')}Corrected</p><p class="text-base text-gray-800">${corr}</p></div>` : ''}
+    </div>
+    <div class="flex flex-col gap-2">
+      ${remind && !archived ? `<button type="button" class="${BTN_OUTLINE} font-semibold">${ic('send')}Send reminder</button>` : ''}
+      <a class="${BTN_OUTLINE} font-semibold">${ic('pencil')}Edit<span class="sr-only"> ${name} given ${given}</span></a>
+    </div>
+  </div>
+</li>`;
+const vaccPage = (key = 'brownie', overlay = '') => {
+  const p = PETS[key];
+  return frame(header(p, 'vacc') + archivedBanner(p) +
+    `<div class="mb-2 flex items-baseline justify-between"><h2 class="text-lg font-semibold">All vaccinations <span class="font-normal text-gray-600">(${VACCS.length})</span></h2><p class="text-sm text-gray-600">Newest first</p></div>
+     <ul class="space-y-4">${VACCS.map(vaccRow(p.archived)).join('')}</ul>`, overlay, 'vacc');
+};
+
+const dialogBox = inner => `<div class="absolute inset-0 flex items-start justify-center bg-gray-900/50 p-8 pt-24">
+  <div class="w-[calc(100%-2rem)] max-w-lg rounded-2xl bg-white p-7 text-gray-900 shadow-xl">${inner}</div></div>`;
+const remindDialog = dialogBox(`
+  <h2 class="text-xl font-bold">Send a reminder to Liza Cruz?</h2>
+  <p class="mt-2 text-base text-gray-700">Brownie's <b>Deworming</b> was due on <b>Saturday, September 12</b> (52 days ago). The reminder asks Liza Cruz to book a visit.</p>
+  <p class="mt-3 flex items-start gap-2 text-base text-gray-700">${ic('clock','mt-0.5 size-5 shrink-0')}<span>No reminder sent for this vaccination yet.</span></p>
+  <p class="mt-3 flex items-start gap-2 text-sm text-gray-700">${ic('mail','mt-0.5 size-4 shrink-0')}<span>Liza Cruz gets a notification in the app, and an email if they have one and vaccination emails are on.</span></p>
+  <div class="mt-6 flex flex-wrap justify-end gap-3">
+    <button type="button" class="${BTN_OUTLINE} min-h-12 font-semibold ring-2 ring-violet-400 ring-offset-2">Go back</button>
+    <button type="button" class="${BTN_PRIMARY} min-h-12 font-semibold">${ic('send')}Yes, send reminder</button></div>`);
+
+const phoneView = () => {
+  const p = PETS.brownie;
+  return `
+<div class="w-[390px] overflow-hidden rounded-[2rem] border-8 border-gray-800 bg-gray-50 shadow-lg">
+  <header class="flex h-16 items-center gap-3 border-b border-gray-200 bg-white px-4">
+    <span class="${BTN_OUTLINE}">${ic('menu')}Menu</span>
+    <div class="ml-auto"><span class="${BTN_OUTLINE}">${ic('bell')}<span class="rounded-full bg-red-600 px-2 text-sm font-semibold text-white">1 new</span></span></div>
+  </header>
+  <main class="px-4 py-6">${header(p, 'vacc')}
+    <ul class="space-y-4">${VACCS.slice(0, 2).map(([name, given, due, , , , pills, remind, , corr]) => `
+      <li class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <p class="flex flex-wrap items-center gap-2 text-lg font-semibold">${name}${pills}</p>
+        <p class="mt-1 text-base text-gray-800">Given ${given} · Next due ${due}</p>
+        ${corr ? `<p class="mt-2 rounded-lg bg-gray-50 px-3 py-2 text-base text-gray-800">${corr}</p>` : ''}
+        <div class="mt-3 grid ${remind ? 'grid-cols-2' : 'grid-cols-1'} gap-2">${remind ? `<button type="button" class="${BTN_OUTLINE} font-semibold">${ic('send')}Remind</button>` : ''}<a class="${BTN_OUTLINE} font-semibold">${ic('pencil')}Edit</a></div>
+      </li>`).join('')}</ul></main>
+</div>`;
+};
+
+const states = [
+  { id:'history', label:'1 · Medical history', html: historyPage(),
+    caption:`<b>Pet medical history.</b> Back link to the pet, pet picture, “Brownie's medical history”, the pet line, and <b>Add medical record</b> as the one violet button. Two tabs for this pet: <b>Medical records</b> and <b>Vaccinations</b> (each its own page, as today). The sidebar highlights <b>Medical records</b> (your pick #13). A yellow banner shows an upcoming follow-up with Send reminder. One card per record, newest first: a date tile, the long date, diagnosis and treatment, the visit it came from, counts of medicines / test results / vaccinations, the Follow-up pill, Open. <b>Private notes never show here</b>, only on the record. Replaces the split-pane JavaScript.` },
+  { id:'vacc', label:'2 · Vaccinations (one highlighted)', html: vaccPage(),
+    caption:`<b>Pet vaccinations</b>, same header and tabs, sidebar on <b>Vaccinations</b>, <b>Add vaccination</b> as the violet button. One card per dose, newest first: name with its pills (Due in N days, N days overdue, Corrected, Later dose given), then Given / Next due / Weight / Where / Batch, the record it belongs to, and the <b>correction reasons as plain text</b> in a gray box (no more hover-only title). Buttons: <b>Send reminder</b> only on a dose that is due or overdue and has no later dose (your pick #10), and <b>Edit</b> on every dose. Opened from a list or the pet page (or just saved), that dose has a violet ring and “The one you opened”, and the page scrolls to it.` },
+  { id:'remind', label:'3 · Dialog: reminder', html: vaccPage('brownie', remindDialog),
+    caption:`<b>Send reminder</b> asks first, the same dialog as on the Vaccinations list, here for an overdue dose with no reminder sent yet.` },
+  { id:'archived', label:'4 · Archived pet', html: vaccPage('spot'),
+    caption:`<b>Archived pet.</b> Gray tag and banner; no violet button and no Send reminder. <b>Edit</b> stays, since corrections to an archived pet's history are allowed. Same on the medical history page.` },
+  { id:'empty', label:'5 · No records yet', html: emptyHistory(),
+    caption:`<b>New pet with no records.</b> Calm empty state that says records usually come from a visit. Vaccinations look the same (“No vaccinations yet”).` },
+  { id:'phone', label:'6 · Phone', html: phoneView(),
+    caption:`<b>Phone width.</b> Header, the violet button, tabs, then one card per dose with the dates on one line and Remind / Edit side by side.` }
+];
+
+const sw = document.getElementById('switcher');
+function show(id) {
+  const s = states.find(x => x.id === id);
+  document.getElementById('stage').innerHTML = s.html;
+  document.getElementById('caption').innerHTML = s.caption;
+  [...sw.children].forEach(b => {
+    const on = b.dataset.id === id;
+    b.className = 'min-h-11 rounded-lg px-4 text-base font-medium ' + (on ? 'bg-violet-600 text-white' : 'border border-gray-300 bg-white text-gray-800 hover:bg-gray-50');
+  });
+}
+states.forEach(s => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.dataset.id = s.id; b.textContent = s.label;
+  b.onclick = () => show(s.id);
+  sw.appendChild(b);
+});
+show('history');
+
+</script>
+</body>
+</html>
