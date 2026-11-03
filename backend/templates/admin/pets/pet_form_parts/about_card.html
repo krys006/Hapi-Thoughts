@@ -1,0 +1,27 @@
+{% comment %}
+  About the pet: Name, Sex, Species, Breed. The Species select loads the
+  Breed options over HTMX (attributes set in AdminPetForm). The boxes not
+  in use are hidden; pet_form.js switches them, and without JavaScript
+  every box shows (the <noscript> style in pet_form.html):
+  - [data-species-other]: "Type the species", only for species Other;
+  - [data-breed-pick]: the Breed select, hidden for species Other;
+  - [data-breed-other]: the typed breed, for breed Other ("Type the breed")
+    or species Other (then labelled "Breed", since there is no list).
+{% endcomment %}
+<section class="card" aria-labelledby="about-title" data-pet-about>
+  <h2 id="about-title" class="text-xl font-semibold text-gray-900">About the pet</h2>
+  <div class="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-2">
+    {% include "components/form_field.html" with field=form.name %}
+    {% include "components/form_field.html" with field=form.gender %}
+    {% include "components/form_field.html" with field=form.species_choice %}
+    <div class="{% if form.species_mode != 'other' %}hidden{% endif %}" data-species-other>
+      {% include "components/form_field.html" with field=form.species required=True %}
+    </div>
+    <div class="{% if form.species_mode == 'other' %}hidden{% endif %}" data-breed-pick>
+      {% include "components/form_field.html" with field=form.breed_choice optional=True %}
+    </div>
+    <div class="{% if not form.show_breed_text %}hidden{% endif %}" data-breed-other data-label-list="Type the breed" data-label-other="Breed">
+      {% include "components/form_field.html" with field=form.breed optional=True %}
+    </div>
+  </div>
+</section>

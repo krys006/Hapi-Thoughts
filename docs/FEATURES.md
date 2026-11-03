@@ -129,10 +129,10 @@ Phase 7 — Dashboards & Polish
 | Photo | Optional | Placeholder when no photo: species icon (dog, cat, rabbit, bird, or a paw) on admin pages; initials avatar on owner pages |
 | Registration number | Optional | Government-issued |
 | Name | Required | — |
-| Species | Required | Dropdown + custom input |
-| Breed | Optional | Cascading dropdown based on species + custom input |
+| Species | Required | Dropdown (Dog, Cat, Bird, Rabbit, Hamster) with "Other (type it)" for a typed species |
+| Breed | Optional | Dropdown for the chosen species ("Not sure" first) with "Other (type it)" for a typed breed; a typed species gets a plain typed breed |
 | Color | Optional | — |
-| Gender | Required | Male / Female / Unknown |
+| Sex (`gender`) | Required | Not sure / Male / Female (admin form starts on "Not sure"; stored as unknown / male / female) |
 | Date of birth | Optional | Can't be in the future |
 | Age | Auto | Calculated from date of birth |
 | Weight | Optional | In kg |
@@ -151,13 +151,17 @@ Phase 7 — Dashboards & Polish
 | Address: Marinduque towns and barangays from dropdowns (PSA list); other provinces typed (Add owner and Edit details; owner-side forms and the walk-in New owner page still typed) | `complete` |
 | Archive pet owner account (soft delete; asks first, and warns about visits still to come, which archiving doesn't cancel) | `complete` |
 | Restore archived pet owner account (asks first) | `complete` |
-| View all registered pets | `complete` |
-| Search and filter pets | `complete` |
-| View individual pet profile | `complete` |
+| View all registered pets (tabs Active / Archived / Deletion requests, with counts; a pet of an archived owner is on Archived; split rows: the pet with its tags, then the owner with a link and phone number; 25 per page) | `complete` |
+| Search and filter pets (every word matches pet name, species, breed or owner name; filter by owner) | `complete` |
+| View individual pet profile: pet details, the 3 most recent visits, medical records and vaccinations (each with a link to the full list; no private notes), a yellow line when a vaccination is due within 30 days, the owner, and banners for a waiting deletion request (answer it right there), an archived pet or an archived owner | `complete` |
+| Archive a pet directly with a reason (recorded in the deletion history; owner notified) | `complete` |
 | Add a pet manually | `complete` |
 | Edit pet details | `complete` |
-| Approve pet deletion request | `complete` |
-| Reject pet deletion request | `complete` |
+| Approve pet deletion request ("Archive {pet}" on the Deletion requests tab, asks first) | `complete` |
+| Reject pet deletion request ("Keep {pet}", asks first); answered requests listed below, newest first, as Archived or Kept | `complete` |
+| Owner is notified (in the app, and by email if they have one) when a deletion request is approved or rejected | `complete` |
+| Restore an archived pet from the Archived tab of the Pets list or the pet's page (asks first; only while its owner is active; a pet of an archived owner comes back with the owner) | `complete` |
+| Archived pets and pets of archived owners can't be edited or get new medical records or vaccinations | `complete` |
 
 ### 2.5 Walk-in Client Flow
 | Feature | Status |
@@ -445,6 +449,7 @@ PENDING or CONFIRMED → CANCELLED
 | Billing generated | Pet Owner |
 | Vaccination due (configurable + day-of) | Pet Owner |
 | Follow-up due (3 days before + day-of) | Pet Owner |
+| Pet deletion request answered (PET_DELETION_ANSWERED) | Pet Owner |
 
 ---
 

@@ -1,0 +1,10 @@
+{% comment %}
+  While searching: how many pets match in the open tab, plus Clear search
+  (drops q, keeps the tab and the owner filter).
+{% endcomment %}
+{% with match_count=page_obj.paginator.count %}
+  <div class="mb-3 flex min-h-11 flex-wrap items-center justify-between gap-3">
+    <h2 class="text-base font-normal text-gray-800">{% if match_count %}{{ match_count }} pet{{ match_count|pluralize:" matches,s match" }}{% else %}No pet matches{% endif %} <strong class="font-semibold">“{{ q }}”</strong> in {% if active_tab == "archived" %}archived{% else %}active{% endif %} pets</h2>
+    <a href="{% url 'admin_pet_list' %}?status={{ active_tab }}{% if owner_filter %}&amp;owner={{ owner_filter.pk }}{% endif %}" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="x" %}Clear search</a>
+  </div>
+{% endwith %}

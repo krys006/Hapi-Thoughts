@@ -1,0 +1,17 @@
+{% comment %}
+  Form buttons: Cancel (outline link to back_url) and the page's one primary
+  button, with the Add note at the left. Below sm both are full width, the
+  primary on top. A copy of owner_form_parts/buttons.html, since the note
+  names the owner.
+{% endcomment %}
+<div class="flex flex-col-reverse gap-3 border-t border-gray-200 pt-6 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+  {% if is_add %}
+    <p class="flex items-start gap-2 text-sm text-gray-700 sm:mr-auto">{% include "components/icon.html" with name="info" class="mt-0.5 size-4 shrink-0" %}<span>{% if return_to_walkin %}After saving you'll go back to the walk-in with the new pet picked.{% else %}After saving you'll see {{ owner.full_name }}'s page with the new pet.{% endif %}</span></p>
+  {% endif %}
+  <a href="{{ back_url }}" class="btn btn-outline w-full font-semibold sm:w-auto">Cancel</a>
+  {% if is_add %}
+    <button type="submit" class="btn btn-primary w-full font-semibold sm:w-auto">{% include "components/icon.html" with name="plus" %}Add pet</button>
+  {% else %}
+    <button type="submit" class="btn btn-primary w-full font-semibold sm:w-auto">{% include "components/icon.html" with name="check" %}Save changes</button>
+  {% endif %}
+</div>

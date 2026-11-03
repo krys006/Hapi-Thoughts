@@ -209,6 +209,7 @@ REJECTED = 'rejected'
 - No deletion allowed — preserved as audit trail. Not true yet: when the owner cancels a pending request (`owner_pet_cancel_delete_request`) the row is deleted; the fix (a CANCELLED status) is planned in HANDOFF §5 SCHEMA CHANGES
 - Admin approves → pet is soft deleted (`is_archived = True`)
 - Admin rejects → pet remains active, request closed
+- The clinic can also archive a pet directly, with no owner request (Slice 4b-3, `admin_pet_archive`). A row is still created, so it shows in the deletion history: `requested_by` is then the admin user, the row is created already APPROVED, and `reviewed_by` / `reviewed_at` are the same admin and time. No field changes; "by the clinic" is told apart by `requested_by.role == "admin"`.
 
 ## appointments/
 
@@ -580,6 +581,7 @@ BILLING_GENERATED = 'billing_generated'
 VACCINATION_REMINDER = 'vaccination_reminder'
 FOLLOWUP_REMINDER = 'followup_reminder'
 EMAIL_FAILED = 'email_failed'
+PET_DELETION_ANSWERED = 'pet_deletion_answered'
 ```
 
 **Rules:**

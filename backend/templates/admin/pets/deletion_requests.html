@@ -1,186 +1,64 @@
 {% extends "layouts/admin.html" %}
 
-{% load static %}
-{% block legacy_css %}
-<style>
-  @import url("{% static 'css/admin/pet_detail.css' %}") layer(legacy);
-  @import url("{% static 'css/admin/deletion_requests.css' %}") layer(legacy);
-</style>
+{% block title %}Deletion requests — Hapi Vet Admin{% endblock %}
+
+{# Same header, search and tabs as the Pets list (this page is its third tab) #}
+{% block topbar_search %}
+  {% include "admin/pets/pets_list_parts/search_form.html" with id_prefix="topbar" form_class="hidden min-w-0 flex-1 items-center gap-3 md:flex" %}
 {% endblock %}
 
-{% block title %}Deletion Requests — Hapi Vet Admin{% endblock %}
-
-{% block page_header %}{% endblock %}
+{% block page_title %}Pets{% endblock %}
+{% block page_subtitle %}Every pet registered at the clinic.{% endblock %}
 
 {% block content %}
+  {% include "admin/pets/pets_list_parts/search_form.html" with id_prefix="page" form_class="mb-4 flex items-center gap-3 md:hidden" %}
+  {% include "admin/pets/pets_list_parts/tabs.html" %}
+  {% include "admin/pets/deletion_requests_parts/intro.html" %}
 
-<div class="admin-page">
+  {% if pending %}
+    <div class="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+      <h2 class="text-lg font-semibold text-gray-900">Waiting for you <span class="font-normal text-gray-600">({{ pending_count }})</span></h2>
+      <p class="text-sm text-gray-600">Oldest first</p>
+    </div>
+    <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      <ul>
+        {% for deletion_request in pending %}
+          {% include "admin/pets/deletion_requests_parts/request_card.html" %}
+        {% endfor %}
+      </ul>
+    </div>
 
-  <div class="admin-page-header">
-    <h1 class="admin-page-title">
-      Pet Deletion Requests
-      {% if pending_count > 0 %}
-        <span class="admin-pending-badge">{{ pending_count }} pending</span>
+    {# Keep and Archive dialogs for each waiting request (no Archive while the owner is archived) #}
+    {% for deletion_request in pending %}
+      {% include "admin/pets/deletion_requests_parts/keep_dialog.html" with return_to="requests" %}
+      {% if not deletion_request.pet.owner.is_archived %}
+        {% include "admin/pets/deletion_requests_parts/archive_dialog.html" with return_to="requests" %}
       {% endif %}
-    </h1>
-  </div>
+    {% endfor %}
+  {% else %}
+    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+      {% include "components/empty_state.html" with icon="circle-check" title="No requests waiting" text="When an owner asks to remove a pet, it shows up here." %}
+    </div>
+  {% endif %}
 
-  {% include "admin/pets/_pets_tabs.html" with active="deletions" %}
-
-  <!-- Pending requests -->
-  <div class="admin-detail-section">
-    <h3 class="admin-detail-section-title">Pending</h3>
-
-    {% if pending %}
-      <div class="admin-table-wrapper">
-        <table class="admin-table">
-          <thead>
-            <tr>
-              <th>Pet</th>
-              <th>Owner</th>
-              <th>Reason</th>
-              <th>Details</th>
-              <th>Requested</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for req in pending %}
-              <tr class="admin-table-row">
-
-                <td class="admin-table-cell">
-                  
-                    href="{% url 'admin_pet_detail' req.pet.pk %}"
-                    class="admin-table-link"
-                  >
-                    {{ req.pet.name }}
-                  </a>
-                </td>
-
-                <td class="admin-table-cell">
-                  
-                    href="{% url 'admin_owner_detail' req.pet.owner.pk %}"
-                    class="admin-table-link"
-                  >
-                    {{ req.pet.owner.full_name }}
-                  </a>
-                </td>
-
-                <td class="admin-table-cell">
-                  {{ req.get_reason_display }}
-                </td>
-
-                <td class="admin-table-cell">
-                  {{ req.reason_detail|default:"—" }}
-                </td>
-
-                <td class="admin-table-cell">
-                  {{ req.created_at|date:"M d, Y" }}
-                </td>
-
-                <td class="admin-table-cell">
-                  <div class="admin-action-buttons">
-
-                    <form
-                      method="post"
-                      action="{% url 'admin_approve_deletion' req.pk %}"
-                      style="display:inline;"
-                    >
-                      {% csrf_token %}
-                      <button type="submit" class="btn-danger">
-                        Approve
-                      </button>
-                    </form>
-
-                    <form
-                      method="post"
-                      action="{% url 'admin_reject_deletion' req.pk %}"
-                      style="display:inline;"
-                    >
-                      {% csrf_token %}
-                      <button type="submit" class="btn-secondary">
-                        Reject
-                      </button>
-                    </form>
-
-                  </div>
-                </td>
-
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-
-    {% else %}
-      <p class="admin-detail-empty">No pending deletion requests.</p>
-    {% endif %}
-
-  </div>
-
-  <!-- Resolved requests -->
-  <div class="admin-detail-section">
-    <h3 class="admin-detail-section-title">Resolved</h3>
-
+  <div class="mb-2 mt-8 flex flex-wrap items-baseline justify-between gap-2">
     {% if resolved %}
-      <div class="admin-table-wrapper">
-        <table class="admin-table">
-          <thead>
-            <tr>
-              <th>Pet</th>
-              <th>Owner</th>
-              <th>Reason</th>
-              <th>Status</th>
-              <th>Reviewed By</th>
-              <th>Reviewed</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for req in resolved %}
-              <tr class="admin-table-row">
-
-                <td class="admin-table-cell">{{ req.pet.name }}</td>
-
-                <td class="admin-table-cell">
-                  {{ req.pet.owner.full_name }}
-                </td>
-
-                <td class="admin-table-cell">
-                  {{ req.get_reason_display }}
-                </td>
-
-                <td class="admin-table-cell">
-                  {% if req.status == "approved" %}
-                    <span class="status-badge status-approved">Approved</span>
-                  {% else %}
-                    <span class="status-badge status-rejected">Rejected</span>
-                  {% endif %}
-                </td>
-
-                <td class="admin-table-cell">
-                  {{ req.reviewed_by.email|default:"—" }}
-                </td>
-
-                <td class="admin-table-cell">
-                  {{ req.reviewed_at|date:"M d, Y"|default:"—" }}
-                </td>
-
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-
+      <h2 class="text-lg font-semibold text-gray-900">Already answered <span class="font-normal text-gray-600">({{ page_obj.paginator.count }})</span></h2>
+      <p class="text-sm text-gray-600">Newest first</p>
     {% else %}
-      <p class="admin-detail-empty">No resolved requests yet.</p>
+      <h2 class="text-lg font-semibold text-gray-900">Already answered</h2>
     {% endif %}
-
   </div>
-
-</div>
-
-{% endblock %}
-
-{% block extra_js %}
-  <script src="{% static 'js/admin/deletion_requests.js' %}"></script>
+  {% if resolved %}
+    <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      <ul>
+        {% for deletion_request in resolved %}
+          {% include "admin/pets/deletion_requests_parts/history_row.html" %}
+        {% endfor %}
+      </ul>
+      {% include "admin/appointments/list_parts/pager.html" %}
+    </div>
+  {% else %}
+    <p class="text-base text-gray-600">Nothing answered yet.</p>
+  {% endif %}
 {% endblock %}

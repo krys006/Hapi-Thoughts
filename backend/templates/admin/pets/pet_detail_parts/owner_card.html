@@ -1,0 +1,15 @@
+{# "Owner": avatar (gray when archived), name to the owner page, phone and email #}
+<section class="card" aria-labelledby="owner-title">
+  <h2 id="owner-title" class="mb-3 text-xl font-semibold">Owner</h2>
+  <div class="flex items-center gap-3">
+    {% include "components/owner_avatar.html" with owner=pet.owner size="sm" muted=owner_archived %}
+    <div class="min-w-0">
+      <p class="text-base"><a href="{% url 'admin_owner_detail' pet.owner.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ pet.owner.full_name }}</a></p>
+      <p class="text-sm text-gray-700">{% if pet.owner.contact_number %}{{ pet.owner.contact_number }}{% else %}<span class="text-gray-600">No phone number</span>{% endif %}</p>
+    </div>
+  </div>
+  <p class="mt-3 flex items-start gap-2 text-sm text-gray-700">
+    {% include "components/icon.html" with name="mail" class="mt-0.5 size-4 shrink-0" %}
+    {% if pet.owner.user.email %}<span class="break-all">{{ pet.owner.user.email }}</span>{% else %}<span class="text-gray-600">No email</span>{% endif %}
+  </p>
+</section>

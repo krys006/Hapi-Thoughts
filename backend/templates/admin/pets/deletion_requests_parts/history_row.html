@@ -1,0 +1,20 @@
+{% load friendly_dates %}
+{% comment %}
+  One answered request: the pet (gray when archived), owner, reason, the
+  answer and when it was given. A request made by an admin is the pet
+  page's direct Archive, so it says "By the clinic".
+{% endcomment %}
+<li class="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-gray-100 px-5 py-3 first:border-t-0">
+  {% if deletion_request.status == "approved" %}
+    {% include "components/pet_avatar.html" with pet=deletion_request.pet size="sm" muted=True %}
+  {% else %}
+    {% include "components/pet_avatar.html" with pet=deletion_request.pet size="sm" %}
+  {% endif %}
+  <span class="min-w-0 flex-1 text-base"><b class="font-semibold">{{ deletion_request.pet.name }}</b> · {{ deletion_request.pet.owner.full_name }} · {{ deletion_request.get_reason_display }}{% if deletion_request.requested_by.role == "admin" %} <span class="text-sm text-gray-600">· By the clinic</span>{% endif %}</span>
+  {% if deletion_request.status == "approved" %}
+    <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1 text-sm font-medium text-gray-800">{% include "components/icon.html" with name="archive" class="size-4 shrink-0" %}Archived</span>
+  {% else %}
+    <span class="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-1 text-sm font-medium text-green-800">{% include "components/icon.html" with name="check" class="size-4 shrink-0" %}Kept</span>
+  {% endif %}
+  <span class="text-base text-gray-700 sm:w-40">{{ deletion_request.reviewed_at|friendly_date }}</span>
+</li>

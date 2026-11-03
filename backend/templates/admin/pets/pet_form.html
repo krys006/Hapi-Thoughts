@@ -1,196 +1,42 @@
 {% extends "layouts/admin.html" %}
+
 {% load static %}
 
-{% block legacy_css %}
-<style>
-  @import url("{% static 'css/admin/pet_form.css' %}") layer(legacy);
-</style>
-{% endblock %}
+{% block title %}{% if is_add %}Add pet — {{ owner.full_name }}{% else %}Edit {{ pet.name }}{% endif %} — Hapi Vet Admin{% endblock %}
 
-{% block title %}{{ form_title }} — Hapi Vet Admin{% endblock %}
+{% block extra_head %}
+  {# Without JavaScript every species and breed box shows, so the form still works #}
+  <noscript><style>[data-species-other], [data-breed-pick], [data-breed-other] { display: block; }</style></noscript>
+{% endblock %}
 
 {% block page_header %}{% endblock %}
 
 {% block content %}
+<div class="mx-auto max-w-3xl">
+  {% include "admin/pets/pet_form_parts/header.html" %}
 
-<div class="admin-page">
-
-  <div class="admin-form-header">
-    <h1 class="admin-form-title">{{ form_title }}</h1>
-    {% if pet %}
-      <a href="{% url 'admin_pet_detail' pet.pk %}" class="btn-secondary">Cancel</a>
-    {% elif owner %}
-      <a href="{% url 'admin_owner_detail' owner.pk %}" class="btn-secondary">Cancel</a>
-    {% else %}
-      <a href="{% url 'admin_pet_list' %}" class="btn-secondary">Cancel</a>
-    {% endif %}
-  </div>
-
-  {% if pet and pet.photo %}
-    <div class="current-photo-wrapper">
-      <img
-        src="{{ pet.photo.url }}"
-        alt="Current photo of {{ pet.name }}"
-        class="current-photo-preview"
-      />
-      <p class="current-photo-label">Current photo</p>
-    </div>
-  {% endif %}
-
-  <form method="post" enctype="multipart/form-data" class="admin-form">
+  <form method="post" enctype="multipart/form-data" class="space-y-6" novalidate>
     {% csrf_token %}
+    {% if return_to %}<input type="hidden" name="return" value="{{ return_to }}">{% endif %}
 
-    <div class="admin-form-section">
-      <h3 class="admin-form-section-title">Pet Photo</h3>
-      <div class="form-section">
-        {{ form.photo }}
-        {% if form.photo.errors %}
-          <p class="form-error">{{ form.photo.errors.0 }}</p>
-        {% endif %}
-      </div>
-    </div>
+    {% if form.errors %}
+      {% include "admin/pets/owner_form_parts/error_summary.html" %}
+    {% else %}
+      <p class="text-sm text-gray-700">Fields marked <span class="text-red-700">*</span> are required. Everything else can be added later.</p>
+    {% endif %}
 
-    <div class="admin-form-section">
-      <h3 class="admin-form-section-title">Pet Information</h3>
-
-      <div class="form-section">
-        <label class="form-label" for="{{ form.name.id_for_label }}">
-          Pet Name <span class="required-tag">*</span>
-        </label>
-        {{ form.name }}
-        {% if form.name.errors %}
-          <p class="form-error">{{ form.name.errors.0 }}</p>
-        {% endif %}
-      </div>
-
-      <div class="form-row-two-col">
-
-        <div class="form-section">
-          <label class="form-label" for="{{ form.species.id_for_label }}_select">
-            Species <span class="required-tag">*</span>
-          </label>
-          <select id="{{ form.species.id_for_label }}_select" class="species-select">
-            <option value="">Select a species</option>
-            <option value="Dog">Dog</option>
-            <option value="Cat">Cat</option>
-            <option value="Bird">Bird</option>
-            <option value="Rabbit">Rabbit</option>
-            <option value="Hamster">Hamster</option>
-            <option value="__other__">Other (please specify)</option>
-          </select>
-          <!-- Actual submitted field — hidden unless "Other" is chosen -->
-          <div id="{{ form.species.id_for_label }}_custom_wrapper" class="hidden-field custom-input-wrapper">
-            {{ form.species }}
-          </div>
-          {% if form.species.errors %}
-            <p class="form-error">{{ form.species.errors.0 }}</p>
-          {% endif %}
-        </div>
-
-        <div class="form-section">
-          <label class="form-label" for="{{ form.breed.id_for_label }}_select">
-            Breed <span class="optional-tag">(optional)</span>
-          </label>
-          <select id="{{ form.breed.id_for_label }}_select" class="breed-select">
-            <option value="">Select species first</option>
-          </select>
-          <!-- Actual submitted field — hidden unless "Other" is chosen -->
-          <div id="{{ form.breed.id_for_label }}_custom_wrapper" class="hidden-field custom-input-wrapper">
-            {{ form.breed }}
-          </div>
-          {% if form.breed.errors %}
-            <p class="form-error">{{ form.breed.errors.0 }}</p>
-          {% endif %}
-        </div>
-
-      </div>
-
-      <div class="form-row-two-col">
-
-        <div class="form-section">
-          <label class="form-label" for="{{ form.gender.id_for_label }}">
-            Gender <span class="required-tag">*</span>
-          </label>
-          {{ form.gender }}
-          {% if form.gender.errors %}
-            <p class="form-error">{{ form.gender.errors.0 }}</p>
-          {% endif %}
-        </div>
-
-        <div class="form-section">
-          <label class="form-label" for="{{ form.date_of_birth.id_for_label }}">
-            Date of Birth <span class="optional-tag">(optional)</span>
-          </label>
-          {{ form.date_of_birth }}
-          {% if form.date_of_birth.errors %}
-            <p class="form-error">{{ form.date_of_birth.errors.0 }}</p>
-          {% endif %}
-        </div>
-
-      </div>
-
-      <div class="form-row-two-col">
-
-        <div class="form-section">
-          <label class="form-label" for="{{ form.color.id_for_label }}">
-            Color <span class="optional-tag">(optional)</span>
-          </label>
-          {{ form.color }}
-          {% if form.color.errors %}
-            <p class="form-error">{{ form.color.errors.0 }}</p>
-          {% endif %}
-        </div>
-
-        <div class="form-section">
-          <label class="form-label" for="{{ form.weight.id_for_label }}">
-            Weight (kg) <span class="optional-tag">(optional)</span>
-          </label>
-          {{ form.weight }}
-          {% if form.weight.errors %}
-            <p class="form-error">{{ form.weight.errors.0 }}</p>
-          {% endif %}
-        </div>
-
-      </div>
-
-      <div class="form-section">
-        <label class="form-label" for="{{ form.registration_number.id_for_label }}">
-          Registration Number <span class="optional-tag">(optional)</span>
-        </label>
-        {{ form.registration_number }}
-        {% if form.registration_number.errors %}
-          <p class="form-error">{{ form.registration_number.errors.0 }}</p>
-        {% endif %}
-      </div>
-
-    </div>
-
-    <div class="form-actions">
-     
-      {% if pet %}
-        <a href="{% url 'admin_pet_detail' pet.pk %}" class="btn-secondary">Cancel</a>
-      {% elif owner %}
-        <a href="{% url 'admin_owner_detail' owner.pk %}" class="btn-secondary">Cancel</a>
-      {% else %}
-        <a href="{% url 'admin_pet_list' %}" class="btn-secondary">Cancel</a>
-      {% endif %}
-      <button type="submit" class="btn-primary">{{ submit_label }}</button>
-    </div>
-
+    {% if is_add %}
+      {% include "admin/pets/pet_form_parts/owner_line.html" %}
+    {% endif %}
+    {% include "admin/pets/pet_form_parts/about_card.html" %}
+    {% include "admin/pets/pet_form_parts/size_card.html" %}
+    {% include "admin/pets/pet_form_parts/photo_card.html" %}
+    {% include "admin/pets/pet_form_parts/buttons.html" %}
   </form>
-
 </div>
-
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'js/shared/pet_species_breed.js' %}"></script>
-<script>
-  document.addEventListener('DOMContentLoaded', function () {
-    initPetSpeciesBreedFields(
-      '{{ form.species.id_for_label }}',
-      '{{ form.breed.id_for_label }}'
-    );
-  });
-</script>
+  <script src="{% static 'js/admin/photo_input.js' %}" defer></script>
+  <script src="{% static 'js/admin/pet_form.js' %}" defer></script>
 {% endblock %}

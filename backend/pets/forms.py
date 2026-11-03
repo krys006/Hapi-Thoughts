@@ -6,7 +6,17 @@ from django.forms import formset_factory
 from django.urls import reverse
 
 from .models import ContactLink, Pet, PetDeletionRequest, PetOwner
-from .utils import barangay_choices, marinduque_towns, match_barangay, match_town
+from .utils import (
+    PET_OTHER,
+    barangay_choices,
+    breed_choices,
+    marinduque_towns,
+    match_barangay,
+    match_breed,
+    match_species,
+    match_town,
+    species_options,
+)
 
 
 class PetOwnerProfileForm(forms.ModelForm):
@@ -210,6 +220,39 @@ class PetDeletionRequestForm(forms.ModelForm):
                 "Please provide details when selecting Other as the reason."
             )
 
+        return cleaned_data
+
+
+class AdminPetArchiveForm(forms.Form):
+    """
+    The pet page's direct Archive (no owner request): the reason is saved
+    on an already-approved PetDeletionRequest made by the clinic.
+    """
+
+    reason = forms.ChoiceField(
+        label="Reason",
+        choices=[("", "Choose one")] + PetDeletionRequest.REASON_CHOICES,
+        error_messages={"required": "Choose a reason."},
+    )
+    reason_detail = forms.CharField(
+        label="Details",
+        required=False,
+        strip=True,
+        help_text="Needed when the reason is Other.",
+        widget=forms.Textarea(
+            attrs={
+                "rows": 3,
+                "placeholder": "For example: the owner said he passed away last week.",
+            }
+        ),
+    )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        reason = cleaned_data.get("reason")
+        detail = cleaned_data.get("reason_detail")
+        if reason == PetDeletionRequest.OTHER and not detail:
+            self.add_error("reason_detail", "Please write a short reason.")
         return cleaned_data
 
 
@@ -516,7 +559,21 @@ class AdminPetForm(forms.ModelForm):
     Used by Admin to manually add or edit a pet.
     Includes all pet fields — Admin has full access unlike pet owners
     who can only edit minor details.
+
+    Species and breed: picked from the list (species_choice / breed_choice)
+    and saved into the model's text fields; "Other (type it)" uses the typed
+    boxes (the model's species / breed fields). No model change.
     """
+
+    # Form-only fields, like the owner form's address selects
+    species_choice = forms.ChoiceField(
+        label="Species",
+        error_messages={
+            "required": "Choose the species.",
+            "invalid_choice": "Choose a species from the list.",
+        },
+    )
+    breed_choice = _ListChoiceField(label="Breed", required=False)
 
     class Meta:
         model = Pet
@@ -531,56 +588,161 @@ class AdminPetForm(forms.ModelForm):
             "registration_number",
             "photo",
         ]
+        labels = {
+            "name": "Name",
+            "species": "Type the species",
+            "breed": "Type the breed",
+            "gender": "Sex",
+            "date_of_birth": "Birthday",
+            "weight": "Weight (kg)",
+            "color": "Color",
+            "registration_number": "Registration no.",
+        }
+        help_texts = {"date_of_birth": "A rough date is fine."}
+        error_messages = {"name": {"required": "Enter the pet's name."}}
         widgets = {
-            "name": forms.TextInput(attrs={"placeholder": "Pet's name"}),
-            "species": forms.TextInput(attrs={"placeholder": "e.g. Dog, Cat, Bird"}),
+            "species": forms.TextInput(
+                attrs={"placeholder": "For example: Turtle", "data-species-text": ""}
+            ),
             "breed": forms.TextInput(
-                attrs={"placeholder": "e.g. Aspin, Persian (optional)"}
+                attrs={
+                    "placeholder": "For example: Golden Retriever",
+                    "data-breed-text": "",
+                }
             ),
             "color": forms.TextInput(
-                attrs={"placeholder": "e.g. Brown and white (optional)"}
+                attrs={"placeholder": "For example: Brown and white"}
             ),
-            "gender": forms.Select(),
             "date_of_birth": forms.DateInput(
                 attrs={"type": "date"},
                 format="%Y-%m-%d",
             ),
             "weight": forms.NumberInput(
-                attrs={
-                    "placeholder": "Weight in kg (optional)",
-                    "step": "0.01",
-                }
+                attrs={"placeholder": "For example: 8.5", "step": "0.01"}
             ),
             "registration_number": forms.TextInput(
-                attrs={"placeholder": "Government-issued number (optional)"}
+                attrs={"placeholder": "From the pet's ID card, if any"}
             ),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # The species comes from species_choice or the typed box (clean())
+        self.fields["species"].required = False
         self.fields["date_of_birth"].required = False
         self.fields["breed"].required = False
         self.fields["color"].required = False
         self.fields["weight"].required = False
         self.fields["registration_number"].required = False
         self.fields["photo"].required = False
+        # Same values as the model, relabelled and with "Not sure" first. The
+        # select always has a value, so it isn't marked required (clean_gender)
+        self.fields["gender"].required = False
+        self.fields["gender"].choices = [
+            (Pet.UNKNOWN, "Not sure"),
+            (Pet.MALE, "Male"),
+            (Pet.FEMALE, "Female"),
+        ]
+
+        if not self.is_bound and self.instance.pk:
+            self._set_saved_choices()
+        self._set_species_choices()
+
+    # ── Species and breed ────────────────────────────────────────────────────
+
+    def _set_saved_choices(self):
+        """
+        Initial picks for the edit page from the saved text:
+        - a species in the list (any case) → picked; else "Other" with the
+          saved text in the typed box;
+        - a breed in that species' list → picked; empty → "Not sure"; else
+          "Other" with the saved text kept. A saved value is never blanked.
+        """
+        pet = self.instance
+        species = match_species(pet.species)
+        if species is None:
+            self.initial["species_choice"] = PET_OTHER
+            return
+        self.initial["species_choice"] = species
+        # The typed species box is hidden; leave it empty for a switch to Other
+        self.initial["species"] = ""
+        breed = match_breed(species, pet.breed)
+        if breed:
+            self.initial["breed_choice"] = breed
+            self.initial["breed"] = ""
+        elif pet.breed.strip():
+            self.initial["breed_choice"] = PET_OTHER
+        else:
+            self.initial["breed_choice"] = ""
+
+    def _value(self, name):
+        """The posted value on a POST, else the initial one."""
+        if self.is_bound:
+            return self.data.get(self.add_prefix(name), "")
+        return self.initial.get(name, self.fields[name].initial) or ""
+
+    @property
+    def species_mode(self):
+        """ "other" (typed species), "list" (a species picked) or "" (none)."""
+        choice = self._value("species_choice")
+        if choice == PET_OTHER:
+            return "other"
+        return "list" if match_species(choice) else ""
+
+    @property
+    def show_breed_text(self):
+        """The typed breed box shows for species Other or breed Other."""
+        if self.species_mode == "other":
+            return True
+        return self.species_mode == "list" and self._value("breed_choice") == PET_OTHER
+
+    def _set_species_choices(self):
+        """Species options, and the breed options of the chosen species (the
+        posted one on a POST, so a re-render keeps the list)."""
+        species_field = self.fields["species_choice"]
+        species_field.choices = (
+            [("", "Choose one")]
+            + [(name, name) for name in species_options()]
+            + [(PET_OTHER, "Other (type it)")]
+        )
+        species_field.widget.attrs.update(
+            {
+                "data-species-choice": "",
+                "hx-get": reverse("admin_pet_breed_options"),
+                "hx-trigger": "change",
+                "hx-target": f"#{self['breed_choice'].auto_id}",
+                "hx-swap": "innerHTML",
+                "hx-include": "this",
+            }
+        )
+
+        breed_field = self.fields["breed_choice"]
+        breed_field.choices = breed_choices(self._value("species_choice"))
+        breed_field.widget.attrs["data-breed-choice"] = ""
+        if self.species_mode != "list":
+            breed_field.widget.attrs["disabled"] = True
+        if self.species_mode == "other":
+            # No list for a typed species: the typed box is the breed
+            self.fields["breed"].label = "Breed"
 
     def clean_name(self):
         value = self.cleaned_data.get("name", "").strip()
         if not value:
-            raise forms.ValidationError("Pet name is required.")
+            raise forms.ValidationError("Enter the pet's name.")
         return value.title()
 
     def clean_species(self):
-        value = self.cleaned_data.get("species", "").strip()
-        if not value:
-            raise forms.ValidationError("Species is required.")
-        return value.title()
+        # The typed species (used only with "Other"); clean() checks it
+        return self.cleaned_data.get("species", "").strip().title()
+
+    def clean_gender(self):
+        # A missing value (a hand-made POST) means "Not sure"
+        return self.cleaned_data.get("gender") or Pet.UNKNOWN
 
     def clean_weight(self):
         weight = self.cleaned_data.get("weight")
         if weight is not None and weight <= 0:
-            raise forms.ValidationError("Weight must be greater than 0.")
+            raise forms.ValidationError("Weight must be more than 0.")
         return weight
 
     def clean_date_of_birth(self):
@@ -588,8 +750,50 @@ class AdminPetForm(forms.ModelForm):
 
         dob = self.cleaned_data.get("date_of_birth")
         if dob and dob > timezone.localdate():
-            raise forms.ValidationError("Date of birth cannot be in the future.")
+            raise forms.ValidationError("The birthday can't be in the future.")
         return dob
+
+    def clean(self):
+        cleaned = super().clean()
+        choice = cleaned.get("species_choice")
+        if not choice:
+            return cleaned
+        typed_breed = cleaned.get("breed") or ""
+
+        if choice == PET_OTHER:
+            if self.errors.get("species"):
+                return cleaned
+            if not cleaned.get("species"):
+                self.add_error("species", "Type the species.")
+                return cleaned
+            # No breed list for a typed species: the typed breed, if any
+            cleaned["breed"] = typed_breed
+            return cleaned
+
+        species = match_species(choice)
+        cleaned["species"] = species
+        breed_choice = cleaned.get("breed_choice") or ""
+        if not breed_choice:
+            cleaned["breed"] = ""
+        elif breed_choice == PET_OTHER:
+            cleaned["breed"] = typed_breed
+        else:
+            breed = match_breed(species, breed_choice)
+            if breed is None:
+                self.add_error(
+                    "breed_choice", f"Choose a breed for {species}, or pick Other."
+                )
+                return cleaned
+            cleaned["breed"] = breed
+        return cleaned
+
+    # ── Page helpers ─────────────────────────────────────────────────────────
+
+    @property
+    def error_count(self):
+        """Fields with errors, plus 1 when there are form-wide errors."""
+        fields = [name for name in self.errors if name != NON_FIELD_ERRORS]
+        return len(fields) + (1 if self.non_field_errors() else 0)
 
 
 class AdminOwnerEmailForm(forms.Form):

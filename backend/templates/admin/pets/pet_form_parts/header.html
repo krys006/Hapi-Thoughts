@@ -1,0 +1,14 @@
+{% comment %}
+  Pet form page header: back link (back_url / back_label from the view: the
+  owner page, walk-in step 2 or the pet page), title and subtitle.
+{% endcomment %}
+<a href="{{ back_url }}" class="mb-2 inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 hover:underline">{% include "components/icon.html" with name="arrow-left" %}{{ back_label }}</a>
+<div class="mb-6">
+  {% if is_add %}
+    <h1 class="text-2xl font-bold text-gray-900">Add pet</h1>
+    <p class="mt-1 text-base text-gray-600">Add a pet to {{ owner.full_name }}'s account.</p>
+  {% else %}
+    <h1 class="text-2xl font-bold text-gray-900">Edit {{ pet.name }}</h1>
+    <p class="mt-1 text-base text-gray-600">Owner: {{ owner.full_name }}</p>
+  {% endif %}
+</div>

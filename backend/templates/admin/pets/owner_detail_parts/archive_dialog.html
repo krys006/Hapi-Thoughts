@@ -1,4 +1,3 @@
-{% load friendly_dates %}
 {% comment %}
   Archive confirmation. With visits still to come (Pending/Confirmed from
   today on), a yellow box names the first one: archiving doesn't cancel them.
@@ -8,14 +7,7 @@
     {% csrf_token %}
     <h2 id="archive-dialog-title" class="text-xl font-bold">Archive {{ owner.full_name }}?</h2>
     <p class="mt-2 text-base text-gray-700">{{ owner.full_name }} won't be able to log in, and you won't be able to book visits for them. Their pets, visits, medical records and receipts are all kept. You can restore the account at any time.</p>
-    {% if upcoming_count > 0 %}
-      {% with visit=next_upcoming_visit %}
-        <div class="mt-4 flex items-start gap-3 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-base text-yellow-900">
-          {% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0" %}
-          <p><b>{{ visit.pet.name }} has a visit {{ visit.date|friendly_date:"mid" }} at {{ visit.time|time:"g:i A" }}.</b>{% if upcoming_count == 1 %} Archiving doesn't cancel it. Cancel it on the appointment page if it won't happen.{% elif upcoming_count == 2 %} There is 1 more. Archiving doesn't cancel them. Cancel them on the appointment page if they won't happen.{% else %} There are {{ upcoming_count|add:"-1" }} more. Archiving doesn't cancel them. Cancel them on the appointment page if they won't happen.{% endif %}</p>
-        </div>
-      {% endwith %}
-    {% endif %}
+    {% include "admin/pets/owner_detail_parts/visit_warning.html" %}
     {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, archive owner" icon="archive" danger=True %}
   </form>
 </dialog>

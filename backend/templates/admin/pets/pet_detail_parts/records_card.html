@@ -1,0 +1,33 @@
+{% load friendly_dates %}
+{% comment %}
+  "Medical records": the 3 newest (date, diagnosis, follow-up pill), then a
+  link to the full history. Private notes are never shown here, only on the
+  record itself. "Add record" only while the pet and owner are active.
+{% endcomment %}
+<section class="card" aria-labelledby="records-title">
+  <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+    <h2 id="records-title" class="text-xl font-semibold">Medical records</h2>
+    {% if pet_state == "active" %}
+      <a href="{% url 'admin_medical_record_create' pet.pk %}" class="btn btn-outline font-semibold">{% include "components/icon.html" with name="plus" %}Add record</a>
+    {% endif %}
+  </div>
+  {% if recent_records %}
+    <ul class="divide-y divide-gray-100">
+      {% for record in recent_records %}
+        <li class="flex flex-wrap items-center gap-x-4 gap-y-1 py-2">
+          <span class="w-32 text-base font-medium text-gray-900">{{ record.record_date|friendly_date }}</span>
+          <span class="min-w-0 flex-1 text-base text-gray-900">{% if record.diagnosis %}{{ record.diagnosis|truncatechars:80 }}{% else %}<span class="text-gray-600">No diagnosis written</span>{% endif %}</span>
+          {% if record.follow_up_required and record.follow_up_date %}
+            <span class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-blue-100 px-2.5 py-1 text-sm font-medium text-blue-800">{% include "components/icon.html" with name="calendar-clock" class="size-4 shrink-0" %}Follow-up {{ record.follow_up_date|friendly_date:"mid" }}</span>
+          {% endif %}
+          <a href="{% url 'admin_medical_record_detail' record.pk %}" class="inline-flex min-h-11 items-center px-2 text-base font-medium text-blue-600 underline underline-offset-2">Open<span class="sr-only"> record from {{ record.record_date|friendly_date:"mid" }}</span></a>
+        </li>
+      {% endfor %}
+    </ul>
+    <p class="mt-3 border-t border-gray-100 pt-3 text-base">
+      <a href="{% url 'admin_pet_medical_history' pet.pk %}" class="inline-flex min-h-11 items-center gap-1.5 font-medium text-blue-600 underline underline-offset-2">See full medical history ({{ records_count }} record{{ records_count|pluralize }}){% include "components/icon.html" with name="arrow-right" class="size-4 shrink-0" %}</a>
+    </p>
+  {% else %}
+    <p class="text-base text-gray-600">No medical records yet.</p>
+  {% endif %}
+</section>

@@ -1,137 +1,50 @@
 {% extends "layouts/admin.html" %}
 
-{% load static %}
-{% block legacy_css %}
-<style>
-  @import url("{% static 'css/admin/pet_detail.css' %}") layer(legacy);
-  @import url("{% static 'css/admin/pets_list.css' %}") layer(legacy);
-</style>
-{% endblock %}
-
 {% block title %}Pets — Hapi Vet Admin{% endblock %}
 
-{% block page_header %}{% endblock %}
-
-{% block content %}
-
-<div class="admin-page">
-
-  <div class="admin-page-header">
-    <h1 class="admin-page-title">All Pets</h1>
-  </div>
-
-  {% include "admin/pets/_pets_tabs.html" with active="pets" %}
-
-  <!-- Search and filter bar -->
-  <form method="get" class="admin-filter-bar">
-
-    <input
-      type="text"
-      name="search"
-      value="{{ search_query }}"
-      placeholder="Search by pet name or owner name..."
-      class="admin-search-input"
-    />
-
-    <!-- Species filter — populated from DB -->
-    <select name="species" class="admin-filter-select">
-      <option value="">All Species</option>
-      {% for species in species_list %}
-        <option
-          value="{{ species }}"
-          {% if species_filter == species %}selected{% endif %}
-        >
-          {{ species }}
-        </option>
-      {% endfor %}
-    </select>
-
-    <button type="submit" class="btn-secondary">Search</button>
-
-    {% if search_query or species_filter %}
-      <a href="{% url 'admin_pet_list' %}" class="btn-secondary">Clear</a>
-    {% endif %}
-
-  </form>
-
-  <p class="admin-results-count">
-    {{ total_count }} pet{{ total_count|pluralize }} found
-  </p>
-
-  {% if pets %}
-
-    <div class="admin-table-wrapper">
-      <table class="admin-table">
-        <thead>
-          <tr>
-            <th>Pet</th>
-            <th>Species / Breed</th>
-            <th>Owner</th>
-            <th>Age</th>
-            <th>Gender</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for pet in pets %}
-            <tr class="admin-table-row">
-
-              <!-- Pet name + avatar -->
-              <td class="admin-table-cell">
-                <div class="admin-owner-name-cell">
-                  {% if pet.photo %}
-                    <img
-                      src="{{ pet.photo.url }}"
-                      alt="{{ pet.name }}"
-                      class="admin-avatar-small"
-                    />
-                  {% else %}
-                    <div class="admin-avatar-initials-small">
-                      {{ pet.name|first|upper }}
-                    </div>
-                  {% endif %}
-                  <span>{{ pet.name }}</span>
-                </div>
-              </td>
-
-              <td class="admin-table-cell">
-                {{ pet.species }}{% if pet.breed %} · {{ pet.breed }}{% endif %}
-              </td>
-
-              <td class="admin-table-cell">
-                <a href="{% url 'admin_owner_detail' pet.owner.pk %}" class="admin-table-link">{{ pet.owner.full_name }}</a>
-              </td>
-
-              <td class="admin-table-cell">{{ pet.age }}</td>
-
-              <td class="admin-table-cell">{{ pet.get_gender_display }}</td>
-
-              <td class="admin-table-cell">
-                <a href="{% url 'admin_pet_detail' pet.pk %}" class="admin-table-link">View</a>
-              </td>
-
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-  {% else %}
-
-    <div class="admin-empty">
-      {% if search_query or species_filter %}
-        <p class="admin-empty-message">No pets found matching your search.</p>
-      {% else %}
-        <p class="admin-empty-message">No pets registered yet.</p>
-      {% endif %}
-    </div>
-
-  {% endif %}
-
-</div>
-
+{# This page's own search replaces "Find a pet or owner" (md up; phones get the same form in the page body) #}
+{% block topbar_search %}
+  {% include "admin/pets/pets_list_parts/search_form.html" with id_prefix="topbar" form_class="hidden min-w-0 flex-1 items-center gap-3 md:flex" %}
 {% endblock %}
 
-{% block extra_js %}
-  <script src="{% static 'js/admin/pets_list.js' %}"></script>
+{# No button: a pet is always added from its owner's page #}
+{% block page_title %}Pets{% endblock %}
+{% block page_subtitle %}Every pet registered at the clinic.{% endblock %}
+
+{% block content %}
+  {% include "admin/pets/pets_list_parts/search_form.html" with id_prefix="page" form_class="mb-4 flex items-center gap-3 md:hidden" %}
+  {% include "admin/pets/pets_list_parts/tabs.html" %}
+  {% if active_tab == "archived" and archived_count %}
+    {% include "admin/pets/pets_list_parts/archived_note.html" %}
+  {% endif %}
+
+  {# ?owner= says whose pets these are; a search shows what matched; otherwise the tab's heading, when it has pets #}
+  {% if owner_filter %}
+    {% include "admin/pets/pets_list_parts/owner_filter.html" %}
+  {% endif %}
+  {% if is_searching %}
+    {% include "admin/pets/pets_list_parts/results_line.html" %}
+  {% elif pets and not owner_filter %}
+    {% include "admin/pets/pets_list_parts/list_head.html" %}
+  {% endif %}
+
+  {% if pets %}
+    <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      <ul>
+        {% for pet in pets %}
+          {% include "admin/pets/pets_list_parts/row.html" %}
+        {% endfor %}
+      </ul>
+      {% include "admin/appointments/list_parts/pager.html" %}
+    </div>
+
+    {# One Restore dialog per Restore button (archived pet, active owner) #}
+    {% for pet in pets %}
+      {% if pet.is_archived and not pet.owner.is_archived %}
+        {% include "admin/pets/pets_list_parts/restore_dialog.html" %}
+      {% endif %}
+    {% endfor %}
+  {% else %}
+    {% include "admin/pets/pets_list_parts/empty.html" %}
+  {% endif %}
 {% endblock %}

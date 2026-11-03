@@ -1,0 +1,11 @@
+{% comment %}
+  Opened with ?owner=: whose pets are shown (the open tab's count), and
+  Show all pets (drops owner, keeps the tab and the search).
+{% endcomment %}
+<div class="mb-3 flex min-h-11 flex-wrap items-center justify-between gap-3 rounded-lg border border-violet-200 bg-violet-50 px-4 py-2">
+  <p class="flex items-center gap-2 text-base text-gray-900">
+    {% include "components/owner_avatar.html" with owner=owner_filter size="xs" %}
+    <span>Showing the pets of <b class="font-semibold">{{ owner_filter.full_name }}</b> ({% if active_tab == "archived" %}{{ archived_count }}{% else %}{{ active_count }}{% endif %})</span>
+  </p>
+  <a href="{% url 'admin_pet_list' %}?status={{ active_tab }}{% if q %}&amp;q={{ q|urlencode }}{% endif %}" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="x" %}Show all pets</a>
+</div>

@@ -1,0 +1,40 @@
+{% load friendly_dates %}
+{% comment %}
+  "Vaccinations": a yellow line when one is due within 30 days
+  (vaccination_due_soon, due_soon_days), the 3 newest, then a link to the
+  full list. "Add vaccination" only while the pet and owner are active.
+{% endcomment %}
+<section class="card" aria-labelledby="vaccinations-title">
+  <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+    <h2 id="vaccinations-title" class="text-xl font-semibold">Vaccinations</h2>
+    {% if pet_state == "active" %}
+      <a href="{% url 'admin_vaccination_standalone_create' pet.pk %}" class="btn btn-outline font-semibold">{% include "components/icon.html" with name="plus" %}Add vaccination</a>
+    {% endif %}
+  </div>
+  {% if vaccination_due_soon %}
+    {# "today" / "tomorrow" come from the date filter, so "(in N days)" only from 2 days on #}
+    <div class="mb-3 flex items-start gap-3 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-base text-yellow-900">
+      {% include "components/icon.html" with name="syringe" class="mt-0.5 size-5 shrink-0" %}
+      <p><b>{{ vaccination_due_soon.display_vaccine_name }} is due {{ vaccination_due_soon.next_due_date|friendly_date:"mid" }}</b>{% if due_soon_days > 1 %} (in {{ due_soon_days }} days){% endif %}.</p>
+    </div>
+  {% endif %}
+  {% if recent_vaccinations %}
+    <ul class="divide-y divide-gray-100">
+      {% for vaccination in recent_vaccinations %}
+        <li class="flex flex-wrap items-center gap-x-4 gap-y-1 py-2">
+          <span class="min-w-0 flex-1 text-base"><b class="font-semibold">{{ vaccination.display_vaccine_name }}</b> · given {{ vaccination.date_administered|friendly_date:"mid" }}</span>
+          {% if vaccination.is_corrected %}
+            <span class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-gray-100 px-2.5 py-1 text-sm font-medium text-gray-800">{% include "components/icon.html" with name="pencil" class="size-4 shrink-0" %}Corrected</span>
+          {% endif %}
+          <span class="text-base text-gray-700">{% if vaccination.next_due_date %}Next due {{ vaccination.next_due_date|friendly_date:"mid" }}{% else %}No next date{% endif %}</span>
+          <a href="{% url 'admin_vaccination_edit' vaccination.pk %}" class="inline-flex min-h-11 items-center px-2 text-base font-medium text-blue-600 underline underline-offset-2">Open<span class="sr-only"> {{ vaccination.display_vaccine_name }} given {{ vaccination.date_administered|friendly_date:"mid" }}</span></a>
+        </li>
+      {% endfor %}
+    </ul>
+    <p class="mt-3 border-t border-gray-100 pt-3 text-base">
+      <a href="{% url 'admin_pet_vaccination_history' pet.pk %}" class="inline-flex min-h-11 items-center gap-1.5 font-medium text-blue-600 underline underline-offset-2">See all vaccinations ({{ vaccinations_count }}){% include "components/icon.html" with name="arrow-right" class="size-4 shrink-0" %}</a>
+    </p>
+  {% else %}
+    <p class="text-base text-gray-600">No vaccinations yet.</p>
+  {% endif %}
+</section>

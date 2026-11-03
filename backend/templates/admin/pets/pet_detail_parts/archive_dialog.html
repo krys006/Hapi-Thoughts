@@ -1,0 +1,19 @@
+{% comment %}
+  Direct Archive (no owner request): asks for the reason. Saved as an
+  already-approved deletion request made by the clinic. Reopens on page
+  load when the form came back with errors (typed values kept).
+{% endcomment %}
+<dialog id="archive-pet-dialog" aria-labelledby="archive-pet-dialog-title" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50"{% if archive_form.errors %} data-open-on-load{% endif %}>
+  <form method="post" action="{% url 'admin_pet_archive' pet.pk %}" class="p-6 sm:p-7" novalidate>
+    {% csrf_token %}
+    <h2 id="archive-pet-dialog-title" class="text-xl font-bold">Archive {{ pet.name }}?</h2>
+    <p class="mt-2 text-base text-gray-700">{{ pet.name }} will be hidden from {{ pet.owner.full_name }}'s account, the Pets list and walk-ins. Medical records and vaccinations are kept, and you can restore {{ pet.name }} later.</p>
+    <div class="mt-5 space-y-4">
+      {% include "components/form_field.html" with field=archive_form.reason %}
+      {% include "components/form_field.html" with field=archive_form.reason_detail optional=True %}
+    </div>
+    {% include "admin/pets/owner_detail_parts/visit_warning.html" %}
+    <p class="mt-3 flex items-start gap-2 text-sm text-gray-700">{% include "components/icon.html" with name="mail" class="mt-0.5 size-4 shrink-0" %}<span>{{ pet.owner.full_name }} gets a notification, and an email if they have one.</span></p>
+    {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, archive "|add:pet.name icon="archive" danger=True %}
+  </form>
+</dialog>

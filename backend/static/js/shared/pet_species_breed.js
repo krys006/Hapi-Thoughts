@@ -4,6 +4,10 @@
 // the underlying text input (the actual Django form field) for
 // manual entry. No form.py or model changes — this is a JS-enhanced
 // layer sitting on top of the existing species/breed text inputs.
+//
+// Keep PET_SPECIES_OPTIONS and PET_BREEDS_BY_SPECIES in sync with
+// PET_BREEDS_BY_SPECIES in pets/utils.py (the admin pet form's dropdowns).
+// Same names, same order. pets/tests.py compares the two.
 
 const PET_SPECIES_OPTIONS = ["Dog", "Cat", "Bird", "Rabbit", "Hamster"];
 

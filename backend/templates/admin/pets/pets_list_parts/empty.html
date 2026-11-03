@@ -1,0 +1,25 @@
+{% comment %}
+  Empty list, in a card: a search with no match (the results line above
+  has Clear search), an owner with no pets (?owner=), no pets at all, an
+  empty Archived tab, or an empty Active tab while archived pets exist.
+  The counts follow ?owner=, so "no pets" checks come after the owner one.
+{% endcomment %}
+<div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+  {% if is_searching %}
+    {% with title="No pet matches “"|add:q|add:"”" %}
+      {% if active_tab == "archived" %}
+        {% include "components/empty_state.html" with icon="search" title=title text="Check the spelling, or look in the Active tab." %}
+      {% else %}
+        {% include "components/empty_state.html" with icon="search" title=title text="Check the spelling, or look in the Archived tab. To add a pet, open its owner first." %}
+      {% endif %}
+    {% endwith %}
+  {% elif owner_filter and not active_count and not archived_count %}
+    {% include "components/empty_state.html" with icon="paw-print" title=owner_filter.full_name|add:" has no pets yet." text="Add one from their owner page." %}
+  {% elif not active_count and not archived_count %}
+    {% include "components/empty_state.html" with icon="paw-print" title="No pets yet" text="Pets appear here when owners add them online, or when you add them from an owner's page." %}
+  {% elif active_tab == "archived" %}
+    {% include "components/empty_state.html" with icon="archive" title="No archived pets" text="Pets you archive appear here." %}
+  {% else %}
+    {% include "components/empty_state.html" with icon="paw-print" title="No active pets" text="Restore one from the Archived tab, or add one from an owner's page." %}
+  {% endif %}
+</div>

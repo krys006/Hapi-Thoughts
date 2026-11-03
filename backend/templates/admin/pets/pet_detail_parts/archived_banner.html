@@ -1,0 +1,13 @@
+{% load friendly_dates %}
+{% comment %}
+  Gray banner for an archived pet. archive_request is the latest approved
+  deletion request: made by the owner ("after … asked") or by an admin on
+  this page ("by the clinic"). Older archives may have none.
+{% endcomment %}
+<div class="mb-6 flex items-start gap-3 rounded-xl border border-gray-300 bg-gray-100 px-5 py-4 text-gray-900">
+  {% include "components/icon.html" with name="archive" class="mt-0.5 size-6 shrink-0" %}
+  <div class="min-w-0 flex-1">
+    <p class="text-lg font-semibold">{{ pet.name }} is archived</p>
+    <p class="mt-0.5 text-base">Archived on {{ pet.archived_at|friendly_date:"mid" }}{% if archive_request %}{% if archive_request.requested_by.role == "admin" %} by the clinic{% else %} after {{ pet.owner.full_name }} asked to remove the pet{% endif %} (reason: {{ archive_request.get_reason_display|lower }}){% endif %}. Records and vaccinations are kept.</p>
+  </div>
+</div>

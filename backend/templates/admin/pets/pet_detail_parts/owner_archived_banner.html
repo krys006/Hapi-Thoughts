@@ -1,0 +1,9 @@
+{% load friendly_dates %}
+{# Gray banner when the owner is archived: the pet comes back with the owner #}
+<div class="mb-6 flex items-start gap-3 rounded-xl border border-gray-300 bg-gray-100 px-5 py-4 text-gray-900">
+  {% include "components/icon.html" with name="archive" class="mt-0.5 size-6 shrink-0" %}
+  <div class="min-w-0 flex-1">
+    <p class="text-lg font-semibold">{{ pet.name }}'s owner is archived</p>
+    <p class="mt-0.5 text-base">{{ pet.owner.full_name }} was archived on {{ pet.owner.archived_at|friendly_date:"mid" }}, so {{ pet.name }} is hidden from walk-ins and online booking. Records and vaccinations are kept.</p>
+  </div>
+</div>
