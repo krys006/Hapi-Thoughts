@@ -1,0 +1,9 @@
+{# Blue "Note for the owner": the owner sees it (same colours as the record page's box) #}
+{% with field=form.public_notes %}
+<section class="form-field rounded-xl border border-blue-200 bg-blue-50 p-6 shadow-sm{% if field.errors %} has-error{% endif %}">
+  <label for="{{ field.id_for_label }}" class="flex items-center gap-2 text-xl font-semibold text-gray-900">{% include "components/icon.html" with name="eye" class="size-5 shrink-0 text-blue-800" %}{{ field.label }} <span class="text-base font-normal text-gray-600">(optional)</span></label>
+  <p class="mt-1 text-sm font-medium text-blue-900">{{ pet.owner.full_name }} sees this on {{ pet.name }}'s page, with the diagnosis and medicines.</p>
+  <div class="mt-3">{{ field }}</div>
+  {% for error in field.errors %}<p class="mt-1 flex items-start gap-1 text-sm font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-4 shrink-0" %}{{ error }}</p>{% endfor %}
+</section>
+{% endwith %}

@@ -20,6 +20,7 @@ from .utils import (
     notify_record_created,
     record_detail_context,
     record_for_vaccination,
+    record_form_context,
     record_list_context,
     save_new_record,
     save_new_vaccination,
@@ -40,6 +41,8 @@ from django.db.models import Prefetch
 from pets.utils import archived_pet_refusal
 
 # ── Admin — Medical Records ───────────────────────────────────────────────────
+
+RECORD_FORM = "admin/medical/record_form.html"
 
 
 @login_required
@@ -81,16 +84,13 @@ def admin_medical_record_create(request, pet_pk):
             else:
                 messages.error(request, RECORD_EXISTS)
             return redirect("admin_medical_record_detail", pk=record.pk)
-        messages.error(request, "Please correct the errors below.")
     else:
         record_date = appointment.date if appointment else today
         form = MedicalRecordForm(initial={"record_date": record_date})
 
-    return render(
-        request,
-        "admin/medical/record_form.html",
-        {"form": form, "pet": pet, "appointment": appointment},
-    )
+    # Errors show in the page's summary box (no flash)
+    context = record_form_context(pet, appointment, None, today)
+    return render(request, RECORD_FORM, {**context, "form": form})
 
 
 RECORD_PAGE_RELATED = ("pet__owner__user", "appointment", "created_by")
@@ -135,12 +135,19 @@ def admin_medical_record_detail(request, pk):
 def admin_medical_record_edit(request, pk):
     """
     Admin view — edit an existing medical record.
-    Note: records are editable but never deletable.
+    Note: records are editable but never deletable. Allowed for archived
+    pets and owners too (corrections).
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    record = get_object_or_404(MedicalRecord, pk=pk)
+    record = get_object_or_404(
+        MedicalRecord.objects.select_related("pet__owner", "appointment"), pk=pk
+    )
+    # Before binding: a failed POST writes the posted values onto record
+    context = record_form_context(
+        record.pet, record.appointment, record, timezone.localdate()
+    )
 
     if request.method == "POST":
         form = MedicalRecordForm(request.POST, instance=record)
@@ -148,22 +155,10 @@ def admin_medical_record_edit(request, pk):
             form.save()
             messages.success(request, "Medical record updated.")
             return redirect("admin_medical_record_detail", pk=pk)
-        else:
-            messages.error(request, "Please correct the errors below.")
     else:
         form = MedicalRecordForm(instance=record)
 
-    return render(
-        request,
-        "admin/medical/record_form.html",
-        {
-            "form": form,
-            "pet": record.pet,
-            "appointment": record.appointment,
-            "record": record,
-            "is_edit": True,
-        },
-    )
+    return render(request, RECORD_FORM, {**context, "form": form})
 
 
 @login_required

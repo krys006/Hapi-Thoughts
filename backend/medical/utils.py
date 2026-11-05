@@ -583,6 +583,72 @@ def save_new_record(form, pet, appointment, user):
     return record, True
 
 
+def days_from_today(day, today):
+    """'today', 'tomorrow', 'in N days', '1 day ago' or 'N days ago'."""
+    days = (day - today).days
+    if days == 0:
+        return "today"
+    if days == 1:
+        return "tomorrow"
+    if days > 1:
+        return f"in {days} days"
+    if days == -1:
+        return "1 day ago"
+    return f"{-days} days ago"
+
+
+def saved_follow_up_line(record, today):
+    """The saved follow-up date for the edit form's help line:
+    'Thursday, November 5 · in 2 days' (the year when it isn't this year),
+    or "" when no follow-up date is saved."""
+    day = record.follow_up_date
+    if not (record.follow_up_required and day):
+        return ""
+    long = date_format(day, "l, F j" if day.year == today.year else "l, F j, Y")
+    return f"{long} · {days_from_today(day, today)}"
+
+
+VISIT_DATE_HELP_FROM_VISIT = (
+    "Taken from the visit. Change it only if the record is for another day."
+)
+VISIT_DATE_HELP_TODAY = (
+    "Today. You can pick an earlier day, for example when writing up an old "
+    "paper record."
+)
+
+
+def record_form_context(pet, appointment, record, today):
+    """
+    Context for the record form (new + edit, 5b-3), without the form.
+    Back link and Cancel: edit → the record; new from a visit → the visit;
+    new without one → the pet. On edit, build it before binding the form:
+    a failed POST writes the posted values onto the record.
+    """
+    if record:
+        back_url = reverse("admin_medical_record_detail", args=[record.pk])
+        back_label = "Back to the record"
+        date_help = ""
+    elif appointment:
+        back_url = reverse("admin_appointment_detail", args=[appointment.pk])
+        back_label = "Back to the visit"
+        date_help = VISIT_DATE_HELP_FROM_VISIT
+    else:
+        back_url = reverse("admin_pet_detail", args=[pet.pk])
+        back_label = f"Back to {pet.name}"
+        date_help = VISIT_DATE_HELP_TODAY
+    return {
+        "pet": pet,
+        "appointment": appointment,
+        "record": record,
+        "is_edit": record is not None,
+        "back_url": back_url,
+        "back_label": back_label,
+        "visit_date_help": date_help,
+        "saved_follow_up": saved_follow_up_line(record, today) if record else "",
+        "today": today,
+    }
+
+
 def notify_record_created(record):
     """Tell the owner a medical record was written for their pet."""
     pet = record.pet

@@ -318,7 +318,16 @@ templates/
 │   │   │   ├── remove_medicine_dialog.html ← one per medicine, same day only
 │   │   │   ├── add_file_dialog.html  ← multipart, photo-button file input; reopens on errors (open_dialog "add-file")
 │   │   │   └── remove_file_dialog.html ← one per active file (archive URL)
-│   │   ├── record_form.html
+│   │   ├── record_form.html          ← New and Edit visit record (one form, MedicalRecordForm); extra_js record_form.js
+│   │   ├── record_form_parts/        ← Includes for record_form.html (not HTMX partials, so no `_`; the error summary is pets' owner_form_parts/error_summary.html with numbered=True)
+│   │   │   ├── header.html           ← back link (the visit, the pet page or the record), title, subtitle
+│   │   │   ├── pet_card.html         ← pet_avatar sm + "Pet" + owner, the violet visit line or gray "Not linked to a visit", Visit date
+│   │   │   ├── date_field.html       ← one date field (form_field markup, box max-w-xs, help line from the view)
+│   │   │   ├── notes_card.html       ← Visit notes: Symptoms, Diagnosis, Treatment given + "added on the record page" line
+│   │   │   ├── owner_note_card.html  ← blue Note for the owner (the owner sees it)
+│   │   │   ├── private_card.html     ← amber Private notes (never on an owner page)
+│   │   │   ├── follow_up_card.html   ← "Needs a follow-up visit" box + the date block [data-follow-up-on] (shown while ticked)
+│   │   │   └── buttons.html          ← Cancel + "Save record" / "Save changes" (+ the New note)
 │   │   ├── pet_history.html
 │   │   ├── vaccination_list.html
 │   │   ├── vaccination_list_parts/   ← Includes for vaccination_list.html (not HTMX partials, so no `_`; the pager is appointments' list_parts/pager.html; dialogs reuse appointments' detail_parts/dialog_buttons.html)
@@ -410,7 +419,7 @@ static/
 │   ├── owner/              ← Pet owner page styles
 │   └── shared/             ← Styles used by both roles (header, clinic info)
 ├── js/
-│   ├── admin/              ← Admin page scripts; dialogs.js and auto_submit.js are loaded by layouts/admin.html on every page; photo_input.js by admin/pets/owner_form.html, pet_form.html and admin/medical/record_detail.html (the Add file dialog), owner_form.js / pet_form.js only by their form (extra_js)
+│   ├── admin/              ← Admin page scripts; dialogs.js and auto_submit.js are loaded by layouts/admin.html on every page; photo_input.js by admin/pets/owner_form.html, pet_form.html and admin/medical/record_detail.html (the Add file dialog), owner_form.js / pet_form.js / record_form.js only by their form (extra_js)
 │   ├── owner/              ← Pet owner page scripts
 │   └── shared/             ← Scripts used by both roles
 ├── vendor/
@@ -444,6 +453,9 @@ static/
 > and its view `admin_vaccination_add` (URL
 > `admin/medical/<record_pk>/vaccination/add/`) are gone; the page links to
 > `admin_vaccination_standalone_create?record=<pk>`.
+> Slice 5b-3: `admin/medical/record_form.html` no longer loads
+> `css/admin/record_form.css`; nothing else loads or names it (Krys deletes
+> the file). Added: `js/admin/record_form.js` (the follow-up date show/hide).
 
 ### Media files (user uploads)
 Upload paths come from the `upload_to` values in the models:

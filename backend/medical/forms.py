@@ -4,10 +4,16 @@ from datetime import date
 from decimal import Decimal
 
 from django import forms
+from django.core.exceptions import NON_FIELD_ERRORS
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
 from .models import MedicalRecord, PrescriptionItem, TestResultFile, Vaccination
+
+# The nightly follow-up reminder goes this many days before the date (fixed
+# in notifications/management/commands/send_reminders.py, plus one on the
+# day). Keep the two in step.
+FOLLOW_UP_REMINDER_DAYS = 3
 
 
 class MedicalRecordForm(forms.ModelForm):
@@ -28,15 +34,70 @@ class MedicalRecordForm(forms.ModelForm):
             "follow_up_required",
             "follow_up_date",
         ]
+        labels = {
+            "record_date": "Visit date",
+            "symptoms": "Symptoms",
+            "diagnosis": "Diagnosis",
+            "treatment_given": "Treatment given",
+            "public_notes": "Note for the owner",
+            "private_notes": "Private notes",
+            "follow_up_required": "Needs a follow-up visit",
+            "follow_up_date": "Follow-up date",
+        }
+        help_texts = {
+            "diagnosis": (
+                "The lists show the start of this, so begin with the main finding."
+            ),
+            "follow_up_date": (
+                "Must be after the visit date. A reminder goes to the owner "
+                f"{FOLLOW_UP_REMINDER_DAYS} days before."
+            ),
+        }
         widgets = {
             "record_date": forms.DateInput(attrs={"type": "date"}),
-            "diagnosis": forms.Textarea(attrs={"rows": 3}),
-            "symptoms": forms.Textarea(attrs={"rows": 3}),
-            "treatment_given": forms.Textarea(attrs={"rows": 3}),
-            "public_notes": forms.Textarea(attrs={"rows": 3}),
-            "private_notes": forms.Textarea(attrs={"rows": 3}),
+            "symptoms": forms.Textarea(
+                attrs={
+                    "rows": 3,
+                    "placeholder": "What the owner noticed and what you saw",
+                }
+            ),
+            "diagnosis": forms.Textarea(
+                attrs={"rows": 2, "placeholder": "For example: Ear infection, left ear"}
+            ),
+            "treatment_given": forms.Textarea(
+                attrs={"rows": 3, "placeholder": "What you did at the clinic today"}
+            ),
+            "public_notes": forms.Textarea(
+                attrs={
+                    "rows": 3,
+                    "placeholder": (
+                        "Care at home, what to watch for, when to come back"
+                    ),
+                }
+            ),
+            "private_notes": forms.Textarea(
+                attrs={"rows": 3, "placeholder": "Anything for the clinic only"}
+            ),
             "follow_up_date": forms.DateInput(attrs={"type": "date"}),
         }
+        error_messages = {"record_date": {"required": "Pick the visit date."}}
+
+    # Shown under the box while it is unticked (the date block is hidden)
+    follow_up_off_help = (
+        "Tick it to pick a date. The owner gets a reminder "
+        f"{FOLLOW_UP_REMINDER_DAYS} days before."
+    )
+
+    @property
+    def error_count(self):
+        """Fields with errors, plus 1 when there are form-wide errors."""
+        fields = [name for name in self.errors if name != NON_FIELD_ERRORS]
+        return len(fields) + (1 if self.non_field_errors() else 0)
+
+    @property
+    def follow_up_ticked(self):
+        """The box as posted (re-render) or as saved / initial."""
+        return bool(self["follow_up_required"].value())
 
     def clean(self):
         """

@@ -1,0 +1,8 @@
+{# "Visit notes": Symptoms, Diagnosis, Treatment given (all optional; labels, placeholders and help from MedicalRecordForm) #}
+<section class="card space-y-5" aria-labelledby="notes-title">
+  <h2 id="notes-title" class="flex items-center gap-2 text-xl font-semibold text-gray-900">{% include "components/icon.html" with name="file-text" class="size-5 shrink-0 text-gray-600" %}Visit notes</h2>
+  {% include "components/form_field.html" with field=form.symptoms optional=True %}
+  {% include "components/form_field.html" with field=form.diagnosis optional=True %}
+  {% include "components/form_field.html" with field=form.treatment_given optional=True %}
+  <p class="text-sm text-gray-700">Medicines, test results and vaccinations are added on the record page after saving.</p>
+</section>

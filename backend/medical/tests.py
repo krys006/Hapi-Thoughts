@@ -46,7 +46,20 @@ from .utils import (
 
 User = get_user_model()
 
+# Pages that load a new static file (5b-3: js/admin/record_form.js) render
+# with plain static storage: the manifest has no entry for it until
+# collectstatic runs.
+PLAIN_STATIC = override_settings(
+    STORAGES={
+        **settings.STORAGES,
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+        },
+    }
+)
 
+
+@PLAIN_STATIC
 class ArchivedPetGuardTests(TestCase):
     """New records and vaccinations (standalone or on a record) are refused
     for an archived pet or a pet whose owner is archived (Slice 4b-1)."""
@@ -550,6 +563,7 @@ class FrozenMedicalTestBase(TestCase):
         return MedicalRecord.objects.create(pet=self.pet, **fields)
 
 
+@PLAIN_STATIC
 class RecordFormDateTests(FrozenMedicalTestBase):
     """Visit date and follow-up rules on MedicalRecordForm (Manila date)."""
 
@@ -632,6 +646,7 @@ class RecordFormDateTests(FrozenMedicalTestBase):
         self.assertFalse(MedicalRecord.objects.exists())
 
 
+@PLAIN_STATIC
 class RecordFromVisitTests(FrozenMedicalTestBase):
     """A record started from a visit (?appointment= or the POST field)."""
 
@@ -4197,3 +4212,602 @@ class RecordDetailPageTests(FrozenMedicalTestBase):
                 Pet.objects.filter(pk=self.pet.pk).update(is_archived=archived)
                 for tag in re.findall(r"<a\b[^>]*>", self._html()):
                     self.assertNotIn("\n", tag)
+
+
+# ── Batch 5b-3: Medical record form (new + edit) ─────────────────────────────
+
+FOLLOW_UP_HIDDEN = (
+    '<div class="mt-3 border-l-4 border-violet-200 pl-4 hidden" data-follow-up-on>'
+)
+FOLLOW_UP_SHOWN = (
+    '<div class="mt-3 border-l-4 border-violet-200 pl-4" data-follow-up-on>'
+)
+OFF_HINT = "Tick it to pick a date. The owner gets a reminder 3 days before."
+EMPTY_DATE_HELP = (
+    "Must be after the visit date. A reminder goes to the owner 3 days before."
+)
+
+
+@PLAIN_STATIC
+class RecordFormPageTests(FrozenMedicalTestBase):
+    """admin/medical/record_form.html on the new layout (Slice 5b-3).
+    Frozen at 00:30 Manila on Tue, Nov 3, 2026."""
+
+    def setUp(self):
+        super().setUp()
+        self.new_url = reverse("admin_medical_record_create", args=[self.pet.pk])
+
+    def _visit(self, day=TODAY, hour=9):
+        return Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=day,
+            time=datetime.time(hour, 0),
+            status=Appointment.CONFIRMED,
+        )
+
+    def _edit_url(self, record):
+        return reverse("admin_medical_record_edit", args=[record.pk])
+
+    def _html(self, url):
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _post(self, url, **data):
+        post = {"record_date": "2026-11-03"}
+        post.update(data)
+        response = self.client.post(url, post)
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _three_pages(self):
+        """(case, url, back url, back label): new from a visit, new without
+        one, edit (a record from a visit still goes back to the record)."""
+        visit = self._visit()
+        record = self._record(record_date=_days(-1), appointment=self._visit(_days(-1)))
+        return [
+            (
+                "visit",
+                f"{self.new_url}?appointment={visit.pk}",
+                reverse("admin_appointment_detail", args=[visit.pk]),
+                "Back to the visit",
+            ),
+            (
+                "no visit",
+                self.new_url,
+                reverse("admin_pet_detail", args=[self.pet.pk]),
+                "Back to Bantay",
+            ),
+            (
+                "edit",
+                self._edit_url(record),
+                reverse("admin_medical_record_detail", args=[record.pk]),
+                "Back to the record",
+            ),
+        ]
+
+    # ─── Layout ───────────────────────────────────────────────────────────────
+
+    def test_new_layout_without_old_files(self):
+        record = self._record()
+        for url, title in (
+            (self.new_url, "New visit record for Bantay"),
+            (self._edit_url(record), "Edit Bantay's visit record"),
+        ):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertTemplateUsed(response, "layouts/admin.html")
+                self.assertTemplateUsed(
+                    response, "admin/medical/record_form_parts/header.html"
+                )
+                for old in (
+                    "record_form.css",
+                    "layer(legacy)",
+                    "admin-page",
+                    "medical-form",
+                    "form-group",
+                    "Create Record",
+                    "Record Date",
+                    "Public Notes",
+                ):
+                    with self.subTest(old=old):
+                        self.assertNotContains(response, old)
+                self.assertContains(
+                    response, f"<title>{title} — Hapi Vet Admin</title>"
+                )
+                self.assertContains(response, "js/admin/record_form.js")
+                self.assertContains(response, '<div class="mx-auto max-w-3xl">')
+
+    def test_exactly_one_violet_button(self):
+        for case, url, _back, _label in self._three_pages():
+            with self.subTest(case=case):
+                html = self._html(url)
+                self.assertEqual(html.count("btn-primary"), 1)
+                label = "Save changes" if case == "edit" else "Save record"
+                self.assertRegex(
+                    html,
+                    r'(?s)<button type="submit" class="btn btn-primary min-h-12 '
+                    r'w-full font-semibold sm:w-auto">\s*<svg[^>]*>.*?</svg>\s*'
+                    rf"{label}</button>",
+                )
+
+    def test_sidebar_highlights_medical_records(self):
+        record = self._record()
+        records = reverse("admin_medical_record_list")
+        for url in (self.new_url, self._edit_url(record)):
+            with self.subTest(url=url):
+                self.assertRegex(
+                    self._html(url), rf'<a href="{records}"[^>]*aria-current="page">'
+                )
+
+    # ─── Header, back and Cancel ──────────────────────────────────────────────
+
+    def test_titles_and_subtitles(self):
+        html = self._html(self.new_url)
+        self.assertIn(
+            '<h1 class="text-2xl font-bold text-gray-900">New visit record for '
+            "Bantay</h1>",
+            html,
+        )
+        self.assertIn(
+            "Write what you found and what you did. Only the visit date is "
+            "required.</p>",
+            html,
+        )
+        self.assertNotIn("Changes replace what was written.", html)
+        html = self._html(self._edit_url(self._record()))
+        self.assertIn(
+            '<h1 class="text-2xl font-bold text-gray-900">Edit visit record · '
+            "Bantay</h1>",
+            html,
+        )
+        self.assertIn(
+            "Changes replace what was written. The record shows when it was last "
+            "changed.</p>",
+            html,
+        )
+        self.assertNotIn("Only the visit date is required.", html)
+
+    def test_back_and_cancel_go_to_the_same_place(self):
+        for case, url, back, label in self._three_pages():
+            with self.subTest(case=case):
+                html = self._html(url)
+                self.assertRegex(
+                    html,
+                    rf'(?s)<a href="{re.escape(back)}" class="mb-2 [^"]*">'
+                    rf"\s*<svg[^>]*>.*?</svg>\s*{label}</a>",
+                )
+                self.assertIn(
+                    f'<a href="{back}" class="btn btn-outline min-h-12 w-full '
+                    'font-semibold sm:w-auto">Cancel</a>',
+                    html,
+                )
+
+    def test_new_note_by_the_buttons(self):
+        note = (
+            "<span>After saving you'll see the record, where you can add medicines, "
+            "files and vaccinations.</span>"
+        )
+        for case, url, _back, _label in self._three_pages():
+            with self.subTest(case=case):
+                self.assertEqual(note in self._html(url), case != "edit")
+
+    # ─── Pet card ─────────────────────────────────────────────────────────────
+
+    def test_pet_line(self):
+        html = self._html(self.new_url)
+        self.assertIn('<p class="text-sm text-gray-600">Pet</p>', html)
+        self.assertIn(
+            '<p class="text-lg font-semibold text-gray-900">Bantay <span '
+            'class="text-base font-normal text-gray-700">· Owner: Ana Cruz</span></p>',
+            html,
+        )
+        self.assertIn('aria-label="No photo of Bantay yet"', html)
+        self.assertIn("size-10 rounded-xl", html)
+
+    def test_visit_line_both_ways(self):
+        visit = self._visit()
+        html = self._html(f"{self.new_url}?appointment={visit.pk}")
+        self.assertIn(
+            "bg-violet-50 px-3 py-2 text-base text-gray-900",
+            html,
+        )
+        self.assertIn(
+            '<span>From the visit <b class="font-semibold">Today at 9:00 AM</b></span>',
+            html,
+        )
+        self.assertNotIn("Not linked to a visit", html)
+        self.assertIn(
+            f'<input type="hidden" name="appointment" value="{visit.pk}">', html
+        )
+
+        html = self._html(self.new_url)
+        self.assertIn("bg-gray-50 px-3 py-2 text-base text-gray-700", html)
+        self.assertIn("<span>Not linked to a visit</span>", html)
+        self.assertNotIn("From the visit", html)
+        self.assertNotIn('name="appointment"', html)
+
+        # Edit: the record's visit, but no hidden field (the view ignores it)
+        record = self._record(
+            record_date=_days(-1), appointment=self._visit(_days(-1), 10)
+        )
+        html = self._html(self._edit_url(record))
+        self.assertIn(
+            '<span>From the visit <b class="font-semibold">Yesterday at 10:00 AM'
+            "</b></span>",
+            html,
+        )
+        self.assertNotIn('name="appointment"', html)
+
+    def test_visit_date_field_and_each_help(self):
+        from_visit = (
+            "Taken from the visit. Change it only if the record is for another day."
+        )
+        today = (
+            "Today. You can pick an earlier day, for example when writing up an old "
+            "paper record."
+        )
+        expected = {"visit": from_visit, "no visit": today, "edit": None}
+        for case, url, _back, _label in self._three_pages():
+            with self.subTest(case=case):
+                html = self._html(url)
+                self.assertRegex(
+                    html,
+                    r'<label for="id_record_date" class="[^"]*">Visit date '
+                    r'<span class="text-red-700" aria-hidden="true">\*</span></label>',
+                )
+                self.assertRegex(
+                    html, r'<div class="max-w-xs"><input type="date" name="record_date"'
+                )
+                for line in (from_visit, today):
+                    self.assertEqual(
+                        f'<p class="text-sm text-gray-700">{line}</p>' in html,
+                        line == expected[case],
+                    )
+
+    # ─── Notes ────────────────────────────────────────────────────────────────
+
+    def test_every_placeholder_and_help_text(self):
+        html = self._html(self.new_url)
+        for name, placeholder in (
+            ("symptoms", "What the owner noticed and what you saw"),
+            ("diagnosis", "For example: Ear infection, left ear"),
+            ("treatment_given", "What you did at the clinic today"),
+            ("public_notes", "Care at home, what to watch for, when to come back"),
+            ("private_notes", "Anything for the clinic only"),
+        ):
+            with self.subTest(name=name):
+                self.assertRegex(
+                    html,
+                    rf'<textarea name="{name}" cols="40" rows="\d" '
+                    rf'placeholder="{placeholder}"',
+                )
+        for label in ("Symptoms", "Diagnosis", "Treatment given"):
+            with self.subTest(label=label):
+                self.assertRegex(
+                    html,
+                    rf"(?s)<label [^>]*>\s*{label} <span "
+                    r'class="font-normal text-gray-600">\(optional\)</span>',
+                )
+        for line in (
+            '<p class="text-sm text-gray-600">The lists show the start of this, so '
+            "begin with the main finding.</p>",
+            '<p class="text-sm text-gray-700">Medicines, test results and '
+            "vaccinations are added on the record page after saving.</p>",
+            "Visit notes</h2>",
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(html.count(line), 1)
+
+    def test_owner_note_and_private_cards(self):
+        html = self._html(self.new_url)
+        self.assertIn(
+            '<section class="form-field rounded-xl border border-blue-200 bg-blue-50 '
+            'p-6 shadow-sm">',
+            html,
+        )
+        self.assertRegex(
+            html,
+            r'(?s)<label for="id_public_notes" class="[^"]*">\s*<svg[^>]*>.*?</svg>'
+            r'\s*Note for the owner <span class="text-base font-normal text-gray-600">'
+            r"\(optional\)</span></label>",
+        )
+        self.assertIn(
+            '<p class="mt-1 text-sm font-medium text-blue-900">Ana Cruz sees this on '
+            "Bantay's page, with the diagnosis and medicines.</p>",
+            html,
+        )
+        self.assertIn(
+            '<section class="form-field rounded-xl border-2 border-amber-300 '
+            'bg-amber-50 p-6 shadow-sm">',
+            html,
+        )
+        self.assertRegex(
+            html,
+            r'(?s)<label for="id_private_notes" class="[^"]*">\s*<svg[^>]*>.*?</svg>'
+            r'\s*Private notes <span class="text-base font-normal text-gray-600">'
+            r"\(optional\)</span></label>",
+        )
+        self.assertIn(
+            '<p class="mt-1 text-sm font-medium text-amber-900">Only the clinic sees '
+            "this. It is never shown to Ana Cruz.</p>",
+            html,
+        )
+
+    # ─── Follow-up ────────────────────────────────────────────────────────────
+
+    def test_follow_up_unticked(self):
+        html = self._html(self.new_url)
+        self.assertIn(
+            '<input type="checkbox" name="follow_up_required" '
+            'id="id_follow_up_required" class="size-6 shrink-0 accent-violet-600" '
+            "data-follow-up-box>",
+            html,
+        )
+        self.assertRegex(
+            html,
+            r'(?s)<label for="id_follow_up_required" class="mt-3 flex min-h-11 '
+            r'[^"]*">.*?Needs a follow-up visit\s*</label>',
+        )
+        self.assertIn(
+            f'<p class="mt-1 text-sm text-gray-700" data-follow-up-off>{OFF_HINT}</p>',
+            html,
+        )
+        self.assertIn(FOLLOW_UP_HIDDEN, html)
+        self.assertNotIn(FOLLOW_UP_SHOWN, html)
+        # The date is still in the page, for the script to show
+        self.assertIn('<label for="id_follow_up_date"', html)
+        self.assertIn("<noscript><style>[data-follow-up-on] { display: block; }", html)
+
+    def test_follow_up_ticked(self):
+        record = self._record(record_date=_days(-1))
+        MedicalRecord.objects.filter(pk=record.pk).update(follow_up_required=True)
+        html = self._html(self._edit_url(record))
+        self.assertIn('accent-violet-600" checked data-follow-up-box>', html)
+        self.assertIn(FOLLOW_UP_SHOWN, html)
+        self.assertNotIn(FOLLOW_UP_HIDDEN, html)
+        self.assertIn(
+            '<p class="mt-1 text-sm text-gray-700 hidden" data-follow-up-off>', html
+        )
+        # Ticked with no saved date (older data): the plain help
+        self.assertIn(f'<p class="text-sm text-gray-700">{EMPTY_DATE_HELP}</p>', html)
+
+    def test_follow_up_on_a_re_render_with_errors(self):
+        html = self._post(
+            self.new_url, record_date="2026-11-04", follow_up_required="on"
+        )
+        self.assertIn(FOLLOW_UP_SHOWN, html)
+        self.assertIn('accent-violet-600" checked data-follow-up-box>', html)
+        self.assertIn(f'<p class="text-sm text-gray-700">{EMPTY_DATE_HELP}</p>', html)
+
+        html = self._post(self.new_url, record_date="2026-11-04")
+        self.assertIn(FOLLOW_UP_HIDDEN, html)
+        self.assertIn('accent-violet-600" data-follow-up-box>', html)
+
+    def test_edit_help_with_a_saved_date(self):
+        cases = [
+            (_days(2), "Thursday, November 5 · in 2 days"),
+            (_days(1), "Wednesday, November 4 · tomorrow"),
+            (TODAY, "Tuesday, November 3 · today"),
+            (_days(-1), "Monday, November 2 · 1 day ago"),
+            (_days(-4), "Friday, October 30 · 4 days ago"),
+            (datetime.date(2027, 1, 5), "Tuesday, January 5, 2027 · in 63 days"),
+        ]
+        record = self._record(record_date=_days(-20))
+        for day, line in cases:
+            with self.subTest(day=day):
+                MedicalRecord.objects.filter(pk=record.pk).update(
+                    follow_up_required=True, follow_up_date=day
+                )
+                html = self._html(self._edit_url(record))
+                self.assertIn(f'<p class="text-sm text-gray-700">{line}</p>', html)
+                self.assertNotIn(EMPTY_DATE_HELP, html)
+                self.assertIn(f'value="{day.isoformat()}"', html)
+
+    def test_edit_help_keeps_the_saved_date_after_a_failed_save(self):
+        # A failed POST writes the posted values onto the record; the help
+        # still names the saved date
+        record = self._record(
+            record_date=_days(-20), follow_up_required=True, follow_up_date=_days(2)
+        )
+        html = self._post(
+            self._edit_url(record),
+            record_date="2026-11-04",
+            follow_up_required="on",
+            follow_up_date="2026-11-20",
+        )
+        self.assertIn("Thursday, November 5 · in 2 days", html)
+        self.assertIn('value="2026-11-20"', html)
+
+    # ─── Errors ───────────────────────────────────────────────────────────────
+
+    def test_error_summary_singular_and_plural(self):
+        html = self._post(self.new_url, record_date="2026-11-04")
+        self.assertIn(
+            '<div class="flex items-start gap-3 rounded-xl border border-red-200 '
+            'bg-red-50 px-5 py-4 text-red-900" role="alert">',
+            html,
+        )
+        self.assertIn(
+            '<p class="text-lg font-semibold">Please fix the 1 item below.</p>', html
+        )
+        self.assertIn("Nothing was saved yet.", html)
+        # The summary replaces the old flash
+        self.assertNotIn("Please correct the errors below.", html)
+
+        html = self._post(
+            self.new_url, record_date="2026-11-04", follow_up_required="on"
+        )
+        self.assertIn(
+            '<p class="text-lg font-semibold">Please fix the 2 items below.</p>', html
+        )
+        self.assertFalse(MedicalRecord.objects.exists())
+
+        # No summary before a save
+        self.assertNotIn('role="alert"', self._html(self.new_url))
+
+    def test_every_error_message(self):
+        cases = [
+            ({"record_date": ""}, "Pick the visit date."),
+            (
+                {"record_date": "2026-11-04"},
+                "The visit date can&#x27;t be in the future.",
+            ),
+            (
+                {"follow_up_required": "on"},
+                "Pick the follow-up date, or untick “Needs a follow-up visit”.",
+            ),
+            (
+                {"follow_up_required": "on", "follow_up_date": "2026-11-03"},
+                "The follow-up date must be after the visit date.",
+            ),
+        ]
+        for data, message in cases:
+            with self.subTest(message=message):
+                html = self._post(self.new_url, **data)
+                # Under its field, after the triangle icon
+                self.assertRegex(
+                    html,
+                    r'(?s)<p class="flex items-start gap-1 text-sm font-medium '
+                    rf'text-red-700">\s*<svg[^>]*>.*?</svg>\s*{re.escape(message)}</p>',
+                )
+                self.assertIn("Please fix the 1 item below.", html)
+        self.assertFalse(MedicalRecord.objects.exists())
+
+    def test_typed_values_are_kept_after_an_error(self):
+        html = self._post(
+            self.new_url,
+            record_date="2026-11-13",
+            symptoms="Scratching both front paws",
+            diagnosis="Skin allergy (mild)",
+            treatment_given="Cleaned both paws",
+            public_notes="Keep the paws dry",
+            private_notes="Owner asked about cost",
+            follow_up_required="on",
+            follow_up_date="2026-11-20",
+        )
+        self.assertIn('value="2026-11-13"', html)
+        self.assertIn('value="2026-11-20"', html)
+        for text in (
+            "Scratching both front paws",
+            "Skin allergy (mild)",
+            "Cleaned both paws",
+            "Keep the paws dry",
+            "Owner asked about cost",
+        ):
+            with self.subTest(text=text):
+                self.assertRegex(
+                    html, rf"<textarea [^>]*>\s*{re.escape(text)}</textarea>"
+                )
+
+    def test_unticked_follow_up_date_is_cleared(self):
+        # Existing rule (5a-2), seen on the record page after the save
+        record = self._record(
+            record_date=_days(-1), follow_up_required=True, follow_up_date=_days(5)
+        )
+        response = self.client.post(
+            self._edit_url(record),
+            {"record_date": "2026-11-02", "follow_up_date": "2026-11-08"},
+            follow=True,
+        )
+        self.assertContains(
+            response, '<p class="mt-2 text-base text-gray-700">No follow-up needed.</p>'
+        )
+
+    # ─── Saves, owners, archived ──────────────────────────────────────────────
+
+    def test_private_notes_save_but_never_reach_the_owner(self):
+        self.client.post(
+            self.new_url,
+            {
+                "record_date": "2026-11-03",
+                "diagnosis": "Ear infection",
+                "private_notes": "Possibly yeast too",
+            },
+        )
+        record = MedicalRecord.objects.get()
+        self.assertEqual(record.private_notes, "Possibly yeast too")
+        self.client.force_login(self.owner_user)
+        response = self.client.get(
+            reverse("owner_pet_medical_history", args=[self.pet.pk])
+        )
+        self.assertContains(response, "Ear infection")
+        self.assertNotContains(response, "Possibly yeast too")
+
+    def test_edit_is_allowed_for_an_archived_pet_or_owner(self):
+        record = self._record()
+        url = self._edit_url(record)
+        Pet.objects.filter(pk=self.pet.pk).update(is_archived=True)
+        self.assertEqual(self.client.get(url).status_code, 200)
+        Pet.objects.filter(pk=self.pet.pk).update(is_archived=False)
+        self.owner.archive()
+        self.assertEqual(self.client.get(url).status_code, 200)
+        response = self.client.post(
+            url, {"record_date": "2026-11-03", "diagnosis": "Fixed"}
+        )
+        self.assertEqual(response.status_code, 302)
+        record.refresh_from_db()
+        self.assertEqual(record.diagnosis, "Fixed")
+
+    # ─── Queries, links ───────────────────────────────────────────────────────
+
+    def _page_queries(self, url):
+        self.client.get(url)
+        with CaptureQueriesContext(connection) as queries:
+            self.client.get(url)
+        return [query["sql"] for query in queries]
+
+    def test_query_count_is_flat(self):
+        """New and edit cost the same with and without a visit, and with
+        more records for the pet."""
+        bare = self._record(record_date=_days(-2))
+        from_visit = self._record(
+            record_date=_days(-1), appointment=self._visit(_days(-1), 10)
+        )
+        visit = self._visit()
+        pages = {
+            "new": self.new_url,
+            "new from a visit": f"{self.new_url}?appointment={visit.pk}",
+            "edit": self._edit_url(bare),
+            "edit from a visit": self._edit_url(from_visit),
+        }
+        counts = {case: len(self._page_queries(url)) for case, url in pages.items()}
+        for i in range(5):
+            self._record(record_date=_days(-30 - i))
+        for case, url in pages.items():
+            with self.subTest(case=case):
+                queries = self._page_queries(url)
+                self.assertEqual(len(queries), counts[case])
+        # Session, user, pet + owner, 3 sidebar counts, clinic settings
+        self.assertEqual(counts["new"], 7, counts)
+        self.assertEqual(counts["edit"], 7, counts)
+        # + the visit; + its record check on new
+        self.assertEqual(counts["new from a visit"], 9, counts)
+        self.assertEqual(counts["edit from a visit"], 7, counts)
+
+    def test_every_link_is_on_one_line(self):
+        for case, url, _back, _label in self._three_pages():
+            with self.subTest(case=case):
+                for tag in re.findall(r"<a\b[^>]*>", self._html(url)):
+                    self.assertNotIn("\n", tag)
+        html = self._post(self.new_url, record_date="2026-11-04")
+        for tag in re.findall(r"<a\b[^>]*>", html):
+            self.assertNotIn("\n", tag)
+
+
+class DaysFromTodayTests(SimpleTestCase):
+    """medical/utils.days_from_today, the edit form's follow-up wording."""
+
+    def test_wording(self):
+        from .utils import days_from_today
+
+        for days, text in (
+            (0, "today"),
+            (1, "tomorrow"),
+            (2, "in 2 days"),
+            (-1, "1 day ago"),
+            (-4, "4 days ago"),
+        ):
+            with self.subTest(days=days):
+                self.assertEqual(days_from_today(_days(days), TODAY), text)
