@@ -52,11 +52,7 @@
   overflow-y: auto;
 }
 
-/* ---- Page shell (standalone viewing only) ----
-   Deliberately no max-width/margin here — record_list.css also defines
-   .admin-page (full-width, for the list page), and if these fought over
-   that property depending on <link> order, the list layout could get
-   squashed. Only setting properties here that are safe to coexist. */
+/* ---- Page shell (standalone viewing only) ---- */
 .admin-page {
   padding: 32px 24px 64px;
   box-sizing: border-box;

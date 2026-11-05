@@ -1,0 +1,53 @@
+{% load friendly_dates %}
+{% comment %}
+  One medical record: the visit date in a fixed first column, the pet
+  (avatar, name, the diagnosis on one cut-off line, the follow-up pill), a
+  thin divider, the owner, then the buttons. Below md a card, like the
+  Vaccinations list. Private notes never show here. The pill is blue on
+  All and yellow, with when, on Follow-ups (follow_up_days, from the view's
+  today). Send reminder only on Follow-ups.
+{% endcomment %}
+{% with pet=record.pet owner=record.pet.owner %}
+<li class="flex flex-col gap-3 border-t border-gray-100 p-4 first:border-t-0 hover:bg-gray-50 md:grid md:grid-cols-[7.5rem_minmax(0,1.25fr)_1px_minmax(0,0.9fr)_auto] md:items-center md:gap-5 md:px-5">
+  <div>
+    <p class="text-sm text-gray-600">Visit date</p>
+    <p class="text-base font-semibold text-gray-900">{% friendly_date_on record.record_date today %}</p>
+  </div>
+
+  <div class="flex min-w-0 items-start gap-3 md:gap-4">
+    {% if pet.is_archived or owner.is_archived %}
+      {% include "components/pet_avatar.html" with pet=pet size="sm" muted=True %}
+    {% else %}
+      {% include "components/pet_avatar.html" with pet=pet size="sm" %}
+    {% endif %}
+    <div class="min-w-0">
+      <p class="text-lg font-semibold text-gray-900">{{ pet.name }}</p>
+      {% if record.diagnosis %}
+        <p class="truncate text-base text-gray-800">{{ record.diagnosis }}</p>
+      {% else %}
+        <p class="text-base text-gray-600">No diagnosis written</p>
+      {% endif %}
+      {% if record.follow_up_required %}
+        <p class="mt-1 flex flex-wrap gap-2">
+          {% if active_tab == "followups" %}
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-yellow-100 px-2.5 py-1 text-sm font-medium text-yellow-900">{% include "components/icon.html" with name="clock" class="size-4 shrink-0" %}{% if record.follow_up_days == 0 %}Follow-up today{% elif record.follow_up_days == 1 %}Follow-up tomorrow{% else %}Follow-up in {{ record.follow_up_days }} days · {% friendly_date_on record.follow_up_date today %}{% endif %}</span>
+          {% else %}
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2.5 py-1 text-sm font-medium text-blue-800">{% include "components/icon.html" with name="calendar" class="size-4 shrink-0" %}Follow-up{% if record.follow_up_date %} {% friendly_date_on record.follow_up_date today "mid" %}{% endif %}</span>
+          {% endif %}
+        </p>
+      {% endif %}
+    </div>
+  </div>
+
+  <span class="hidden h-10 w-px bg-gray-200 md:block" aria-hidden="true"></span>
+
+  {% include "admin/medical/vaccination_list_parts/owner_half.html" %}
+
+  <div class="flex gap-2 md:justify-end">
+    {% if active_tab == "followups" %}
+      <button type="button" class="btn btn-outline flex-1 font-semibold md:flex-none" data-dialog-open="reminder-dialog-{{ record.pk }}">{% include "components/icon.html" with name="send" %}<span class="md:hidden">Remind</span><span class="hidden md:inline">Send reminder</span><span class="sr-only"> to {{ owner.full_name }} about {{ pet.name }}'s follow-up</span></button>
+    {% endif %}
+    <a href="{% url 'admin_medical_record_detail' record.pk %}" class="inline-flex min-h-11 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-violet-300 bg-violet-50 px-5 text-base font-semibold text-violet-800 hover:border-violet-400 hover:bg-violet-100 md:flex-none">Open<span class="sr-only"> {{ pet.name }}'s record from {% friendly_date_on record.record_date today "mid" %}</span>{% include "components/icon.html" with name="arrow-right" %}</a>
+  </div>
+</li>
+{% endwith %}

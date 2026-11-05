@@ -79,6 +79,35 @@ def long_date_on(value, today, style=None):
     return date_format(value, "l, F j, Y")
 
 
+def _as_local_date(value):
+    """A date as is; a datetime as its Manila date."""
+    if not isinstance(value, datetime):
+        return value
+    if timezone.is_aware(value):
+        return timezone.localtime(value).date()
+    return value.date()
+
+
+@register.simple_tag(name="friendly_date_on")
+def friendly_date_on_tag(value, today, style=None):
+    """friendly_date with the view's today passed in, for pages whose
+    wording must follow that today, not the clock:
+    {% friendly_date_on vaccination.next_due_date today %}
+    {% friendly_date_on due_until today as until %}. "" for no value."""
+    if not value:
+        return ""
+    return friendly_date_on(_as_local_date(value), today, style)
+
+
+@register.simple_tag(name="long_date_on")
+def long_date_on_tag(value, today, style=None):
+    """long_date with the view's today passed in:
+    {% long_date_on vaccination.next_due_date today "mid" %}."""
+    if not value:
+        return ""
+    return long_date_on(_as_local_date(value), today, style)
+
+
 @register.filter
 def friendly_datetime(value):
     """'Today, 3:58 PM', 'Yesterday, 9:05 AM' or 'Mon, Nov 2, 3:58 PM'."""

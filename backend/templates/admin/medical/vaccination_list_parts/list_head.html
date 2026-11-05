@@ -1,0 +1,18 @@
+{% load friendly_dates %}
+{% comment %}
+  Heading above the list when not searching: the open tab's name and
+  count, and its sort order on the right (the Due tab also says which days
+  it covers, from the view's today).
+{% endcomment %}
+<div class="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+  {% if active_tab == "due" %}
+    <h2 class="text-lg font-semibold text-gray-900">Due in the next 7 days <span class="font-normal text-gray-600">({{ due_count }})</span></h2>
+    <p class="text-sm text-gray-600">Soonest first · Today to {% friendly_date_on due_until today %}</p>
+  {% elif active_tab == "overdue" %}
+    <h2 class="text-lg font-semibold text-gray-900">Overdue <span class="font-normal text-gray-600">({{ overdue_count }})</span></h2>
+    <p class="text-sm text-gray-600">Most recently due first</p>
+  {% else %}
+    <h2 class="text-lg font-semibold text-gray-900">All vaccinations <span class="font-normal text-gray-600">({{ all_count }})</span></h2>
+    <p class="text-sm text-gray-600">Newest first</p>
+  {% endif %}
+</div>

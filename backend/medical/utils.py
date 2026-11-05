@@ -28,7 +28,9 @@ RECORD_EXISTS = "A medical record already exists for this appointment."
 DUE_DAYS = 7
 LIST_PAGE_SIZE = 25
 VACCINATION_TABS = ("due", "overdue", "all")
+VACCINATION_DEFAULT_TAB = "due"
 RECORD_TABS = ("followups", "all")
+RECORD_DEFAULT_TAB = "all"
 
 
 # ── Due rule (one shared helper) ─────────────────────────────────────────────
@@ -230,6 +232,48 @@ def send_followup_reminder(record):
     return reminder_flash(pet.owner, notification)
 
 
+def _list_return_url(url_name, tabs, default_tab, post):
+    """A list's URL from reverse(), with the posted tab (re-validated
+    against that list's own tabs) and the stripped q, urlencoded."""
+    tab = post.get("tab")
+    query = {"tab": tab if tab in tabs else default_tab}
+    q = post.get("q", "").strip()
+    if q:
+        query["q"] = q
+    return f"{reverse(url_name)}?{urlencode(query)}"
+
+
+def vaccination_reminder_return(post, vaccination):
+    """
+    Where the vaccination Send reminder goes back to, from the POST field
+    return_to (a fixed choice, never a URL from the request): "list" → the
+    Vaccinations list with its tab and q; anything else ("history", the
+    default) → the pet's vaccinations.
+    """
+    if post.get("return_to") == "list":
+        return _list_return_url(
+            "admin_vaccination_list", VACCINATION_TABS, VACCINATION_DEFAULT_TAB, post
+        )
+    return reverse("admin_pet_vaccination_history", args=[vaccination.pet_id])
+
+
+def followup_reminder_return(post, record):
+    """
+    Where the follow-up Send reminder goes back to (return_to, a fixed
+    choice): "list" → the Medical records list with its tab and q;
+    "record" → the record; anything else ("history", the default) → the
+    pet's medical history.
+    """
+    return_to = post.get("return_to")
+    if return_to == "list":
+        return _list_return_url(
+            "admin_medical_record_list", RECORD_TABS, RECORD_DEFAULT_TAB, post
+        )
+    if return_to == "record":
+        return reverse("admin_medical_record_detail", args=[record.pk])
+    return reverse("admin_pet_medical_history", args=[record.pet_id])
+
+
 def _owner_contact(pet):
     """owner_has_email / owner_phone for the reminder dialogs."""
     return {
@@ -309,7 +353,7 @@ def vaccination_list_context(params, today):
     counts ignore it.
     """
     tab = params.get("tab")
-    active_tab = tab if tab in VACCINATION_TABS else "due"
+    active_tab = tab if tab in VACCINATION_TABS else VACCINATION_DEFAULT_TAB
     q = _list_search(params)
 
     # One query: the due and overdue counts reuse the due rule as subqueries
@@ -352,7 +396,9 @@ def vaccination_list_context(params, today):
         **counts,
         **links,
         "today": today,
-        # Old template's keys (until the 5b-1 redesign)
+        # Last day of the Due tab ("Today to {due_until}")
+        "due_until": today + timedelta(days=DUE_DAYS),
+        # Old template's keys (5a-4); the 5b-1 template doesn't use them
         "search_query": q,
         "total_count": page_obj.paginator.count,
     }
@@ -387,7 +433,7 @@ def record_list_context(params, today):
     tab counts ignore it.
     """
     tab = params.get("tab")
-    active_tab = tab if tab in RECORD_TABS else "all"
+    active_tab = tab if tab in RECORD_TABS else RECORD_DEFAULT_TAB
     q = _list_search(params)
 
     counts = MedicalRecord.objects.aggregate(
@@ -421,7 +467,9 @@ def record_list_context(params, today):
         **counts,
         **links,
         "today": today,
-        # Old template's keys (until the 5b-1 redesign)
+        # Last day of the Follow-ups tab ("Today to {due_until}")
+        "due_until": today + timedelta(days=DUE_DAYS),
+        # Old template's keys (5a-4); the 5b-1 template doesn't use them
         "search_query": q,
         "total_count": page_obj.paginator.count,
     }

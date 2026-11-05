@@ -1,0 +1,21 @@
+{% load friendly_dates %}
+{% comment %}
+  Empty list, in a card: a search with no match (the results line above has
+  Clear search), no vaccinations at all, nothing due in the next 7 days
+  (with a link to All) or nothing overdue. The counts ignore the search.
+{% endcomment %}
+<div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+  {% if is_searching %}
+    {% with title="No vaccination matches “"|add:q|add:"”" %}
+      {% include "components/empty_state.html" with icon="search" title=title text="Check the spelling, or look in another tab." %}
+    {% endwith %}
+  {% elif not all_count %}
+    {% include "components/empty_state.html" with icon="syringe" title="No vaccinations yet" text="Vaccinations appear here when you add them from a pet's page or a medical record." %}
+  {% elif active_tab == "due" %}
+    {% friendly_date_on due_until today as until %}
+    {% include "components/empty_state.html" with icon="circle-check" title="Nothing due in the next 7 days" text="No pet needs a vaccination from today to "|add:until|add:"." %}
+    <p class="-mt-6 flex justify-center px-6 pb-8"><a href="{% url 'admin_vaccination_list' %}?tab=all" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">See all vaccinations{% include "components/icon.html" with name="arrow-right" %}</a></p>
+  {% elif active_tab == "overdue" %}
+    {% include "components/empty_state.html" with icon="circle-check" title="Nothing overdue" text="No pet has a next dose date that has passed." %}
+  {% endif %}
+</div>

@@ -1,0 +1,21 @@
+{% load friendly_dates %}
+{% comment %}
+  Send reminder confirmation for one due or overdue vaccination (one dialog
+  per Send reminder button). Posts return_to=list with the open tab and q,
+  so the view comes back to this list. Dates from the view's today.
+{% endcomment %}
+{% with pet=vaccination.pet owner=vaccination.pet.owner %}
+<dialog id="reminder-dialog-{{ vaccination.pk }}" aria-labelledby="reminder-dialog-{{ vaccination.pk }}-title" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50">
+  <form method="post" action="{% url 'admin_trigger_vaccination_reminder' vaccination.pk %}" class="p-6 sm:p-7">
+    {% csrf_token %}
+    <input type="hidden" name="return_to" value="list">
+    <input type="hidden" name="tab" value="{{ active_tab }}">
+    {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+    <h2 id="reminder-dialog-{{ vaccination.pk }}-title" class="text-xl font-bold">Send a reminder to {{ owner.full_name }}?</h2>
+    <p class="mt-2 text-base text-gray-700">{{ pet.name }}'s <b>{{ vaccination.display_vaccine_name }}</b> {% if vaccination.due_state == "overdue" %}was due on <b>{% long_date_on vaccination.next_due_date today %}</b> ({{ vaccination.days }} day{{ vaccination.days|pluralize }} ago){% else %}is due on <b>{% long_date_on vaccination.next_due_date today "mid" %}</b>{% endif %}. The reminder asks {{ owner.full_name }} to book a visit.</p>
+    <p class="mt-3 flex items-start gap-2 text-base text-gray-700">{% include "components/icon.html" with name="clock" class="mt-0.5 size-5 shrink-0" %}<span>{% if vaccination.last_reminder %}Last vaccination reminder for {{ pet.name }}: {% friendly_date_on vaccination.last_reminder today %}.{% else %}No vaccination reminder sent for {{ pet.name }} yet.{% endif %}</span></p>
+    {% include "admin/medical/vaccination_list_parts/reminder_contact.html" with emails="vaccination" %}
+    {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, send reminder" icon="send" %}
+  </form>
+</dialog>
+{% endwith %}

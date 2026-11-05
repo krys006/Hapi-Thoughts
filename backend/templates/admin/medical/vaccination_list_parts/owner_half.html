@@ -1,0 +1,13 @@
+{% comment %}
+  The owner half of a list row (needs owner): avatar, "Owner", name → owner
+  page, phone or "No phone number". A gray box below md, plain from md up.
+  Also used by the Medical records list's rows.
+{% endcomment %}
+<div class="flex min-w-0 items-center gap-3 rounded-lg bg-gray-50 px-3 py-2 md:rounded-none md:bg-transparent md:p-0">
+  {% include "components/owner_avatar.html" with owner=owner size="sm" muted=owner.is_archived %}
+  <div class="min-w-0">
+    <p class="text-sm text-gray-600">Owner</p>
+    <p class="truncate text-base"><a href="{% url 'admin_owner_detail' owner.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ owner.full_name }}</a></p>
+    <p class="text-sm text-gray-700"><span class="sr-only">Phone: </span>{% if owner.contact_number %}{{ owner.contact_number }}{% else %}<span class="text-gray-600">No phone number</span>{% endif %}</p>
+  </div>
+</div>

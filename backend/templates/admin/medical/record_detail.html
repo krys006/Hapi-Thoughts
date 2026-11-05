@@ -131,6 +131,7 @@
               </p>
               <form method="post" action="{% url 'admin_trigger_followup_reminder' record.pk %}">
                 {% csrf_token %}
+                <input type="hidden" name="return_to" value="record">
                 <button type="submit" class="btn-secondary">Send Follow-up Reminder Now</button>
               </form>
             </div>

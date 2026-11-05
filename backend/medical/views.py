@@ -14,6 +14,7 @@ from .forms import (
 from .utils import (
     RECORD_EXISTS,
     can_remove_medicines,
+    followup_reminder_return,
     medical_history_context,
     new_vaccination_initial,
     notify_record_created,
@@ -29,6 +30,7 @@ from .utils import (
     vaccination_history_url,
     vaccination_list_context,
     vaccination_reminder_refusal,
+    vaccination_reminder_return,
     visit_for_record,
     visit_stop,
 )
@@ -483,8 +485,10 @@ def admin_trigger_vaccination_reminder(request, pk):
     Admin action — manually send a vaccination reminder to the pet owner.
     Bypasses the duplicate-prevention check used by the automated cron job,
     since this is an intentional resend. Called from the vaccination
-    history page. A dose with no next dose date or with a later dose of the
-    same vaccine is refused (vaccination_reminder_refusal).
+    history page and the Vaccinations list. A dose with no next dose date
+    or with a later dose of the same vaccine is refused
+    (vaccination_reminder_refusal). return_to picks the page to go back to
+    (vaccination_reminder_return).
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
@@ -497,17 +501,18 @@ def admin_trigger_vaccination_reminder(request, pk):
         messages.error(request, refusal)
         return redirect("admin_pet_detail", pk=vaccination.pet.pk)
 
+    back = vaccination_reminder_return(request.POST, vaccination)
     if request.method == "POST":
         refusal = vaccination_reminder_refusal(vaccination)
         if refusal:
             messages.error(request, refusal)
-            return redirect("admin_pet_vaccination_history", pk=vaccination.pet.pk)
+            return redirect(back)
 
         # The flash says how it reached the owner (app, email, or why not)
         level, text = send_vaccination_reminder(vaccination)
         messages.add_message(request, level, text)
 
-    return redirect("admin_pet_vaccination_history", pk=vaccination.pet.pk)
+    return redirect(back)
 
 
 @login_required
@@ -516,6 +521,7 @@ def admin_trigger_followup_reminder(request, pk):
     Admin action — manually send a follow-up reminder to the pet owner.
     Bypasses the duplicate-prevention check used by the automated cron job.
     The flash says how it reached the owner (send_followup_reminder).
+    return_to picks the page to go back to (followup_reminder_return).
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
@@ -536,7 +542,7 @@ def admin_trigger_followup_reminder(request, pk):
         else:
             messages.error(request, "This record does not have a follow-up scheduled.")
 
-    return redirect("admin_medical_record_detail", pk=pk)
+    return redirect(followup_reminder_return(request.POST, record))
 
 
 # ── Pet Owner — Medical Records ───────────────────────────────────────────────

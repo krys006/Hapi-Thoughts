@@ -1,0 +1,10 @@
+{% comment %}
+  While searching: how many vaccinations match in the open tab, plus Clear
+  search (drops q, keeps the tab).
+{% endcomment %}
+{% with match_count=page_obj.paginator.count %}
+  <div class="mb-3 flex min-h-11 flex-wrap items-center justify-between gap-3">
+    <h2 class="text-base font-normal text-gray-800">{% if match_count %}{{ match_count }} vaccination{{ match_count|pluralize:" matches,s match" }}{% else %}No vaccination matches{% endif %} <strong class="font-semibold">“{{ q }}”</strong> in {% if active_tab == "due" %}vaccinations due in the next 7 days{% elif active_tab == "overdue" %}overdue vaccinations{% else %}all vaccinations{% endif %}</h2>
+    <a href="{% url 'admin_vaccination_list' %}?tab={{ active_tab }}" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="x" %}Clear search</a>
+  </div>
+{% endwith %}

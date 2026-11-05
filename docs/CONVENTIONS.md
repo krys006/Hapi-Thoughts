@@ -292,10 +292,29 @@ templates/
 │   │       └── history_row.html      ← answered request: Archived / Kept pill, "By the clinic" for a direct archive
 │   ├── medical/
 │   │   ├── record_list.html
+│   │   ├── record_list_parts/        ← Includes for record_list.html (not HTMX partials, so no `_`; the pager is appointments' list_parts/pager.html; the owner half and the dialog's contact lines come from vaccination_list_parts/)
+│   │   │   ├── search_form.html      ← search (q + the open tab); top bar md+, page body on phones
+│   │   │   ├── tabs.html             ← Follow-ups in 7 days (yellow count while > 0) / All, keep q, drop page
+│   │   │   ├── list_head.html        ← "Follow-ups in the next 7 days (N)" + "Soonest first · Today to …" / "All medical records (N)" + "Newest visit first"
+│   │   │   ├── results_line.html     ← "N records match “q” in …" + Clear search (keeps the tab)
+│   │   │   ├── row.html              ← visit date | pet + diagnosis + follow-up pill | divider | owner | Send reminder (Follow-ups) + Open; never private notes
+│   │   │   ├── remind_dialog.html    ← one per row on the Follow-ups tab (return_to=list, tab, q)
+│   │   │   └── empty.html            ← no match / no records / no follow-ups in 7 days
 │   │   ├── record_detail.html
 │   │   ├── record_form.html
 │   │   ├── pet_history.html
 │   │   ├── vaccination_list.html
+│   │   ├── vaccination_list_parts/   ← Includes for vaccination_list.html (not HTMX partials, so no `_`; the pager is appointments' list_parts/pager.html; dialogs reuse appointments' detail_parts/dialog_buttons.html)
+│   │   │   ├── search_form.html      ← search (q + the open tab); top bar md+, page body on phones
+│   │   │   ├── tabs.html             ← Due in 7 days (yellow count) / Overdue (red count) / All, keep q, drop page
+│   │   │   ├── overdue_note.html     ← gray rule note on the Overdue tab
+│   │   │   ├── list_head.html        ← the open tab's heading + sort order ("Today to {due_until}" on Due)
+│   │   │   ├── results_line.html     ← "N vaccinations match “q” in …" + Clear search (keeps the tab)
+│   │   │   ├── row.html              ← split row: pet + vaccine + given / next due + pills | divider | owner | Send reminder (Due, Overdue) + Open
+│   │   │   ├── owner_half.html       ← owner avatar, name link, phone (also used by record_list_parts/row.html)
+│   │   │   ├── remind_dialog.html    ← one per row on Due / Overdue (return_to=list, tab, q)
+│   │   │   ├── reminder_contact.html ← mail line, or the yellow no-email box (with the phone to call); also used by the follow-up dialog
+│   │   │   └── empty.html            ← no match / no vaccinations / nothing due (link to All) / nothing overdue
 │   │   ├── vaccination_form.html
 │   │   ├── vaccination_edit.html
 │   │   └── vaccination_history.html
@@ -396,7 +415,10 @@ static/
 > `css/admin/pets_list.css`, `js/admin/deletion_requests.js` and
 > `css/admin/deletion_requests.css` (Slice 4b-2), `css/admin/pet_detail.css`
 > (Slice 4b-3), `css/admin/pet_form.css` (Slice 4b-4; added: `js/admin/photo_input.js`,
-> shared by the owner and pet forms, and `js/admin/pet_form.js`). Other old files still
+> shared by the owner and pet forms, and `js/admin/pet_form.js`), `js/admin/record_list.js`,
+> `js/admin/vaccination_list.js`, `css/admin/record_list.css` and
+> `css/admin/vaccination_list.css` (Slice 5b-1: no page loads them and no comment
+> names them any more; Krys deletes the files). Other old files still
 > mention them in comments; those comments go when their own pages migrate.
 
 ### Media files (user uploads)
@@ -692,7 +714,7 @@ class AppointmentBookingForm(forms.ModelForm):
 ### Four base templates
 | Base | Used by | What it provides |
 |---|---|---|
-| `layouts/admin.html` | Every admin page: redesigned ones (e.g. `admin/dashboard/index.html`) and ones not redesigned yet, which add their old CSS in `legacy_css` (e.g. `admin/billing/receipt_detail.html`) | Sidebar with count badges and logout, top bar with search ("Find a pet or owner"; the appointments, pet owners and pets lists and the deletion requests page put their own search there) and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/admin/dialogs.js`, `static/js/admin/auto_submit.js`, CSRF + `X-Admin-Layout` via `hx-headers`, confirm modal |
+| `layouts/admin.html` | Every admin page: redesigned ones (e.g. `admin/dashboard/index.html`) and ones not redesigned yet, which add their old CSS in `legacy_css` (e.g. `admin/billing/receipt_detail.html`) | Sidebar with count badges and logout, top bar with search ("Find a pet or owner"; the appointments, pet owners, pets, vaccinations and medical records lists and the deletion requests page put their own search there) and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/admin/dialogs.js`, `static/js/admin/auto_submit.js`, CSRF + `X-Admin-Layout` via `hx-headers`, confirm modal |
 | `layouts/auth.html` | `admin/login.html` | Admin login: standalone card on a violet background, `app.css`, no HTMX |
 | `base_dashboard.html` | Logged-in owner pages (e.g. `owner/pets/list.html`; `shared/clinic_info.html` for owners, which gets its base from the view) | Header with search and bell, role-based sidebar, flash messages, Tailwind + HTMX, CSRF header for HTMX, confirm modal |
 | `base.html` | Standalone auth pages (e.g. `owner/login.html`, `owner/register.html`, password reset, `owner/onboarding/step1.html`) | Bare page with Tailwind + HTMX, no header or sidebar |
@@ -858,6 +880,11 @@ Admin dates are in Manila time (`timezone.localdate()`).
   `friendly_date_on(value, today, style=None)` (same output as
   `long_date` / `friendly_date`), e.g. `resolve_period` in
   `appointments/utils.py`.
+- Templates whose wording must follow the view's `today` (not the clock)
+  use the same functions as tags: `{% friendly_date_on value today %}`,
+  `{% long_date_on value today "mid" %}`, or `{% friendly_date_on due_until today as until %}`
+  (a datetime uses its Manila date; no value gives ""). Used by the
+  Vaccinations and Medical records lists (Slice 5b-1).
 
 ---
 

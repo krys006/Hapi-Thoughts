@@ -1,10 +1,6 @@
 /* ============================================================
    vaccination_history.css
    Styles for: backend/templates/admin/medical/vaccination_history.html
-   This content gets fetched and injected into
-   .vaccination-detail-panel by vaccination_list.js, so it needs to
-   also be loaded on vaccination_list.html. Self-contained for
-   standalone viewing too.
    ============================================================ */
 
 /* ---- Design tokens ---- */
@@ -37,9 +33,7 @@
   --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
-/* ---- Fix for base_dashboard.html forcing outer page scroll (standalone) ----
-   No !important here — vaccination_list.css's !important always wins
-   when both load together, correctly disabling this for the list page. */
+/* ---- Fix for base_dashboard.html forcing outer page scroll (standalone) ---- */
 .dashboard-layout {
   align-items: flex-start;
 }
@@ -60,10 +54,7 @@
   overflow-y: auto;
 }
 
-/* ---- Page shell (standalone viewing only) ----
-   Deliberately no max-width/margin — vaccination_list.css also defines
-   .admin-page (full-width, for the list page); avoiding that conflict
-   the same way it was fixed on the Pets/Medical Records pages. */
+/* ---- Page shell (standalone viewing only) ---- */
 .admin-page {
   padding: 32px 24px 64px;
   box-sizing: border-box;

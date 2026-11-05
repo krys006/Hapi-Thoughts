@@ -1,6 +1,8 @@
 import datetime
+import re
 from decimal import Decimal
 from unittest import mock
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -10,6 +12,7 @@ from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django.http import QueryDict
+from django.template import Context, Template
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import NoReverseMatch, reverse
@@ -1458,12 +1461,13 @@ class VaccinationListViewTests(MedicalListTestBase):
         self.assertEqual(context["total_count"], 1)
         self.assertFalse(context["is_searching"])
 
-    def test_old_template_still_renders(self):
+    def test_old_search_param_renders_the_page(self):
         self._dose(3, vaccine_name=Vaccination.DEWORMING)
         response = self.client.get(self.url, {"search": "bantay"})
         self.assertContains(response, "Bantay")
         self.assertContains(response, "Deworming")
-        self.assertContains(response, "1 record")
+        # 5b-1 template: the results line (was the old page's "1 record")
+        self.assertContains(response, "1 vaccination matches")
 
     def test_query_count_is_flat(self):
         def make(n, due_days):
@@ -2359,3 +2363,1180 @@ class HistoryContextTests(FrozenMedicalTestBase):
                 with CaptureQueriesContext(connection) as many:
                     self.client.get(url)
                 self.assertEqual(len(few), len(many))
+
+
+# ── Batch 5b-1: Vaccinations and Medical records lists ───────────────────────
+
+
+class FriendlyDateOnTagTests(SimpleTestCase):
+    """{% friendly_date_on %} / {% long_date_on %}: the date filters with
+    the view's today passed in, never the clock."""
+
+    def _render(self, source, **context):
+        return Template("{% load friendly_dates %}" + source).render(Context(context))
+
+    def test_follows_the_given_today(self):
+        day = datetime.date(2026, 11, 4)
+        for today, expected in (
+            (datetime.date(2026, 11, 3), "Tomorrow"),
+            (datetime.date(2026, 11, 4), "Today"),
+            (datetime.date(2025, 1, 1), "Wed, Nov 4, 2026"),
+        ):
+            with self.subTest(today=today):
+                rendered = self._render(
+                    "{% friendly_date_on day today %}", day=day, today=today
+                )
+                self.assertEqual(rendered, expected)
+        self.assertEqual(
+            self._render('{% long_date_on day today "mid" %}', day=day, today=day),
+            "today, Wednesday, November 4",
+        )
+
+    def test_a_datetime_uses_its_manila_date(self):
+        # 23:30 UTC on Nov 2 is 07:30 Manila on Nov 3
+        when = datetime.datetime(2026, 11, 2, 23, 30, tzinfo=datetime.timezone.utc)
+        self.assertEqual(
+            self._render("{% friendly_date_on when today %}", when=when, today=TODAY),
+            "Today",
+        )
+
+    def test_no_value_is_empty(self):
+        self.assertEqual(
+            self._render("{% friendly_date_on none today %}", none=None, today=TODAY),
+            "",
+        )
+        self.assertEqual(
+            self._render("{% long_date_on none today %}", none=None, today=TODAY), ""
+        )
+
+
+class ReminderReturnToTests(FrozenMedicalTestBase):
+    """return_to on both Send reminder actions: a fixed choice, never a URL
+    from the request; "list" keeps the (re-validated) tab and the q."""
+
+    def setUp(self):
+        super().setUp()
+        self.dose = Vaccination.objects.create(
+            pet=self.pet,
+            vaccine_name=Vaccination.ANTI_RABIES,
+            date_administered=_days(-300),
+            next_due_date=_days(2),
+        )
+        self.record = self._record(
+            record_date=_days(-1), follow_up_required=True, follow_up_date=_days(2)
+        )
+        pet_pk, record_pk = self.pet.pk, self.record.pk
+        self.vacc_url = reverse(
+            "admin_trigger_vaccination_reminder", args=[self.dose.pk]
+        )
+        self.follow_url = reverse("admin_trigger_followup_reminder", args=[record_pk])
+        self.vacc_history = reverse("admin_pet_vaccination_history", args=[pet_pk])
+        self.med_history = reverse("admin_pet_medical_history", args=[pet_pk])
+        self.record_page = reverse("admin_medical_record_detail", args=[record_pk])
+
+    def _goes_to(self, url, data, expected):
+        self.client.cookies.pop("messages", None)
+        response = self.client.post(url, data)
+        self.assertRedirects(response, expected, fetch_redirect_response=False)
+        return response
+
+    def _list(self, name, **query):
+        return f"{reverse(name)}?{urlencode(query)}"
+
+    def test_vaccination_history_is_the_default(self):
+        for data in ({}, {"return_to": "history"}):
+            with self.subTest(data=data):
+                self._goes_to(self.vacc_url, data, self.vacc_history)
+
+    def test_vaccination_list_keeps_tab_and_q(self):
+        self._goes_to(
+            self.vacc_url,
+            {"return_to": "list", "tab": "overdue", "q": "  ana cruz "},
+            self._list("admin_vaccination_list", tab="overdue", q="ana cruz"),
+        )
+        self._goes_to(
+            self.vacc_url,
+            {"return_to": "list", "tab": "all"},
+            self._list("admin_vaccination_list", tab="all"),
+        )
+
+    def test_vaccination_list_tab_is_revalidated(self):
+        for tab in ("followups", "bogus", "", None):
+            with self.subTest(tab=tab):
+                data = {"return_to": "list", "q": "ana"}
+                if tab is not None:
+                    data["tab"] = tab
+                self._goes_to(
+                    self.vacc_url,
+                    data,
+                    self._list("admin_vaccination_list", tab="due", q="ana"),
+                )
+
+    def test_q_is_urlencoded_never_pasted(self):
+        q = "a&b=c <x>#frag"
+        response = self._goes_to(
+            self.vacc_url,
+            {"return_to": "list", "tab": "due", "q": q},
+            self._list("admin_vaccination_list", tab="due", q=q),
+        )
+        self.assertIn("q=a%26b%3Dc+%3Cx%3E%23frag", response["Location"])
+
+    def test_vaccination_junk_return_to_goes_to_history(self):
+        for junk in ("record", "LIST", "https://example.com/", "/admin/", ""):
+            with self.subTest(junk=junk):
+                self._goes_to(
+                    self.vacc_url, {"return_to": junk, "tab": "all"}, self.vacc_history
+                )
+
+    def test_vaccination_refusal_goes_back_to_the_list(self):
+        Vaccination.objects.filter(pk=self.dose.pk).update(next_due_date=None)
+        response = self._goes_to(
+            self.vacc_url,
+            {"return_to": "list", "tab": "due"},
+            self._list("admin_vaccination_list", tab="due"),
+        )
+        self.assertEqual(
+            self._messages(response),
+            [
+                "This vaccination has no next dose date, so there is nothing "
+                "to remind about."
+            ],
+        )
+
+    def test_followup_history_is_the_default(self):
+        for data in ({}, {"return_to": "history"}):
+            with self.subTest(data=data):
+                self._goes_to(self.follow_url, data, self.med_history)
+
+    def test_followup_record(self):
+        self._goes_to(self.follow_url, {"return_to": "record"}, self.record_page)
+
+    def test_followup_list_keeps_tab_and_q(self):
+        self._goes_to(
+            self.follow_url,
+            {"return_to": "list", "tab": "followups", "q": " bantay "},
+            self._list("admin_medical_record_list", tab="followups", q="bantay"),
+        )
+        for tab in ("due", "overdue", "bogus"):
+            with self.subTest(tab=tab):
+                self._goes_to(
+                    self.follow_url,
+                    {"return_to": "list", "tab": tab},
+                    self._list("admin_medical_record_list", tab="all"),
+                )
+
+    def test_followup_junk_return_to_goes_to_history(self):
+        for junk in ("RECORD", "https://example.com/", "/admin/", "pet", ""):
+            with self.subTest(junk=junk):
+                self._goes_to(self.follow_url, {"return_to": junk}, self.med_history)
+
+    def test_old_record_page_posts_return_to_record(self):
+        html = self.client.get(self.record_page).content.decode()
+        self.assertIn('<input type="hidden" name="return_to" value="record">', html)
+
+    def test_flash_shows_once_on_the_list(self):
+        for url, data, expected in (
+            (
+                self.vacc_url,
+                {"return_to": "list", "tab": "due", "q": "bantay"},
+                self._list("admin_vaccination_list", tab="due", q="bantay"),
+            ),
+            (
+                self.follow_url,
+                {"return_to": "list", "tab": "followups"},
+                self._list("admin_medical_record_list", tab="followups"),
+            ),
+        ):
+            with self.subTest(url=url):
+                self.client.cookies.pop("messages", None)
+                response = self.client.post(url, data, follow=True)
+                self.assertEqual(response.redirect_chain, [(expected, 302)])
+                html = response.content.decode()
+                self.assertEqual(
+                    html.count("Reminder sent to Ana Cruz (app and email)."), 1
+                )
+                self.assertEqual(html.count("<div data-flash"), 1)
+                self.assertIn("Bantay", html)
+
+
+def _outside_dialogs(html):
+    """The page without its <dialog>s (their confirm buttons are primary)."""
+    return re.sub(r"(?s)<dialog\b.*?</dialog>", "", html)
+
+
+def _dialogs(html):
+    return re.findall(r"(?s)<dialog\b.*?</dialog>", html)
+
+
+def _empty_state(html):
+    """(title, text) of the page's empty state, or None."""
+    match = re.search(
+        r'<p class="text-lg font-semibold text-gray-900">(.*?)</p>\s*'
+        r'<p class="mt-1 max-w-sm text-base text-gray-600">(.*?)</p>',
+        html,
+    )
+    return match.groups() if match else None
+
+
+def _pills(html):
+    """[(background class, text)] of every pill in the rows."""
+    return re.findall(
+        r"(?s)rounded-full (bg-\w+-100) px-2\.5 py-1 text-sm font-medium "
+        r'text-\w+-\d+">\s*<svg.*?</svg>\s*(.*?)</span>',
+        html,
+    )
+
+
+ACTIVE_NAV = (
+    'class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base bg-white '
+    'font-semibold text-violet-800 shadow-sm ring-1 ring-violet-200" '
+    'aria-current="page">'
+)
+PLAIN_NAV = (
+    'class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base '
+    'text-gray-800 hover:bg-violet-200/70">'
+)
+LIST_ROW = '<li class="flex flex-col gap-3'
+
+
+class MedicalListPageTestBase(MedicalListTestBase):
+    """Shared page checks for both lists (self.url, self.search_id,
+    self.label, self.placeholder, self.tabs_label set by the subclass)."""
+
+    def _html(self, **params):
+        response = self.client.get(self.url, params)
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _tabs(self, html):
+        return re.search(
+            rf'(?s)<nav [^>]*aria-label="{self.tabs_label}">.*?</nav>', html
+        ).group()
+
+    def _check_search_forms(self, tab, q="cruz"):
+        html = self._html(tab=tab, q=q)
+        self.assertEqual(html.count('role="search"'), 2)
+        for prefix, form_class in (
+            ("topbar", "hidden min-w-0 flex-1 items-center gap-3 md:flex"),
+            ("page", "mb-4 flex items-center gap-3 md:hidden"),
+        ):
+            with self.subTest(prefix=prefix):
+                self.assertIn(
+                    f'<form method="get" action="{self.url}" class="{form_class}" '
+                    'role="search">',
+                    html,
+                )
+                self.assertIn(
+                    f'<label for="{prefix}-{self.search_id}" class="sr-only">'
+                    f"{self.label}</label>",
+                    html,
+                )
+                self.assertIn(
+                    f'<input id="{prefix}-{self.search_id}" type="search" name="q" '
+                    f'value="{q}" placeholder="{self.placeholder}" '
+                    'class="input pl-10">',
+                    html,
+                )
+        self.assertEqual(
+            html.count(f'<input type="hidden" name="tab" value="{tab}">'), 2
+        )
+        self.assertNotIn("Find a pet or owner", html)
+
+    def _check_one_line_links(self, params_list):
+        for params in params_list:
+            with self.subTest(params=params):
+                for tag in re.findall(r"<a\b[^>]*>", self._html(**params)):
+                    self.assertNotIn("\n", tag)
+
+    def _page_queries(self, **params):
+        """Queries for the full page (after a warm-up request)."""
+        self.client.get(self.url, params)
+        with CaptureQueriesContext(connection) as queries:
+            self.client.get(self.url, params)
+        return len(queries)
+
+
+class VaccinationListPageTests(MedicalListPageTestBase):
+    """admin/medical/vaccination_list.html on the new layout (Slice 5b-1)."""
+
+    tabs_label = "Vaccinations sections"
+    search_id = "vaccination-search"
+    label = "Search vaccinations"
+    placeholder = "Search vaccinations: pet, owner or vaccine"
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("admin_vaccination_list")
+
+    def _dose(self, due_days, given_days=-300, pet=None, **fields):
+        fields.setdefault("vaccine_name", Vaccination.ANTI_RABIES)
+        return Vaccination.objects.create(
+            pet=pet or self.pet,
+            date_administered=_days(given_days),
+            next_due_date=None if due_days is None else _days(due_days),
+            **fields,
+        )
+
+    def _many(self, count, due_days):
+        for i in range(count):
+            pet = Pet.objects.create(owner=self.ben, name=f"Pet{i:02d}", species="Cat")
+            self._dose(due_days, pet=pet)
+
+    # ─── Layout, header, sidebar ──────────────────────────────────────────────
+
+    def test_new_layout_without_old_files(self):
+        self._dose(3)
+        response = self.client.get(self.url)
+        self.assertTemplateUsed(response, "layouts/admin.html")
+        for old in (
+            "vaccination_list.css",
+            "vaccination_list.js",
+            "vaccination_history.css",
+            "layer(legacy)",
+            "admin-page",
+            "admin-table",
+        ):
+            with self.subTest(old=old):
+                self.assertNotContains(response, old)
+        self.assertContains(response, "<title>Vaccinations — Hapi Vet Admin</title>")
+        self.assertContains(
+            response, '<h1 class="text-2xl font-bold text-gray-900">Vaccinations</h1>'
+        )
+        self.assertContains(response, "Every vaccination given at the clinic.")
+
+    def test_sidebar_highlights_vaccinations(self):
+        html = self._html()
+        self.assertIn(f'<a href="{self.url}" {ACTIVE_NAV}', html)
+        records_url = reverse("admin_medical_record_list")
+        self.assertIn(f'<a href="{records_url}" {PLAIN_NAV}', html)
+
+    def test_no_primary_button_outside_dialogs(self):
+        self._dose(3)
+        self._dose(-3, vaccine_name=Vaccination.DEWORMING)
+        for params in ({}, {"tab": "overdue"}, {"tab": "all"}, {"q": "zzz"}):
+            with self.subTest(params=params):
+                html = self._html(**params)
+                self.assertEqual(_outside_dialogs(html).count("btn-primary"), 0)
+
+    def test_search_forms_with_the_hidden_tab(self):
+        for tab in ("due", "overdue", "all"):
+            with self.subTest(tab=tab):
+                self._check_search_forms(tab)
+
+    # ─── Tabs ─────────────────────────────────────────────────────────────────
+
+    def test_tabs_counts_and_current(self):
+        self._dose(3)
+        self._dose(-3, vaccine_name=Vaccination.DEWORMING)
+        self._dose(None, vaccine_name=Vaccination.BORDETELLA)
+        for tab in ("due", "overdue", "all"):
+            with self.subTest(tab=tab):
+                tabs = self._tabs(self._html(tab=tab))
+                self.assertEqual(tabs.count('aria-current="page"'), 1)
+                self.assertRegex(
+                    tabs,
+                    rf'<a href="{self.url}\?tab={tab}" class="[^"]*" '
+                    r'aria-current="page">',
+                )
+        tabs = self._tabs(self._html())
+        self.assertIn(
+            'aria-current="page">Due in 7 days<span class="rounded-full '
+            'bg-yellow-200 text-yellow-900 px-2 text-sm font-semibold">1</span></a>',
+            tabs,
+        )
+        self.assertIn(
+            '">Overdue<span class="rounded-full bg-red-100 text-red-800 px-2 text-sm '
+            'font-semibold">1</span></a>',
+            tabs,
+        )
+        self.assertIn(
+            '">All<span class="rounded-full bg-gray-100 text-gray-800 px-2 text-sm '
+            'font-semibold">3</span></a>',
+            tabs,
+        )
+
+    def test_yellow_and_red_counts_only_above_zero(self):
+        self._dose(None)
+        tabs = self._tabs(self._html())
+        self.assertNotIn("bg-yellow-200", tabs)
+        self.assertNotIn("bg-red-100", tabs)
+        self.assertIn(
+            'aria-current="page">Due in 7 days<span class="rounded-full '
+            'bg-violet-100 text-violet-800 px-2 text-sm font-semibold">0</span>',
+            tabs,
+        )
+        self.assertIn(
+            '">Overdue<span class="rounded-full bg-gray-100 text-gray-800 px-2 '
+            'text-sm font-semibold">0</span>',
+            tabs,
+        )
+
+    def test_tab_links_keep_q_and_drop_page(self):
+        self._many(30, None)
+        tabs = self._tabs(self._html(tab="all", q="pet one", page=2))
+        for tab in ("due", "overdue", "all"):
+            with self.subTest(tab=tab):
+                self.assertIn(f'href="{self.url}?tab={tab}&amp;q=pet%20one"', tabs)
+        self.assertNotIn("page=", tabs)
+
+    # ─── Heads, note, results line ────────────────────────────────────────────
+
+    def test_list_heads(self):
+        self._dose(3)
+        self._dose(-3, vaccine_name=Vaccination.DEWORMING)
+        due = self._html()
+        self.assertIn(
+            'Due in the next 7 days <span class="font-normal text-gray-600">(1)'
+            "</span></h2>",
+            due,
+        )
+        self.assertIn(
+            '<p class="text-sm text-gray-600">Soonest first · Today to Tue, Nov 10</p>',
+            due,
+        )
+        overdue = self._html(tab="overdue")
+        self.assertIn(
+            'Overdue <span class="font-normal text-gray-600">(1)</span></h2>', overdue
+        )
+        self.assertIn("Most recently due first</p>", overdue)
+        all_tab = self._html(tab="all")
+        self.assertIn(
+            'All vaccinations <span class="font-normal text-gray-600">(2)</span></h2>',
+            all_tab,
+        )
+        self.assertIn("Newest first</p>", all_tab)
+        self.assertNotIn("Clear search", all_tab)
+
+    def test_overdue_note_only_on_overdue(self):
+        note = (
+            "Next dose date has passed and no later dose of the same vaccine was "
+            "given. A pet drops off this list as soon as the next dose is recorded."
+        )
+        self._dose(3)
+        self.assertNotIn(note, self._html(tab="overdue"))  # nothing overdue
+        self._dose(-3, vaccine_name=Vaccination.DEWORMING)
+        self.assertIn(note, self._html(tab="overdue"))
+        self.assertNotIn(note, self._html())
+        self.assertNotIn(note, self._html(tab="all"))
+
+    def test_results_line_and_clear_search(self):
+        self._dose(None, given_days=-3)
+        self._dose(None, given_days=-2, vaccine_name=Vaccination.DEWORMING)
+        self._dose(None, given_days=-1, pet=self.muning)
+        many = self._html(tab="all", q="cruz")
+        self.assertIn(
+            '2 vaccinations match <strong class="font-semibold">“cruz”</strong> in '
+            "all vaccinations</h2>",
+            many,
+        )
+        self.assertNotIn("All vaccinations <span", many)
+        self.assertIn(
+            f'<a href="{self.url}?tab=all" class="inline-flex min-h-11 items-center '
+            'gap-2 text-base font-medium text-blue-600 underline underline-offset-2">',
+            many,
+        )
+        self.assertIn("Clear search</a>", many)
+        self.assertIn(
+            '1 vaccination matches <strong class="font-semibold">“muning”</strong> '
+            "in all vaccinations</h2>",
+            self._html(tab="all", q="muning"),
+        )
+        self.assertIn(
+            'No vaccination matches <strong class="font-semibold">“zzz”</strong> in '
+            "overdue vaccinations</h2>",
+            self._html(tab="overdue", q="zzz"),
+        )
+        due = self._html(q="zzz")
+        self.assertIn("in vaccinations due in the next 7 days</h2>", due)
+        self.assertIn(f'<a href="{self.url}?tab=due" class="inline-flex', due)
+
+    # ─── Rows and pills ───────────────────────────────────────────────────────
+
+    def test_row_halves(self):
+        self._dose(2, given_days=-300)
+        self._dose(
+            None,
+            given_days=-1,
+            pet=self.muning,
+            vaccine_name=Vaccination.OTHER,
+            custom_vaccine_name="Leptospirosis",
+        )
+        PetOwner.objects.filter(pk=self.owner.pk).update(contact_number="0917 123 4567")
+        html = self._html(tab="all")
+        self.assertEqual(html.count(LIST_ROW), 2)
+        self.assertIn(
+            '<li class="flex flex-col gap-3 border-t border-gray-100 p-4 '
+            "first:border-t-0 hover:bg-gray-50 md:grid "
+            "md:grid-cols-[minmax(0,1.25fr)_1px_minmax(0,0.9fr)_auto] md:items-center "
+            'md:gap-5 md:px-5">',
+            html,
+        )
+        self.assertRegex(
+            html,
+            r'(?s)Bantay <span class="font-normal text-gray-500">·</span> <span '
+            r'class="inline-flex items-center gap-1.5">\s*<svg[^>]*>.*?</svg>\s*'
+            r"Anti-rabies</span></p>",
+        )
+        self.assertIn("Leptospirosis</span></p>", html)
+        self.assertIn(
+            '<p class="text-base text-gray-700">Given Wed, Jan 7 · Next due Thu, Nov 5'
+            "</p>",
+            html,
+        )
+        self.assertIn(
+            '<p class="text-base text-gray-700">Given Yesterday · <span '
+            'class="text-gray-600">No next date</span></p>',
+            html,
+        )
+        self.assertIn('<p class="text-sm text-gray-600">Owner</p>', html)
+        for owner in (self.owner, self.ben):
+            with self.subTest(owner=owner.first_name):
+                self.assertIn(
+                    f'<a href="{reverse("admin_owner_detail", args=[owner.pk])}" '
+                    'class="font-medium text-blue-600 underline underline-offset-2">'
+                    f"{owner.full_name}</a>",
+                    html,
+                )
+        self.assertIn('<span class="sr-only">Phone: </span>0917 123 4567</p>', html)
+        self.assertIn(
+            '<span class="sr-only">Phone: </span><span class="text-gray-600">'
+            "No phone number</span></p>",
+            html,
+        )
+        self.assertIn(
+            "rounded-lg bg-gray-50 px-3 py-2 md:rounded-none md:bg-transparent md:p-0",
+            html,
+        )
+
+    def test_due_pill_texts(self):
+        self._dose(0)
+        self._dose(1, vaccine_name=Vaccination.DEWORMING)
+        self._dose(6, vaccine_name=Vaccination.BORDETELLA, is_corrected=True)
+        self.assertEqual(
+            _pills(self._html()),
+            [
+                ("bg-yellow-100", "Due today"),
+                ("bg-yellow-100", "Due tomorrow"),
+                ("bg-yellow-100", "In 6 days"),
+                ("bg-gray-100", "Corrected"),
+            ],
+        )
+
+    def test_overdue_pill_texts(self):
+        self._dose(-1)
+        self._dose(-3, vaccine_name=Vaccination.DEWORMING)
+        self.assertEqual(
+            _pills(self._html(tab="overdue")),
+            [("bg-red-100", "1 day overdue"), ("bg-red-100", "3 days overdue")],
+        )
+
+    def test_frozen_just_after_midnight_manila(self):
+        # 00:30 Manila on Tue, Nov 3 is still Nov 2 in UTC: the page follows
+        # the view's today (Manila), not the UTC date
+        self._dose(0)
+        html = self._html()
+        self.assertEqual(_pills(html), [("bg-yellow-100", "Due today")])
+        self.assertIn("Next due Today</p>", html)
+        self.assertIn("Soonest first · Today to Tue, Nov 10</p>", html)
+
+    def test_later_dose_given_only_on_all(self):
+        self._dose(-3, given_days=-400)
+        self._dose(2, given_days=-5)
+        self.assertEqual(
+            _pills(self._html(tab="all")),
+            [("bg-yellow-100", "In 2 days"), ("bg-gray-100", "Later dose given")],
+        )
+        for tab in ("due", "overdue"):
+            with self.subTest(tab=tab):
+                self.assertNotIn("Later dose given", self._html(tab=tab))
+
+    # ─── Send reminder and the dialogs ────────────────────────────────────────
+
+    def test_send_reminder_only_on_due_and_overdue(self):
+        due = self._dose(3)
+        late = self._dose(-3, vaccine_name=Vaccination.DEWORMING)
+        self._dose(None, vaccine_name=Vaccination.BORDETELLA)
+        for tab, dose in (("due", due), ("overdue", late)):
+            with self.subTest(tab=tab):
+                html = self._html(tab=tab)
+                self.assertEqual(html.count("data-dialog-open="), 1)
+                self.assertIn(
+                    '<button type="button" class="btn btn-outline flex-1 font-semibold '
+                    f'md:flex-none" data-dialog-open="reminder-dialog-{dose.pk}">',
+                    html,
+                )
+                self.assertIn(
+                    '<span class="md:hidden">Remind</span><span class="hidden '
+                    'md:inline">Send reminder</span><span class="sr-only"> to Ana '
+                    "Cruz about Bantay</span></button>",
+                    html,
+                )
+                dialogs = _dialogs(html)
+                self.assertEqual(len(dialogs), 1)
+                self.assertIn(f'<dialog id="reminder-dialog-{dose.pk}" ', dialogs[0])
+        html = self._html(tab="all")
+        self.assertNotIn("data-dialog-open=", html)
+        self.assertNotIn("Send reminder", html)
+        self.assertEqual(_dialogs(html), [])
+
+    def test_dialog_posts_return_to_list_with_tab_and_q(self):
+        dose = self._dose(2)
+        dialog = _dialogs(self._html(q="bantay"))[0]
+        url = reverse("admin_trigger_vaccination_reminder", args=[dose.pk])
+        self.assertIn(f'<form method="post" action="{url}" class="p-6 sm:p-7">', dialog)
+        self.assertIn('name="csrfmiddlewaretoken"', dialog)
+        self.assertIn('<input type="hidden" name="return_to" value="list">', dialog)
+        self.assertIn('<input type="hidden" name="tab" value="due">', dialog)
+        self.assertIn('<input type="hidden" name="q" value="bantay">', dialog)
+        self.assertRegex(
+            dialog,
+            r'(?s)<button type="submit" class="btn btn-primary [^"]*">\s*<svg[^>]*>'
+            r".*?</svg>\s*Yes, send reminder\s*</button>",
+        )
+        self.assertIn("data-dialog-close autofocus>Go back</button>", dialog)
+        # Without a search there is no q field
+        self.assertNotIn('name="q"', _dialogs(self._html())[0])
+
+    def test_dialog_text_due(self):
+        dose = self._dose(2)
+        dialog = _dialogs(self._html())[0]
+        self.assertIn(
+            f'id="reminder-dialog-{dose.pk}-title" class="text-xl font-bold">Send a '
+            "reminder to Ana Cruz?</h2>",
+            dialog,
+        )
+        self.assertIn(
+            "Bantay's <b>Anti-rabies</b> is due on <b>Thursday, November 5</b>. The "
+            "reminder asks Ana Cruz to book a visit.",
+            dialog,
+        )
+        self.assertIn("No vaccination reminder sent for Bantay yet.</span>", dialog)
+        self.assertIn(
+            "Ana Cruz gets a notification in the app, and an email if they have one "
+            "and vaccination emails are on.",
+            dialog,
+        )
+        self.assertNotIn("bg-yellow-50", dialog)
+
+    def test_dialog_text_due_today_and_overdue(self):
+        self._dose(0)
+        self.assertIn(
+            "is due on <b>today, Tuesday, November 3</b>.", _dialogs(self._html())[0]
+        )
+        self._dose(-2, vaccine_name=Vaccination.DEWORMING)
+        self._dose(-1, vaccine_name=Vaccination.BORDETELLA)
+        dialogs = _dialogs(self._html(tab="overdue"))
+        self.assertIn(
+            "Bantay's <b>Bordetella</b> was due on <b>Monday, November 2</b> (1 day "
+            "ago).",
+            dialogs[0],
+        )
+        self.assertIn(
+            "Bantay's <b>Deworming</b> was due on <b>Sunday, November 1</b> (2 days "
+            "ago).",
+            dialogs[1],
+        )
+
+    def test_dialog_last_reminder_line(self):
+        self._dose(2)
+        notice = Notification.objects.create(
+            recipient=self.owner_user,
+            notification_type=Notification.VACCINATION_REMINDER,
+            title="Reminder",
+            message="Reminder",
+            related_pet=self.pet,
+        )
+        Notification.objects.filter(pk=notice.pk).update(
+            created_at=JUST_AFTER_MIDNIGHT - datetime.timedelta(days=1)
+        )
+        # A follow-up reminder doesn't count
+        Notification.objects.create(
+            recipient=self.owner_user,
+            notification_type=Notification.FOLLOWUP_REMINDER,
+            title="Reminder",
+            message="Reminder",
+            related_pet=self.pet,
+        )
+        dialog = _dialogs(self._html())[0]
+        self.assertIn("Last vaccination reminder for Bantay: Yesterday.</span>", dialog)
+
+    def test_no_email_box(self):
+        self._dose(2)
+        User.objects.filter(pk=self.owner_user.pk).update(email="")
+        dialog = _dialogs(self._html())[0]
+        self.assertIn(
+            "<p><b>Ana Cruz has no email and no phone number on file.</b> The "
+            "reminder only shows in the app, the next time they log in.</p>",
+            dialog,
+        )
+        self.assertNotIn("gets a notification in the app", dialog)
+        PetOwner.objects.filter(pk=self.owner.pk).update(contact_number="0917 123 4567")
+        dialog = _dialogs(self._html())[0]
+        self.assertIn(
+            "<p><b>Ana Cruz has no email on file.</b> The reminder only shows in the "
+            "app, the next time they log in. To reach them sooner, call "
+            "0917 123 4567.</p>",
+            dialog,
+        )
+
+    def test_open_link_highlights_the_dose(self):
+        dose = self._dose(2)
+        history = reverse("admin_pet_vaccination_history", args=[self.pet.pk])
+        self.assertRegex(
+            self._html(),
+            rf'<a href="{history}\?highlight={dose.pk}#vaccination-{dose.pk}" '
+            r'class="inline-flex min-h-11 flex-1 [^"]*border-violet-300 bg-violet-50'
+            r'[^"]*md:flex-none">Open<span class="sr-only"> Bantay\'s Anti-rabies'
+            r"</span>\s*<svg",
+        )
+
+    # ─── Empty states, pager, queries, links ──────────────────────────────────
+
+    def test_empty_states(self):
+        for tab in ("due", "overdue", "all"):
+            with self.subTest(tab=tab):
+                self.assertEqual(
+                    _empty_state(self._html(tab=tab)),
+                    (
+                        "No vaccinations yet",
+                        "Vaccinations appear here when you add them from a pet's "
+                        "page or a medical record.",
+                    ),
+                )
+        self._dose(None)
+        due = self._html()
+        self.assertEqual(
+            _empty_state(due),
+            (
+                "Nothing due in the next 7 days",
+                "No pet needs a vaccination from today to Tue, Nov 10.",
+            ),
+        )
+        self.assertIn(f'<a href="{self.url}?tab=all" class="inline-flex', due)
+        self.assertIn("See all vaccinations", due)
+        self.assertEqual(
+            _empty_state(self._html(tab="overdue")),
+            ("Nothing overdue", "No pet has a next dose date that has passed."),
+        )
+        self.assertEqual(
+            _empty_state(self._html(tab="all", q="zzz")),
+            (
+                "No vaccination matches “zzz”",
+                "Check the spelling, or look in another tab.",
+            ),
+        )
+        self.assertIsNone(_empty_state(self._html(tab="all")))
+
+    def test_pager_on_30_rows(self):
+        self._many(30, None)
+        html = self._html(tab="all")
+        self.assertEqual(html.count(LIST_ROW), 25)
+        self.assertIn("Showing 1–25 of 30", html)
+        self.assertIn('<a href="?tab=all&amp;page=2" class="btn btn-outline">', html)
+        second = self._html(tab="all", page=2)
+        self.assertEqual(second.count(LIST_ROW), 5)
+        self.assertIn("Showing 26–30 of 30", second)
+
+    def test_query_count_is_flat(self):
+        """The full page, reminder dialogs included, costs the same with 3
+        rows as with 30, on every tab."""
+        for tab, due_days in (("due", 3), ("overdue", -3), ("all", 3)):
+            with self.subTest(tab=tab):
+                Vaccination.objects.all().delete()
+                self._many(3, due_days)
+                few = self._page_queries(tab=tab)
+                Vaccination.objects.all().delete()
+                self._many(30, due_days)
+                many = self._page_queries(tab=tab)
+                self.assertEqual(few, many)
+                self.assertEqual(many, 10)
+
+    def test_every_link_is_on_one_line(self):
+        self._many(30, 3)
+        self._dose(-3)
+        self._check_one_line_links(
+            [{}, {"tab": "overdue"}, {"tab": "all"}, {"q": "pet"}, {"q": "zzz"}]
+        )
+
+
+class RecordListPageTests(MedicalListPageTestBase):
+    """admin/medical/record_list.html on the new layout (Slice 5b-1)."""
+
+    tabs_label = "Medical records sections"
+    search_id = "record-search"
+    label = "Search medical records"
+    placeholder = "Search records: pet, owner or diagnosis"
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("admin_medical_record_list")
+
+    def _rec(self, record_days=-10, follow_days=None, pet=None, **fields):
+        if follow_days is not None:
+            fields.setdefault("follow_up_required", True)
+            fields["follow_up_date"] = _days(follow_days)
+        return MedicalRecord.objects.create(
+            pet=pet or self.pet, record_date=_days(record_days), **fields
+        )
+
+    def _many(self, count, follow_days=3):
+        for i in range(count):
+            pet = Pet.objects.create(owner=self.ben, name=f"Pet{i:02d}", species="Cat")
+            self._rec(follow_days=follow_days, pet=pet, diagnosis="Ear infection")
+
+    # ─── Layout, header, sidebar ──────────────────────────────────────────────
+
+    def test_new_layout_without_old_files(self):
+        self._rec()
+        response = self.client.get(self.url)
+        self.assertTemplateUsed(response, "layouts/admin.html")
+        for old in (
+            "record_list.css",
+            "record_list.js",
+            "record_detail.css",
+            "layer(legacy)",
+            "admin-page",
+            "admin-table",
+        ):
+            with self.subTest(old=old):
+                self.assertNotContains(response, old)
+        self.assertContains(response, "<title>Medical records — Hapi Vet Admin</title>")
+        self.assertContains(
+            response,
+            '<h1 class="text-2xl font-bold text-gray-900">Medical records</h1>',
+        )
+        self.assertContains(response, "Every visit record written at the clinic.")
+
+    def test_sidebar_highlights_medical_records(self):
+        html = self._html()
+        self.assertIn(f'<a href="{self.url}" {ACTIVE_NAV}', html)
+        vaccinations_url = reverse("admin_vaccination_list")
+        self.assertIn(f'<a href="{vaccinations_url}" {PLAIN_NAV}', html)
+
+    def test_no_primary_button_outside_dialogs(self):
+        self._rec(follow_days=3)
+        for params in ({}, {"tab": "followups"}, {"q": "zzz"}):
+            with self.subTest(params=params):
+                html = self._html(**params)
+                self.assertEqual(_outside_dialogs(html).count("btn-primary"), 0)
+
+    def test_search_forms_with_the_hidden_tab(self):
+        for tab in ("followups", "all"):
+            with self.subTest(tab=tab):
+                self._check_search_forms(tab)
+
+    # ─── Tabs ─────────────────────────────────────────────────────────────────
+
+    def test_tabs_counts_and_current(self):
+        self._rec(follow_days=3)
+        self._rec()
+        for tab in ("followups", "all"):
+            with self.subTest(tab=tab):
+                tabs = self._tabs(self._html(tab=tab))
+                self.assertEqual(tabs.count('aria-current="page"'), 1)
+                self.assertRegex(
+                    tabs,
+                    rf'<a href="{self.url}\?tab={tab}" class="[^"]*" '
+                    r'aria-current="page">',
+                )
+        tabs = self._tabs(self._html())
+        self.assertIn(
+            '">Follow-ups in 7 days<span class="rounded-full bg-yellow-200 '
+            'text-yellow-900 px-2 text-sm font-semibold">1</span></a>',
+            tabs,
+        )
+        self.assertIn(
+            'aria-current="page">All<span class="rounded-full bg-violet-100 '
+            'text-violet-800 px-2 text-sm font-semibold">2</span></a>',
+            tabs,
+        )
+
+    def test_yellow_count_only_above_zero(self):
+        self._rec()
+        tabs = self._tabs(self._html())
+        self.assertNotIn("bg-yellow-200", tabs)
+        self.assertIn(
+            '">Follow-ups in 7 days<span class="rounded-full bg-gray-100 '
+            'text-gray-800 px-2 text-sm font-semibold">0</span>',
+            tabs,
+        )
+
+    def test_tab_links_keep_q_and_drop_page(self):
+        self._many(30)
+        tabs = self._tabs(self._html(q="pet one", page=2))
+        for tab in ("followups", "all"):
+            with self.subTest(tab=tab):
+                self.assertIn(f'href="{self.url}?tab={tab}&amp;q=pet%20one"', tabs)
+        self.assertNotIn("page=", tabs)
+
+    # ─── Heads, results line ──────────────────────────────────────────────────
+
+    def test_list_heads(self):
+        self._rec(follow_days=3)
+        self._rec()
+        follow = self._html(tab="followups")
+        self.assertIn(
+            'Follow-ups in the next 7 days <span class="font-normal text-gray-600">'
+            "(1)</span></h2>",
+            follow,
+        )
+        self.assertIn(
+            '<p class="text-sm text-gray-600">Soonest first · Today to Tue, Nov 10</p>',
+            follow,
+        )
+        all_tab = self._html()
+        self.assertIn(
+            'All medical records <span class="font-normal text-gray-600">(2)</span>'
+            "</h2>",
+            all_tab,
+        )
+        self.assertIn("Newest visit first</p>", all_tab)
+        self.assertNotIn("Clear search", all_tab)
+
+    def test_results_line_and_clear_search(self):
+        self._rec(-3, diagnosis="Ear infection")
+        self._rec(-2, diagnosis="Skin rash")
+        self._rec(-1, diagnosis="Ear mites")
+        self._rec(-1, pet=self.muning, diagnosis="Cough")
+        html = self._html(q="cruz")
+        self.assertIn(
+            '3 records match <strong class="font-semibold">“cruz”</strong> in all '
+            "medical records</h2>",
+            html,
+        )
+        self.assertNotIn("All medical records <span", html)
+        self.assertIn(
+            f'<a href="{self.url}?tab=all" class="inline-flex min-h-11 items-center '
+            'gap-2 text-base font-medium text-blue-600 underline underline-offset-2">',
+            html,
+        )
+        self.assertIn(
+            '1 record matches <strong class="font-semibold">“cough”</strong>',
+            self._html(q="cough"),
+        )
+        follow = self._html(tab="followups", q="zzz")
+        self.assertIn(
+            'No record matches <strong class="font-semibold">“zzz”</strong> in '
+            "follow-ups in the next 7 days</h2>",
+            follow,
+        )
+        self.assertIn(f'<a href="{self.url}?tab=followups" class="inline-flex', follow)
+
+    # ─── Rows and pills ───────────────────────────────────────────────────────
+
+    def test_row(self):
+        long = "Upper respiratory infection. Sneezing for 3 days, eating less " * 3
+        self._rec(-1, diagnosis=long.strip())
+        self._rec(-8, pet=self.muning)
+        html = self._html()
+        self.assertIn(
+            '<li class="flex flex-col gap-3 border-t border-gray-100 p-4 '
+            "first:border-t-0 hover:bg-gray-50 md:grid "
+            "md:grid-cols-[7.5rem_minmax(0,1.25fr)_1px_minmax(0,0.9fr)_auto] "
+            'md:items-center md:gap-5 md:px-5">',
+            html,
+        )
+        self.assertRegex(
+            html,
+            r'<p class="text-sm text-gray-600">Visit date</p>\s*'
+            r'<p class="text-base font-semibold text-gray-900">Yesterday</p>',
+        )
+        self.assertIn(
+            '<p class="text-base font-semibold text-gray-900">Mon, Oct 26</p>', html
+        )
+        self.assertIn('<p class="text-lg font-semibold text-gray-900">Bantay</p>', html)
+        self.assertIn(
+            f'<p class="truncate text-base text-gray-800">{long.strip()}</p>', html
+        )
+        self.assertIn(
+            '<p class="text-base text-gray-600">No diagnosis written</p>', html
+        )
+        self.assertIn(
+            f'<a href="{reverse("admin_owner_detail", args=[self.ben.pk])}" '
+            'class="font-medium text-blue-600 underline underline-offset-2">'
+            "Ben Santos</a>",
+            html,
+        )
+        self.assertEqual(_pills(html), [])
+
+    def test_pills_on_all(self):
+        self._rec(-1, follow_days=2)
+        self._rec(-2, follow_days=0)
+        self._rec(-3, follow_days=20, follow_up_required=False)
+        self.assertEqual(
+            _pills(self._html()),
+            [
+                ("bg-blue-100", "Follow-up Thu, Nov 5"),
+                ("bg-blue-100", "Follow-up today"),
+            ],
+        )
+
+    def test_pills_on_followups(self):
+        self._rec(-1, follow_days=0)
+        self._rec(-2, follow_days=1)
+        self._rec(-3, follow_days=6)
+        self.assertEqual(
+            _pills(self._html(tab="followups")),
+            [
+                ("bg-yellow-100", "Follow-up today"),
+                ("bg-yellow-100", "Follow-up tomorrow"),
+                ("bg-yellow-100", "Follow-up in 6 days · Mon, Nov 9"),
+            ],
+        )
+
+    def test_private_notes_never_on_the_page(self):
+        self._rec(follow_days=3, private_notes="Owner upset about the parvo cost")
+        for tab in ("followups", "all"):
+            with self.subTest(tab=tab):
+                self.assertNotIn("parvo", self._html(tab=tab))
+
+    # ─── Send reminder and the dialogs ────────────────────────────────────────
+
+    def test_send_reminder_only_on_followups(self):
+        record = self._rec(-1, follow_days=2)
+        self._rec(-2, follow_days=20)
+        html = self._html(tab="followups")
+        self.assertEqual(html.count("data-dialog-open="), 1)
+        self.assertIn(
+            '<button type="button" class="btn btn-outline flex-1 font-semibold '
+            f'md:flex-none" data-dialog-open="reminder-dialog-{record.pk}">',
+            html,
+        )
+        self.assertIn(
+            '<span class="sr-only"> to Ana Cruz about Bantay\'s follow-up</span>'
+            "</button>",
+            html,
+        )
+        dialogs = _dialogs(html)
+        self.assertEqual(len(dialogs), 1)
+        self.assertIn(f'<dialog id="reminder-dialog-{record.pk}" ', dialogs[0])
+        all_tab = self._html()
+        self.assertNotIn("data-dialog-open=", all_tab)
+        self.assertNotIn("Send reminder", all_tab)
+        self.assertEqual(_dialogs(all_tab), [])
+
+    def test_dialog(self):
+        record = self._rec(-1, follow_days=2)
+        dialog = _dialogs(self._html(tab="followups", q="ana"))[0]
+        url = reverse("admin_trigger_followup_reminder", args=[record.pk])
+        self.assertIn(f'<form method="post" action="{url}" class="p-6 sm:p-7">', dialog)
+        self.assertIn('name="csrfmiddlewaretoken"', dialog)
+        self.assertIn('<input type="hidden" name="return_to" value="list">', dialog)
+        self.assertIn('<input type="hidden" name="tab" value="followups">', dialog)
+        self.assertIn('<input type="hidden" name="q" value="ana">', dialog)
+        self.assertIn('font-bold">Send a follow-up reminder to Ana Cruz?</h2>', dialog)
+        self.assertIn(
+            "Bantay's follow-up for the visit on yesterday is on <b>Thursday, "
+            "November 5</b>. The reminder asks Ana Cruz to book it.",
+            dialog,
+        )
+        self.assertIn("No follow-up reminder sent for Bantay yet.</span>", dialog)
+        self.assertIn("and follow-up emails are on.", dialog)
+        self.assertRegex(
+            dialog,
+            r'(?s)<button type="submit" class="btn btn-primary [^"]*">\s*<svg[^>]*>'
+            r".*?</svg>\s*Yes, send reminder\s*</button>",
+        )
+
+    def test_dialog_last_reminder_line(self):
+        self._rec(-1, follow_days=2)
+        notice = Notification.objects.create(
+            recipient=self.owner_user,
+            notification_type=Notification.FOLLOWUP_REMINDER,
+            title="Reminder",
+            message="Reminder",
+            related_pet=self.pet,
+        )
+        Notification.objects.filter(pk=notice.pk).update(
+            created_at=JUST_AFTER_MIDNIGHT - datetime.timedelta(days=3)
+        )
+        dialog = _dialogs(self._html(tab="followups"))[0]
+        self.assertIn("Last follow-up reminder for Bantay: Sat, Oct 31.</span>", dialog)
+
+    def test_no_email_box(self):
+        self._rec(-1, follow_days=2)
+        User.objects.filter(pk=self.owner_user.pk).update(email="")
+        dialog = _dialogs(self._html(tab="followups"))[0]
+        self.assertIn(
+            "<b>Ana Cruz has no email and no phone number on file.</b>", dialog
+        )
+        PetOwner.objects.filter(pk=self.owner.pk).update(contact_number="0917 123 4567")
+        dialog = _dialogs(self._html(tab="followups"))[0]
+        self.assertIn("<b>Ana Cruz has no email on file.</b>", dialog)
+        self.assertIn("To reach them sooner, call 0917 123 4567.", dialog)
+
+    def test_open_link(self):
+        record = self._rec(-1)
+        self.assertRegex(
+            self._html(),
+            rf'<a href="{reverse("admin_medical_record_detail", args=[record.pk])}" '
+            r'class="inline-flex min-h-11 flex-1 [^"]*border-violet-300 bg-violet-50'
+            r'[^"]*md:flex-none">Open<span class="sr-only"> Bantay\'s record from '
+            r"yesterday</span>\s*<svg",
+        )
+
+    # ─── Empty states, pager, queries, links ──────────────────────────────────
+
+    def test_empty_states(self):
+        for tab in ("followups", "all"):
+            with self.subTest(tab=tab):
+                self.assertEqual(
+                    _empty_state(self._html(tab=tab)),
+                    (
+                        "No medical records yet",
+                        "Records appear here when you write one from a visit or a "
+                        "pet's page.",
+                    ),
+                )
+        self._rec()
+        follow = self._html(tab="followups")
+        self.assertEqual(
+            _empty_state(follow),
+            (
+                "No follow-ups in the next 7 days",
+                "No pet has a follow-up visit from today to Tue, Nov 10.",
+            ),
+        )
+        self.assertIn(f'<a href="{self.url}?tab=all" class="inline-flex', follow)
+        self.assertIn("See all medical records", follow)
+        self.assertEqual(
+            _empty_state(self._html(q="zzz")),
+            (
+                "No record matches “zzz”",
+                "Check the spelling, or look in the other tab.",
+            ),
+        )
+        self.assertIsNone(_empty_state(self._html()))
+
+    def test_pager_on_30_rows(self):
+        self._many(30)
+        html = self._html(tab="followups")
+        self.assertEqual(html.count(LIST_ROW), 25)
+        self.assertIn("Showing 1–25 of 30", html)
+        self.assertIn(
+            '<a href="?tab=followups&amp;page=2" class="btn btn-outline">', html
+        )
+        second = self._html(tab="followups", page=2)
+        self.assertEqual(second.count(LIST_ROW), 5)
+        self.assertIn("Showing 26–30 of 30", second)
+
+    def test_query_count_is_flat(self):
+        """The full page, reminder dialogs included, costs the same with 3
+        rows as with 30, on both tabs."""
+        for tab in ("followups", "all"):
+            with self.subTest(tab=tab):
+                MedicalRecord.objects.all().delete()
+                self._many(3)
+                few = self._page_queries(tab=tab)
+                MedicalRecord.objects.all().delete()
+                self._many(30)
+                many = self._page_queries(tab=tab)
+                self.assertEqual(few, many)
+                self.assertEqual(many, 10)
+
+    def test_every_link_is_on_one_line(self):
+        self._many(30)
+        self._rec()
+        self._check_one_line_links(
+            [{}, {"tab": "followups"}, {"q": "pet"}, {"q": "zzz"}]
+        )
