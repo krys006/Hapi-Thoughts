@@ -1,0 +1,9 @@
+{# "Owner": name to the owner page, phone and email (or "No phone number" / "No email"). After the notes on phones (order-4). #}
+{% with owner=record.pet.owner %}
+<section class="card order-4" aria-labelledby="owner-title">
+  <h2 id="owner-title" class="text-xl font-semibold text-gray-900">Owner</h2>
+  <p class="mt-3 text-base"><a href="{% url 'admin_owner_detail' owner.pk %}" class="inline-flex min-h-11 items-center font-medium text-blue-600 underline underline-offset-2">{{ owner.full_name }}</a></p>
+  <p class="mt-2 flex items-center gap-2 text-base {% if owner.contact_number %}text-gray-900{% else %}text-gray-600{% endif %}">{% include "components/icon.html" with name="phone" class="size-5 shrink-0 text-gray-600" %}{% if owner.contact_number %}{{ owner.contact_number }}{% else %}No phone number{% endif %}</p>
+  <p class="mt-2 flex items-center gap-2 text-base {% if owner.user.email %}text-gray-900{% else %}text-gray-600{% endif %}">{% include "components/icon.html" with name="mail" class="size-5 shrink-0 text-gray-600" %}{% if owner.user.email %}<span class="break-all">{{ owner.user.email }}</span>{% else %}No email{% endif %}</p>
+</section>
+{% endwith %}

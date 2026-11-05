@@ -1,0 +1,32 @@
+{% load friendly_dates %}
+{% comment %}
+  "Follow-up" (second on phones, order-2). Not required: a plain card.
+  Required (follow_up = {date, days}, days from the view's today): yellow,
+  the long date, when ("today", "tomorrow", "in N days", "N days ago"),
+  Send reminder while the pet and owner are active (the view sends for any
+  required follow-up and refuses archived pets and owners), and the pet's
+  last follow-up reminder (per pet, not per record).
+{% endcomment %}
+{% if follow_up %}
+  <section class="order-2 rounded-xl border-2 border-yellow-300 bg-yellow-50 p-6 shadow-sm" aria-labelledby="follow-up-title">
+    <h2 id="follow-up-title" class="flex items-center gap-2 text-xl font-semibold text-gray-900">{% include "components/icon.html" with name="calendar" class="size-5 shrink-0 text-yellow-800" %}Follow-up</h2>
+    {% if follow_up.date %}
+      <p class="mt-2 text-lg font-semibold text-gray-900">{% long_date_on follow_up.date today %}</p>
+      {# days is negative once the date has passed; slice drops the minus sign #}
+      <p class="text-base text-gray-800">{% if follow_up.days == 0 %}today{% elif follow_up.days == 1 %}tomorrow{% elif follow_up.days > 1 %}in {{ follow_up.days }} days{% elif follow_up.days == -1 %}1 day ago{% else %}{{ follow_up.days|stringformat:"d"|slice:"1:" }} days ago{% endif %}</p>
+    {% else %}
+      {# Older records: required with no date (the form now asks for one) #}
+      <p class="mt-2 text-base text-gray-800">Needed, but no date is set.</p>
+    {% endif %}
+    {% if can_add %}
+      <button type="button" class="btn btn-outline mt-4 w-full font-semibold" data-dialog-open="reminder-dialog-{{ record.pk }}" aria-haspopup="dialog">{% include "components/icon.html" with name="send" %}Send reminder<span class="sr-only"> to {{ record.pet.owner.full_name }} about {{ record.pet.name }}'s follow-up</span></button>
+    {% endif %}
+    <p class="mt-3 flex items-start gap-2 text-sm text-gray-700">{% include "components/icon.html" with name="clock" class="mt-0.5 size-4 shrink-0" %}<span>{% if last_followup_reminder %}Last follow-up reminder for {{ record.pet.name }}: {% friendly_date_on last_followup_reminder today %}{% else %}No follow-up reminder sent for {{ record.pet.name }} yet.{% endif %}</span></p>
+  </section>
+{% else %}
+  <section class="card order-2" aria-labelledby="follow-up-title">
+    <h2 id="follow-up-title" class="flex items-center gap-2 text-xl font-semibold text-gray-900">{% include "components/icon.html" with name="calendar" class="size-5 shrink-0 text-gray-600" %}Follow-up</h2>
+    <p class="mt-2 text-base text-gray-700">No follow-up needed.</p>
+    {% if can_add %}<p class="mt-1 text-sm text-gray-700">To set one, use Edit record.</p>{% endif %}
+  </section>
+{% endif %}

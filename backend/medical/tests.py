@@ -81,9 +81,11 @@ class ArchivedPetGuardTests(TestCase):
                 shot,
                 Vaccination,
             ),
+            # 5b-2: a vaccination on a record goes through the create page
+            # with the record (was admin_vaccination_add, removed)
             (
-                reverse("admin_vaccination_add", args=[self.record.pk]),
-                shot,
+                reverse("admin_vaccination_standalone_create", args=[self.pet.pk]),
+                {**shot, "record": self.record.pk},
                 Vaccination,
             ),
         ]
@@ -996,6 +998,8 @@ class OwnerMedicalHistoryTests(FrozenMedicalTestBase):
         response = self.client.get(self.url)
         self.assertContains(response, "Give food slowly")
         self.assertNotContains(response, "Owner seemed upset")
+        # 5b-2: not even the admin page's card title
+        self.assertNotContains(response, "Private notes")
 
 
 def _days(n):
@@ -1710,11 +1714,12 @@ class RecordDetailContextTests(FrozenMedicalTestBase):
             "vaccinations",
             "prescription_form",
             "file_form",
-            "vaccination_form",
             "last_followup_reminder",
         ):
             with self.subTest(key=key):
                 self.assertIn(key, context)
+        # 5b-2: the old inline vaccination form is gone
+        self.assertNotIn("vaccination_form", context)
 
     def test_archived_pet_and_owner(self):
         self.pet.is_archived = True
@@ -3540,3 +3545,655 @@ class RecordListPageTests(MedicalListPageTestBase):
         self._check_one_line_links(
             [{}, {"tab": "followups"}, {"q": "pet"}, {"q": "zzz"}]
         )
+
+
+# ── Batch 5b-2: Medical record detail page ───────────────────────────────────
+
+
+def _dialog(html, dialog_id):
+    """The <dialog> with this id, or None."""
+    for dialog in _dialogs(html):
+        if dialog.startswith(f'<dialog id="{dialog_id}" '):
+            return dialog
+    return None
+
+
+class RecordDetailPageTests(FrozenMedicalTestBase):
+    """admin/medical/record_detail.html on the new layout (Slice 5b-2).
+    Frozen at 00:30 Manila on Tue, Nov 3, 2026; the record is written then,
+    so medicines can be removed until the day ends."""
+
+    def setUp(self):
+        super().setUp()
+        self.record = self._record()
+        self.url = reverse("admin_medical_record_detail", args=[self.record.pk])
+
+    def _html(self, url=None):
+        response = self.client.get(url or self.url)
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _medicine(self, name="Amoxicillin", **fields):
+        return PrescriptionItem.objects.create(
+            record=self.record, medicine_name=name, **fields
+        )
+
+    def _file(self, name="test_results/scan.pdf", **fields):
+        return TestResultFile.objects.create(record=self.record, file=name, **fields)
+
+    def _follow(self, days):
+        """Follow-up in `days` days (negative: past), on a visit 10 days ago."""
+        MedicalRecord.objects.filter(pk=self.record.pk).update(
+            record_date=_days(-10),
+            follow_up_required=True,
+            follow_up_date=_days(days),
+        )
+
+    def _dose(self, **fields):
+        fields.setdefault("vaccine_name", Vaccination.ANTI_RABIES)
+        fields.setdefault("date_administered", TODAY)
+        return Vaccination.objects.create(
+            pet=self.pet, medical_record=self.record, **fields
+        )
+
+    def _everything(self):
+        """A medicine, a file and a follow-up: every button the page can show."""
+        item = self._medicine()
+        test_file = self._file(description="Blood test")
+        self._follow(3)
+        return item, test_file
+
+    # ─── Layout ───────────────────────────────────────────────────────────────
+
+    def test_new_layout_without_old_files(self):
+        response = self.client.get(self.url)
+        self.assertTemplateUsed(response, "layouts/admin.html")
+        self.assertTemplateUsed(
+            response, "admin/medical/record_detail_parts/header.html"
+        )
+        for old in (
+            "record_detail.css",
+            "layer(legacy)",
+            "admin-page",
+            "detail-layout",
+            "data-table",
+            "Add Vaccination Record",
+            "Send Follow-up Reminder Now",
+        ):
+            with self.subTest(old=old):
+                self.assertNotContains(response, old)
+        self.assertContains(
+            response, "<title>Bantay's visit record — Hapi Vet Admin</title>"
+        )
+        self.assertContains(response, "js/admin/photo_input")
+
+    def test_one_violet_button_outside_dialogs(self):
+        self._everything()
+        edit = reverse("admin_medical_record_edit", args=[self.record.pk])
+        for archived in (False, True):
+            with self.subTest(archived=archived):
+                Pet.objects.filter(pk=self.pet.pk).update(is_archived=archived)
+                page = _outside_dialogs(self._html())
+                self.assertEqual(page.count("btn-primary"), 1)
+                self.assertIn(
+                    f'<a href="{edit}" class="btn btn-primary min-h-12 w-full '
+                    'font-semibold">',
+                    page,
+                )
+
+    def test_phone_order_without_copies(self):
+        self._follow(3)
+        html = self._html()
+        self.assertIn(
+            '<div class="contents lg:sticky lg:top-24 lg:col-start-2 lg:row-start-1 '
+            'lg:block lg:space-y-6">',
+            html,
+        )
+        for marker in (
+            '<section class="card order-1" aria-labelledby="actions-title">',
+            '<section class="order-2 rounded-xl border-2 border-yellow-300',
+            '<div class="order-3 min-w-0 space-y-6 lg:order-none',
+            '<section class="card order-4" aria-labelledby="owner-title">',
+            '<section class="order-5 rounded-xl',
+        ):
+            with self.subTest(marker=marker):
+                self.assertEqual(html.count(marker), 1)
+        self.assertEqual(html.count('id="notes-title"'), 1)
+
+    # ─── Header ───────────────────────────────────────────────────────────────
+
+    def test_header_links(self):
+        html = self._html()
+        history = reverse("admin_pet_medical_history", args=[self.pet.pk])
+        self.assertRegex(
+            html,
+            rf'(?s)<a href="{history}" class="[^"]*">\s*<svg[^>]*>.*?</svg>\s*'
+            r"Back to Bantay's medical history</a>",
+        )
+        self.assertIn("<span>Visit record · Today, Tuesday, November 3</span>", html)
+        owner = reverse("admin_owner_detail", args=[self.owner.pk])
+        self.assertIn(
+            '<b class="font-semibold">Bantay</b> · Dog · Owner: '
+            f'<a href="{owner}" class="font-medium text-blue-600 underline '
+            'underline-offset-2">Ana Cruz</a>',
+            html,
+        )
+        self.assertIn(
+            '<p class="mt-1 text-base text-gray-600">Not linked to a visit</p>', html
+        )
+        self.assertNotIn("Pet archived", html)
+
+    def test_header_visit_link(self):
+        visit = Appointment.objects.create(
+            pet=self.pet,
+            owner=self.owner,
+            date=_days(-1),
+            time=datetime.time(10, 0),
+            status=Appointment.COMPLETED,
+        )
+        MedicalRecord.objects.filter(pk=self.record.pk).update(
+            appointment=visit, record_date=_days(-1)
+        )
+        html = self._html()
+        visit_url = reverse("admin_appointment_detail", args=[visit.pk])
+        self.assertIn(
+            f'From the visit <a href="{visit_url}" '
+            'class="inline-flex min-h-11 items-center font-medium text-blue-600 '
+            'underline underline-offset-2">Yesterday at 10:00 AM</a>',
+            html,
+        )
+        self.assertNotIn("Not linked to a visit", html)
+        self.assertIn("Visit record · Monday, November 2", html)
+
+    # ─── Notes ────────────────────────────────────────────────────────────────
+
+    def test_owner_note_box_and_private_notes_card(self):
+        MedicalRecord.objects.filter(pk=self.record.pk).update(
+            symptoms="Shaking head",
+            public_notes="Clean the ear gently.",
+            private_notes="Possibly yeast too.",
+        )
+        html = self._html()
+        self.assertIn("Note for the owner · Ana can see this</p>", html)
+        self.assertIn(
+            '<p class="mt-1 whitespace-pre-line text-base text-gray-900">'
+            "Clean the ear gently.</p>",
+            html,
+        )
+        self.assertIn(
+            '<section class="rounded-xl border-2 border-amber-300 bg-amber-50 p-6 '
+            'shadow-sm" aria-labelledby="private-title">',
+            html,
+        )
+        self.assertIn("Only the clinic sees this. It is never shown to Ana Cruz.", html)
+        self.assertIn(
+            '<p class="mt-3 whitespace-pre-line text-base text-gray-900">'
+            "Possibly yeast too.</p>",
+            html,
+        )
+        self.assertIn(
+            '<dd class="mt-1 whitespace-pre-line text-base text-gray-900">'
+            "Shaking head</dd>",
+            html,
+        )
+
+    def test_every_empty_state_line(self):
+        User.objects.filter(pk=self.owner_user.pk).update(email="")
+        html = self._html()
+        self.assertEqual(
+            html.count('<dd class="mt-1 text-base text-gray-600">Not written</dd>'), 3
+        )
+        for line in (
+            '<p class="mt-1 text-base text-gray-600">No note for the owner.</p>',
+            '<p class="mt-3 text-base text-gray-600">No private notes.</p>',
+            '<p class="text-base text-gray-600">No medicines on this record.</p>',
+            '<p class="text-base text-gray-600">No test results added.</p>',
+            '<p class="text-base text-gray-600">No vaccinations recorded at this '
+            "visit.</p>",
+            '<p class="mt-2 text-base text-gray-700">No follow-up needed.</p>',
+            '<p class="mt-1 text-sm text-gray-700">To set one, use Edit record.</p>',
+            "No phone number</p>",
+            "No email</p>",
+            "Not linked to a visit",
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(html.count(line), 1)
+        for absent in ("Removed files", "can only be removed", "Last changed"):
+            with self.subTest(absent=absent):
+                self.assertNotIn(absent, html)
+        self.assertIn("Medicines (0)", html)
+        self.assertIn("Test results (0)", html)
+        self.assertIn("Vaccinations at this visit (0)", html)
+
+    # ─── Medicines ────────────────────────────────────────────────────────────
+
+    def test_medicine_row(self):
+        item = self._medicine(dosage="1 tablet", notes="Give with food")
+        html = self._html()
+        self.assertIn("Medicines (1)", html)
+        self.assertIn(
+            '<p class="text-lg font-semibold text-gray-900">Amoxicillin</p>', html
+        )
+        self.assertIn(
+            '<dt class="text-sm text-gray-600">Dose</dt><dd>1 tablet</dd>', html
+        )
+        self.assertEqual(html.count('<span class="text-gray-600">Not given</span>'), 2)
+        self.assertIn("Give with food</p>", html)
+        self.assertIn(f'data-dialog-open="remove-medicine-{item.pk}"', html)
+
+    def test_remove_only_on_the_same_day(self):
+        item = self._medicine()
+        html = self._html()
+        self.assertRegex(
+            html,
+            r'(?s)<button type="button" class="btn border border-red-300 bg-white '
+            r'font-semibold text-red-700 hover:bg-red-50" '
+            rf'data-dialog-open="remove-medicine-{item.pk}" aria-haspopup="dialog">'
+            r'\s*<svg.*?</svg>\s*Remove<span class="sr-only"> Amoxicillin</span>'
+            r"</button>",
+        )
+        self.assertNotIn("can only be removed on the day", html)
+        self.assertIsNotNone(_dialog(html, f"remove-medicine-{item.pk}"))
+
+        # The next morning: no Remove, the gray line instead
+        self.now = JUST_AFTER_MIDNIGHT + datetime.timedelta(days=1)
+        html = self._html()
+        self.assertNotIn("remove-medicine-", html)
+        self.assertIn(
+            "<span>Medicines can only be removed on the day the record was written. "
+            "To change one now, add the right medicine and explain it in Treatment "
+            "given.</span>",
+            html,
+        )
+
+    # ─── Test results ─────────────────────────────────────────────────────────
+
+    def test_active_file_rows(self):
+        blood = self._file(description="Blood test")
+        self._file(name="test_results/xray.jpeg")
+        html = self._html()
+        self.assertIn("Test results (2)", html)
+        self.assertIn(
+            "PDF, JPG or PNG, up to 10 MB. The owner only sees that a result is on "
+            "file.</p>",
+            html,
+        )
+        self.assertIn('font-semibold text-gray-900">Blood test</p>', html)
+        self.assertIn(
+            '<p class="text-sm text-gray-700">PDF · Added today, 12:30 AM</p>', html
+        )
+        self.assertIn('font-semibold text-gray-900">xray.jpeg</p>', html)
+        self.assertIn(
+            '<p class="text-sm text-gray-700">JPG · Added today, 12:30 AM</p>', html
+        )
+        self.assertRegex(
+            html,
+            rf'<a href="{re.escape(blood.file.url)}" target="_blank" rel="noopener" '
+            r'class="[^"]*">Open file<span class="sr-only"> Blood test \(opens in a '
+            r"new tab\)</span>",
+        )
+        self.assertIn(f'data-dialog-open="remove-file-{blood.pk}"', html)
+        self.assertIn('Remove<span class="sr-only"> Blood test</span>', html)
+
+    def test_removed_files_only_when_there_are_some(self):
+        self._file(description="Blood test")
+        # (The remove dialog names "Removed files" too, so check the list)
+        html = self._html()
+        self.assertNotIn("Removed files (", html)
+        self.assertNotIn("<details", html)
+
+        self._file(
+            description="Wrong file",
+            is_archived=True,
+            archived_at=JUST_AFTER_MIDNIGHT - datetime.timedelta(days=1),
+        )
+        self._file(name="test_results/old.png", is_archived=True)
+        html = self._html()
+        self.assertIn("Test results (1)", html)
+        # Closed by default
+        self.assertIn('<details class="group mt-4 rounded-lg border', html)
+        self.assertNotRegex(html, r"<details[^>]* open")
+        self.assertIn("Removed files (2)</summary>", html)
+        self.assertIn("Wrong file · PDF</span>", html)
+        self.assertIn('<span class="text-sm">Removed yesterday</span>', html)
+        self.assertIn("old.png · PNG</span>", html)
+        self.assertIn('<span class="text-sm">Removed, date not recorded</span>', html)
+        self.assertIn(
+            "Removed files are hidden from Ana Cruz. They stay here for the clinic.",
+            html,
+        )
+        details = re.search(r"(?s)<details.*?</details>", html).group()
+        self.assertNotIn("Remove<span", details)
+        self.assertEqual(details.count("Open file<span"), 2)
+
+    # ─── Vaccinations ─────────────────────────────────────────────────────────
+
+    def test_vaccination_rows_open_the_highlighted_dose(self):
+        dose = self._dose(next_due_date=datetime.date(2027, 11, 3))
+        self._dose(vaccine_name=Vaccination.DEWORMING)
+        html = self._html()
+        self.assertIn("Vaccinations at this visit (2)", html)
+        history = reverse("admin_pet_vaccination_history", args=[self.pet.pk])
+        self.assertRegex(
+            html,
+            rf'<a href="{history}\?highlight={dose.pk}#vaccination-{dose.pk}" '
+            r'class="inline-flex min-h-11 [^"]*border-violet-300 bg-violet-50[^"]*">'
+            r"Open<span class=\"sr-only\"> Bantay's Anti-rabies</span>",
+        )
+        self.assertIn("Given today · Next due Wed, Nov 3, 2027</p>", html)
+        self.assertIn("Given today · No next date</p>", html)
+        create = reverse("admin_vaccination_standalone_create", args=[self.pet.pk])
+        self.assertEqual(html.count(f'href="{create}?record={self.record.pk}"'), 2)
+
+    # ─── Dialogs ──────────────────────────────────────────────────────────────
+
+    def test_each_dialog_posts_to_its_url_with_csrf(self):
+        item, test_file = self._everything()
+        html = self._html()
+        expected = {
+            "add-medicine": reverse(
+                "admin_prescription_item_add", args=[self.record.pk]
+            ),
+            "add-file": reverse("admin_test_result_file_upload", args=[self.record.pk]),
+            f"remove-medicine-{item.pk}": reverse(
+                "admin_prescription_item_delete", args=[item.pk]
+            ),
+            f"remove-file-{test_file.pk}": reverse(
+                "admin_test_result_file_archive", args=[test_file.pk]
+            ),
+            f"reminder-dialog-{self.record.pk}": reverse(
+                "admin_trigger_followup_reminder", args=[self.record.pk]
+            ),
+        }
+        self.assertEqual(len(_dialogs(html)), len(expected))
+        for dialog_id, action in expected.items():
+            with self.subTest(dialog=dialog_id):
+                dialog = _dialog(html, dialog_id)
+                self.assertIsNotNone(dialog)
+                self.assertIn(f'<form method="post" action="{action}"', dialog)
+                self.assertIn('name="csrfmiddlewaretoken"', dialog)
+                # Every dialog has an opener on the page
+                self.assertIn(f'data-dialog-open="{dialog_id}"', html)
+                if dialog_id.startswith("remove-"):
+                    self.assertIn("btn btn-danger", dialog)
+                    self.assertIn("Yes, remove it", dialog)
+                else:
+                    self.assertIn("btn btn-primary", dialog)
+        self.assertIn('enctype="multipart/form-data"', _dialog(html, "add-file"))
+        self.assertNotIn("data-open-on-load", html)
+
+    def test_dialog_texts(self):
+        item, test_file = self._everything()
+        html = self._html()
+        remove_med = _dialog(html, f"remove-medicine-{item.pk}")
+        self.assertIn('font-bold">Remove Amoxicillin?</h2>', remove_med)
+        self.assertIn(
+            "It disappears from this record and from Bantay's page for Ana Cruz.",
+            remove_med,
+        )
+        self.assertIn(
+            "You can remove medicines only today, the day this record was written. "
+            "From tomorrow the list is kept as it is.",
+            remove_med,
+        )
+        remove_file = _dialog(html, f"remove-file-{test_file.pk}")
+        self.assertIn("Remove “Blood test”?</h2>", remove_file)
+        self.assertIn(
+            "It is hidden from Ana Cruz and moves to <b>Removed files</b>", remove_file
+        )
+        add_med = _dialog(html, "add-medicine")
+        self.assertIn("Add a medicine for Bantay</h2>", add_med)
+        self.assertIn(
+            "It shows on this record and on Bantay's page for Ana Cruz.", add_med
+        )
+        self.assertEqual(add_med.count("(optional)"), 4)
+        for placeholder in (
+            "For example: Amoxicillin 250 mg",
+            "1 tablet",
+            "Twice a day",
+            "7 days",
+            "For example: give with food",
+        ):
+            with self.subTest(placeholder=placeholder):
+                self.assertIn(f'placeholder="{placeholder}"', add_med)
+        add_file = _dialog(html, "add-file")
+        self.assertIn("Add a test result for Bantay</h2>", add_file)
+        self.assertIn('placeholder="For example: Blood test, X-ray"', add_file)
+        self.assertIn('accept=".pdf,.jpg,.jpeg,.png"', add_file)
+        self.assertIn(
+            'class="sr-only" aria-describedby="add-file-help" data-photo-input>',
+            add_file,
+        )
+        self.assertIn("data-photo-name", add_file)
+        self.assertIn("PDF, JPG or PNG, up to 10 MB.</p>", add_file)
+        self.assertIn(
+            "Ana Cruz sees that a test result is on file, but can't open it.", add_file
+        )
+
+    def test_add_medicine_error_reopens_with_values(self):
+        url = reverse("admin_prescription_item_add", args=[self.record.pk])
+        response = self.client.post(
+            url, {"medicine_name": "", "dosage": "5 ml", "notes": "With food"}
+        )
+        html = response.content.decode()
+        self.assertEqual(html.count("data-open-on-load"), 1)
+        dialog = _dialog(html, "add-medicine")
+        self.assertIn("data-open-on-load", dialog)
+        self.assertIn('value="5 ml"', dialog)
+        self.assertIn("With food</textarea>", dialog)
+        self.assertIn("Type the medicine name.", dialog)
+        self.assertFalse(PrescriptionItem.objects.exists())
+
+    def test_add_file_error_reopens_with_the_title(self):
+        url = reverse("admin_test_result_file_upload", args=[self.record.pk])
+        for data, error in (
+            (
+                {
+                    "file": SimpleUploadedFile(
+                        "notes.docx", b"x", "application/msword"
+                    ),
+                    "description": "Blood",
+                },
+                "Only PDF, JPG or PNG files can be added.",
+            ),
+            ({"description": "Blood"}, "Choose a file to add."),
+        ):
+            with self.subTest(error=error):
+                html = self.client.post(url, data).content.decode()
+                self.assertEqual(html.count("data-open-on-load"), 1)
+                dialog = _dialog(html, "add-file")
+                self.assertIn("data-open-on-load", dialog)
+                self.assertIn('value="Blood"', dialog)
+                self.assertIn(error, dialog)
+                self.assertIn("Choose the file again.", dialog)
+        self.assertFalse(TestResultFile.objects.exists())
+
+    # ─── Follow-up ────────────────────────────────────────────────────────────
+
+    def test_follow_up_card_in_each_state(self):
+        html = self._html()
+        self.assertIn("No follow-up needed.", html)
+        self.assertNotIn("Send reminder", html)
+        for days, date_line, when in (
+            (3, "Friday, November 6", "in 3 days"),
+            (1, "Tomorrow, Wednesday, November 4", "tomorrow"),
+            (0, "Today, Tuesday, November 3", "today"),
+            (-1, "Monday, November 2", "1 day ago"),
+            (-4, "Friday, October 30", "4 days ago"),
+        ):
+            with self.subTest(days=days):
+                self._follow(days)
+                html = self._html()
+                self.assertIn(
+                    '<section class="order-2 rounded-xl border-2 border-yellow-300',
+                    html,
+                )
+                self.assertIn(
+                    '<p class="mt-2 text-lg font-semibold text-gray-900">'
+                    f"{date_line}</p>",
+                    html,
+                )
+                self.assertIn(f'<p class="text-base text-gray-800">{when}</p>', html)
+                self.assertIn(
+                    f'data-dialog-open="reminder-dialog-{self.record.pk}"', html
+                )
+                self.assertNotIn("No follow-up needed.", html)
+
+    def test_send_reminder_posts_return_to_record(self):
+        self._follow(3)
+        dialog = _dialog(self._html(), f"reminder-dialog-{self.record.pk}")
+        self.assertIn('<input type="hidden" name="return_to" value="record">', dialog)
+        self.assertNotIn('name="tab"', dialog)
+        self.assertIn("Send a follow-up reminder to Ana Cruz?</h2>", dialog)
+        self.assertIn(
+            "Bantay's follow-up for the visit on Sat, Oct 24 is on <b>Friday, "
+            "November 6</b>.",
+            dialog,
+        )
+        self.assertIn("and follow-up emails are on.", dialog)
+
+    def test_last_reminder_line(self):
+        self._follow(3)
+        html = self._html()
+        self.assertIn("<span>No follow-up reminder sent for Bantay yet.</span>", html)
+        notice = Notification.objects.create(
+            recipient=self.owner_user,
+            notification_type=Notification.FOLLOWUP_REMINDER,
+            title="Reminder",
+            message="Reminder",
+            related_pet=self.pet,
+        )
+        Notification.objects.filter(pk=notice.pk).update(
+            created_at=JUST_AFTER_MIDNIGHT - datetime.timedelta(days=3)
+        )
+        html = self._html()
+        self.assertIn(
+            "<span>Last follow-up reminder for Bantay: Sat, Oct 31</span>", html
+        )
+        self.assertIn("Last follow-up reminder for Bantay: Sat, Oct 31.</span>", html)
+
+    # ─── Owner, written ───────────────────────────────────────────────────────
+
+    def test_owner_and_written_cards(self):
+        PetOwner.objects.filter(pk=self.owner.pk).update(contact_number="0917 123 4567")
+        html = self._html()
+        owner = reverse("admin_owner_detail", args=[self.owner.pk])
+        self.assertIn(
+            f'<a href="{owner}" class="inline-flex min-h-11 items-center font-medium '
+            'text-blue-600 underline underline-offset-2">Ana Cruz</a>',
+            html,
+        )
+        self.assertIn("0917 123 4567</p>", html)
+        self.assertIn('<span class="break-all">ana@example.com</span>', html)
+        self.assertIn("<p>Written today, 12:30 AM</p>", html)
+        self.assertNotIn("Last changed", html)
+        # Edited later: written yesterday, changed now
+        MedicalRecord.objects.filter(pk=self.record.pk).update(
+            created_at=JUST_AFTER_MIDNIGHT - datetime.timedelta(days=1)
+        )
+        html = self._html()
+        self.assertIn("<p>Written yesterday, 12:30 AM</p>", html)
+        self.assertIn('<p class="mt-1">Last changed today, 12:30 AM</p>', html)
+
+    # ─── Archived ─────────────────────────────────────────────────────────────
+
+    def _check_archived(self, banner, explanation):
+        self._everything()
+        self._dose()
+        html = self._html()
+        self.assertIn(banner, html)
+        self.assertIn(explanation, html)
+        self.assertEqual(_dialogs(html), [])
+        self.assertNotIn("data-dialog-open", html)
+        for absent in (
+            "Add medicine",
+            "Add file",
+            "Add vaccination",
+            "Send reminder",
+            "Remove<span",
+            "can only be removed",
+            "To set one, use Edit record.",
+        ):
+            with self.subTest(absent=absent):
+                self.assertNotIn(absent, html)
+        actions = re.search(r"(?s)<section class=\"card order-1\".*?</section>", html)
+        self.assertEqual(actions.group().count("<a "), 1)
+        self.assertIn("Edit record</a>", actions.group())
+        self.assertNotIn("<button", actions.group())
+        return html
+
+    def test_archived_pet(self):
+        Pet.objects.filter(pk=self.pet.pk).update(is_archived=True)
+        html = self._check_archived(
+            "<p><b>Bantay is archived.</b> This record is kept and can still be "
+            "corrected. Nothing new can be added to it.</p>",
+            "Bantay is archived. You can still correct what is written, but you "
+            "can't add medicines, files or vaccinations, or send reminders. Restore "
+            "Bantay on the pet page to do that.",
+        )
+        self.assertIn("Pet archived</span>", html)
+        self.assertIn("bg-gray-100 text-gray-600 ring-1 ring-gray-300", html)
+
+    def test_archived_owner(self):
+        self.owner.archive()
+        html = self._check_archived(
+            "<p><b>Bantay's owner, Ana Cruz, is archived.</b> This record is kept and "
+            "can still be corrected. Nothing new can be added to it.</p>",
+            "Ana Cruz is archived. You can still correct what is written, but you "
+            "can't add medicines, files or vaccinations, or send reminders. Restore "
+            "Ana Cruz on their page to do that.",
+        )
+        self.assertNotIn("Pet archived", html)
+        self.assertNotIn("Bantay is archived.", html)
+
+    # ─── Removed view, queries, links ─────────────────────────────────────────
+
+    def test_removed_vaccination_add_url_no_longer_resolves(self):
+        with self.assertRaises(NoReverseMatch):
+            reverse("admin_vaccination_add", args=[self.record.pk])
+        old = f"/admin/medical/{self.record.pk}/vaccination/add/"
+        shot = {
+            "vaccine_name": Vaccination.ANTI_RABIES,
+            "date_administered": "2026-11-03",
+        }
+        self.assertEqual(self.client.post(old, shot).status_code, 404)
+        self.assertFalse(Vaccination.objects.exists())
+
+    def _fill(self, count):
+        for i in range(count):
+            self._medicine(name=f"Medicine {i}")
+            self._file(name=f"test_results/scan{i}.pdf")
+            self._file(
+                name=f"test_results/old{i}.png",
+                is_archived=True,
+                archived_at=JUST_AFTER_MIDNIGHT,
+            )
+            self._dose(vaccine_name=Vaccination.DEWORMING)
+
+    def _page_queries(self):
+        self.client.get(self.url)
+        with CaptureQueriesContext(connection) as queries:
+            self.client.get(self.url)
+        return [query["sql"] for query in queries]
+
+    def test_query_count_is_flat(self):
+        """The full page, dialogs included, costs the same with nothing as
+        with 5 medicines, files, removed files and vaccinations."""
+        self._follow(3)
+        few = self._page_queries()
+        self._fill(5)
+        many = self._page_queries()
+        self.assertEqual(len(few), len(many))
+        # Session, user, record, active files, removed files, last reminder,
+        # clinic settings, 3 sidebar counts, medicines, vaccinations
+        self.assertEqual(len(many), 12, "\n".join(many))
+
+    def test_every_link_is_on_one_line(self):
+        self._everything()
+        self._dose()
+        self._file(is_archived=True, archived_at=JUST_AFTER_MIDNIGHT)
+        for archived in (False, True):
+            with self.subTest(archived=archived):
+                Pet.objects.filter(pk=self.pet.pk).update(is_archived=archived)
+                for tag in re.findall(r"<a\b[^>]*>", self._html()):
+                    self.assertNotIn("\n", tag)

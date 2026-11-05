@@ -71,7 +71,8 @@ class MedicalRecordForm(forms.ModelForm):
 
 class PrescriptionItemForm(forms.ModelForm):
     """
-    Admin form — add a prescription item to a medical record.
+    Admin form — add a prescription item to a medical record (the record
+    page's Add medicine dialog). Only the name is required.
     """
 
     class Meta:
@@ -83,8 +84,26 @@ class PrescriptionItemForm(forms.ModelForm):
             "duration",
             "notes",
         ]
+        labels = {
+            "medicine_name": "Medicine name",
+            "dosage": "Dose",
+            "frequency": "How often",
+            "duration": "How long",
+            "notes": "Instructions",
+        }
         widgets = {
-            "notes": forms.Textarea(attrs={"rows": 2}),
+            "medicine_name": forms.TextInput(
+                attrs={"placeholder": "For example: Amoxicillin 250 mg"}
+            ),
+            "dosage": forms.TextInput(attrs={"placeholder": "1 tablet"}),
+            "frequency": forms.TextInput(attrs={"placeholder": "Twice a day"}),
+            "duration": forms.TextInput(attrs={"placeholder": "7 days"}),
+            "notes": forms.Textarea(
+                attrs={"rows": 2, "placeholder": "For example: give with food"}
+            ),
+        }
+        error_messages = {
+            "medicine_name": {"required": "Type the medicine name."},
         }
 
 
@@ -102,12 +121,14 @@ class TestResultFileForm(forms.ModelForm):
     class Meta:
         model = TestResultFile
         fields = ["file", "description"]
+        labels = {"file": "File", "description": "What is it?"}
         widgets = {
             "file": forms.FileInput(attrs={"accept": ",".join(TEST_FILE_TYPES)}),
             "description": forms.TextInput(
-                attrs={"placeholder": "e.g. X-ray, Blood test results"}
+                attrs={"placeholder": "For example: Blood test, X-ray"}
             ),
         }
+        error_messages = {"file": {"required": "Choose a file to add."}}
 
     def clean_file(self):
         upload = self.cleaned_data.get("file")

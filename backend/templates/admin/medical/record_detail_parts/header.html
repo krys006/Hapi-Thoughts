@@ -1,0 +1,31 @@
+{% load friendly_dates %}
+{% comment %}
+  Page header: back to the pet's medical history, the pet picture (gray
+  unless the pet and owner are active), "Visit record · {long date}" with
+  the "Pet archived" tag, the pet line with the owner link, and the visit
+  the record came from (or "Not linked to a visit"). Dates from the view's today.
+{% endcomment %}
+{% with pet=record.pet owner=record.pet.owner %}
+<a href="{% url 'admin_pet_medical_history' pet.pk %}" class="mb-2 inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="arrow-left" %}Back to {{ pet.name }}'s medical history</a>
+<div class="mb-6 flex flex-wrap items-center gap-4">
+  {% if pet_state == "active" %}
+    {% include "components/pet_avatar.html" with pet=pet size="lg" %}
+  {% else %}
+    {% include "components/pet_avatar.html" with pet=pet size="lg" muted=True %}
+  {% endif %}
+  <div class="min-w-0">
+    <h1 class="flex flex-wrap items-center gap-3 text-2xl font-bold text-gray-900">
+      <span>Visit record · {% long_date_on record.record_date today %}</span>
+      {% if pet.is_archived %}
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1 text-sm font-medium text-gray-800">{% include "components/icon.html" with name="archive" class="size-4 shrink-0" %}Pet archived</span>
+      {% endif %}
+    </h1>
+    <p class="mt-1 text-base text-gray-700"><b class="font-semibold">{{ pet.name }}</b> · {{ pet.species }}{% if pet.breed %} · {{ pet.breed }}{% endif %}{% if pet.date_of_birth %} · {{ pet.age }}{% endif %} · Owner: <a href="{% url 'admin_owner_detail' owner.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ owner.full_name }}</a></p>
+    {% if record.appointment %}
+      <p class="mt-1 flex flex-wrap items-center gap-x-1.5 text-base text-gray-700">{% include "components/icon.html" with name="calendar" class="size-4 shrink-0" %}From the visit <a href="{% url 'admin_appointment_detail' record.appointment.pk %}" class="inline-flex min-h-11 items-center font-medium text-blue-600 underline underline-offset-2">{% friendly_date_on record.appointment.date today %} at {{ record.appointment.time|time:"g:i A" }}</a></p>
+    {% else %}
+      <p class="mt-1 text-base text-gray-600">Not linked to a visit</p>
+    {% endif %}
+  </div>
+</div>
+{% endwith %}

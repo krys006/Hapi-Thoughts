@@ -1,0 +1,8 @@
+{% load friendly_dates %}
+{# When the record was written, and last changed (only after an edit: last_changed). Last on phones (order-5). #}
+<section class="order-5 rounded-xl border border-gray-200 bg-white p-5 text-base text-gray-700 shadow-sm" aria-label="When this record was written">
+  <p>Written {% friendly_date_on record.created_at today "mid" %}, {{ record.created_at|time:"g:i A" }}</p>
+  {% if last_changed %}
+    <p class="mt-1">Last changed {% friendly_date_on last_changed today "mid" %}, {{ last_changed|time:"g:i A" }}</p>
+  {% endif %}
+</section>

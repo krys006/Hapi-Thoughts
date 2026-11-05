@@ -111,8 +111,6 @@ def _render_record_detail(
             **record_detail_context(record, timezone.localdate()),
             "prescription_form": prescription_form or PrescriptionItemForm(),
             "file_form": file_form or TestResultFileForm(),
-            # The old inline vaccination form (removed in 5b-2)
-            "vaccination_form": VaccinationForm(),
             "open_dialog": open_dialog,
         },
     )
@@ -292,36 +290,6 @@ def admin_test_result_file_archive(request, pk):
             )
 
     return redirect("admin_medical_record_detail", pk=file_obj.record.pk)
-
-
-@login_required
-def admin_vaccination_add(request, record_pk):
-    """
-    Admin view — add a vaccination record linked to a medical record.
-    The pet is derived from the medical record. Only the old record page's
-    inline form posts here; 5b-2 removes both (the new page links to
-    admin_vaccination_standalone_create?record=).
-    """
-    if request.user.role != "admin":
-        return redirect("owner_dashboard")
-
-    record = get_object_or_404(
-        MedicalRecord.objects.select_related("pet__owner"), pk=record_pk
-    )
-    refusal = archived_pet_refusal(record.pet)
-    if refusal:
-        messages.error(request, refusal)
-        return redirect("admin_pet_detail", pk=record.pet.pk)
-
-    if request.method == "POST":
-        form = VaccinationForm(request.POST)
-        if form.is_valid():
-            save_new_vaccination(form, record.pet, record)
-            messages.success(request, "Vaccination record added.")
-        else:
-            messages.error(request, "Please correct the errors.")
-
-    return redirect("admin_medical_record_detail", pk=record_pk)
 
 
 @login_required

@@ -298,9 +298,26 @@ templates/
 │   │   │   ├── list_head.html        ← "Follow-ups in the next 7 days (N)" + "Soonest first · Today to …" / "All medical records (N)" + "Newest visit first"
 │   │   │   ├── results_line.html     ← "N records match “q” in …" + Clear search (keeps the tab)
 │   │   │   ├── row.html              ← visit date | pet + diagnosis + follow-up pill | divider | owner | Send reminder (Follow-ups) + Open; never private notes
-│   │   │   ├── remind_dialog.html    ← one per row on the Follow-ups tab (return_to=list, tab, q)
+│   │   │   ├── remind_dialog.html    ← one per row on the Follow-ups tab (return_to=list, tab, q); also the record page's (return_to="record")
 │   │   │   └── empty.html            ← no match / no records / no follow-ups in 7 days
 │   │   ├── record_detail.html
+│   │   ├── record_detail_parts/      ← Includes for record_detail.html (not HTMX partials, so no `_`; dialogs reuse appointments' detail_parts/dialog_buttons.html, the reminder dialog is record_list_parts/remind_dialog.html)
+│   │   │   ├── header.html           ← back to the pet's medical history, pet_avatar lg, "Visit record · {date}" + Pet archived tag, pet line + owner link, the visit link or "Not linked to a visit"
+│   │   │   ├── archived_banner.html  ← gray banner for an archived pet and/or owner
+│   │   │   ├── notes_card.html       ← Symptoms / Diagnosis / Treatment given + the blue "Note for the owner" box
+│   │   │   ├── note_field.html       ← one notes item: the text or "Not written"
+│   │   │   ├── private_card.html     ← amber Private notes (never on an owner page)
+│   │   │   ├── medicines_card.html   ← rows, Remove only on the day the record was written, else the gray line
+│   │   │   ├── files_card.html       ← test results + "Removed files (N)" <details> (closed)
+│   │   │   ├── vaccinations_card.html ← doses at this visit, Open → pet vaccinations ?highlight=#vaccination-
+│   │   │   ├── actions_card.html     ← Edit record (the one primary) + Add medicine / file / vaccination; archived: the hint
+│   │   │   ├── follow_up_card.html   ← none / yellow with the date, when, Send reminder, last reminder (per pet)
+│   │   │   ├── owner_card.html
+│   │   │   ├── written_card.html     ← Written / Last changed (only after an edit)
+│   │   │   ├── add_medicine_dialog.html ← reopens on errors (open_dialog "add-medicine")
+│   │   │   ├── remove_medicine_dialog.html ← one per medicine, same day only
+│   │   │   ├── add_file_dialog.html  ← multipart, photo-button file input; reopens on errors (open_dialog "add-file")
+│   │   │   └── remove_file_dialog.html ← one per active file (archive URL)
 │   │   ├── record_form.html
 │   │   ├── pet_history.html
 │   │   ├── vaccination_list.html
@@ -393,7 +410,7 @@ static/
 │   ├── owner/              ← Pet owner page styles
 │   └── shared/             ← Styles used by both roles (header, clinic info)
 ├── js/
-│   ├── admin/              ← Admin page scripts; dialogs.js and auto_submit.js are loaded by layouts/admin.html on every page; photo_input.js by admin/pets/owner_form.html and pet_form.html, owner_form.js / pet_form.js only by their form (extra_js)
+│   ├── admin/              ← Admin page scripts; dialogs.js and auto_submit.js are loaded by layouts/admin.html on every page; photo_input.js by admin/pets/owner_form.html, pet_form.html and admin/medical/record_detail.html (the Add file dialog), owner_form.js / pet_form.js only by their form (extra_js)
 │   ├── owner/              ← Pet owner page scripts
 │   └── shared/             ← Scripts used by both roles
 ├── vendor/
@@ -420,6 +437,13 @@ static/
 > `css/admin/vaccination_list.css` (Slice 5b-1: no page loads them and no comment
 > names them any more; Krys deletes the files). Other old files still
 > mention them in comments; those comments go when their own pages migrate.
+> Slice 5b-2: `admin/medical/record_detail.html` no longer loads
+> `css/admin/record_detail.css`, but the file stays: the old
+> `admin/medical/pet_history.html` still imports it (until 5b-5). There is no
+> record-detail JS file. The old inline vaccination form on the record page
+> and its view `admin_vaccination_add` (URL
+> `admin/medical/<record_pk>/vaccination/add/`) are gone; the page links to
+> `admin_vaccination_standalone_create?record=<pk>`.
 
 ### Media files (user uploads)
 Upload paths come from the `upload_to` values in the models:
@@ -952,7 +976,7 @@ The main admin user is an elderly vet. Every migrated admin page follows these:
 ### Components (`templates/components/`)
 | Component | Usage |
 |---|---|
-| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 53 icons (`calendar-check` added in dashboard v5, `archive` in Slice 4a-2, `map-pin`, `link`, `pencil`, `rotate-ccw`, `send` in Slice 4a-3, `upload` in Slice 4a-4). To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
+| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 55 icons (`calendar-check` added in dashboard v5, `archive` in Slice 4a-2, `map-pin`, `link`, `pencil`, `rotate-ccw`, `send` in Slice 4a-3, `upload` in Slice 4a-4, `pill` and `chevron-down` in Slice 5b-2). To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
 | `pet_avatar.html` | `{% include "components/pet_avatar.html" with pet=appointment.pet size="lg" %}`. `lg` 64px (`size-16 rounded-2xl`), `sm` 40px (`size-10 rounded-xl`). The pet's photo, or a violet tile with the `species_icon` icon (dog, cat, rabbit, bird, paw-print) at stroke 1.5, labelled "No photo of {name} yet". Optional `muted=True`: gray tile (`bg-gray-100 text-gray-600 ring-gray-300`) for archived pets, or every pet of an archived owner (owner page); a photo is unchanged. |
 | `owner_avatar.html` | `{% include "components/owner_avatar.html" with owner=appointment.owner size="xs" %}`. Circle; `lg` 64px (`size-16`, `text-xl` initials; owner page header), `sm` 40px, `xs` 32px. The profile photo, or initials (one letter when the last name is blank). Optional `muted=True`: gray initials tile (`bg-gray-100 text-gray-700 ring-gray-300`) for archived owners (owners list Archived tab, owner page). |
 | `form_field.html` | `{% include "components/form_field.html" with field=form.email %}`. Label, control, help text, errors (red text with the `triangle-alert` icon). Optional `optional=True` adds a gray "(optional)" after the label; `required=True` adds the red * for a field only `clean()` requires (the pet form's "Type the species"). Needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple field uses it. |

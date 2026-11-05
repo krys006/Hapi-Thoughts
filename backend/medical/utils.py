@@ -1,5 +1,6 @@
 """Helpers for the medical views."""
 
+import os
 from datetime import timedelta
 from urllib.parse import urlencode
 
@@ -612,17 +613,41 @@ def can_remove_medicines(record, today):
 # ── Record page ──────────────────────────────────────────────────────────────
 
 
+def _file_rows(files):
+    """The files as a list, each with title (the description, else the file's
+    name) and file_type ("PDF", "JPG" or "PNG", from the extension)."""
+    rows = list(files)
+    for row in rows:
+        name = os.path.basename(row.file.name)
+        extension = os.path.splitext(name)[1].lstrip(".").upper()
+        row.title = row.description or name
+        row.file_type = "JPG" if extension == "JPEG" else extension
+    return rows
+
+
+# Written and saved within this much counts as never edited (created_at and
+# updated_at are set a few microseconds apart on the first save)
+EDIT_GRACE = timedelta(minutes=1)
+
+
+def record_last_changed(record):
+    """updated_at when the record was edited after it was written, else None."""
+    if record.updated_at - record.created_at > EDIT_GRACE:
+        return record.updated_at
+    return None
+
+
 def record_detail_context(record, today):
     """
     Context for the admin record page (5b-2). Needs pet__owner__user
-    selected. Old keys kept for the old template: prescription_items,
-    test_files (both the same querysets as medicines / active_files).
+    selected. Old keys kept: prescription_items, test_files (the same
+    objects as medicines / active_files).
     """
     pet = record.pet
     state = pet_state(pet)
     medicines = record.prescription_items.order_by("created_at", "pk")
-    active_files = record.test_result_files.filter(is_archived=False).order_by(
-        "uploaded_at", "pk"
+    active_files = _file_rows(
+        record.test_result_files.filter(is_archived=False).order_by("uploaded_at", "pk")
     )
     follow_up = None
     if record.follow_up_required:
@@ -637,10 +662,13 @@ def record_detail_context(record, today):
         "can_remove_medicines": can_remove_medicines(record, today),
         "medicines": medicines,
         "active_files": active_files,
-        "removed_files": record.test_result_files.filter(is_archived=True).order_by(
-            "-archived_at", "-pk"
+        "removed_files": _file_rows(
+            record.test_result_files.filter(is_archived=True).order_by(
+                "-archived_at", "-pk"
+            )
         ),
         "vaccinations": record.vaccinations.order_by("-date_administered", "-pk"),
+        "last_changed": record_last_changed(record),
         "follow_up": follow_up,
         "last_followup_reminder": last_reminder(pet, Notification.FOLLOWUP_REMINDER),
         **_owner_contact(pet),

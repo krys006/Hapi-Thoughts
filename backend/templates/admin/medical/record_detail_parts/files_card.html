@@ -1,0 +1,53 @@
+{% load friendly_dates %}
+{% comment %}
+  "Test results (N)": the active files (title, "{type} · Added {date, time}",
+  Open file in a new tab, Remove while the pet and owner are active), then
+  "Removed files (N)" closed by default, only when there are some. Titles and
+  types come from record_detail_context (_file_rows). Dates from the view's today.
+{% endcomment %}
+<section class="card" aria-labelledby="files-title">
+  <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h2 id="files-title" class="flex items-center gap-2 text-xl font-semibold text-gray-900">{% include "components/icon.html" with name="file-text" class="size-5 shrink-0 text-gray-600" %}Test results ({{ active_files|length }})</h2>
+      <p class="mt-1 text-sm text-gray-600">PDF, JPG or PNG, up to 10 MB. The owner only sees that a result is on file.</p>
+    </div>
+    {% if can_add %}
+      <button type="button" class="btn btn-outline font-semibold" data-dialog-open="add-file" aria-haspopup="dialog">{% include "components/icon.html" with name="upload" %}Add file</button>
+    {% endif %}
+  </div>
+  {% if active_files %}
+    <ul>
+      {% for test_file in active_files %}
+        <li class="flex flex-wrap items-center gap-4 border-t border-gray-100 py-3 first:border-t-0 first:pt-0">
+          <span class="grid size-10 shrink-0 place-content-center rounded-xl bg-gray-100 text-gray-700">{% include "components/icon.html" with name="file-text" %}</span>
+          <div class="min-w-0 flex-1">
+            <p class="break-words text-base font-semibold text-gray-900">{{ test_file.title }}</p>
+            <p class="text-sm text-gray-700">{{ test_file.file_type }} · Added {% friendly_date_on test_file.uploaded_at today "mid" %}, {{ test_file.uploaded_at|time:"g:i A" }}</p>
+          </div>
+          <a href="{{ test_file.file.url }}" target="_blank" rel="noopener" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">Open file<span class="sr-only"> {{ test_file.title }} (opens in a new tab)</span>{% include "components/icon.html" with name="arrow-right" %}</a>
+          {% if can_add %}
+            <button type="button" class="btn border border-red-300 bg-white font-semibold text-red-700 hover:bg-red-50" data-dialog-open="remove-file-{{ test_file.pk }}" aria-haspopup="dialog">{% include "components/icon.html" with name="x" %}Remove<span class="sr-only"> {{ test_file.title }}</span></button>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="text-base text-gray-600">No test results added.</p>
+  {% endif %}
+  {% if removed_files %}
+    <details class="group mt-4 rounded-lg border border-gray-200 bg-gray-50">
+      <summary class="flex min-h-11 cursor-pointer items-center gap-2 px-4 text-base font-medium text-gray-800">{% include "components/icon.html" with name="chevron-down" class="size-4 shrink-0 transition-transform group-open:rotate-180" %}Removed files ({{ removed_files|length }})</summary>
+      <ul class="px-4 pb-3">
+        {% for test_file in removed_files %}
+          <li class="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-base text-gray-700">
+            {% include "components/icon.html" with name="archive" class="size-5 shrink-0 text-gray-600" %}
+            <span class="min-w-0 flex-1 break-words">{{ test_file.title }} · {{ test_file.file_type }}</span>
+            <span class="text-sm">{% if test_file.archived_at %}Removed {% friendly_date_on test_file.archived_at today "mid" %}{% else %}Removed, date not recorded{% endif %}</span>
+            <a href="{{ test_file.file.url }}" target="_blank" rel="noopener" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">Open file<span class="sr-only"> {{ test_file.title }} (opens in a new tab)</span></a>
+          </li>
+        {% endfor %}
+      </ul>
+      <p class="px-4 pb-3 text-sm text-gray-700">Removed files are hidden from {{ record.pet.owner.full_name }}. They stay here for the clinic.</p>
+    </details>
+  {% endif %}
+</section>

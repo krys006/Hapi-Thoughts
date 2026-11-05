@@ -1,0 +1,28 @@
+{% comment %}
+  Add medicine (PrescriptionItemForm): only the name is required. A POST
+  with errors re-renders the page with the bound form and open_dialog
+  "add-medicine", so the dialog opens on load with the typed values kept
+  (the pet archive dialog's pattern).
+{% endcomment %}
+{% with pet=record.pet %}
+<dialog id="add-medicine" aria-labelledby="add-medicine-title" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50"{% if open_dialog == "add-medicine" %} data-open-on-load{% endif %}>
+  <form method="post" action="{% url 'admin_prescription_item_add' record.pk %}" class="p-6 sm:p-7" novalidate>
+    {% csrf_token %}
+    <h2 id="add-medicine-title" class="text-xl font-bold">Add a medicine for {{ pet.name }}</h2>
+    <p class="mt-1 text-base text-gray-700">It shows on this record and on {{ pet.name }}'s page for {{ pet.owner.full_name }}.</p>
+    {% for error in prescription_form.non_field_errors %}
+      <p class="mt-3 flex items-start gap-1 text-base font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-4 shrink-0" %}{{ error }}</p>
+    {% endfor %}
+    <div class="mt-5 space-y-4">
+      {% include "components/form_field.html" with field=prescription_form.medicine_name %}
+      <div class="grid gap-4 sm:grid-cols-3">
+        {% include "components/form_field.html" with field=prescription_form.dosage optional=True %}
+        {% include "components/form_field.html" with field=prescription_form.frequency optional=True %}
+        {% include "components/form_field.html" with field=prescription_form.duration optional=True %}
+      </div>
+      {% include "components/form_field.html" with field=prescription_form.notes optional=True %}
+    </div>
+    {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Add medicine" icon="plus" %}
+  </form>
+</dialog>
+{% endwith %}

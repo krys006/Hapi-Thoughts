@@ -35,7 +35,7 @@
     {# One reminder dialog per Send reminder button (Follow-ups tab only) #}
     {% if active_tab == "followups" %}
       {% for record in records %}
-        {% include "admin/medical/record_list_parts/remind_dialog.html" %}
+        {% include "admin/medical/record_list_parts/remind_dialog.html" with last_reminder=record.last_reminder %}
       {% endfor %}
     {% endif %}
   {% else %}

@@ -1,0 +1,9 @@
+{# One "Visit notes" item (label, value): the text, or "Not written" in gray #}
+<div>
+  <dt class="text-sm font-semibold text-gray-700">{{ label }}</dt>
+  {% if value %}
+    <dd class="mt-1 whitespace-pre-line text-base text-gray-900">{{ value }}</dd>
+  {% else %}
+    <dd class="mt-1 text-base text-gray-600">Not written</dd>
+  {% endif %}
+</div>

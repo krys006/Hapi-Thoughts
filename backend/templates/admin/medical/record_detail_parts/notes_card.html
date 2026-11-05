@@ -1,0 +1,20 @@
+{% comment %}
+  "Visit notes": Symptoms, Diagnosis, Treatment given ("Not written" when
+  empty), then the blue box with the public note the owner can see.
+{% endcomment %}
+<section class="card" aria-labelledby="notes-title">
+  <h2 id="notes-title" class="mb-4 flex items-center gap-2 text-xl font-semibold text-gray-900">{% include "components/icon.html" with name="file-text" class="size-5 shrink-0 text-gray-600" %}Visit notes</h2>
+  <dl class="space-y-4">
+    {% include "admin/medical/record_detail_parts/note_field.html" with label="Symptoms" value=record.symptoms %}
+    {% include "admin/medical/record_detail_parts/note_field.html" with label="Diagnosis" value=record.diagnosis %}
+    {% include "admin/medical/record_detail_parts/note_field.html" with label="Treatment given" value=record.treatment_given %}
+  </dl>
+  <div class="mt-5 rounded-lg border border-blue-200 bg-blue-50 p-4">
+    <p class="flex items-center gap-2 text-sm font-semibold text-blue-900">{% include "components/icon.html" with name="eye" class="size-4 shrink-0" %}Note for the owner · {{ record.pet.owner.first_name }} can see this</p>
+    {% if record.public_notes %}
+      <p class="mt-1 whitespace-pre-line text-base text-gray-900">{{ record.public_notes }}</p>
+    {% else %}
+      <p class="mt-1 text-base text-gray-600">No note for the owner.</p>
+    {% endif %}
+  </div>
+</section>
