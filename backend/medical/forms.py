@@ -9,14 +9,21 @@ from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
 from .models import MedicalRecord, PrescriptionItem, TestResultFile, Vaccination
-
-# The nightly follow-up reminder goes this many days before the date (fixed
-# in notifications/management/commands/send_reminders.py, plus one on the
-# day). Keep the two in step.
-FOLLOW_UP_REMINDER_DAYS = 3
+from .utils import FOLLOW_UP_REMINDER_DAYS
 
 
-class MedicalRecordForm(forms.ModelForm):
+class ErrorCountMixin:
+    """error_count for the error summary box
+    (admin/pets/owner_form_parts/error_summary.html)."""
+
+    @property
+    def error_count(self):
+        """Fields with errors, plus 1 when there are form-wide errors."""
+        fields = [name for name in self.errors if name != NON_FIELD_ERRORS]
+        return len(fields) + (1 if self.non_field_errors() else 0)
+
+
+class MedicalRecordForm(ErrorCountMixin, forms.ModelForm):
     """
     Admin form — create or edit a medical record.
     Pet and appointment are set in the view, not in this form.
@@ -87,12 +94,6 @@ class MedicalRecordForm(forms.ModelForm):
         "Tick it to pick a date. The owner gets a reminder "
         f"{FOLLOW_UP_REMINDER_DAYS} days before."
     )
-
-    @property
-    def error_count(self):
-        """Fields with errors, plus 1 when there are form-wide errors."""
-        fields = [name for name in self.errors if name != NON_FIELD_ERRORS]
-        return len(fields) + (1 if self.non_field_errors() else 0)
 
     @property
     def follow_up_ticked(self):
@@ -207,13 +208,75 @@ class TestResultFileForm(forms.ModelForm):
         return upload
 
 
-class VaccinationRulesMixin:
+VACCINATION_FIELDS = [
+    "vaccine_name",
+    "custom_vaccine_name",
+    "date_administered",
+    "weight_at_vaccination",
+    "next_due_date",
+    "batch_number",
+    "manufacturer",
+    "administered_by",
+    "site_of_injection",
+]
+VACCINATION_LABELS = {
+    "vaccine_name": "Vaccine",
+    "custom_vaccine_name": "Vaccine name",
+    "date_administered": "Date given",
+    "next_due_date": "Next dose due",
+    "weight_at_vaccination": "Weight (kg)",
+    "site_of_injection": "Where it was given",
+    "batch_number": "Batch / lot no.",
+    "manufacturer": "Maker",
+    "administered_by": "Given by",
+}
+VACCINATION_WIDGETS = {
+    # data-vaccine-choice: vaccination_form.js shows "Vaccine name" for Other
+    "vaccine_name": forms.Select(attrs={"data-vaccine-choice": True}),
+    "custom_vaccine_name": forms.TextInput(attrs={"placeholder": "For example: FVRCP"}),
+    "date_administered": forms.DateInput(attrs={"type": "date"}),
+    "next_due_date": forms.DateInput(attrs={"type": "date"}),
+    "weight_at_vaccination": forms.NumberInput(
+        attrs={"placeholder": "For example: 12.5"}
+    ),
+    "site_of_injection": forms.TextInput(
+        attrs={"placeholder": "For example: Right hind leg"}
+    ),
+    "batch_number": forms.TextInput(attrs={"placeholder": "For example: A2311-07"}),
+    "manufacturer": forms.TextInput(attrs={"placeholder": "For example: Zoetis"}),
+}
+# Vaccination reminders follow each owner's own setting, so no fixed number
+# of days is named here (VACCINATION_REMINDER_DEFAULT_DAYS in utils.py)
+NEXT_DOSE_HELP = "Leave empty if no next dose."
+VACCINATION_HELP_TEXTS = {"next_due_date": NEXT_DOSE_HELP}
+VACCINATION_ERRORS = {
+    "vaccine_name": {"required": "Choose the vaccine."},
+    "date_administered": {"required": "Pick the date given."},
+}
+
+
+class VaccinationRulesMixin(ErrorCountMixin):
     """
     Rules shared by the add and edit vaccination forms:
     - a listed vaccine clears any typed name; Other needs a typed name
     - the date given can't be in the future (Manila date)
     - the next dose, when set, must be after the date given
+    The Vaccine select reads "Choose one", the model's vaccines in their
+    order, then "Other (type it)" (the pet form's species pattern).
     """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["vaccine_name"].choices = [("", "Choose one")] + [
+            (value, "Other (type it)" if value == Vaccination.OTHER else label)
+            for value, label in Vaccination.VACCINE_CHOICES
+        ]
+
+    @property
+    def shows_vaccine_name(self):
+        """Other is chosen (as posted on a re-render, else as saved), so the
+        "Vaccine name" box starts open."""
+        return self["vaccine_name"].value() == Vaccination.OTHER
 
     def clean(self):
         cleaned_data = super().clean()
@@ -248,21 +311,15 @@ class VaccinationForm(VaccinationRulesMixin, forms.ModelForm):
 
     class Meta:
         model = Vaccination
-        fields = [
-            "vaccine_name",
-            "custom_vaccine_name",
-            "date_administered",
-            "weight_at_vaccination",
-            "next_due_date",
-            "batch_number",
-            "manufacturer",
-            "administered_by",
-            "site_of_injection",
-        ]
-        widgets = {
-            "date_administered": forms.DateInput(attrs={"type": "date"}),
-            "next_due_date": forms.DateInput(attrs={"type": "date"}),
+        fields = VACCINATION_FIELDS
+        labels = VACCINATION_LABELS
+        widgets = VACCINATION_WIDGETS
+        help_texts = {
+            **VACCINATION_HELP_TEXTS,
+            # The views start Given by with the vet's name (new_vaccination_initial)
+            "administered_by": "Filled in with the clinic vet from Clinic settings.",
         }
+        error_messages = VACCINATION_ERRORS
 
 
 # Clinical fields: changing any of these on a saved vaccination is a
@@ -274,6 +331,8 @@ CLINICAL_CHANGES = [
     (("weight_at_vaccination",), "the weight"),
     (("site_of_injection",), "where it was given"),
 ]
+# The field whose label names each item on the page ("Date given")
+CLINICAL_FIELD = {label: fields[0] for fields, label in CLINICAL_CHANGES}
 
 
 def _normalised(value):
@@ -329,21 +388,11 @@ class VaccinationEditForm(VaccinationRulesMixin, forms.ModelForm):
 
     class Meta:
         model = Vaccination
-        fields = [
-            "vaccine_name",
-            "custom_vaccine_name",
-            "date_administered",
-            "weight_at_vaccination",
-            "next_due_date",
-            "batch_number",
-            "manufacturer",
-            "administered_by",
-            "site_of_injection",
-        ]
-        widgets = {
-            "date_administered": forms.DateInput(attrs={"type": "date"}),
-            "next_due_date": forms.DateInput(attrs={"type": "date"}),
-        }
+        fields = VACCINATION_FIELDS
+        labels = VACCINATION_LABELS
+        widgets = VACCINATION_WIDGETS
+        help_texts = VACCINATION_HELP_TEXTS
+        error_messages = VACCINATION_ERRORS
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -373,6 +422,15 @@ class VaccinationEditForm(VaccinationRulesMixin, forms.ModelForm):
                 "Write why, so the change is on record.",
             )
         return cleaned_data
+
+    @property
+    def changed_fields(self):
+        """changed_clinical with each item's field label instead
+        ("Date given", "Vaccine"), for the page's "You changed:" line."""
+        return [
+            (self.fields[CLINICAL_FIELD[label]].label, old)
+            for label, old in self.changed_clinical
+        ]
 
     def _clinical_changes(self, cleaned_data):
         """(label, old value) for each clinical item whose value changed.

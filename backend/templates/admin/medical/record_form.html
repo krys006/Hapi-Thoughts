@@ -28,7 +28,7 @@
     {% include "admin/medical/record_form_parts/owner_note_card.html" %}
     {% include "admin/medical/record_form_parts/private_card.html" %}
     {% include "admin/medical/record_form_parts/follow_up_card.html" %}
-    {% include "admin/medical/record_form_parts/buttons.html" %}
+    {% include "admin/medical/record_form_parts/buttons.html" with new_label="Save record" after_save="After saving you'll see the record, where you can add medicines, files and vaccinations." %}
   </form>
 </div>
 {% endblock %}

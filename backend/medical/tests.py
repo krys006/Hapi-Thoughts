@@ -46,9 +46,9 @@ from .utils import (
 
 User = get_user_model()
 
-# Pages that load a new static file (5b-3: js/admin/record_form.js) render
-# with plain static storage: the manifest has no entry for it until
-# collectstatic runs.
+# Pages that load a new static file (5b-3: js/admin/record_form.js, 5b-4:
+# js/admin/vaccination_form.js) render with plain static storage: the
+# manifest has no entry for it until collectstatic runs.
 PLAIN_STATIC = override_settings(
     STORAGES={
         **settings.STORAGES,
@@ -263,6 +263,7 @@ class FrozenVaccinationTestBase(TestCase):
         return self.client.post(self.edit_url, self._data(**changes))
 
 
+@PLAIN_STATIC
 class VaccinationEditFormTests(FrozenVaccinationTestBase):
     """Batch 5a-1: a clinical change needs a reason and is kept as a dated
     line in correction_note; blanks and label fields are not corrections."""
@@ -309,7 +310,9 @@ class VaccinationEditFormTests(FrozenVaccinationTestBase):
             ],
         )
         self.assertEqual(form.changed_clinical, [("the date given", "Tue, Oct 6")])
-        self.assertContains(response, "Changed:")
+        # 5b-4: the page's line reads "You changed: Date given (was …)."
+        # (was "Changed: the date given (was …)" on the old edit page)
+        self.assertContains(response, "You changed:")
         self.shot.refresh_from_db()
         self.assertEqual(self.shot.date_administered, datetime.date(2026, 10, 6))
         self.assertFalse(self.shot.is_corrected)
@@ -449,6 +452,7 @@ class VaccinationEditFormTests(FrozenVaccinationTestBase):
         self.assertEqual(form.changed_clinical, [("the vaccine", "Lepto")])
 
 
+@PLAIN_STATIC
 class VaccinationFormDateTests(FrozenVaccinationTestBase):
     """Batch 5a-1: vaccine name and date rules on both vaccination forms."""
 
@@ -1849,6 +1853,7 @@ class DialogErrorRenderTests(FrozenMedicalTestBase):
         self.assertEqual(PrescriptionItem.objects.count(), 1)
 
 
+@PLAIN_STATIC
 class VaccinationFromRecordTests(FrozenMedicalTestBase):
     """admin_vaccination_standalone_create?record=<pk>."""
 
@@ -1934,6 +1939,7 @@ class VaccinationFromRecordTests(FrozenMedicalTestBase):
         )
 
 
+@PLAIN_STATIC
 class GivenByPrefillTests(FrozenMedicalTestBase):
     """administered_by starts with ClinicSettings.veterinarian_name on a new
     vaccination; edit never touches it."""
@@ -4592,7 +4598,11 @@ class RecordFormPageTests(FrozenMedicalTestBase):
             (TODAY, "Tuesday, November 3 · today"),
             (_days(-1), "Monday, November 2 · 1 day ago"),
             (_days(-4), "Friday, October 30 · 4 days ago"),
-            (datetime.date(2027, 1, 5), "Tuesday, January 5, 2027 · in 63 days"),
+            # 5b-4: the shared wording says months after 31 days (was "in 63 days")
+            (
+                datetime.date(2027, 1, 5),
+                "Tuesday, January 5, 2027 · in about 2 months",
+            ),
         ]
         record = self._record(record_date=_days(-20))
         for day, line in cases:
@@ -4811,3 +4821,750 @@ class DaysFromTodayTests(SimpleTestCase):
         ):
             with self.subTest(days=days):
                 self.assertEqual(days_from_today(_days(days), TODAY), text)
+
+    def test_months_and_years_ahead(self):
+        """Batch 5b-4: days up to 31, then about N months (days // 30), from
+        360 days about N years (days // 360). The past stays in days."""
+        from .utils import days_from_today
+
+        for days, text in (
+            (10, "in 10 days"),
+            (31, "in 31 days"),
+            (32, "in about 1 month"),
+            (59, "in about 1 month"),
+            (60, "in about 2 months"),
+            (92, "in about 3 months"),
+            (359, "in about 11 months"),
+            (360, "in about 1 year"),
+            (365, "in about 1 year"),
+            (730, "in about 2 years"),
+            (-45, "45 days ago"),
+            (-400, "400 days ago"),
+        ):
+            with self.subTest(days=days):
+                self.assertEqual(days_from_today(_days(days), TODAY), text)
+
+
+# ── Batch 5b-4: Vaccination form (new + edit) ────────────────────────────────
+
+VACCINE_NAME_HIDDEN = (
+    '<div class="border-l-4 border-violet-200 pl-4 hidden" data-vaccine-other>'
+)
+VACCINE_NAME_SHOWN = (
+    '<div class="border-l-4 border-violet-200 pl-4" data-vaccine-other>'
+)
+NEXT_DOSE_EMPTY = '<p class="text-sm text-gray-700">Leave empty if no next dose.</p>'
+GIVEN_BY_HELP = (
+    '<p class="text-sm text-gray-600">Filled in with the clinic vet from Clinic '
+    "settings.</p>"
+)
+LABEL_CARD_EDIT_LINE = (
+    '<p class="text-sm text-gray-700">These can be fixed any time without a '
+    "reason.</p>"
+)
+
+
+@PLAIN_STATIC
+class VaccinationFormPageTests(FrozenMedicalTestBase):
+    """admin/medical/vaccination_form.html on the new layout (Slice 5b-4),
+    for new from the pet page, new on a record and edit. Frozen at 00:30
+    Manila on Tue, Nov 3, 2026."""
+
+    def setUp(self):
+        super().setUp()
+        pk = self.pet.pk
+        self.new_url = reverse("admin_vaccination_standalone_create", args=[pk])
+        self.history_url = reverse("admin_pet_vaccination_history", args=[pk])
+
+    def _dose(self, **fields):
+        """An 8-in-1 given Tue, Oct 6, 2026 (the mockup's edit state)."""
+        fields.setdefault("vaccine_name", Vaccination.EIGHT_IN_ONE)
+        fields.setdefault("date_administered", datetime.date(2026, 10, 6))
+        return Vaccination.objects.create(pet=self.pet, **fields)
+
+    def _edit_url(self, dose):
+        return reverse("admin_vaccination_edit", args=[dose.pk])
+
+    def _on_record_url(self, record):
+        return f"{self.new_url}?record={record.pk}"
+
+    def _html(self, url):
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _post(self, url, **data):
+        post = {
+            "vaccine_name": Vaccination.ANTI_RABIES,
+            "date_administered": "2026-11-03",
+        }
+        post.update(data)
+        response = self.client.post(url, post)
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _edit_data(self, **changes):
+        """The mockup dose's saved values as posted, with changes applied."""
+        data = {
+            "vaccine_name": Vaccination.EIGHT_IN_ONE,
+            "custom_vaccine_name": "",
+            "date_administered": "2026-10-06",
+            "next_due_date": "",
+            "weight_at_vaccination": "12.50",
+            "site_of_injection": "",
+            "batch_number": "",
+            "manufacturer": "",
+            "administered_by": "",
+            "correction_reason": "",
+        }
+        data.update(changes)
+        return data
+
+    def _clinic(self, vet="Dr. Edgar Sadiwa"):
+        ClinicSettings.objects.create(
+            clinic_name="Hapi Vet",
+            address="Gasan",
+            veterinarian_name=vet,
+            opening_time=datetime.time(8, 0),
+            closing_time=datetime.time(17, 0),
+            same_day_cutoff_time=datetime.time(15, 0),
+        )
+
+    def _three_pages(self):
+        """(case, url, back url, back label as escaped on the page)."""
+        record = self._record(record_date=_days(-8))
+        dose = self._dose()
+        return [
+            (
+                "pet page",
+                self.new_url,
+                reverse("admin_pet_detail", args=[self.pet.pk]),
+                "Back to Bantay",
+            ),
+            (
+                "record",
+                self._on_record_url(record),
+                reverse("admin_medical_record_detail", args=[record.pk]),
+                "Back to the record",
+            ),
+            (
+                "edit",
+                self._edit_url(dose),
+                self.history_url,
+                "Back to Bantay&#x27;s vaccinations",
+            ),
+        ]
+
+    # ─── Layout ───────────────────────────────────────────────────────────────
+
+    def test_new_layout_without_old_files(self):
+        for case, url, _back, _label in self._three_pages():
+            with self.subTest(case=case):
+                response = self.client.get(url)
+                self.assertTemplateUsed(response, "layouts/admin.html")
+                self.assertTemplateUsed(response, "admin/medical/vaccination_form.html")
+                self.assertTemplateNotUsed(
+                    response, "admin/medical/vaccination_edit.html"
+                )
+                for old in (
+                    "vaccination_form.css",
+                    "layer(legacy)",
+                    "admin-page",
+                    "medical-form",
+                    "form-group",
+                    "Custom Vaccine Name",
+                    "Date Administered",
+                    "Administrative Fields",
+                    "Please correct the errors below.",
+                ):
+                    with self.subTest(old=old):
+                        self.assertNotContains(response, old)
+                title = (
+                    "Edit Bantay's vaccination"
+                    if case == "edit"
+                    else "New vaccination for Bantay"
+                )
+                self.assertContains(
+                    response, f"<title>{title} — Hapi Vet Admin</title>"
+                )
+                self.assertContains(response, "js/admin/vaccination_form.js")
+                self.assertContains(response, '<div class="mx-auto max-w-3xl">')
+                self.assertContains(
+                    response,
+                    "<noscript><style>[data-vaccine-other] { display: block; }",
+                )
+
+    def test_exactly_one_violet_button(self):
+        for case, url, _back, _label in self._three_pages():
+            with self.subTest(case=case):
+                html = self._html(url)
+                self.assertEqual(html.count("btn-primary"), 1)
+                label = "Save changes" if case == "edit" else "Save vaccination"
+                self.assertRegex(
+                    html,
+                    r'(?s)<button type="submit" class="btn btn-primary min-h-12 '
+                    r'w-full font-semibold sm:w-auto">\s*<svg[^>]*>.*?</svg>\s*'
+                    rf"{label}</button>",
+                )
+
+    def test_sidebar_highlights_vaccinations(self):
+        vaccinations = reverse("admin_vaccination_list")
+        records = reverse("admin_medical_record_list")
+        for case, url, _back, _label in self._three_pages():
+            with self.subTest(case=case):
+                html = self._html(url)
+                self.assertRegex(
+                    html, rf'<a href="{vaccinations}"[^>]*aria-current="page">'
+                )
+                self.assertNotRegex(
+                    html, rf'<a href="{records}"[^>]*aria-current="page">'
+                )
+
+    # ─── Header, back and Cancel, record line ─────────────────────────────────
+
+    def test_titles_and_subtitles(self):
+        html = self._html(self.new_url)
+        self.assertIn(
+            '<h1 class="text-2xl font-bold text-gray-900">New vaccination for '
+            "Bantay</h1>",
+            html,
+        )
+        self.assertIn(
+            '<p class="mt-1 text-base text-gray-600">Required: the vaccine and the '
+            "date given.</p>",
+            html,
+        )
+        self.assertNotIn("Fix the label details freely.", html)
+        html = self._html(self._edit_url(self._dose()))
+        self.assertIn(
+            '<h1 class="text-2xl font-bold text-gray-900">Edit vaccination · '
+            "Bantay</h1>",
+            html,
+        )
+        self.assertIn(
+            '<p class="mt-1 text-base text-gray-600">Fix the label details freely. '
+            "A change to the vaccine, dates, weight or site is a correction and "
+            "needs a reason.</p>",
+            html,
+        )
+        self.assertNotIn("Required: the vaccine and the date given.", html)
+
+    def test_back_and_cancel_go_to_the_same_place(self):
+        for case, url, back, label in self._three_pages():
+            with self.subTest(case=case):
+                html = self._html(url)
+                self.assertRegex(
+                    html,
+                    rf'(?s)<a href="{re.escape(back)}" class="mb-2 [^"]*">'
+                    rf"\s*<svg[^>]*>.*?</svg>\s*{label}</a>",
+                )
+                self.assertIn(
+                    f'<a href="{back}" class="btn btn-outline min-h-12 w-full '
+                    'font-semibold sm:w-auto">Cancel</a>',
+                    html,
+                )
+
+    def test_pet_line(self):
+        html = self._html(self.new_url)
+        self.assertIn('<p class="text-sm text-gray-600">Pet</p>', html)
+        self.assertIn(
+            '<p class="text-lg font-semibold text-gray-900">Bantay <span '
+            'class="text-base font-normal text-gray-700">· Owner: Ana Cruz</span></p>',
+            html,
+        )
+        self.assertIn('aria-label="No photo of Bantay yet"', html)
+        self.assertIn("size-10 rounded-xl", html)
+
+    def test_record_line_both_ways(self):
+        part_of = (
+            '<span>Part of the visit record from <b class="font-semibold">'
+            "Mon, Oct 26</b></span>"
+        )
+        not_part = "<span>Not part of a visit record</span>"
+        record = self._record(record_date=_days(-8))
+        on_record = self._dose(medical_record=record)
+        cases = [
+            ("pet page", self.new_url, False),
+            ("record", self._on_record_url(record), True),
+            ("edit on a record", self._edit_url(on_record), True),
+            ("edit", self._edit_url(self._dose()), False),
+        ]
+        for case, url, linked in cases:
+            with self.subTest(case=case):
+                html = self._html(url)
+                self.assertEqual(part_of in html, linked)
+                self.assertEqual(not_part in html, not linked)
+                self.assertEqual(
+                    "bg-violet-50 px-3 py-2 text-base text-gray-900" in html, linked
+                )
+                # The record rides along in the POST only on new
+                self.assertEqual(
+                    f'<input type="hidden" name="record" value="{record.pk}">' in html,
+                    case == "record",
+                )
+
+    # ─── The vaccination card ─────────────────────────────────────────────────
+
+    def test_select_order_with_other_last(self):
+        for case, url, _back, _label in self._three_pages():
+            with self.subTest(case=case):
+                select = re.search(
+                    r'(?s)<select name="vaccine_name"([^>]*)>(.*?)</select>',
+                    self._html(url),
+                )
+                self.assertIn("data-vaccine-choice", select.group(1))
+                options = re.findall(
+                    r'<option value="([^"]*)"[^>]*>([^<]*)</option>', select.group(2)
+                )
+                self.assertEqual(
+                    options,
+                    [
+                        ("", "Choose one"),
+                        ("Deworming", "Deworming"),
+                        ("Ivermectin", "Ivermectin"),
+                        ("Anti-rabies", "Anti-rabies"),
+                        ("6-in-1", "6-in-1"),
+                        ("7-in-1", "7-in-1"),
+                        ("8-in-1", "8-in-1"),
+                        ("Bordetella", "Bordetella"),
+                        ("Other", "Other (type it)"),
+                    ],
+                )
+
+    def test_vaccine_name_box(self):
+        html = self._html(self.new_url)
+        self.assertIn(VACCINE_NAME_HIDDEN, html)
+        self.assertNotIn(VACCINE_NAME_SHOWN, html)
+        self.assertRegex(
+            html,
+            r'(?s)<label for="id_custom_vaccine_name" [^>]*>\s*Vaccine name '
+            r'<span class="text-red-700" aria-hidden="true">\*</span>',
+        )
+        self.assertIn('placeholder="For example: FVRCP"', html)
+        # A re-render with Other chosen opens the box, with its error
+        html = self._post(self.new_url, vaccine_name=Vaccination.OTHER)
+        self.assertIn(VACCINE_NAME_SHOWN, html)
+        self.assertIn('<option value="Other" selected>Other (type it)</option>', html)
+        self.assertIn("Type the vaccine name.", html)
+        # A listed vaccine keeps it closed after an error elsewhere
+        html = self._post(self.new_url, date_administered="2026-11-04")
+        self.assertIn(VACCINE_NAME_HIDDEN, html)
+        # Edit of a typed vaccine opens it with the saved name
+        dose = self._dose(vaccine_name=Vaccination.OTHER, custom_vaccine_name="FVRCP")
+        html = self._html(self._edit_url(dose))
+        self.assertIn(VACCINE_NAME_SHOWN, html)
+        self.assertRegex(
+            html, r'<input type="text" name="custom_vaccine_name" value="FVRCP"'
+        )
+
+    def test_every_label_and_placeholder(self):
+        html = self._html(self.new_url)
+        star = r' <span class="text-red-700" aria-hidden="true">\*</span>'
+        optional = r' <span class="font-normal text-gray-600">\(optional\)</span>'
+        for name, label, mark in (
+            ("vaccine_name", "Vaccine", star),
+            ("date_administered", "Date given", star),
+            ("next_due_date", "Next dose due", optional),
+            ("weight_at_vaccination", r"Weight \(kg\)", optional),
+            ("site_of_injection", "Where it was given", optional),
+            ("batch_number", "Batch / lot no.", optional),
+            ("manufacturer", "Maker", optional),
+            ("administered_by", "Given by", optional),
+        ):
+            with self.subTest(name=name):
+                self.assertRegex(
+                    html, rf'(?s)<label for="id_{name}" [^>]*>\s*{label}{mark}'
+                )
+        for name, placeholder in (
+            ("weight_at_vaccination", "For example: 12.5"),
+            ("site_of_injection", "For example: Right hind leg"),
+            ("batch_number", "For example: A2311-07"),
+            ("manufacturer", "For example: Zoetis"),
+        ):
+            with self.subTest(name=name):
+                self.assertRegex(
+                    html, rf'name="{name}"[^>]*placeholder="{placeholder}"'
+                )
+        for name in ("date_administered", "next_due_date"):
+            with self.subTest(name=name):
+                self.assertRegex(
+                    html, rf'<div class="max-w-xs"><input type="date" name="{name}"'
+                )
+        for heading in ("The vaccination</h2>", "From the vial label</h2>"):
+            with self.subTest(heading=heading):
+                self.assertEqual(html.count(heading), 1)
+
+    def test_correction_pill_only_on_edit(self):
+        pill = "Changing these is a correction</span>"
+        for case, url, _back, _label in self._three_pages():
+            with self.subTest(case=case):
+                self.assertEqual(pill in self._html(url), case == "edit")
+
+    # ─── Help lines ───────────────────────────────────────────────────────────
+
+    def test_each_date_given_help(self):
+        lines = {"pet page": "Today.", "record": "Taken from the record."}
+        for case, url, _back, _label in self._three_pages():
+            with self.subTest(case=case):
+                html = self._html(url)
+                for line in lines.values():
+                    self.assertEqual(
+                        f'<p class="text-sm text-gray-700">{line}</p>' in html,
+                        lines.get(case) == line,
+                    )
+
+    def test_next_dose_help_when_empty(self):
+        for case, url, _back, _label in self._three_pages():
+            with self.subTest(case=case):
+                self.assertIn(NEXT_DOSE_EMPTY, self._html(url))
+
+    def test_next_dose_help_with_a_value(self):
+        dose = self._dose()
+        for day, line in (
+            (_days(10), "Friday, November 13 · in 10 days"),
+            (
+                datetime.date(2027, 2, 3),
+                "Wednesday, February 3, 2027 · in about 3 months",
+            ),
+            (
+                datetime.date(2027, 11, 3),
+                "Wednesday, November 3, 2027 · in about 1 year",
+            ),
+        ):
+            with self.subTest(day=day):
+                Vaccination.objects.filter(pk=dose.pk).update(next_due_date=day)
+                html = self._html(self._edit_url(dose))
+                self.assertIn(f'<p class="text-sm text-gray-700">{line}</p>', html)
+                self.assertNotIn(NEXT_DOSE_EMPTY, html)
+
+    def test_next_dose_help_on_a_re_render(self):
+        # The typed date, worked out on the server
+        html = self._post(
+            self.new_url, date_administered="2026-11-04", next_due_date="2026-11-13"
+        )
+        self.assertIn(
+            '<p class="text-sm text-gray-700">Friday, November 13 · in 10 days</p>',
+            html,
+        )
+        self.assertNotIn(NEXT_DOSE_EMPTY, html)
+
+    def test_given_by_prefilled_on_new_not_overwritten_on_edit(self):
+        self._clinic()
+        record = self._record(record_date=_days(-8))
+        for url in (self.new_url, self._on_record_url(record)):
+            with self.subTest(url=url):
+                html = self._html(url)
+                self.assertRegex(
+                    html, r'name="administered_by" value="Dr. Edgar Sadiwa"'
+                )
+                self.assertIn(GIVEN_BY_HELP, html)
+                self.assertNotIn(LABEL_CARD_EDIT_LINE, html)
+        html = self._html(self._edit_url(self._dose(administered_by="Dr. Reyes")))
+        self.assertRegex(html, r'name="administered_by" value="Dr. Reyes"')
+        self.assertNotIn("Dr. Edgar Sadiwa", html)
+        self.assertNotIn(GIVEN_BY_HELP, html)
+        self.assertIn(LABEL_CARD_EDIT_LINE, html)
+
+    # ─── Errors ───────────────────────────────────────────────────────────────
+
+    def test_error_summary_singular_and_plural(self):
+        html = self._post(self.new_url, date_administered="2026-11-04")
+        self.assertIn(
+            '<div class="flex items-start gap-3 rounded-xl border border-red-200 '
+            'bg-red-50 px-5 py-4 text-red-900" role="alert">',
+            html,
+        )
+        self.assertIn(
+            '<p class="text-lg font-semibold">Please fix the 1 item below.</p>', html
+        )
+        self.assertIn("Nothing was saved yet.", html)
+        self.assertNotIn("Please correct the errors below.", html)
+
+        # The mockup's state 4: Other with no name, a future date given, a
+        # next dose before it
+        html = self._post(
+            self.new_url,
+            vaccine_name=Vaccination.OTHER,
+            date_administered="2026-11-30",
+            next_due_date="2026-11-10",
+        )
+        self.assertIn(
+            '<p class="text-lg font-semibold">Please fix the 3 items below.</p>', html
+        )
+        self.assertFalse(Vaccination.objects.exists())
+        # No summary before a save
+        self.assertNotIn('role="alert"', self._html(self.new_url))
+
+    def test_every_error_message(self):
+        cases = [
+            ({"vaccine_name": ""}, "Choose the vaccine."),
+            ({"date_administered": ""}, "Pick the date given."),
+            ({"vaccine_name": Vaccination.OTHER}, "Type the vaccine name."),
+            (
+                {"date_administered": "2026-11-04"},
+                "The date given can&#x27;t be in the future.",
+            ),
+            (
+                {"next_due_date": "2026-11-03"},
+                "The next dose must be after the date given.",
+            ),
+        ]
+        for data, message in cases:
+            with self.subTest(message=message):
+                html = self._post(self.new_url, **data)
+                self.assertRegex(
+                    html,
+                    r'(?s)<p class="flex items-start gap-1 text-sm font-medium '
+                    rf'text-red-700">\s*<svg[^>]*>.*?</svg>\s*{re.escape(message)}</p>',
+                )
+                self.assertIn("Please fix the 1 item below.", html)
+        self.assertFalse(Vaccination.objects.exists())
+
+    def test_typed_values_are_kept_after_an_error(self):
+        html = self._post(
+            self.new_url,
+            vaccine_name=Vaccination.OTHER,
+            custom_vaccine_name="FVRCP",
+            date_administered="2026-11-04",
+            next_due_date="2027-11-04",
+            weight_at_vaccination="3.8",
+            site_of_injection="Left shoulder",
+            batch_number="A2311-07",
+            manufacturer="Zoetis",
+            administered_by="Dr. Reyes",
+        )
+        self.assertIn('<option value="Other" selected>', html)
+        for name, value in (
+            ("custom_vaccine_name", "FVRCP"),
+            ("date_administered", "2026-11-04"),
+            ("next_due_date", "2027-11-04"),
+            ("weight_at_vaccination", "3.8"),
+            ("site_of_injection", "Left shoulder"),
+            ("batch_number", "A2311-07"),
+            ("manufacturer", "Zoetis"),
+            ("administered_by", "Dr. Reyes"),
+        ):
+            with self.subTest(name=name):
+                self.assertRegex(html, rf'name="{name}" value="{re.escape(value)}"')
+
+    # ─── Reason for a correction ──────────────────────────────────────────────
+
+    def test_correction_card_only_on_edit(self):
+        for case, url, _back, _label in self._three_pages():
+            with self.subTest(case=case):
+                html = self._html(url)
+                is_edit = case == "edit"
+                heading = "Reason for a correction</label></h2>"
+                self.assertEqual(heading in html, is_edit)
+                self.assertEqual('name="correction_reason"' in html, is_edit)
+        html = self._html(self._edit_url(self._dose()))
+        self.assertIn(
+            '<section class="rounded-xl border-2 border-gray-300 bg-white p-6 '
+            'shadow-sm" aria-labelledby="correction-title">',
+            html,
+        )
+        self.assertIn(
+            '<p class="mt-1 text-base text-gray-700">Needed only if you change '
+            "something in “The vaccination”. The record then shows a "
+            '<b class="font-semibold">Corrected</b> tag with this reason and '
+            "today's date.</p>",
+            html,
+        )
+        self.assertNotIn("You changed:", html)
+
+    def test_reason_textarea_is_never_prefilled(self):
+        dose = self._dose(is_corrected=True, correction_note=OLD_NOTE)
+        html = self._html(self._edit_url(dose))
+        self.assertRegex(
+            html,
+            r'<textarea name="correction_reason" cols="40" rows="2" placeholder="For '
+            r'example: wrong date typed, it was given the day before" '
+            r'id="id_correction_reason">\s*</textarea>',
+        )
+
+    def test_red_state_names_one_changed_field(self):
+        dose = self._dose(weight_at_vaccination=Decimal("12.50"))
+        response = self.client.post(
+            self._edit_url(dose), self._edit_data(date_administered="2026-10-05")
+        )
+        html = response.content.decode()
+        self.assertIn(
+            '<section class="rounded-xl border-2 border-red-300 bg-white p-6 '
+            'shadow-sm" aria-labelledby="correction-title">',
+            html,
+        )
+        self.assertIn(
+            '<span>You changed: <b class="font-semibold">Date given</b> (was Tue, '
+            "Oct 6).</span>",
+            html,
+        )
+        self.assertIn("bg-yellow-50", html)
+        # The 5a-1 error, under the reason
+        self.assertRegex(
+            html,
+            r'(?s)<textarea name="correction_reason"[^>]*>\s*</textarea>\s*'
+            r'<p class="flex items-start gap-1 text-sm font-medium text-red-700">'
+            r"\s*<svg[^>]*>.*?</svg>\s*You changed the date given "
+            r"\(was Tue, Oct 6\)\. Write why, so the change is on record\.</p>",
+        )
+        self.assertIn("Please fix the 1 item below.", html)
+        dose.refresh_from_db()
+        self.assertEqual(dose.date_administered, datetime.date(2026, 10, 6))
+
+    def test_red_state_names_two_and_three_changed_fields(self):
+        dose = self._dose(weight_at_vaccination=Decimal("12.50"))
+        html = self.client.post(
+            self._edit_url(dose),
+            self._edit_data(date_administered="2026-10-05", weight_at_vaccination="13"),
+        ).content.decode()
+        self.assertIn(
+            '<span>You changed: <b class="font-semibold">Date given</b> (was Tue, '
+            'Oct 6) and <b class="font-semibold">Weight (kg)</b> (was 12.5).</span>',
+            html,
+        )
+        html = self.client.post(
+            self._edit_url(dose),
+            self._edit_data(
+                date_administered="2026-10-05",
+                weight_at_vaccination="13",
+                site_of_injection="Neck",
+            ),
+        ).content.decode()
+        self.assertIn(
+            '<span>You changed: <b class="font-semibold">Date given</b> (was Tue, '
+            'Oct 6), <b class="font-semibold">Weight (kg)</b> (was 12.5) and '
+            '<b class="font-semibold">Where it was given</b> (was empty).</span>',
+            html,
+        )
+
+    def test_label_fields_alone_are_no_correction(self):
+        dose = self._dose(weight_at_vaccination=Decimal("12.50"))
+        response = self.client.post(
+            self._edit_url(dose), self._edit_data(batch_number="B2")
+        )
+        self.assertEqual(response.status_code, 302)
+
+    def test_corrected_before_lists_each_dated_line(self):
+        dose = self._dose(
+            is_corrected=True,
+            correction_note=f"{OLD_NOTE}\nThu, Oct 8, 2026: site",
+        )
+        html = self._html(self._edit_url(dose))
+        self.assertIn(
+            '<p class="text-sm font-semibold text-gray-800">Corrected before</p>', html
+        )
+        self.assertIn(f"<li>{OLD_NOTE}</li><li>Thu, Oct 8, 2026: site</li>", html)
+        self.assertIn(
+            '<p class="mt-2 text-sm text-gray-700">Earlier reasons are kept. A new '
+            "one is added below them.</p>",
+            html,
+        )
+        self.assertNotIn("Corrected before", self._html(self._edit_url(self._dose())))
+
+    # ─── After saving ─────────────────────────────────────────────────────────
+
+    def test_after_save_line_matches_the_redirect(self):
+        record = self._record(record_date=_days(-8))
+        cases = [
+            (
+                self.new_url,
+                "After saving you&#x27;ll see Bantay&#x27;s vaccinations with the "
+                "new one at the top.",
+                self.history_url,
+            ),
+            (
+                self._on_record_url(record),
+                "After saving you&#x27;ll go back to the record.",
+                reverse("admin_medical_record_detail", args=[record.pk]),
+            ),
+        ]
+        for url, line, target in cases:
+            with self.subTest(url=url):
+                self.assertIn(f"<span>{line}</span>", self._html(url))
+                response = self.client.post(
+                    url,
+                    {
+                        "vaccine_name": Vaccination.ANTI_RABIES,
+                        "date_administered": "2026-11-03",
+                    },
+                )
+                self.assertEqual(response.status_code, 302)
+                self.assertTrue(response["Location"].startswith(target))
+        # Edit has no after-save line
+        self.assertNotIn("After saving", self._html(self._edit_url(self._dose())))
+
+    # ─── Archived ─────────────────────────────────────────────────────────────
+
+    def test_archived_pet_or_owner_new_refused_edit_renders(self):
+        record = self._record(record_date=_days(-8))
+        dose = self._dose()
+        pet_url = reverse("admin_pet_detail", args=[self.pet.pk])
+        for who in ("pet", "owner"):
+            with self.subTest(who=who):
+                if who == "pet":
+                    Pet.objects.filter(pk=self.pet.pk).update(is_archived=True)
+                    message = "Restore Bantay first."
+                else:
+                    Pet.objects.filter(pk=self.pet.pk).update(is_archived=False)
+                    self.owner.archive()
+                    message = "Restore Ana Cruz first."
+                for url in (self.new_url, self._on_record_url(record)):
+                    for method in ("get", "post"):
+                        self.client.cookies.pop("messages", None)
+                        response = getattr(self.client, method)(
+                            url,
+                            {
+                                "vaccine_name": Vaccination.ANTI_RABIES,
+                                "date_administered": "2026-11-03",
+                            },
+                        )
+                        self.assertRedirects(
+                            response, pet_url, fetch_redirect_response=False
+                        )
+                        self.assertEqual(self._messages(response), [message])
+                self.assertEqual(Vaccination.objects.count(), 1)
+                edit = self.client.get(self._edit_url(dose))
+                self.assertEqual(edit.status_code, 200)
+
+    # ─── Queries, links ───────────────────────────────────────────────────────
+
+    def _page_queries(self, url):
+        self.client.get(url)
+        with CaptureQueriesContext(connection) as queries:
+            self.client.get(url)
+        return [query["sql"] for query in queries]
+
+    def test_query_count_is_flat(self):
+        """Each case costs the same with more doses and records for the pet."""
+        self._clinic()
+        record = self._record(record_date=_days(-8))
+        pages = {
+            "new from the pet page": self.new_url,
+            "new on a record": self._on_record_url(record),
+            "edit": self._edit_url(self._dose()),
+            "edit on a record": self._edit_url(self._dose(medical_record=record)),
+        }
+        counts = {case: len(self._page_queries(url)) for case, url in pages.items()}
+        for i in range(5):
+            self._dose(date_administered=_days(-40 - i), correction_note=OLD_NOTE)
+            self._record(record_date=_days(-40 - i))
+        for case, url in pages.items():
+            with self.subTest(case=case):
+                self.assertEqual(len(self._page_queries(url)), counts[case])
+        # Session, user, pet + owner, the vet's name, 3 sidebar counts,
+        # clinic settings; + the record on a record
+        self.assertEqual(counts["new from the pet page"], 8, counts)
+        self.assertEqual(counts["new on a record"], 9, counts)
+        # Session, user, dose + pet + owner + record, 3 sidebar counts,
+        # clinic settings
+        self.assertEqual(counts["edit"], 7, counts)
+        self.assertEqual(counts["edit on a record"], 7, counts)
+
+    def test_every_link_is_on_one_line(self):
+        for case, url, _back, _label in self._three_pages():
+            with self.subTest(case=case):
+                for tag in re.findall(r"<a\b[^>]*>", self._html(url)):
+                    self.assertNotIn("\n", tag)
+        html = self._post(self.new_url, date_administered="2026-11-04")
+        for tag in re.findall(r"<a\b[^>]*>", html):
+            self.assertNotIn("\n", tag)

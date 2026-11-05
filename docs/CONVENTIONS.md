@@ -322,12 +322,12 @@ templates/
 │   │   ├── record_form_parts/        ← Includes for record_form.html (not HTMX partials, so no `_`; the error summary is pets' owner_form_parts/error_summary.html with numbered=True)
 │   │   │   ├── header.html           ← back link (the visit, the pet page or the record), title, subtitle
 │   │   │   ├── pet_card.html         ← pet_avatar sm + "Pet" + owner, the violet visit line or gray "Not linked to a visit", Visit date
-│   │   │   ├── date_field.html       ← one date field (form_field markup, box max-w-xs, help line from the view)
+│   │   │   ├── date_field.html       ← one date field (form_field markup, box max-w-xs, help line from the view, optional=True for "(optional)"); shared by vaccination_form.html
 │   │   │   ├── notes_card.html       ← Visit notes: Symptoms, Diagnosis, Treatment given + "added on the record page" line
 │   │   │   ├── owner_note_card.html  ← blue Note for the owner (the owner sees it)
 │   │   │   ├── private_card.html     ← amber Private notes (never on an owner page)
 │   │   │   ├── follow_up_card.html   ← "Needs a follow-up visit" box + the date block [data-follow-up-on] (shown while ticked)
-│   │   │   └── buttons.html          ← Cancel + "Save record" / "Save changes" (+ the New note)
+│   │   │   └── buttons.html          ← Cancel + new_label ("Save record" / "Save vaccination") or "Save changes", + the after_save note on new; shared by vaccination_form.html
 │   │   ├── pet_history.html
 │   │   ├── vaccination_list.html
 │   │   ├── vaccination_list_parts/   ← Includes for vaccination_list.html (not HTMX partials, so no `_`; the pager is appointments' list_parts/pager.html; dialogs reuse appointments' detail_parts/dialog_buttons.html)
@@ -341,8 +341,13 @@ templates/
 │   │   │   ├── remind_dialog.html    ← one per row on Due / Overdue (return_to=list, tab, q)
 │   │   │   ├── reminder_contact.html ← mail line, or the yellow no-email box (with the phone to call); also used by the follow-up dialog
 │   │   │   └── empty.html            ← no match / no vaccinations / nothing due (link to All) / nothing overdue
-│   │   ├── vaccination_form.html
-│   │   ├── vaccination_edit.html
+│   │   ├── vaccination_form.html     ← New vaccination (from the pet page or ?record=) and Edit vaccination (one template; VaccinationForm / VaccinationEditForm); extra_js vaccination_form.js
+│   │   ├── vaccination_form_parts/   ← Includes for vaccination_form.html (not HTMX partials, so no `_`; the error summary is pets' owner_form_parts/error_summary.html with numbered=True; the date fields and buttons are record_form_parts/date_field.html and buttons.html)
+│   │   │   ├── header.html           ← back link (the pet page, the record or the pet's vaccinations), title, subtitle
+│   │   │   ├── pet_card.html         ← pet_avatar sm + "Pet" + owner, the violet "Part of the visit record from …" or gray "Not part of a visit record"
+│   │   │   ├── vaccination_card.html ← The vaccination: Vaccine select, the indented "Vaccine name" box [data-vaccine-other] (Other only), Date given + Next dose due, Weight + Where it was given; on edit the "Changing these is a correction" pill
+│   │   │   ├── label_card.html       ← From the vial label: Batch / lot no., Maker, Given by (+ the edit line)
+│   │   │   └── correction_card.html  ← edit only: Reason for a correction, the red state with "You changed: …", Corrected before
 │   │   └── vaccination_history.html
 │   ├── billing/
 │   │   ├── receipt_list.html
@@ -419,7 +424,7 @@ static/
 │   ├── owner/              ← Pet owner page styles
 │   └── shared/             ← Styles used by both roles (header, clinic info)
 ├── js/
-│   ├── admin/              ← Admin page scripts; dialogs.js and auto_submit.js are loaded by layouts/admin.html on every page; photo_input.js by admin/pets/owner_form.html, pet_form.html and admin/medical/record_detail.html (the Add file dialog), owner_form.js / pet_form.js / record_form.js only by their form (extra_js)
+│   ├── admin/              ← Admin page scripts; dialogs.js and auto_submit.js are loaded by layouts/admin.html on every page; photo_input.js by admin/pets/owner_form.html, pet_form.html and admin/medical/record_detail.html (the Add file dialog), owner_form.js / pet_form.js / record_form.js / vaccination_form.js only by their form (extra_js)
 │   ├── owner/              ← Pet owner page scripts
 │   └── shared/             ← Scripts used by both roles
 ├── vendor/
@@ -456,6 +461,12 @@ static/
 > Slice 5b-3: `admin/medical/record_form.html` no longer loads
 > `css/admin/record_form.css`; nothing else loads or names it (Krys deletes
 > the file). Added: `js/admin/record_form.js` (the follow-up date show/hide).
+> Slice 5b-4: `admin/medical/vaccination_form.html` no longer loads
+> `css/admin/vaccination_form.css`, and no view renders
+> `admin/medical/vaccination_edit.html` any more (edit uses
+> `vaccination_form.html`); nothing loads or names either (Krys deletes the
+> files). Added: `js/admin/vaccination_form.js` (the "Vaccine name" box
+> show/hide).
 
 ### Media files (user uploads)
 Upload paths come from the `upload_to` values in the models:
@@ -921,6 +932,15 @@ Admin dates are in Manila time (`timezone.localdate()`).
   `{% long_date_on value today "mid" %}`, or `{% friendly_date_on due_until today as until %}`
   (a datetime uses its Manila date; no value gives ""). Used by the
   Vaccinations and Medical records lists (Slice 5b-1).
+- How far a date is from today, in words (form help lines), comes from one
+  server-side helper, `days_from_today(day, today)` in `medical/utils.py`
+  (with `long_date_with_distance` for "Thursday, November 5 · in 2 days"):
+  "today", "tomorrow", "in N days" up to 31 days ahead, then
+  "in about N months" (days // 30, "in about 1 month" for one), from 360 days
+  ahead "in about N years" (days // 360); in the past "1 day ago" /
+  "N days ago". Used by the record form's follow-up help and the vaccination
+  form's Next dose due help (Slice 5b-4). Never work it out in a template or
+  in JavaScript.
 
 ---
 

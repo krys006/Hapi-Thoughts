@@ -17,6 +17,7 @@ from .utils import (
     followup_reminder_return,
     medical_history_context,
     new_vaccination_initial,
+    next_dose_help,
     notify_record_created,
     record_detail_context,
     record_for_vaccination,
@@ -28,6 +29,7 @@ from .utils import (
     send_followup_reminder,
     send_vaccination_reminder,
     vaccination_history_context,
+    vaccination_form_context,
     vaccination_history_url,
     vaccination_list_context,
     vaccination_reminder_refusal,
@@ -309,6 +311,7 @@ def admin_vaccination_standalone_create(request, pet_pk):
     record = record_for_vaccination(
         request.GET.get("record") or request.POST.get("record"), pet
     )
+    today = timezone.localdate()
 
     if request.method == "POST":
         form = VaccinationForm(request.POST)
@@ -318,15 +321,25 @@ def admin_vaccination_standalone_create(request, pet_pk):
             if record:
                 return redirect("admin_medical_record_detail", pk=record.pk)
             return redirect(vaccination_history_url(vaccination))
-        messages.error(request, "Please correct the errors below.")
     else:
-        initial = new_vaccination_initial(record, timezone.localdate())
-        form = VaccinationForm(initial=initial)
+        form = VaccinationForm(initial=new_vaccination_initial(record, today))
 
+    # Errors show in the page's summary box (no flash)
+    context = vaccination_form_context(pet, record, None, today)
+    return _render_vaccination_form(request, form, context)
+
+
+VACCINATION_FORM = "admin/medical/vaccination_form.html"
+
+
+def _render_vaccination_form(request, form, context):
+    """The vaccination form page (new + edit), with the Next dose due help
+    worked out from the date on the page."""
+    help_line = next_dose_help(form, context["today"])
     return render(
         request,
-        "admin/medical/vaccination_form.html",
-        {"form": form, "pet": pet, "record": record},
+        VACCINATION_FORM,
+        {**context, "form": form, "next_dose_help": help_line},
     )
 
 
@@ -406,7 +419,13 @@ def admin_vaccination_edit(request, pk):
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    vaccination = get_object_or_404(Vaccination, pk=pk)
+    vaccination = get_object_or_404(
+        Vaccination.objects.select_related("pet__owner", "medical_record"), pk=pk
+    )
+    today = timezone.localdate()
+    context = vaccination_form_context(
+        vaccination.pet, vaccination.medical_record, vaccination, today
+    )
 
     # Determine redirect target after save
     # ?next=record redirects to the linked medical record
@@ -416,7 +435,7 @@ def admin_vaccination_edit(request, pk):
     if request.method == "POST":
         form = VaccinationEditForm(request.POST, instance=vaccination)
         if form.is_valid():
-            save_vaccination_edit(form, timezone.localdate())
+            save_vaccination_edit(form, today)
             messages.success(request, "Vaccination record updated.")
 
             if next_param == "record" and vaccination.medical_record:
@@ -425,21 +444,11 @@ def admin_vaccination_edit(request, pk):
                     pk=vaccination.medical_record.pk,
                 )
             return redirect(vaccination_history_url(vaccination))
-        else:
-            messages.error(request, "Please correct the errors below.")
     else:
         form = VaccinationEditForm(instance=vaccination)
 
-    return render(
-        request,
-        "admin/medical/vaccination_edit.html",
-        {
-            "form": form,
-            "vaccination": vaccination,
-            "pet": vaccination.pet,
-            "next": next_param,
-        },
-    )
+    # Errors show in the page's summary box (no flash)
+    return _render_vaccination_form(request, form, {**context, "next": next_param})
 
 
 @login_required

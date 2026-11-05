@@ -5,6 +5,7 @@ from datetime import timedelta
 from urllib.parse import urlencode
 
 from django.contrib import messages
+from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Exists, Max, OuterRef, Q
@@ -27,6 +28,15 @@ RECORD_VISIT_STATUSES = (Appointment.CONFIRMED, Appointment.COMPLETED)
 RECORD_EXISTS = "A medical record already exists for this appointment."
 # "This week" on the dashboard and the Due / Follow-ups tabs: today to today + 7
 DUE_DAYS = 7
+# The nightly send_reminders (notifications/management/commands/) sends a
+# follow-up reminder this many days before the date, plus one on the day
+# itself. The record form's help lines name it.
+FOLLOW_UP_REMINDER_DAYS = 3
+# Vaccination reminders go when the owner's NotificationPreference says
+# (vaccination_reminder_days), plus one on the day itself. This is only the
+# fallback for an owner with no preference row, so the vaccination form names
+# no fixed lead time.
+VACCINATION_REMINDER_DEFAULT_DAYS = 7
 LIST_PAGE_SIZE = 25
 VACCINATION_TABS = ("due", "overdue", "all")
 VACCINATION_DEFAULT_TAB = "due"
@@ -583,29 +593,46 @@ def save_new_record(form, pet, appointment, user):
     return record, True
 
 
+def _plural(count, word):
+    return f"{count} {word}" if count == 1 else f"{count} {word}s"
+
+
 def days_from_today(day, today):
-    """'today', 'tomorrow', 'in N days', '1 day ago' or 'N days ago'."""
+    """
+    How far day is from today, in words (the forms' date help lines):
+    'today', 'tomorrow', 'in N days' up to 31 days ahead, then
+    'in about N months' (days // 30), from 360 days ahead 'in about N years'
+    (days // 360); in the past '1 day ago' / 'N days ago'.
+    """
     days = (day - today).days
     if days == 0:
         return "today"
     if days == 1:
         return "tomorrow"
-    if days > 1:
-        return f"in {days} days"
     if days == -1:
         return "1 day ago"
-    return f"{-days} days ago"
+    if days < 0:
+        return f"{-days} days ago"
+    if days <= 31:
+        return f"in {days} days"
+    if days < 360:
+        return f"in about {_plural(days // 30, 'month')}"
+    return f"in about {_plural(days // 360, 'year')}"
+
+
+def long_date_with_distance(day, today):
+    """'Thursday, November 5 · in 2 days' (the year when it isn't this year)."""
+    long = date_format(day, "l, F j" if day.year == today.year else "l, F j, Y")
+    return f"{long} · {days_from_today(day, today)}"
 
 
 def saved_follow_up_line(record, today):
-    """The saved follow-up date for the edit form's help line:
-    'Thursday, November 5 · in 2 days' (the year when it isn't this year),
-    or "" when no follow-up date is saved."""
+    """The saved follow-up date for the edit form's help line
+    (long_date_with_distance), or "" when no follow-up date is saved."""
     day = record.follow_up_date
     if not (record.follow_up_required and day):
         return ""
-    long = date_format(day, "l, F j" if day.year == today.year else "l, F j, Y")
-    return f"{long} · {days_from_today(day, today)}"
+    return long_date_with_distance(day, today)
 
 
 VISIT_DATE_HELP_FROM_VISIT = (
@@ -792,6 +819,62 @@ def vaccination_history_url(vaccination):
     """The pet's vaccinations with this dose highlighted and scrolled to."""
     url = reverse("admin_pet_vaccination_history", args=[vaccination.pet_id])
     return f"{url}?highlight={vaccination.pk}#vaccination-{vaccination.pk}"
+
+
+# ── Vaccination form (new + edit) ────────────────────────────────────────────
+
+
+def vaccination_form_context(pet, record, vaccination, today):
+    """
+    Context for the vaccination form (5b-4), without the form.
+    record: the visit record the dose belongs to (new: ?record=, edit: its
+    medical_record), or None. Back link and Cancel go where the admin came
+    from: edit → the pet's vaccinations; new on a record → the record; new
+    from the pet page → the pet. after_save matches the view's redirect.
+    """
+    if vaccination:
+        back_url = reverse("admin_pet_vaccination_history", args=[pet.pk])
+        back_label = f"Back to {pet.name}'s vaccinations"
+        date_help = after_save = ""
+    elif record:
+        back_url = reverse("admin_medical_record_detail", args=[record.pk])
+        back_label = "Back to the record"
+        date_help = "Taken from the record."
+        after_save = "After saving you'll go back to the record."
+    else:
+        back_url = reverse("admin_pet_detail", args=[pet.pk])
+        back_label = f"Back to {pet.name}"
+        date_help = "Today."
+        after_save = (
+            f"After saving you'll see {pet.name}'s vaccinations with the new one "
+            "at the top."
+        )
+    note = vaccination.correction_note if vaccination else ""
+    return {
+        "pet": pet,
+        "record": record,
+        "vaccination": vaccination,
+        "is_edit": vaccination is not None,
+        "back_url": back_url,
+        "back_label": back_label,
+        "date_given_help": date_help,
+        "after_save": after_save,
+        # One dated line each ("Tue, Nov 3, 2026: wrong date typed")
+        "correction_lines": [line for line in note.splitlines() if line.strip()],
+        "today": today,
+    }
+
+
+def next_dose_help(form, today):
+    """The Next dose due help line: the date on the page (saved on edit,
+    typed on a re-render) as long_date_with_distance, else the form's help
+    text. A date that doesn't parse gets the plain help."""
+    field = form["next_due_date"]
+    try:
+        day = field.field.to_python(field.value())
+    except ValidationError:
+        day = None
+    return long_date_with_distance(day, today) if day else field.help_text
 
 
 # ── Pet history pages ────────────────────────────────────────────────────────

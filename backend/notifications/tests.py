@@ -168,6 +168,46 @@ class SendRemindersDueRuleTests(FrozenRemindersTestBase):
         self.assertEqual(self._sent(Notification.FOLLOWUP_REMINDER), [])
 
 
+class SendRemindersSharedDaysTests(FrozenRemindersTestBase):
+    """Batch 5b-4: the follow-up lead time lives in medical/utils.py
+    (FOLLOW_UP_REMINDER_DAYS, also named on the record form); the command
+    reads it and still sends that many days before and on the day itself."""
+
+    def test_follow_up_days_come_from_the_shared_constant(self):
+        from medical import utils as medical_utils
+        from notifications.management.commands import send_reminders
+
+        self.assertIs(
+            send_reminders.FOLLOW_UP_REMINDER_DAYS,
+            medical_utils.FOLLOW_UP_REMINDER_DAYS,
+        )
+        self.assertEqual(medical_utils.FOLLOW_UP_REMINDER_DAYS, 3)
+        # One pet per follow-up: the command sends one per pet per day
+        for days in range(6):
+            pet = Pet.objects.create(owner=self.owner, name=f"In {days}", species="Dog")
+            MedicalRecord.objects.create(
+                pet=pet,
+                record_date=TODAY - datetime.timedelta(days=10),
+                follow_up_required=True,
+                follow_up_date=TODAY + datetime.timedelta(days=days),
+            )
+
+        def sent():
+            return sorted(
+                Notification.objects.filter(
+                    notification_type=Notification.FOLLOWUP_REMINDER
+                ).values_list("related_pet__name", flat=True)
+            )
+
+        self._run()
+        self.assertEqual(sent(), ["In 0", "In 3"])
+
+        Notification.objects.all().delete()
+        with mock.patch.object(send_reminders, "FOLLOW_UP_REMINDER_DAYS", 5):
+            self._run()
+        self.assertEqual(sent(), ["In 0", "In 5"])
+
+
 class NotifyOutcomeTests(TestCase):
     """notify() returns the Notification with email_outcome (not saved),
     so a caller can say how the recipient was reached (5a-5)."""

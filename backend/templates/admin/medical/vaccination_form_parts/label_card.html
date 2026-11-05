@@ -1,0 +1,18 @@
+{% comment %}
+  "From the vial label": Batch / lot no., Maker, Given by. Never a
+  correction. On new, Given by starts with the clinic vet (its help text says
+  so); on edit the closing line says these change without a reason.
+{% endcomment %}
+<section class="card space-y-5" aria-labelledby="label-title">
+  <h2 id="label-title" class="flex items-center gap-2 text-xl font-semibold text-gray-900">{% include "components/icon.html" with name="info" class="size-5 shrink-0 text-gray-600" %}From the vial label</h2>
+  <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
+    {% include "components/form_field.html" with field=form.batch_number optional=True %}
+    {% include "components/form_field.html" with field=form.manufacturer optional=True %}
+  </div>
+  <div class="max-w-sm">
+    {% include "components/form_field.html" with field=form.administered_by optional=True %}
+  </div>
+  {% if is_edit %}
+    <p class="text-sm text-gray-700">These can be fixed any time without a reason.</p>
+  {% endif %}
+</section>
