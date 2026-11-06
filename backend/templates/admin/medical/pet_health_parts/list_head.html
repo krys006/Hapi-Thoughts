@@ -1,0 +1,8 @@
+{% comment %}
+  Heading above the cards: title with the count, and the sort order (plus
+  a note) on the right.
+{% endcomment %}
+<div class="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+  <h2 class="text-lg font-semibold text-gray-900">{{ title }} <span class="font-normal text-gray-600">({{ count }})</span></h2>
+  <p class="text-sm text-gray-600">{{ note }}</p>
+</div>

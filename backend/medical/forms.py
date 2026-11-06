@@ -9,7 +9,7 @@ from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
 from .models import MedicalRecord, PrescriptionItem, TestResultFile, Vaccination
-from .utils import FOLLOW_UP_REMINDER_DAYS
+from .utils import FOLLOW_UP_REMINDER_DAYS, GIVEN_BY_PREFILLED
 
 
 class ErrorCountMixin:
@@ -317,7 +317,9 @@ class VaccinationForm(VaccinationRulesMixin, forms.ModelForm):
         help_texts = {
             **VACCINATION_HELP_TEXTS,
             # The views start Given by with the vet's name (new_vaccination_initial)
-            "administered_by": "Filled in with the clinic vet from Clinic settings.",
+            # and swap this for GIVEN_BY_NO_VET when there is none
+            # (set_given_by_help)
+            "administered_by": GIVEN_BY_PREFILLED,
         }
         error_messages = VACCINATION_ERRORS
 

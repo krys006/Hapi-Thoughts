@@ -4614,9 +4614,13 @@ class PetDetailPageTests(TestCase):
         due = friendly_date(self.today + timedelta(days=365), "mid")
         self.assertIn(f"Next due {due}</span>", card)
         self.assertEqual(card.count("No next date</span>"), 2)
-        edit = reverse("admin_vaccination_edit", args=[other.pk])
-        self.assertIn(f'<a href="{edit}" ', card)
+        # 5b-5: Open goes to the pet's vaccinations with that dose highlighted
+        # (was the edit form)
         history = reverse("admin_pet_vaccination_history", args=[self.pet.pk])
+        self.assertIn(
+            f'<a href="{history}?highlight={other.pk}#vaccination-{other.pk}" ', card
+        )
+        self.assertNotIn(reverse("admin_vaccination_edit", args=[other.pk]), card)
         self.assertRegex(
             card,
             rf'<a href="{history}" class="[^"]*">See all vaccinations \(4\)\s*<svg',

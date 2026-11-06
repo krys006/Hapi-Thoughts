@@ -1,6 +1,7 @@
 """Helpers for the medical views."""
 
 import os
+import re
 from datetime import timedelta
 from urllib.parse import urlencode
 
@@ -620,10 +621,15 @@ def days_from_today(day, today):
     return f"in about {_plural(days // 360, 'year')}"
 
 
+def plain_long_date(day, today):
+    """'Thursday, November 5' (the year when it isn't this year), without
+    long_date's 'Today, …' / 'Tomorrow, …' (the distance says that)."""
+    return date_format(day, "l, F j" if day.year == today.year else "l, F j, Y")
+
+
 def long_date_with_distance(day, today):
     """'Thursday, November 5 · in 2 days' (the year when it isn't this year)."""
-    long = date_format(day, "l, F j" if day.year == today.year else "l, F j, Y")
-    return f"{long} · {days_from_today(day, today)}"
+    return f"{plain_long_date(day, today)} · {days_from_today(day, today)}"
 
 
 def saved_follow_up_line(record, today):
@@ -794,6 +800,28 @@ def clinic_vet_name():
     return clinic.veterinarian_name if clinic else ""
 
 
+GIVEN_BY_PREFILLED = "Filled in with the clinic vet from Clinic settings."
+GIVEN_BY_NO_VET = "Add the vet's name in Clinic settings to fill this in."
+
+
+def set_given_by_help(form):
+    """
+    The Given by help on a new vaccination: GIVEN_BY_PREFILLED when the
+    clinic vet's name was filled in, GIVEN_BY_NO_VET when Clinic settings
+    has none. A new page reads the pre-fill (new_vaccination_initial, no
+    query); a re-render after errors asks Clinic settings again.
+    """
+    if form.is_bound:
+        vet = clinic_vet_name()
+    else:
+        vet = form.initial.get("administered_by", "")
+    help_text = GIVEN_BY_PREFILLED if vet else GIVEN_BY_NO_VET
+    form.fields["administered_by"].help_text = help_text
+    # A BoundField copies help_text when it is built, and a POST builds
+    # them while validating, so set it on the page's bound field too
+    form["administered_by"].help_text = help_text
+
+
 def new_vaccination_initial(record, today):
     """A new vaccination starts on the record's date (else today), given by
     the clinic's vet. Never used on edit."""
@@ -847,9 +875,8 @@ def vaccination_form_context(pet, record, vaccination, today):
         date_help = "Today."
         after_save = (
             f"After saving you'll see {pet.name}'s vaccinations with the new one "
-            "at the top."
+            "highlighted."
         )
-    note = vaccination.correction_note if vaccination else ""
     return {
         "pet": pet,
         "record": record,
@@ -859,10 +886,16 @@ def vaccination_form_context(pet, record, vaccination, today):
         "back_label": back_label,
         "date_given_help": date_help,
         "after_save": after_save,
-        # One dated line each ("Tue, Nov 3, 2026: wrong date typed")
-        "correction_lines": [line for line in note.splitlines() if line.strip()],
+        "correction_lines": correction_lines(vaccination) if vaccination else [],
         "today": today,
     }
+
+
+def correction_lines(vaccination):
+    """correction_note as a list, one dated line each ("Tue, Nov 3, 2026:
+    wrong date typed"), blank lines left out."""
+    note = vaccination.correction_note or ""
+    return [line for line in note.splitlines() if line.strip()]
 
 
 def next_dose_help(form, today):
@@ -890,10 +923,61 @@ def _history_header(pet):
     return {"pet": pet, "pet_state": state, "can_add": state == "active", **counts}
 
 
+def diagnosis_start(diagnosis):
+    """
+    The start of a diagnosis for the follow-up banner's sentence ("for the
+    ear infection seen on …"): the first part before a line break, comma,
+    semicolon or full stop, at most 8 words, first letter lowercased (not
+    for an acronym such as "UTI"). "visit" when nothing is written.
+    """
+    first = re.split(r"[\n,;.]", (diagnosis or "").strip(), maxsplit=1)[0].strip()
+    words = first.split()
+    if not words:
+        return "visit"
+    if len(words) > 8:
+        first = " ".join(words[:8]) + "…"
+    if not (len(words[0]) > 1 and words[0].isupper()):
+        first = first[0].lower() + first[1:]
+    return first
+
+
+def _follow_up_banner(pet, can_add, today):
+    """The yellow banner on the medical history: the soonest required
+    follow-up dated today or later, while the pet and owner are active
+    (reminders are refused otherwise). None when there is none."""
+    if not can_add:
+        return None
+    record = (
+        MedicalRecord.objects.filter(
+            pet=pet, follow_up_required=True, follow_up_date__gte=today
+        )
+        .order_by("follow_up_date", "pk")
+        .first()
+    )
+    if record is None:
+        return None
+    record.pet = pet
+    return {
+        "record": record,
+        "long_date": plain_long_date(record.follow_up_date, today),
+        "distance": days_from_today(record.follow_up_date, today),
+        "about": diagnosis_start(record.diagnosis),
+        # A plain date: "seen on Mon, Nov 2", never "seen on yesterday"
+        "seen_on": short_date(record.record_date, today),
+    }
+
+
 def medical_history_context(pet, today):
-    """Context for the pet's medical history (5b-5). Needs owner selected."""
+    """Context for the pet's medical history (5b-5). Needs owner and
+    owner.user selected. Private notes and the owner note are never read
+    by the page."""
+    header = _history_header(pet)
+    banner = _follow_up_banner(pet, header["can_add"], today)
     records = (
         MedicalRecord.objects.filter(pet=pet)
+        .select_related("appointment")
+        # Never loaded, so the page can't show them
+        .defer("private_notes", "public_notes")
         .annotate(
             medicine_count=Count("prescription_items", distinct=True),
             active_file_count=Count(
@@ -906,14 +990,14 @@ def medical_history_context(pet, today):
         .order_by("-record_date", "-created_at", "-pk")
     )
     return {
-        **_history_header(pet),
+        **header,
         "records": records,
-        "next_follow_up": followups_due(today)
-        .filter(pet=pet)
-        .order_by("follow_up_date", "pk")
-        .first(),
+        "follow_up_banner": banner,
+        "next_follow_up": banner["record"] if banner else None,
         "last_followup_reminder": last_reminder(pet, Notification.FOLLOWUP_REMINDER),
+        **_owner_contact(pet),
         "today": today,
+        "nav_section": "admin_medical",
     }
 
 
@@ -935,6 +1019,7 @@ def vaccination_history_context(pet, today, highlight=None):
     """
     vaccinations = list(
         Vaccination.objects.filter(pet=pet)
+        .select_related("medical_record")
         .annotate(is_superseded=later_dose_exists())
         .order_by("-date_administered", "-pk")
     )
@@ -944,6 +1029,7 @@ def vaccination_history_context(pet, today, highlight=None):
             vaccination, today
         )
         vaccination.can_remind = vaccination.due_state in ("due", "overdue")
+        vaccination.correction_lines = correction_lines(vaccination)
     return {
         **_history_header(pet),
         "vaccinations": vaccinations,
@@ -953,4 +1039,5 @@ def vaccination_history_context(pet, today, highlight=None):
         ),
         **_owner_contact(pet),
         "today": today,
+        "nav_section": "admin_vaccination",
     }

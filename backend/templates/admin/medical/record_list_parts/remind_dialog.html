@@ -1,9 +1,10 @@
 {% load friendly_dates %}
 {% comment %}
   Follow-up reminder confirmation for one record (one dialog per Send
-  reminder button). Shared by the Medical records list (Follow-ups tab) and
-  the record page. Needs record, today and last_reminder (the pet's newest
-  follow-up reminder). return_to="record" (record page) posts only that;
+  reminder button). Shared by the Medical records list (Follow-ups tab), the
+  record page and the pet's medical history. Needs record, today and
+  last_reminder (the pet's newest follow-up reminder). return_to="record"
+  (record page) or "history" (the pet's medical history) posts only that;
   otherwise it posts return_to=list with the open tab and q, so the view
   comes back to the list. Dates from the view's today.
 {% endcomment %}
@@ -11,8 +12,8 @@
 <dialog id="reminder-dialog-{{ record.pk }}" aria-labelledby="reminder-dialog-{{ record.pk }}-title" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50">
   <form method="post" action="{% url 'admin_trigger_followup_reminder' record.pk %}" class="p-6 sm:p-7">
     {% csrf_token %}
-    {% if return_to == "record" %}
-      <input type="hidden" name="return_to" value="record">
+    {% if return_to == "record" or return_to == "history" %}
+      <input type="hidden" name="return_to" value="{{ return_to }}">
     {% else %}
       <input type="hidden" name="return_to" value="list">
       <input type="hidden" name="tab" value="{{ active_tab }}">

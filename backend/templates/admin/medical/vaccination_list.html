@@ -39,7 +39,7 @@
     {% if active_tab != "all" %}
       {% for vaccination in vaccinations %}
         {% if vaccination.due_state %}
-          {% include "admin/medical/vaccination_list_parts/remind_dialog.html" %}
+          {% include "admin/medical/vaccination_list_parts/remind_dialog.html" with last_reminder=vaccination.last_reminder %}
         {% endif %}
       {% endfor %}
     {% endif %}

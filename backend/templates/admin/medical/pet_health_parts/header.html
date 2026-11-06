@@ -1,0 +1,34 @@
+{% comment %}
+  Shared header of the pet's medical history and vaccinations. current:
+  "records" or "vaccinations". Back to the pet, the pet picture (gray unless
+  the pet and owner are active), "{pet}'s medical history" / "{pet}'s
+  vaccinations" with the Archived tag, the pet line with the owner link,
+  the page's one violet Add button (only while can_add), then the tabs.
+{% endcomment %}
+{% with owner=pet.owner %}
+<a href="{% url 'admin_pet_detail' pet.pk %}" class="mb-2 inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="arrow-left" %}Back to {{ pet.name }}</a>
+<div class="mb-6 flex flex-wrap items-center gap-4">
+  {% if pet_state == "active" %}
+    {% include "components/pet_avatar.html" with pet=pet size="lg" %}
+  {% else %}
+    {% include "components/pet_avatar.html" with pet=pet size="lg" muted=True %}
+  {% endif %}
+  <div class="min-w-0 flex-1">
+    <h1 class="flex flex-wrap items-center gap-3 text-2xl font-bold text-gray-900">
+      <span>{{ pet.name }}'s {% if current == "vaccinations" %}vaccinations{% else %}medical history{% endif %}</span>
+      {% if pet.is_archived %}
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1 text-sm font-medium text-gray-800">{% include "components/icon.html" with name="archive" class="size-4 shrink-0" %}Archived</span>
+      {% endif %}
+    </h1>
+    <p class="mt-1 text-base text-gray-700">{{ pet.species }}{% if pet.breed %} · {{ pet.breed }}{% endif %}{% if pet.date_of_birth %} · {{ pet.age }}{% endif %} · Owner: <a href="{% url 'admin_owner_detail' owner.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ owner.full_name }}</a></p>
+  </div>
+  {% if can_add %}
+    {% if current == "vaccinations" %}
+      <a href="{% url 'admin_vaccination_standalone_create' pet.pk %}" class="btn btn-primary w-full font-semibold sm:w-auto">{% include "components/icon.html" with name="plus" %}Add vaccination</a>
+    {% else %}
+      <a href="{% url 'admin_medical_record_create' pet.pk %}" class="btn btn-primary w-full font-semibold sm:w-auto">{% include "components/icon.html" with name="plus" %}Add medical record</a>
+    {% endif %}
+  {% endif %}
+</div>
+{% include "admin/medical/pet_health_parts/tabs.html" %}
+{% endwith %}

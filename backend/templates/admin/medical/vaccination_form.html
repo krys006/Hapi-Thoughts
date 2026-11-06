@@ -17,9 +17,7 @@
 
   <form method="post" class="space-y-6" novalidate>
     {% csrf_token %}
-    {% if is_edit %}
-      <input type="hidden" name="next" value="{{ next }}">
-    {% elif record %}
+    {% if record and not is_edit %}
       <input type="hidden" name="record" value="{{ record.pk }}">
     {% endif %}
 

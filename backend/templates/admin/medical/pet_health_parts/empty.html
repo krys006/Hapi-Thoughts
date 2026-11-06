@@ -1,0 +1,18 @@
+{% comment %}
+  Empty state of either page (current: "records" or "vaccinations"). The
+  second line points at the Add button, so it is left out while the pet or
+  owner is archived (no button then).
+{% endcomment %}
+<div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+  {% if current == "vaccinations" %}
+    {% if can_add %}
+      {% include "components/empty_state.html" with icon="syringe" title="No vaccinations yet" text="A vaccination is usually added from a visit record. Use “Add vaccination” for one given without a record." %}
+    {% else %}
+      {% include "components/empty_state.html" with icon="syringe" title="No vaccinations yet" %}
+    {% endif %}
+  {% elif can_add %}
+    {% include "components/empty_state.html" with icon="file-text" title="No medical records yet" text="A record is usually added from a visit. Use “Add medical record” for a check-up written without one." %}
+  {% else %}
+    {% include "components/empty_state.html" with icon="file-text" title="No medical records yet" %}
+  {% endif %}
+</div>

@@ -1,0 +1,19 @@
+{% comment %}
+  Gray banner when the pet or its owner is archived: everything is kept and
+  can be corrected (Edit), nothing new can be added and no reminders go
+  out. Both show when both are archived (as on the record page).
+{% endcomment %}
+{% with owner=pet.owner %}
+{% if pet.is_archived %}
+  <div class="mb-6 flex items-start gap-3 rounded-xl border border-gray-300 bg-gray-100 px-5 py-4 text-base text-gray-900">
+    {% include "components/icon.html" with name="archive" class="mt-0.5 size-5 shrink-0" %}
+    <p><b>{{ pet.name }} is archived.</b> Everything here is kept and can still be corrected. Nothing new can be added and no reminders are sent. Restore {{ pet.name }} on the pet page to change that.</p>
+  </div>
+{% endif %}
+{% if owner.is_archived %}
+  <div class="mb-6 flex items-start gap-3 rounded-xl border border-gray-300 bg-gray-100 px-5 py-4 text-base text-gray-900">
+    {% include "components/icon.html" with name="archive" class="mt-0.5 size-5 shrink-0" %}
+    <p><b>{{ pet.name }}'s owner, {{ owner.full_name }}, is archived.</b> Everything here is kept and can still be corrected. Nothing new can be added and no reminders are sent. Restore {{ owner.full_name }} on their page to change that.</p>
+  </div>
+{% endif %}
+{% endwith %}

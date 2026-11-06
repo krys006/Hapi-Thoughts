@@ -19,6 +19,7 @@ from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
 from appointments.models import Appointment, ClinicSettings
+from dashboard.templatetags.friendly_dates import friendly_date_on
 from notifications.models import Notification, NotificationPreference
 from pets.models import Pet, PetOwner
 
@@ -2061,22 +2062,27 @@ class HighlightTests(FrozenMedicalTestBase):
             fetch_redirect_response=False,
         )
 
-    def test_edit_with_next_record_still_goes_to_the_record(self):
+    def test_edit_ignores_next_and_goes_to_the_history(self):
+        # 5b-5: ?next=record is gone (no page sent it any more); was
+        # test_edit_with_next_record_still_goes_to_the_record
         record = self._record()
         Vaccination.objects.filter(pk=self.shot.pk).update(medical_record=record)
         edit = reverse("admin_vaccination_edit", args=[self.shot.pk])
-        response = self.client.post(
-            f"{edit}?next=record",
-            {
-                "vaccine_name": Vaccination.ANTI_RABIES,
-                "date_administered": _days(-3).isoformat(),
-            },
-        )
-        self.assertRedirects(
-            response,
-            reverse("admin_medical_record_detail", args=[record.pk]),
-            fetch_redirect_response=False,
-        )
+        for query in ("?next=record", "?next=history", ""):
+            with self.subTest(query=query):
+                response = self.client.post(
+                    f"{edit}{query}",
+                    {
+                        "vaccine_name": Vaccination.ANTI_RABIES,
+                        "date_administered": _days(-3).isoformat(),
+                        "next": "record",
+                    },
+                )
+                self.assertRedirects(
+                    response,
+                    f"{self.url}?highlight={self.shot.pk}#vaccination-{self.shot.pk}",
+                    fetch_redirect_response=False,
+                )
 
 
 class ReminderFlashTests(FrozenMedicalTestBase):
@@ -2217,8 +2223,20 @@ class LastReminderTests(FrozenMedicalTestBase):
             reverse("admin_pet_vaccination_history", args=[self.pet.pk])
         )
         self.assertEqual(response.context["last_vaccination_reminder"], vacc_when)
-        # The old template's line still shows it
-        self.assertContains(response, "November 3, 2026, 12:30 AM")
+        # 5b-5: the page shows it in the reminder dialog of a remindable dose
+        # (was the old template's "November 3, 2026, 12:30 AM" line)
+        Vaccination.objects.create(
+            pet=self.pet,
+            vaccine_name=Vaccination.ANTI_RABIES,
+            date_administered=_days(-300),
+            next_due_date=_days(2),
+        )
+        response = self.client.get(
+            reverse("admin_pet_vaccination_history", args=[self.pet.pk])
+        )
+        self.assertContains(
+            response, "Last vaccination reminder for Bantay: Today.", count=1
+        )
 
     def test_list_rows(self):
         vacc_when = self._notice(
@@ -2291,9 +2309,13 @@ class HistoryContextTests(FrozenMedicalTestBase):
         self.assertEqual(context["next_follow_up"], soon)
         self.assertIsNone(context["last_followup_reminder"])
 
-    def test_no_next_follow_up_outside_the_week(self):
-        self._record(follow_up_required=True, follow_up_date=_days(20))
-        self.assertIsNone(self._get("admin_pet_medical_history")["next_follow_up"])
+    def test_next_follow_up_beyond_the_week(self):
+        # 5b-5: the banner takes any follow-up dated today or later (was
+        # test_no_next_follow_up_outside_the_week: none 20 days out, when it
+        # was limited to the 7-day window); past ones still don't count
+        self._record(follow_up_required=True, follow_up_date=_days(-1))
+        far = self._record(follow_up_required=True, follow_up_date=_days(20))
+        self.assertEqual(self._get("admin_pet_medical_history")["next_follow_up"], far)
 
     def test_archived_pet(self):
         self.pet.is_archived = True
@@ -2556,7 +2578,7 @@ class ReminderReturnToTests(FrozenMedicalTestBase):
             with self.subTest(junk=junk):
                 self._goes_to(self.follow_url, {"return_to": junk}, self.med_history)
 
-    def test_old_record_page_posts_return_to_record(self):
+    def test_record_page_posts_return_to_record(self):
         html = self.client.get(self.record_page).content.decode()
         self.assertIn('<input type="hidden" name="return_to" value="record">', html)
 
@@ -5469,7 +5491,7 @@ class VaccinationFormPageTests(FrozenMedicalTestBase):
             (
                 self.new_url,
                 "After saving you&#x27;ll see Bantay&#x27;s vaccinations with the "
-                "new one at the top.",
+                "new one highlighted.",
                 self.history_url,
             ),
             (
@@ -5568,3 +5590,1016 @@ class VaccinationFormPageTests(FrozenMedicalTestBase):
         html = self._post(self.new_url, date_administered="2026-11-04")
         for tag in re.findall(r"<a\b[^>]*>", html):
             self.assertNotIn("\n", tag)
+
+
+@PLAIN_STATIC
+class GivenByHelpTests(FrozenMedicalTestBase):
+    """5b-5: the Given by help on a new vaccination says it was filled in
+    only when Clinic settings has the vet's name; otherwise it says where
+    to add it."""
+
+    NO_VET_HELP = (
+        '<p class="text-sm text-gray-600">Add the vet&#x27;s name in Clinic '
+        "settings to fill this in.</p>"
+    )
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("admin_vaccination_standalone_create", args=[self.pet.pk])
+
+    def _clinic(self, vet):
+        ClinicSettings.objects.create(
+            clinic_name="Hapi Vet",
+            address="Gasan",
+            veterinarian_name=vet,
+            opening_time=datetime.time(8, 0),
+            closing_time=datetime.time(17, 0),
+            same_day_cutoff_time=datetime.time(15, 0),
+        )
+
+    def _html(self, method="get", **data):
+        response = getattr(self.client, method)(self.url, data)
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def test_prefilled_with_the_vet(self):
+        self._clinic("Dr. Edgar Sadiwa")
+        record = self._record(record_date=_days(-8))
+        for params in ({}, {"record": record.pk}):
+            with self.subTest(params=params):
+                html = self._html(**params)
+                self.assertIn(GIVEN_BY_HELP, html)
+                self.assertNotIn(self.NO_VET_HELP, html)
+
+    def test_no_vet_name_says_where_to_add_it(self):
+        for vet in (None, ""):
+            with self.subTest(vet=vet):
+                ClinicSettings.objects.all().delete()
+                if vet is not None:
+                    self._clinic(vet)
+                html = self._html()
+                self.assertRegex(html, r'name="administered_by"(?! value=)')
+                self.assertIn(self.NO_VET_HELP, html)
+                self.assertNotIn(GIVEN_BY_HELP, html)
+
+    def test_re_render_after_errors_keeps_the_rule(self):
+        self._clinic("Dr. Edgar Sadiwa")
+        html = self._html("post", date_administered="2026-11-03")
+        self.assertIn(GIVEN_BY_HELP, html)
+        ClinicSettings.objects.all().delete()
+        html = self._html("post", date_administered="2026-11-03")
+        self.assertIn(self.NO_VET_HELP, html)
+
+
+# ── Batch 5b-5: the pet's medical history and vaccinations ───────────────────
+
+HEALTH_TAB_ON = (
+    "inline-flex min-h-12 items-center gap-2 rounded-lg bg-violet-50 px-4 "
+    "text-base font-semibold text-violet-800 ring-2 ring-violet-600"
+)
+HEALTH_TAB_OFF = (
+    "inline-flex min-h-12 items-center gap-2 rounded-lg border border-gray-300 "
+    "bg-white px-4 text-base font-medium text-gray-800 hover:bg-gray-50"
+)
+PET_ARCHIVED_BANNER = (
+    "<p><b>Bantay is archived.</b> Everything here is kept and can still be "
+    "corrected. Nothing new can be added and no reminders are sent. Restore "
+    "Bantay on the pet page to change that.</p>"
+)
+OWNER_ARCHIVED_BANNER = (
+    "<p><b>Bantay's owner, Ana Cruz, is archived.</b> Everything here is "
+    "kept and can still be corrected. Nothing new can be added and no "
+    "reminders are sent. Restore Ana Cruz on their page to change that.</p>"
+)
+ARCHIVED_PILL = re.compile(
+    r'<span class="inline-flex items-center gap-1\.5 rounded-full bg-gray-100 '
+    r'px-2\.5 py-1 text-sm font-medium text-gray-800">\s*<svg(?s:.*?)</svg>\s*'
+    r"Archived</span>"
+)
+
+
+class PetHealthPageChecks:
+    """Shared checks for the pet's two health pages, mixed into each page's
+    test class before FrozenMedicalTestBase (frozen at 00:30 Manila on Tue,
+    Nov 3, 2026). The page class sets url_name, title, tab_label, add_label,
+    add_url_name, nav_url_name, _make(n) and _make_remindable()."""
+
+    url_name = ""
+    title = ""
+    tab_label = ""
+    add_label = ""
+    add_url_name = ""
+    nav_url_name = ""
+
+    def setUp(self):
+        super().setUp()
+        pk = self.pet.pk
+        self.url = reverse(self.url_name, args=[pk])
+        self.records_url = reverse("admin_pet_medical_history", args=[pk])
+        self.vaccinations_url = reverse("admin_pet_vaccination_history", args=[pk])
+
+    def _html(self, url=None, **params):
+        response = self.client.get(url or self.url, params)
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _archive(self, who):
+        if who == "pet":
+            Pet.objects.filter(pk=self.pet.pk).update(is_archived=True)
+        else:
+            self.owner.archive()
+
+    def _shot(self, given, due=None, **fields):
+        fields.setdefault("vaccine_name", Vaccination.ANTI_RABIES)
+        return Vaccination.objects.create(
+            pet=self.pet,
+            date_administered=_days(given),
+            next_due_date=None if due is None else _days(due),
+            **fields,
+        )
+
+    def _tabs(self, html):
+        return re.search(
+            r'(?s)<nav class="mb-6 flex flex-wrap gap-2" aria-label="Bantay\'s '
+            r'health records">.*?</nav>',
+            html,
+        ).group()
+
+    # ─── Shared tests (run by each page class) ────────────────────────────────
+
+    def test_header_back_link_title_pet_line_and_owner_link(self):
+        html = self._html()
+        pet_url = reverse("admin_pet_detail", args=[self.pet.pk])
+        self.assertRegex(
+            html,
+            rf'<a href="{pet_url}" class="mb-2 inline-flex min-h-11 items-center '
+            r"gap-2 text-base font-medium text-blue-600 underline "
+            r'underline-offset-2">\s*<svg(?s:.*?)</svg>\s*Back to Bantay</a>',
+        )
+        self.assertRegex(
+            html,
+            r'<h1 class="flex flex-wrap items-center gap-3 text-2xl font-bold '
+            rf"text-gray-900\">\s*<span>Bantay's {self.title}</span>\s*</h1>",
+        )
+        self.assertIn(f"<title>Bantay's {self.title} — Hapi Vet Admin</title>", html)
+        self.assertNotRegex(html, ARCHIVED_PILL)
+        owner_url = reverse("admin_owner_detail", args=[self.owner.pk])
+        self.assertIn(
+            '<p class="mt-1 text-base text-gray-700">Dog · Owner: '
+            f'<a href="{owner_url}" class="font-medium text-blue-600 underline '
+            'underline-offset-2">Ana Cruz</a></p>',
+            html,
+        )
+        # The pet picture is violet (not muted) while active
+        self.assertIn("bg-violet-50 text-violet-600 ring-1 ring-violet-200", html)
+
+    def test_breed_and_age_on_the_pet_line(self):
+        Pet.objects.filter(pk=self.pet.pk).update(
+            breed="Aspin", date_of_birth=datetime.date(2023, 10, 1)
+        )
+        self.assertIn(
+            '<p class="mt-1 text-base text-gray-700">Dog · Aspin · 3 yrs · Owner: ',
+            self._html(),
+        )
+
+    def test_exactly_one_violet_button(self):
+        html = self._html()
+        self.assertEqual(_outside_dialogs(html).count("btn-primary"), 1)
+        add_url = reverse(self.add_url_name, args=[self.pet.pk])
+        self.assertRegex(
+            html,
+            rf'<a href="{add_url}" class="btn btn-primary w-full font-semibold '
+            rf'sm:w-auto">\s*<svg(?s:.*?)</svg>\s*{self.add_label}</a>',
+        )
+
+    def test_no_violet_button_when_archived(self):
+        self._make_remindable()
+        for who in ("pet", "owner"):
+            with self.subTest(who=who):
+                self._archive(who)
+                html = self._html()
+                self.assertEqual(html.count("btn-primary"), 0)
+                self.assertNotIn(reverse(self.add_url_name, args=[self.pet.pk]), html)
+                self.assertNotIn("<dialog", html)
+                self.assertNotIn("Send reminder", html)
+
+    def test_tabs_with_counts_and_aria_current(self):
+        self._record()
+        self._record(record_date=_days(-2))
+        self._shot(-3)
+        tabs = self._tabs(self._html())
+        self.assertEqual(tabs.count("<a "), 2)
+        self.assertEqual(tabs.count('aria-current="page"'), 1)
+        for url, label, count in (
+            (self.records_url, "Medical records", 2),
+            (self.vaccinations_url, "Vaccinations", 1),
+        ):
+            with self.subTest(label=label):
+                current = label == self.tab_label
+                classes = HEALTH_TAB_ON if current else HEALTH_TAB_OFF
+                pill = (
+                    "bg-violet-100 text-violet-800"
+                    if current
+                    else ("bg-gray-100 text-gray-800")
+                )
+                aria = ' aria-current="page"' if current else ""
+                self.assertRegex(
+                    tabs,
+                    rf'<a href="{url}" class="{classes}"{aria}>\s*<svg(?s:.*?)'
+                    rf'</svg>\s*{label}<span class="rounded-full {pill} px-2 '
+                    rf'text-sm font-semibold">{count}</span></a>',
+                )
+
+    def test_sidebar_highlights_its_section_only(self):
+        html = self._html()
+        nav_url = reverse(self.nav_url_name)
+        self.assertIn(f'<a href="{nav_url}" {ACTIVE_NAV}', html)
+        self.assertEqual(html.count(ACTIVE_NAV), 1)
+        # The URL names start with admin_pet, but Pets is not highlighted
+        self.assertIn(f'<a href="{reverse("admin_pet_list")}" {PLAIN_NAV}', html)
+
+    def test_archived_banners(self):
+        html = self._html()
+        self.assertNotIn(PET_ARCHIVED_BANNER, html)
+        self.assertNotIn(OWNER_ARCHIVED_BANNER, html)
+        self._archive("pet")
+        html = self._html()
+        self.assertIn(PET_ARCHIVED_BANNER, html)
+        self.assertNotIn(OWNER_ARCHIVED_BANNER, html)
+        self.assertRegex(html, ARCHIVED_PILL)
+        self.assertIn("bg-gray-100 text-gray-600 ring-1 ring-gray-300", html)
+        Pet.objects.filter(pk=self.pet.pk).update(is_archived=False)
+        self._archive("owner")
+        html = self._html()
+        self.assertIn(OWNER_ARCHIVED_BANNER, html)
+        self.assertNotIn(PET_ARCHIVED_BANNER, html)
+        # The tag is the pet's; the picture is gray for either
+        self.assertNotRegex(html, ARCHIVED_PILL)
+        self.assertIn("bg-gray-100 text-gray-600 ring-1 ring-gray-300", html)
+        Pet.objects.filter(pk=self.pet.pk).update(is_archived=True)
+        html = self._html()
+        self.assertIn(PET_ARCHIVED_BANNER, html)
+        self.assertIn(OWNER_ARCHIVED_BANNER, html)
+
+    def test_every_link_is_on_one_line(self):
+        self._make(3)
+        for tag in re.findall(r"<a\b[^>]*>", self._html()):
+            self.assertNotIn("\n", tag)
+
+    def _page_queries(self):
+        self.client.get(self.url)
+        with CaptureQueriesContext(connection) as queries:
+            self.client.get(self.url)
+        return len(queries)
+
+
+class PetMedicalHistoryPageTests(PetHealthPageChecks, FrozenMedicalTestBase):
+    """admin/medical/pet_history.html on the new layout (Slice 5b-5),
+    mockup states 1 and 5."""
+
+    url_name = "admin_pet_medical_history"
+    title = "medical history"
+    tab_label = "Medical records"
+    add_label = "Add medical record"
+    add_url_name = "admin_medical_record_create"
+    nav_url_name = "admin_medical_record_list"
+
+    def _make_remindable(self):
+        self._record(
+            record_date=_days(-1), follow_up_required=True, follow_up_date=_days(2)
+        )
+
+    def _make(self, n):
+        MedicalRecord.objects.all().delete()
+        for i in range(n):
+            record = self._record(
+                record_date=_days(-i - 1),
+                diagnosis="Checkup",
+                follow_up_required=True,
+                follow_up_date=_days(i + 1),
+            )
+            PrescriptionItem.objects.create(record=record, medicine_name="Amox")
+            TestResultFile.objects.create(record=record, file="test_results/a.pdf")
+            TestResultFile.objects.create(
+                record=record, file="test_results/b.pdf", is_archived=True
+            )
+            self._shot(-i - 1, due=3, medical_record=record)
+
+    def _visit(self, day, hour):
+        return Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=day,
+            time=datetime.time(hour, 0),
+            status=Appointment.COMPLETED,
+        )
+
+    def _cards(self, html):
+        return re.findall(
+            r'(?s)<li class="flex flex-col gap-4 rounded-xl border border-gray-200 '
+            r'bg-white p-5 shadow-sm sm:flex-row sm:gap-5">.*?</li>',
+            html,
+        )
+
+    def _banner(self, html):
+        match = re.search(
+            r'(?s)<div class="mb-6 flex flex-wrap items-center gap-4 rounded-xl '
+            r'border-2 border-yellow-300 bg-yellow-50 px-5 py-4">.*?</div>',
+            html,
+        )
+        return match.group() if match else None
+
+    # ─── Layout ───────────────────────────────────────────────────────────────
+
+    def test_new_layout_without_old_files(self):
+        self._make(2)
+        response = self.client.get(self.url)
+        self.assertTemplateUsed(response, "layouts/admin.html")
+        self.assertTemplateUsed(response, "admin/medical/pet_history.html")
+        for old in (
+            "pet_history.js",
+            "pet_history.css",
+            "record_detail.css",
+            "layer(legacy)",
+            "admin-page",
+            "record-card",
+            "followup-badge",
+            "+ New Record",
+            "Back to Pet",
+        ):
+            with self.subTest(old=old):
+                self.assertNotContains(response, old)
+
+    # ─── Follow-up banner ─────────────────────────────────────────────────────
+
+    def test_banner_shows_the_soonest_follow_up_today_or_later(self):
+        self._record(
+            record_date=_days(-30),
+            diagnosis="Old wound",
+            follow_up_required=True,
+            follow_up_date=_days(-2),
+        )
+        self._record(
+            record_date=_days(-20),
+            diagnosis="Skin rash",
+            follow_up_required=True,
+            follow_up_date=_days(9),
+        )
+        soonest = self._record(
+            record_date=_days(-6),
+            diagnosis="Ear infection, left ear",
+            follow_up_required=True,
+            follow_up_date=_days(4),
+        )
+        # Not required: its date doesn't count
+        self._record(record_date=_days(-3), follow_up_date=_days(1))
+        html = self._html()
+        banner = self._banner(html)
+        self.assertIn(
+            '<p class="min-w-0 flex-1 text-base text-gray-900"><b>Follow-up on '
+            "Saturday, November 7</b> (in 4 days), for the ear infection seen on "
+            "Wed, Oct 28.</p>",
+            banner,
+        )
+        self.assertRegex(
+            banner,
+            r'<button type="button" class="btn btn-outline w-full font-semibold '
+            rf'sm:w-auto" data-dialog-open="reminder-dialog-{soonest.pk}">\s*<svg'
+            r"(?s:.*?)</svg>\s*Send reminder<span class=\"sr-only\"> to Ana Cruz "
+            r"about Bantay's follow-up</span></button>",
+        )
+        self.assertEqual(self.client.get(self.url).context["next_follow_up"], soonest)
+
+    def test_banner_today_with_no_diagnosis_says_visit(self):
+        self._record(
+            record_date=_days(-1), follow_up_required=True, follow_up_date=TODAY
+        )
+        self.assertIn(
+            "<b>Follow-up on Tuesday, November 3</b> (today), for the visit seen on "
+            "Mon, Nov 2.</p>",
+            self._banner(self._html()),
+        )
+
+    def test_banner_diagnosis_start(self):
+        cases = [
+            ("UTI; started antibiotics", "UTI"),
+            ("Diarrhea for 2 days. Mild dehydration", "diarrhea for 2 days"),
+            ("Vomiting\nand fever", "vomiting"),
+            (
+                "Limping on the right hind leg after a fall from the stairs",
+                "limping on the right hind leg after a…",
+            ),
+        ]
+        for diagnosis, about in cases:
+            with self.subTest(diagnosis=diagnosis):
+                MedicalRecord.objects.all().delete()
+                self._record(
+                    record_date=_days(-1),
+                    diagnosis=diagnosis,
+                    follow_up_required=True,
+                    follow_up_date=_days(1),
+                )
+                self.assertIn(f"for the {about} seen on", self._banner(self._html()))
+
+    def test_no_banner_when_only_past_or_none(self):
+        self.assertIsNone(self._banner(self._html()))
+        self._record(follow_up_required=True, follow_up_date=None)
+        self._record(
+            record_date=_days(-9), follow_up_required=True, follow_up_date=_days(-1)
+        )
+        html = self._html()
+        self.assertIsNone(self._banner(html))
+        self.assertNotIn("<dialog", html)
+
+    def test_no_banner_when_archived(self):
+        self._make_remindable()
+        for who in ("pet", "owner"):
+            with self.subTest(who=who):
+                self._archive(who)
+                html = self._html()
+                self.assertIsNone(self._banner(html))
+                self.assertNotIn("Follow-up on", html)
+
+    def test_banner_dialog_posts_return_to_history(self):
+        record = self._record(
+            record_date=_days(-1), follow_up_required=True, follow_up_date=_days(2)
+        )
+        Notification.objects.create(
+            recipient=self.owner_user,
+            notification_type=Notification.FOLLOWUP_REMINDER,
+            title="Reminder",
+            message="Reminder",
+            related_pet=self.pet,
+        )
+        dialogs = _dialogs(self._html())
+        self.assertEqual(len(dialogs), 1)
+        dialog = dialogs[0]
+        self.assertIn(f'<dialog id="reminder-dialog-{record.pk}"', dialog)
+        url = reverse("admin_trigger_followup_reminder", args=[record.pk])
+        self.assertIn(f'<form method="post" action="{url}" class="p-6 sm:p-7">', dialog)
+        self.assertIn("csrfmiddlewaretoken", dialog)
+        self.assertIn('<input type="hidden" name="return_to" value="history">', dialog)
+        self.assertNotIn('name="tab"', dialog)
+        self.assertIn("Send a follow-up reminder to Ana Cruz?", dialog)
+        self.assertIn("Last follow-up reminder for Bantay: Today.", dialog)
+        self.assertEqual(dialog.count("btn-primary"), 1)
+
+    # ─── Record cards ─────────────────────────────────────────────────────────
+
+    def test_list_head(self):
+        self._record()
+        self._record(record_date=_days(-2))
+        html = self._html()
+        self.assertIn(
+            '<h2 class="text-lg font-semibold text-gray-900">All records <span '
+            'class="font-normal text-gray-600">(2)</span></h2>',
+            html,
+        )
+        self.assertIn(
+            '<p class="text-sm text-gray-600">Newest first · private notes are only '
+            "on each record</p>",
+            html,
+        )
+
+    def test_card_with_everything(self):
+        record = self._record(
+            record_date=_days(-1),
+            appointment=self._visit(_days(-1), 10),
+            diagnosis="Ear infection, left ear",
+            treatment_given="Cleaned the left ear.",
+            follow_up_required=True,
+            follow_up_date=_days(2),
+        )
+        PrescriptionItem.objects.create(record=record, medicine_name="Amox")
+        PrescriptionItem.objects.create(record=record, medicine_name="Drops")
+        TestResultFile.objects.create(record=record, file="test_results/a.pdf")
+        # A removed file is never counted
+        TestResultFile.objects.create(
+            record=record, file="test_results/b.pdf", is_archived=True
+        )
+        self._shot(-1, medical_record=record)
+        [card] = self._cards(self._html())
+        self.assertRegex(
+            card,
+            r'<span class="bg-gray-700 py-0\.5 text-sm font-semibold text-white">Mon'
+            r'</span>\s*<span class="py-1 text-2xl font-bold text-gray-900">2</span>',
+        )
+        self.assertIn(
+            '<h2 class="text-lg font-semibold text-gray-900">Monday, November 2</h2>',
+            card,
+        )
+        self.assertIn(
+            '<p class="mt-1 line-clamp-2 text-base text-gray-900"><span '
+            'class="text-gray-600">Diagnosis:</span> Ear infection, left ear</p>',
+            card,
+        )
+        self.assertIn(
+            '<p class="line-clamp-2 text-base text-gray-800"><span '
+            'class="text-gray-600">Treatment:</span> Cleaned the left ear.</p>',
+            card,
+        )
+        self.assertIn(
+            "<span>From the visit yesterday at 10:00 AM · 2 medicines · 1 test "
+            "result · 1 vaccination</span>",
+            card,
+        )
+        self.assertEqual(_pills(card), [("bg-blue-100", "Follow-up Thu, Nov 5")])
+        detail = reverse("admin_medical_record_detail", args=[record.pk])
+        self.assertRegex(
+            card,
+            rf'<a href="{detail}" class="inline-flex min-h-11 w-full items-center '
+            r"justify-center gap-2 whitespace-nowrap rounded-lg border "
+            r"border-violet-300 bg-violet-50 px-5 text-base font-semibold "
+            r"text-violet-800 hover:border-violet-400 hover:bg-violet-100 "
+            r'sm:w-auto">Open<span class="sr-only"> record from Monday, November 2'
+            r"</span>",
+        )
+
+    def test_card_with_nothing_written(self):
+        record = self._record(
+            record_date=datetime.date(2026, 6, 12),
+            follow_up_required=True,
+            follow_up_date=datetime.date(2026, 6, 15),
+        )
+        PrescriptionItem.objects.create(record=record, medicine_name="Amox")
+        bare = self._record(record_date=datetime.date(2026, 8, 15))
+        first, second = self._cards(self._html())
+        self.assertIn(">Saturday, August 15</h2>", first)
+        self.assertIn("<span>Not linked to a visit</span>", first)
+        self.assertEqual(_pills(first), [])
+        self.assertIn(reverse("admin_medical_record_detail", args=[bare.pk]), first)
+        self.assertIn(">Friday, June 12</h2>", second)
+        self.assertIn(
+            '<p class="mt-1 text-base text-gray-600"><span class="text-gray-600">'
+            "Diagnosis:</span> No diagnosis written</p>",
+            second,
+        )
+        self.assertIn(
+            '<p class="text-base text-gray-600"><span class="text-gray-600">'
+            "Treatment:</span> Not written</p>",
+            second,
+        )
+        self.assertIn("<span>Not linked to a visit · 1 medicine</span>", second)
+        self.assertEqual(_pills(second), [("bg-blue-100", "Follow-up was Mon, Jun 15")])
+
+    def test_follow_up_pill_wording(self):
+        cases = [
+            (0, "Follow-up today"),
+            (1, "Follow-up tomorrow"),
+            (30, "Follow-up Thu, Dec 3"),
+            (-1, "Follow-up was yesterday"),
+            (None, "Follow-up"),
+        ]
+        for days, text in cases:
+            with self.subTest(days=days):
+                MedicalRecord.objects.all().delete()
+                self._record(
+                    record_date=_days(-5),
+                    follow_up_required=True,
+                    follow_up_date=None if days is None else _days(days),
+                )
+                [card] = self._cards(self._html())
+                self.assertEqual(_pills(card), [("bg-blue-100", text)])
+
+    def test_newest_first(self):
+        old = self._record(record_date=_days(-30))
+        new = self._record(record_date=_days(-1))
+        cards = self._cards(self._html())
+        self.assertIn(reverse("admin_medical_record_detail", args=[new.pk]), cards[0])
+        self.assertIn(reverse("admin_medical_record_detail", args=[old.pk]), cards[1])
+
+    def test_private_notes_and_owner_note_never_show(self):
+        self._record(
+            diagnosis="Checkup",
+            private_notes="Owner seemed upset about the bill",
+            public_notes="Give the drops twice a day",
+            follow_up_required=True,
+            follow_up_date=_days(3),
+        )
+        html = self._html()
+        self.assertNotIn("Owner seemed upset", html)
+        self.assertNotIn("Give the drops", html)
+        self.assertNotIn("Private notes", html)
+        self.assertNotIn("Note for the owner", html)
+
+    # ─── Empty states ─────────────────────────────────────────────────────────
+
+    def test_empty_state(self):
+        html = self._html()
+        self.assertEqual(
+            _empty_state(html),
+            (
+                "No medical records yet",
+                "A record is usually added from a visit. Use “Add medical record” "
+                "for a check-up written without one.",
+            ),
+        )
+        self.assertNotIn("All records", html)
+        for who in ("pet", "owner"):
+            with self.subTest(who=who):
+                self._archive(who)
+                html = self._html()
+                self.assertIsNone(_empty_state(html))
+                self.assertIn(
+                    '<p class="text-lg font-semibold text-gray-900">No medical '
+                    "records yet</p>",
+                    html,
+                )
+                self.assertNotIn("Add medical record", html)
+
+    # ─── Reminder landing, queries ────────────────────────────────────────────
+
+    def test_reminder_lands_here_with_the_flash(self):
+        record = self._record(
+            record_date=_days(-1), follow_up_required=True, follow_up_date=_days(2)
+        )
+        url = reverse("admin_trigger_followup_reminder", args=[record.pk])
+        response = self.client.post(url, {"return_to": "history"}, follow=True)
+        self.assertEqual(response.redirect_chain, [(self.url, 302)])
+        self.assertTemplateUsed(response, "admin/medical/pet_history.html")
+        html = response.content.decode()
+        self.assertEqual(html.count("Reminder sent to Ana Cruz (app and email)."), 1)
+        self.assertEqual(html.count("<div data-flash"), 1)
+
+    def test_query_count_is_flat(self):
+        self._make(3)
+        few = self._page_queries()
+        self._make(30)
+        many = self._page_queries()
+        self.assertEqual(few, many)
+        # Session, user, pet + owner + user, the two tab counts, the banner's
+        # follow-up, the records (counts annotated), the last reminder,
+        # 3 sidebar counts, clinic settings
+        self.assertEqual(many, 11)
+
+
+class PetVaccinationsPageTests(PetHealthPageChecks, FrozenMedicalTestBase):
+    """admin/medical/vaccination_history.html on the new layout (Slice
+    5b-5), mockup states 2–4 and 6."""
+
+    url_name = "admin_pet_vaccination_history"
+    title = "vaccinations"
+    tab_label = "Vaccinations"
+    add_label = "Add vaccination"
+    add_url_name = "admin_vaccination_standalone_create"
+    nav_url_name = "admin_vaccination_list"
+
+    def _make_remindable(self):
+        return self._shot(-300, due=2)
+
+    def _make(self, n):
+        Vaccination.objects.all().delete()
+        MedicalRecord.objects.all().delete()
+        for i in range(n):
+            record = self._record(record_date=_days(-i - 1))
+            self._shot(
+                -i - 1,
+                due=i - 5,
+                vaccine_name=Vaccination.OTHER,
+                custom_vaccine_name=f"Vaccine {i}",
+                medical_record=record,
+                is_corrected=True,
+                correction_note=OLD_NOTE,
+            )
+
+    def _named(self, name, given, due=None, **fields):
+        return self._shot(
+            given,
+            due,
+            vaccine_name=Vaccination.OTHER,
+            custom_vaccine_name=name,
+            **fields,
+        )
+
+    def _card(self, html, dose):
+        return re.search(
+            rf'(?s)<li id="vaccination-{dose.pk}" class="[^"]*">.*?</li>', html
+        ).group()
+
+    # ─── Layout ───────────────────────────────────────────────────────────────
+
+    def test_new_layout_without_old_files(self):
+        self._make(2)
+        response = self.client.get(self.url)
+        self.assertTemplateUsed(response, "layouts/admin.html")
+        self.assertTemplateUsed(response, "admin/medical/vaccination_history.html")
+        for old in (
+            "vaccination_history.css",
+            "layer(legacy)",
+            "admin-page",
+            "data-table",
+            "corrected-badge",
+            "?next=history",
+            "+ Add Vaccination",
+            "Back to Pet",
+            # The old hover-only tooltip with the correction note
+            f'title="{OLD_NOTE}',
+        ):
+            with self.subTest(old=old):
+                self.assertNotContains(response, old)
+
+    def test_list_head_and_order(self):
+        old = self._shot(-40)
+        new = self._shot(-2, vaccine_name=Vaccination.DEWORMING)
+        html = self._html()
+        self.assertIn(
+            '<h2 class="text-lg font-semibold text-gray-900">All vaccinations <span '
+            'class="font-normal text-gray-600">(2)</span></h2>',
+            html,
+        )
+        self.assertIn('<p class="text-sm text-gray-600">Newest first</p>', html)
+        self.assertLess(
+            html.index(f'id="vaccination-{new.pk}"'),
+            html.index(f'id="vaccination-{old.pk}"'),
+        )
+
+    # ─── Pills ────────────────────────────────────────────────────────────────
+
+    def test_every_pill(self):
+        later = self._shot(-30, due=335)
+        cases = [
+            (self._named("Alpha", -300, 0), [("bg-yellow-100", "Due today")]),
+            (self._named("Bravo", -300, 1), [("bg-yellow-100", "Due tomorrow")]),
+            (self._named("Charlie", -300, 7), [("bg-yellow-100", "Due in 7 days")]),
+            # Outside the 7-day window: no pill
+            (self._named("Delta", -300, 8), []),
+            (self._named("Echo", -300, -1), [("bg-red-100", "1 day overdue")]),
+            (self._named("Foxtrot", -300, -52), [("bg-red-100", "52 days overdue")]),
+            (
+                self._named("Golf", -300, 3, is_corrected=True),
+                [("bg-yellow-100", "Due in 3 days"), ("bg-gray-100", "Corrected")],
+            ),
+            (self._named("Hotel", -300), []),
+            # Superseded: overdue by its date, but only "Later dose given"
+            (self._shot(-400, due=-35), [("bg-gray-100", "Later dose given")]),
+            (later, []),
+        ]
+        html = self._html()
+        for dose, pills in cases:
+            with self.subTest(dose=dose.display_vaccine_name, pk=dose.pk):
+                self.assertEqual(_pills(self._card(html, dose)), pills)
+
+    def test_no_due_pills_when_archived(self):
+        dose = self._named("Alpha", -300, -3, is_corrected=True)
+        for who in ("pet", "owner"):
+            with self.subTest(who=who):
+                self._archive(who)
+                card = self._card(self._html(), dose)
+                self.assertEqual(_pills(card), [("bg-gray-100", "Corrected")])
+
+    # ─── Details ──────────────────────────────────────────────────────────────
+
+    def test_details_filled_in(self):
+        record = self._record(record_date=datetime.date(2026, 10, 6))
+        dose = Vaccination.objects.create(
+            pet=self.pet,
+            vaccine_name=Vaccination.EIGHT_IN_ONE,
+            date_administered=datetime.date(2026, 10, 6),
+            next_due_date=_days(2),
+            weight_at_vaccination=Decimal("12.50"),
+            site_of_injection="Right hind leg",
+            batch_number="A2311-07",
+            medical_record=record,
+        )
+        card = self._card(self._html(), dose)
+        self.assertIn(
+            '<h2 class="text-lg font-semibold text-gray-900">8-in-1</h2>', card
+        )
+        self.assertIn(
+            '<p class="mt-1 text-base text-gray-800 sm:hidden">Given Tue, Oct 6 · '
+            "Next due Thu, Nov 5</p>",
+            card,
+        )
+        self.assertIn(
+            '<dl class="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 lg:grid-cols-5">', card
+        )
+        dl = re.findall(
+            r'<dt class="text-sm text-gray-600">(.*?)</dt>\s*'
+            r'<dd class="text-base text-gray-900">(.*?)</dd>',
+            card,
+        )
+        self.assertEqual(
+            dl,
+            [
+                ("Given", "Tue, Oct 6"),
+                ("Next due", "Thu, Nov 5"),
+                ("Weight", "12.5 kg"),
+                ("Where", "Right hind leg"),
+                ("Batch / lot", "A2311-07"),
+            ],
+        )
+        detail = reverse("admin_medical_record_detail", args=[record.pk])
+        self.assertRegex(
+            card,
+            r"</svg>\s*Part of the record from "
+            rf'<a href="{detail}" class="inline-flex min-h-11 items-center '
+            r'font-medium text-blue-600 underline underline-offset-2">Tue, Oct 6</a>',
+        )
+        self.assertNotIn("Corrected", card)
+
+    def test_details_left_empty(self):
+        dose = self._shot(-3)
+        card = self._card(self._html(), dose)
+        self.assertEqual(
+            card.count('<dd class="text-base text-gray-600">Not given</dd>'), 3
+        )
+        self.assertIn('<dd class="text-base text-gray-600">No next date</dd>', card)
+        self.assertIn(
+            '<p class="mt-1 text-base text-gray-800 sm:hidden">Given Sat, Oct 31 · '
+            '<span class="text-gray-600">No next date</span></p>',
+            card,
+        )
+        self.assertNotIn("Part of the record", card)
+
+    def test_corrected_box_with_two_dated_lines(self):
+        dose = self._shot(
+            -28,
+            is_corrected=True,
+            correction_note=f"{OLD_NOTE}\n\nThu, Oct 8, 2026: site",
+        )
+        card = self._card(self._html(), dose)
+        self.assertRegex(
+            card,
+            r'(?s)<div class="mt-3 rounded-lg border border-gray-200 bg-gray-50 '
+            r'px-3 py-2">\s*<p class="flex items-center gap-1\.5 text-sm '
+            r'font-semibold text-gray-800">\s*<svg.*?</svg>\s*Corrected</p>\s*'
+            rf'<p class="text-base text-gray-800">{re.escape(OLD_NOTE)}</p>\s*'
+            r'<p class="text-base text-gray-800">Thu, Oct 8, 2026: site</p>\s*</div>',
+        )
+        self.assertNotIn("title=", card)
+
+    def test_corrected_with_no_reason_on_record(self):
+        dose = self._shot(-28, is_corrected=True)
+        self.assertIn(
+            '<p class="text-base text-gray-600">No reason was written down.</p>',
+            self._card(self._html(), dose),
+        )
+
+    # ─── Buttons and dialogs ──────────────────────────────────────────────────
+
+    def test_send_reminder_only_on_remindable_doses(self):
+        later = self._shot(-30, due=335)
+        # Newest given first, so the due dose's dialog comes first
+        due = self._named("Alpha", -300, 2)
+        overdue = self._named("Bravo", -301, -4)
+        quiet = [
+            self._named("Charlie", -300, 30),
+            self._named("Delta", -300),
+            self._shot(-400, due=-35),
+            later,
+        ]
+        html = self._html()
+        for dose in (due, overdue):
+            with self.subTest(dose=dose.display_vaccine_name):
+                self.assertRegex(
+                    self._card(html, dose),
+                    r'<button type="button" class="btn btn-outline font-semibold" '
+                    rf'data-dialog-open="reminder-dialog-{dose.pk}">\s*<svg(?s:.*?)'
+                    r'</svg>\s*<span class="sm:hidden">Remind</span><span '
+                    r'class="hidden sm:inline">Send reminder</span><span '
+                    rf'class="sr-only"> to Ana Cruz about {dose.display_vaccine_name}'
+                    r"</span></button>",
+                )
+        for dose in quiet:
+            with self.subTest(dose=dose.display_vaccine_name, pk=dose.pk):
+                self.assertNotIn("data-dialog-open", self._card(html, dose))
+        dialogs = _dialogs(html)
+        self.assertEqual(
+            [re.search(r'<dialog id="([^"]+)"', d).group(1) for d in dialogs],
+            [f"reminder-dialog-{due.pk}", f"reminder-dialog-{overdue.pk}"],
+        )
+
+    def test_dialog_posts_return_to_history(self):
+        dose = self._make_remindable()
+        Notification.objects.create(
+            recipient=self.owner_user,
+            notification_type=Notification.VACCINATION_REMINDER,
+            title="Reminder",
+            message="Reminder",
+            related_pet=self.pet,
+        )
+        [dialog] = _dialogs(self._html())
+        url = reverse("admin_trigger_vaccination_reminder", args=[dose.pk])
+        self.assertIn(f'<form method="post" action="{url}" class="p-6 sm:p-7">', dialog)
+        self.assertIn("csrfmiddlewaretoken", dialog)
+        self.assertIn('<input type="hidden" name="return_to" value="history">', dialog)
+        self.assertNotIn('name="tab"', dialog)
+        self.assertIn("Send a reminder to Ana Cruz?", dialog)
+        self.assertIn(
+            "Bantay's <b>Anti-rabies</b> is due on <b>Thursday, November 5</b>.",
+            dialog,
+        )
+        self.assertIn("Last vaccination reminder for Bantay: Today.", dialog)
+        self.assertEqual(dialog.count("btn-primary"), 1)
+
+    def test_edit_on_every_dose_archived_included(self):
+        doses = [self._make_remindable(), self._named("Alpha", -5)]
+        for who in (None, "pet", "owner"):
+            with self.subTest(who=who):
+                if who:
+                    self._archive(who)
+                html = self._html()
+                for dose in doses:
+                    edit = reverse("admin_vaccination_edit", args=[dose.pk])
+                    self.assertRegex(
+                        self._card(html, dose),
+                        rf'<a href="{edit}" class="btn btn-outline[^"]*">\s*<svg'
+                        r"(?s:.*?)</svg>\s*Edit<span class=\"sr-only\"> "
+                        rf"{dose.display_vaccine_name} given "
+                        rf"{friendly_date_on(dose.date_administered, TODAY)}</span></a>",
+                    )
+                if who:
+                    self.assertNotIn("data-dialog-open", html)
+                    self.assertEqual(_dialogs(html), [])
+
+    # ─── Highlight ────────────────────────────────────────────────────────────
+
+    def test_highlight_on_the_opened_dose(self):
+        opened = self._shot(-30)
+        other = self._shot(-10, vaccine_name=Vaccination.DEWORMING)
+        html = self._html(highlight=opened.pk)
+        card = self._card(html, opened)
+        self.assertIn(
+            f'<li id="vaccination-{opened.pk}" class="scroll-mt-24 rounded-xl border '
+            "border-violet-400 bg-violet-50/60 p-4 shadow-sm ring-2 ring-violet-300 "
+            'sm:p-5">',
+            card,
+        )
+        self.assertRegex(
+            card,
+            r'<p class="mb-2 inline-flex items-center gap-1\.5 rounded-full '
+            r'bg-violet-600 px-2\.5 py-1 text-sm font-semibold text-white">\s*<svg'
+            r"(?s:.*?)</svg>\s*The one you opened</p>",
+        )
+        self.assertEqual(html.count("The one you opened"), 1)
+        self.assertNotIn("ring-violet-300", self._card(html, other))
+
+    def test_junk_or_another_pets_highlight_is_ignored(self):
+        self._shot(-30)
+        muning = Pet.objects.create(owner=self.owner, name="Muning", species="Cat")
+        theirs = Vaccination.objects.create(
+            pet=muning, vaccine_name=Vaccination.DEWORMING, date_administered=_days(-3)
+        )
+        for value in ("abc", "", "-1", "999999", str(theirs.pk)):
+            with self.subTest(value=value):
+                html = self._html(highlight=value)
+                self.assertNotIn("The one you opened", html)
+                self.assertNotIn("ring-violet-300", html)
+
+    def test_every_card_has_its_anchor(self):
+        self._make(4)
+        html = self._html()
+        ids = re.findall(r'<li id="vaccination-(\d+)" class="([^"]*)">', html)
+        self.assertEqual(
+            sorted(int(pk) for pk, _ in ids),
+            sorted(Vaccination.objects.values_list("pk", flat=True)),
+        )
+        for _pk, classes in ids:
+            self.assertTrue(classes.startswith("scroll-mt-24 "), classes)
+
+    # ─── Empty states ─────────────────────────────────────────────────────────
+
+    def test_empty_state(self):
+        html = self._html()
+        self.assertEqual(
+            _empty_state(html),
+            (
+                "No vaccinations yet",
+                "A vaccination is usually added from a visit record. Use “Add "
+                "vaccination” for one given without a record.",
+            ),
+        )
+        self.assertNotIn("All vaccinations", html)
+        for who in ("pet", "owner"):
+            with self.subTest(who=who):
+                self._archive(who)
+                html = self._html()
+                self.assertIsNone(_empty_state(html))
+                self.assertIn(
+                    '<p class="text-lg font-semibold text-gray-900">No vaccinations '
+                    "yet</p>",
+                    html,
+                )
+
+    # ─── Reminder landing, queries ────────────────────────────────────────────
+
+    def test_reminder_lands_here_with_the_flash(self):
+        dose = self._make_remindable()
+        url = reverse("admin_trigger_vaccination_reminder", args=[dose.pk])
+        response = self.client.post(url, {"return_to": "history"}, follow=True)
+        self.assertEqual(response.redirect_chain, [(self.url, 302)])
+        self.assertTemplateUsed(response, "admin/medical/vaccination_history.html")
+        html = response.content.decode()
+        self.assertEqual(html.count("Reminder sent to Ana Cruz (app and email)."), 1)
+        self.assertEqual(html.count("<div data-flash"), 1)
+
+    def test_query_count_is_flat(self):
+        self._make(3)
+        few = self._page_queries()
+        self._make(30)
+        many = self._page_queries()
+        self.assertEqual(few, many)
+        # Session, user, pet + owner + user, the two tab counts, the doses
+        # (later dose annotated, record selected), the last reminder,
+        # 3 sidebar counts, clinic settings
+        self.assertEqual(many, 10)

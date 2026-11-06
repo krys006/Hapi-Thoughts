@@ -1,0 +1,9 @@
+{% comment %}
+  The pet's two health pages as tabs: Medical records (records_count) and
+  Vaccinations (vaccinations_count), same classes as the lists' tabs. Each
+  is its own page; current ("records" / "vaccinations") is the open one.
+{% endcomment %}
+<nav class="mb-6 flex flex-wrap gap-2" aria-label="{{ pet.name }}'s health records">
+  <a href="{% url 'admin_pet_medical_history' pet.pk %}" class="{% if current == 'records' %}inline-flex min-h-12 items-center gap-2 rounded-lg bg-violet-50 px-4 text-base font-semibold text-violet-800 ring-2 ring-violet-600{% else %}inline-flex min-h-12 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800 hover:bg-gray-50{% endif %}"{% if current == "records" %} aria-current="page"{% endif %}>{% include "components/icon.html" with name="file-text" %}Medical records<span class="rounded-full {% if current == 'records' %}bg-violet-100 text-violet-800{% else %}bg-gray-100 text-gray-800{% endif %} px-2 text-sm font-semibold">{{ records_count }}</span></a>
+  <a href="{% url 'admin_pet_vaccination_history' pet.pk %}" class="{% if current == 'vaccinations' %}inline-flex min-h-12 items-center gap-2 rounded-lg bg-violet-50 px-4 text-base font-semibold text-violet-800 ring-2 ring-violet-600{% else %}inline-flex min-h-12 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800 hover:bg-gray-50{% endif %}"{% if current == "vaccinations" %} aria-current="page"{% endif %}>{% include "components/icon.html" with name="syringe" %}Vaccinations<span class="rounded-full {% if current == 'vaccinations' %}bg-violet-100 text-violet-800{% else %}bg-gray-100 text-gray-800{% endif %} px-2 text-sm font-semibold">{{ vaccinations_count }}</span></a>
+</nav>

@@ -28,6 +28,7 @@ from .utils import (
     save_vaccination_edit,
     send_followup_reminder,
     send_vaccination_reminder,
+    set_given_by_help,
     vaccination_history_context,
     vaccination_form_context,
     vaccination_history_url,
@@ -325,6 +326,7 @@ def admin_vaccination_standalone_create(request, pet_pk):
         form = VaccinationForm(initial=new_vaccination_initial(record, today))
 
     # Errors show in the page's summary box (no flash)
+    set_given_by_help(form)
     context = vaccination_form_context(pet, record, None, today)
     return _render_vaccination_form(request, form, context)
 
@@ -348,8 +350,9 @@ def admin_pet_vaccination_history(request, pk):
     """
     Admin view — every vaccination of a pet, newest first, with its due
     state and Send reminder rule (vaccination_history_context).
-    ?highlight=<pk> marks the dose the admin opened; only this pet's
-    doses count, anything else is ignored.
+    ?highlight=<pk> marks the dose the admin opened (links add
+    #vaccination-<pk> so the browser scrolls to it); only this pet's doses
+    count, anything else is ignored.
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
@@ -360,8 +363,6 @@ def admin_pet_vaccination_history(request, pk):
     context = vaccination_history_context(
         pet, timezone.localdate(), request.GET.get("highlight")
     )
-    # Old template's key (until the 5b-5 redesign)
-    context["last_reminder"] = context["last_vaccination_reminder"]
     return render(request, "admin/medical/vaccination_history.html", context)
 
 
@@ -369,7 +370,7 @@ def admin_pet_vaccination_history(request, pk):
 def admin_pet_medical_history(request, pk):
     """
     Admin view — every medical record of a pet, newest first, with counts
-    and the next follow-up (medical_history_context).
+    and the next follow-up (medical_history_context). No pagination.
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
@@ -413,8 +414,8 @@ def admin_vaccination_edit(request, pk):
     Admin view — edit a vaccination record in place.
     A clinical change needs a reason; the save marks the record corrected
     and adds a dated line to correction_note (save_vaccination_edit).
-    Redirects back to where the admin came from via ?next= param (the
-    history opens with this dose highlighted).
+    Saved: back to the pet's vaccinations with this dose highlighted.
+    Allowed for archived pets and owners too (corrections).
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
@@ -427,28 +428,17 @@ def admin_vaccination_edit(request, pk):
         vaccination.pet, vaccination.medical_record, vaccination, today
     )
 
-    # Determine redirect target after save
-    # ?next=record redirects to the linked medical record
-    # ?next=history (default) redirects to pet vaccination history
-    next_param = request.GET.get("next") or request.POST.get("next", "history")
-
     if request.method == "POST":
         form = VaccinationEditForm(request.POST, instance=vaccination)
         if form.is_valid():
             save_vaccination_edit(form, today)
             messages.success(request, "Vaccination record updated.")
-
-            if next_param == "record" and vaccination.medical_record:
-                return redirect(
-                    "admin_medical_record_detail",
-                    pk=vaccination.medical_record.pk,
-                )
             return redirect(vaccination_history_url(vaccination))
     else:
         form = VaccinationEditForm(instance=vaccination)
 
     # Errors show in the page's summary box (no flash)
-    return _render_vaccination_form(request, form, {**context, "next": next_param})
+    return _render_vaccination_form(request, form, context)
 
 
 @login_required
