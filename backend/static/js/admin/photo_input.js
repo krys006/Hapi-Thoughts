@@ -1,7 +1,8 @@
 /*
-  Photo cards (admin owner form and pet form): the chosen file's name shows
-  under the "Choose a photo" button. Markup: [data-photo] holds the
-  [data-photo-input] file input and the [data-photo-name] line.
+  Photo cards (admin owner form and pet form) and the record page's Add file
+  dialog: the chosen file's name shows under the "Choose a photo" / "Choose
+  a file" button. Markup: [data-photo] holds the [data-photo-input] file
+  input and the [data-photo-name] line.
 */
 (function () {
   "use strict";

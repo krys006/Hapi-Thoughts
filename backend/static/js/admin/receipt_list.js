@@ -108,8 +108,7 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   /* Fetches the real receipt_detail.html page and moves its
-     .detail-layout into the panel — same technique as
-     appointments_list.js / record_list.js. */
+     .detail-layout into the panel. */
   function loadDetailIntoPanel(panel, url) {
     if (!url || url === '#') return;
 

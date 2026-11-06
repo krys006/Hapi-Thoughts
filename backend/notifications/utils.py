@@ -15,6 +15,13 @@ EMAIL_PREFERENCE_MAP = {
     "followup_reminder": "email_followup",
 }
 
+# What notify() did about the email, set on the returned Notification as
+# email_outcome (not saved), so a caller can say how the owner was reached.
+EMAIL_SENT = "sent"
+EMAIL_FAILED = "failed"
+EMAIL_NO_ADDRESS = "no_address"
+EMAIL_OFF = "off"
+
 
 def notify(
     recipient,
@@ -44,6 +51,11 @@ def notify(
         related_billing:      Optional BillingReceipt instance
         email_subject:        Subject line for email (defaults to title)
         email_body:           Email body text (defaults to message)
+
+    Returns the Notification, with email_outcome (not saved) set to
+    EMAIL_NO_ADDRESS (no email on file, checked first), EMAIL_OFF (the
+    recipient's preference for this type is off), EMAIL_SENT or
+    EMAIL_FAILED (email_error has the reason).
     """
 
     # --- 1. Always create the in-app notification ---
@@ -57,19 +69,19 @@ def notify(
         related_billing=related_billing,
     )
 
-    # --- 2. Check email preference for this notification type ---
-    should_send_email = _should_send_email(recipient, notification_type)
+    # --- 2. No address, then the email preference for this type ---
+    recipient_email = recipient_email or recipient.email
+    if not recipient_email:
+        notification.email_outcome = EMAIL_NO_ADDRESS
+        return notification
 
-    if not should_send_email:
+    if not _should_send_email(recipient, notification_type):
+        notification.email_outcome = EMAIL_OFF
         return notification
 
     # --- 3. Determine email content ---
     subject = email_subject or title
     body = email_body or message
-    recipient_email = recipient_email or recipient.email
-
-    if not recipient_email:
-        return notification
 
     # --- 4. Attempt to send email ---
     try:
@@ -116,6 +128,8 @@ def notify(
             ]
         )
 
+    notification.email_outcome = EMAIL_SENT if notification.email_sent else EMAIL_FAILED
+    return notification
 
 
 def _should_send_email(recipient, notification_type):

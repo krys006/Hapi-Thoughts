@@ -57,16 +57,6 @@ urlpatterns = [
         name="admin_vaccination_list",
     ),
     path(
-        "admin/medical/<int:record_pk>/vaccination/add/",
-        views.admin_vaccination_add,
-        name="admin_vaccination_add",
-    ),
-    path(
-        "admin/medical/vaccination/<int:pk>/correct/",
-        views.admin_vaccination_correct,
-        name="admin_vaccination_correct",
-    ),
-    path(
         "admin/pets/<int:pet_pk>/vaccination/create/",
         views.admin_vaccination_standalone_create,
         name="admin_vaccination_standalone_create",

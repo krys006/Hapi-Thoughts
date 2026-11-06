@@ -1,0 +1,26 @@
+{% comment %}
+  "Actions": Edit record is the page's one primary (violet) button and stays
+  when archived (corrections are allowed). Add medicine / Add file open
+  their dialogs; Add vaccination goes to the vaccination form with
+  ?record=. Archived pet or owner: only Edit record and a line saying why
+  (the owner is checked first, since the pet can't be restored before them).
+  First on phones (order-1).
+{% endcomment %}
+{% with pet=record.pet owner=record.pet.owner %}
+<section class="card order-1" aria-labelledby="actions-title">
+  <h2 id="actions-title" class="text-xl font-semibold text-gray-900">Actions</h2>
+  <div class="mt-4 flex flex-col gap-3">
+    <a href="{% url 'admin_medical_record_edit' record.pk %}" class="btn btn-primary min-h-12 w-full font-semibold">{% include "components/icon.html" with name="pencil" %}Edit record</a>
+    {% if can_add %}
+      <button type="button" class="btn btn-outline min-h-12 w-full font-semibold" data-dialog-open="add-medicine" aria-haspopup="dialog">{% include "components/icon.html" with name="pill" %}Add medicine</button>
+      <button type="button" class="btn btn-outline min-h-12 w-full font-semibold" data-dialog-open="add-file" aria-haspopup="dialog">{% include "components/icon.html" with name="upload" %}Add file</button>
+      <a href="{% url 'admin_vaccination_standalone_create' pet.pk %}?record={{ record.pk }}" class="btn btn-outline min-h-12 w-full font-semibold">{% include "components/icon.html" with name="syringe" %}Add vaccination</a>
+    {% endif %}
+  </div>
+  {% if owner.is_archived %}
+    <p class="mt-4 text-sm text-gray-700">{{ owner.full_name }} is archived. You can still correct what is written, but you can't add medicines, files or vaccinations, or send reminders. Restore {{ owner.full_name }} on their page to do that.</p>
+  {% elif pet.is_archived %}
+    <p class="mt-4 text-sm text-gray-700">{{ pet.name }} is archived. You can still correct what is written, but you can't add medicines, files or vaccinations, or send reminders. Restore {{ pet.name }} on the pet page to do that.</p>
+  {% endif %}
+</section>
+{% endwith %}

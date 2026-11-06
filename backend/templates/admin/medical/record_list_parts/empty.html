@@ -1,0 +1,19 @@
+{% load friendly_dates %}
+{% comment %}
+  Empty list, in a card: a search with no match (the results line above has
+  Clear search), no records at all, or no follow-ups in the next 7 days
+  (with a link to All). The counts ignore the search.
+{% endcomment %}
+<div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+  {% if is_searching %}
+    {% with title="No record matches “"|add:q|add:"”" %}
+      {% include "components/empty_state.html" with icon="search" title=title text="Check the spelling, or look in the other tab." %}
+    {% endwith %}
+  {% elif not all_count %}
+    {% include "components/empty_state.html" with icon="file-text" title="No medical records yet" text="Records appear here when you write one from a visit or a pet's page." %}
+  {% elif active_tab == "followups" %}
+    {% friendly_date_on due_until today as until %}
+    {% include "components/empty_state.html" with icon="circle-check" title="No follow-ups in the next 7 days" text="No pet has a follow-up visit from today to "|add:until|add:"." %}
+    <p class="-mt-6 flex justify-center px-6 pb-8"><a href="{% url 'admin_medical_record_list' %}?tab=all" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">See all medical records{% include "components/icon.html" with name="arrow-right" %}</a></p>
+  {% endif %}
+</div>

@@ -1,0 +1,33 @@
+{% comment %}
+  "The vaccination": the clinical fields (changing one on edit is a
+  correction). The Vaccine select ("Other (type it)" last) shows the indented
+  "Vaccine name" box [data-vaccine-other] for Other: open on the server when
+  Other is chosen (form.shows_vaccine_name, also on a re-render), switched by
+  vaccination_form.js, always shown without JavaScript (the <noscript> style
+  in vaccination_form.html). Help lines from the view: date_given_help,
+  next_dose_help (the date on the page and how far off it is).
+{% endcomment %}
+<section class="card space-y-5" aria-labelledby="vaccination-title">
+  <div class="flex flex-wrap items-start justify-between gap-2">
+    <h2 id="vaccination-title" class="flex items-center gap-2 text-xl font-semibold text-gray-900">{% include "components/icon.html" with name="syringe" class="size-5 shrink-0 text-gray-600" %}The vaccination</h2>
+    {% if is_edit %}
+      <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1 text-sm font-medium text-gray-800">{% include "components/icon.html" with name="pencil" class="size-4 shrink-0" %}Changing these is a correction</span>
+    {% endif %}
+  </div>
+  <div class="max-w-sm">
+    {% include "components/form_field.html" with field=form.vaccine_name %}
+  </div>
+  <div class="border-l-4 border-violet-200 pl-4{% if not form.shows_vaccine_name %} hidden{% endif %}" data-vaccine-other>
+    <div class="max-w-sm">
+      {% include "components/form_field.html" with field=form.custom_vaccine_name required=True %}
+    </div>
+  </div>
+  <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
+    {% include "admin/medical/record_form_parts/date_field.html" with field=form.date_administered help=date_given_help required=True %}
+    {% include "admin/medical/record_form_parts/date_field.html" with field=form.next_due_date help=next_dose_help optional=True %}
+  </div>
+  <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
+    {% include "components/form_field.html" with field=form.weight_at_vaccination optional=True %}
+    {% include "components/form_field.html" with field=form.site_of_injection optional=True %}
+  </div>
+</section>

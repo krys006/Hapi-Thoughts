@@ -1,0 +1,31 @@
+{% load friendly_dates %}
+{% comment %}
+  "Vaccinations at this visit (N)": name, given / next due, and Open to the
+  pet's vaccinations with that dose highlighted (as on the Vaccinations
+  list). Add vaccination (the vaccination form with ?record=) while the pet
+  and owner are active.
+{% endcomment %}
+<section class="card" aria-labelledby="vaccinations-title">
+  <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
+    <h2 id="vaccinations-title" class="flex items-center gap-2 text-xl font-semibold text-gray-900">{% include "components/icon.html" with name="syringe" class="size-5 shrink-0 text-gray-600" %}Vaccinations at this visit ({{ vaccinations|length }})</h2>
+    {% if can_add %}
+      <a href="{% url 'admin_vaccination_standalone_create' record.pet.pk %}?record={{ record.pk }}" class="btn btn-outline font-semibold">{% include "components/icon.html" with name="plus" %}Add vaccination</a>
+    {% endif %}
+  </div>
+  {% if vaccinations %}
+    <ul>
+      {% for vaccination in vaccinations %}
+        <li class="flex flex-wrap items-center gap-4 border-t border-gray-100 py-3 first:border-t-0 first:pt-0">
+          <span class="grid size-10 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-700 ring-1 ring-violet-200">{% include "components/icon.html" with name="syringe" %}</span>
+          <div class="min-w-0 flex-1">
+            <p class="text-base font-semibold text-gray-900">{{ vaccination.display_vaccine_name }}</p>
+            <p class="text-sm text-gray-700">Given {% friendly_date_on vaccination.date_administered today "mid" %} · {% if vaccination.next_due_date %}Next due {% friendly_date_on vaccination.next_due_date today "mid" %}{% else %}No next date{% endif %}</p>
+          </div>
+          <a href="{% url 'admin_pet_vaccination_history' record.pet.pk %}?highlight={{ vaccination.pk }}#vaccination-{{ vaccination.pk }}" class="inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-violet-300 bg-violet-50 px-5 text-base font-semibold text-violet-800 hover:border-violet-400 hover:bg-violet-100">Open<span class="sr-only"> {{ record.pet.name }}'s {{ vaccination.display_vaccine_name }}</span>{% include "components/icon.html" with name="arrow-right" %}</a>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="text-base text-gray-600">No vaccinations recorded at this visit.</p>
+  {% endif %}
+</section>

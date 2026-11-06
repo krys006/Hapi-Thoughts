@@ -17,7 +17,6 @@ from django.utils import timezone
 from accounts.utils import create_owner_user
 from appointments.models import Appointment
 from appointments.utils import paging_links
-from medical.models import Vaccination
 from notifications.models import Notification
 from notifications.utils import notify
 
@@ -615,19 +614,20 @@ def vaccination_due_soon(pet, today):
     The vaccination with the earliest next_due_date from today to today + 30
     days, or None. A shot already followed by a later dose of the same
     vaccine doesn't count. Corrected entries count like any other: a
-    correction edits the real record, it stays valid.
+    correction edits the real record, it stays valid. Always None for an
+    archived pet or a pet whose owner is archived (reminders are refused
+    there, so the line isn't shown).
     """
-    later_dose = Vaccination.objects.filter(
-        pet=OuterRef("pet"),
-        vaccine_name=OuterRef("vaccine_name"),
-        custom_vaccine_name=OuterRef("custom_vaccine_name"),
-        date_administered__gt=OuterRef("date_administered"),
-    )
+    # Imported here: medical.utils imports ARCHIVED_PET from this module
+    from medical.utils import later_dose_exists
+
+    if pet_state(pet) != "active":
+        return None
     return (
         pet.vaccinations.filter(
             next_due_date__range=(today, today + timedelta(days=VACCINATION_DUE_DAYS)),
         )
-        .filter(~Exists(later_dose))
+        .filter(~later_dose_exists())
         .order_by("next_due_date", "pk")
         .first()
     )

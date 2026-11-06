@@ -1,0 +1,34 @@
+{% comment %}
+  Add file (TestResultFileForm, multipart): optional "What is it?", then a
+  label styled as a button around a visually hidden file input (the pet
+  form's photo button; photo_input.js shows the chosen name in
+  [data-photo-name]). A POST with errors re-renders the page with
+  open_dialog "add-file": the dialog opens on load with the title kept and
+  the error under the file (browsers can't keep the chosen file).
+{% endcomment %}
+{% with pet=record.pet field=file_form.file %}
+<dialog id="add-file" aria-labelledby="add-file-title" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50"{% if open_dialog == "add-file" %} data-open-on-load{% endif %}>
+  <form method="post" action="{% url 'admin_test_result_file_upload' record.pk %}" enctype="multipart/form-data" class="p-6 sm:p-7" novalidate>
+    {% csrf_token %}
+    <h2 id="add-file-title" class="text-xl font-bold">Add a test result for {{ pet.name }}</h2>
+    <div class="mt-5 space-y-4">
+      {% include "components/form_field.html" with field=file_form.description optional=True %}
+      <div class="space-y-2" data-photo>
+        <p class="text-base font-medium text-gray-800">{{ field.label }} <span class="text-red-700" aria-hidden="true">*</span></p>
+        <label for="{{ field.id_for_label }}" class="btn btn-outline font-semibold has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-violet-600">
+          {% include "components/icon.html" with name="upload" %}Choose a file
+          <input type="file" name="{{ field.html_name }}" id="{{ field.id_for_label }}" accept=".pdf,.jpg,.jpeg,.png" class="sr-only" aria-describedby="add-file-help" data-photo-input>
+        </label>
+        <p class="text-sm font-medium text-gray-800" aria-live="polite" hidden data-photo-name></p>
+        <p id="add-file-help" class="text-sm text-gray-700">PDF, JPG or PNG, up to 10 MB.</p>
+        {% if file_form.errors %}
+          <p class="text-sm font-medium text-gray-800">Choose the file again. Browsers can't keep it after a problem.</p>
+        {% endif %}
+        {% for error in field.errors %}<p class="flex items-start gap-1 text-base font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-4 shrink-0" %}{{ error }}</p>{% endfor %}
+      </div>
+    </div>
+    <p class="mt-4 flex items-start gap-2 text-sm text-gray-700">{% include "components/icon.html" with name="eye" class="mt-0.5 size-4 shrink-0" %}<span>{{ pet.owner.full_name }} sees that a test result is on file, but can't open it.</span></p>
+    {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Add file" icon="upload" %}
+  </form>
+</dialog>
+{% endwith %}

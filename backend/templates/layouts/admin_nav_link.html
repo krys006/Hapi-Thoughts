@@ -2,6 +2,10 @@
   One sidebar link. Params: url_name, label, icon, match (part of the URL
   name shared by every page in this section), also (optional second URL-name
   fragment for pages that don't contain match), count (optional badge).
+  A page whose URL name points at the wrong section sets nav_section in its
+  context to the section's match (the pet's medical history and
+  vaccinations are admin_pet_… URLs but belong to Medical records /
+  Vaccinations); then only that link is highlighted.
 {% endcomment %}
 {% url url_name as href %}
-<a href="{{ href }}" class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base {% if match in request.resolver_match.url_name or also and also in request.resolver_match.url_name %}bg-white font-semibold text-violet-800 shadow-sm ring-1 ring-violet-200{% else %}text-gray-800 hover:bg-violet-200/70{% endif %}"{% if match in request.resolver_match.url_name or also and also in request.resolver_match.url_name %} aria-current="page"{% endif %}>{% include "components/icon.html" with name=icon %}<span class="flex-1">{{ label }}</span>{% if count %}<span class="rounded-full bg-violet-600 px-2 text-sm font-semibold text-white">{{ count }}<span class="sr-only"> waiting</span></span>{% endif %}</a>
+<a href="{{ href }}" class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base {% if nav_section == match or not nav_section and match in request.resolver_match.url_name or not nav_section and also and also in request.resolver_match.url_name %}bg-white font-semibold text-violet-800 shadow-sm ring-1 ring-violet-200{% else %}text-gray-800 hover:bg-violet-200/70{% endif %}"{% if nav_section == match or not nav_section and match in request.resolver_match.url_name or not nav_section and also and also in request.resolver_match.url_name %} aria-current="page"{% endif %}>{% include "components/icon.html" with name=icon %}<span class="flex-1">{{ label }}</span>{% if count %}<span class="rounded-full bg-violet-600 px-2 text-sm font-semibold text-white">{{ count }}<span class="sr-only"> waiting</span></span>{% endif %}</a>

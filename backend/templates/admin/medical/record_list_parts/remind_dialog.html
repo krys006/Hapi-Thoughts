@@ -1,0 +1,34 @@
+{% load friendly_dates %}
+{% comment %}
+  Follow-up reminder confirmation for one record (one dialog per Send
+  reminder button). Shared by the Medical records list (Follow-ups tab), the
+  record page and the pet's medical history. Needs record, today and
+  last_reminder (the pet's newest follow-up reminder). return_to="record"
+  (record page) or "history" (the pet's medical history) posts only that;
+  otherwise it posts return_to=list with the open tab and q, so the view
+  comes back to the list. Dates from the view's today.
+{% endcomment %}
+{% with pet=record.pet owner=record.pet.owner %}
+<dialog id="reminder-dialog-{{ record.pk }}" aria-labelledby="reminder-dialog-{{ record.pk }}-title" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50">
+  <form method="post" action="{% url 'admin_trigger_followup_reminder' record.pk %}" class="p-6 sm:p-7">
+    {% csrf_token %}
+    {% if return_to == "record" or return_to == "history" %}
+      <input type="hidden" name="return_to" value="{{ return_to }}">
+    {% else %}
+      <input type="hidden" name="return_to" value="list">
+      <input type="hidden" name="tab" value="{{ active_tab }}">
+      {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+    {% endif %}
+    <h2 id="reminder-dialog-{{ record.pk }}-title" class="text-xl font-bold">Send a follow-up reminder to {{ owner.full_name }}?</h2>
+    {% if record.follow_up_date %}
+      <p class="mt-2 text-base text-gray-700">{{ pet.name }}'s follow-up for the visit on {% friendly_date_on record.record_date today "mid" %} is on <b>{% long_date_on record.follow_up_date today "mid" %}</b>. The reminder asks {{ owner.full_name }} to book it.</p>
+    {% else %}
+      {# Older records may need a follow-up with no date set #}
+      <p class="mt-2 text-base text-gray-700">{{ pet.name }} needs a follow-up after the visit on {% friendly_date_on record.record_date today "mid" %}. No date is set. The reminder asks {{ owner.full_name }} to book it.</p>
+    {% endif %}
+    <p class="mt-3 flex items-start gap-2 text-base text-gray-700">{% include "components/icon.html" with name="clock" class="mt-0.5 size-5 shrink-0" %}<span>{% if last_reminder %}Last follow-up reminder for {{ pet.name }}: {% friendly_date_on last_reminder today %}.{% else %}No follow-up reminder sent for {{ pet.name }} yet.{% endif %}</span></p>
+    {% include "admin/medical/vaccination_list_parts/reminder_contact.html" with emails="follow-up" %}
+    {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, send reminder" icon="send" %}
+  </form>
+</dialog>
+{% endwith %}

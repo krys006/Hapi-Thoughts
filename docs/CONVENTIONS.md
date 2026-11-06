@@ -143,7 +143,7 @@ templates/
 ├── layouts/                          ← New bases (§10, §11)
 │   ├── admin.html
 │   ├── admin_sidebar.html
-│   ├── admin_nav_link.html
+│   ├── admin_nav_link.html           ← one sidebar link, highlighted by URL name (match / also); a page in another section's URL names sets nav_section (the pet's medical history and vaccinations)
 │   ├── auth.html
 │   └── bell_count.html
 ├── shared/                           ← Used by both roles
@@ -292,13 +292,73 @@ templates/
 │   │       └── history_row.html      ← answered request: Archived / Kept pill, "By the clinic" for a direct archive
 │   ├── medical/
 │   │   ├── record_list.html
+│   │   ├── record_list_parts/        ← Includes for record_list.html (not HTMX partials, so no `_`; the pager is appointments' list_parts/pager.html; the owner half and the dialog's contact lines come from vaccination_list_parts/)
+│   │   │   ├── search_form.html      ← search (q + the open tab); top bar md+, page body on phones
+│   │   │   ├── tabs.html             ← Follow-ups in 7 days (yellow count while > 0) / All, keep q, drop page
+│   │   │   ├── list_head.html        ← "Follow-ups in the next 7 days (N)" + "Soonest first · Today to …" / "All medical records (N)" + "Newest visit first"
+│   │   │   ├── results_line.html     ← "N records match “q” in …" + Clear search (keeps the tab)
+│   │   │   ├── row.html              ← visit date | pet + diagnosis + follow-up pill | divider | owner | Send reminder (Follow-ups) + Open; never private notes
+│   │   │   ├── remind_dialog.html    ← one per row on the Follow-ups tab (return_to=list, tab, q); also the record page's (return_to="record") and the pet's medical history's (return_to="history")
+│   │   │   └── empty.html            ← no match / no records / no follow-ups in 7 days
 │   │   ├── record_detail.html
-│   │   ├── record_form.html
-│   │   ├── pet_history.html
+│   │   ├── record_detail_parts/      ← Includes for record_detail.html (not HTMX partials, so no `_`; dialogs reuse appointments' detail_parts/dialog_buttons.html, the reminder dialog is record_list_parts/remind_dialog.html)
+│   │   │   ├── header.html           ← back to the pet's medical history, pet_avatar lg, "Visit record · {date}" + Pet archived tag, pet line + owner link, the visit link or "Not linked to a visit"
+│   │   │   ├── archived_banner.html  ← gray banner for an archived pet and/or owner
+│   │   │   ├── notes_card.html       ← Symptoms / Diagnosis / Treatment given + the blue "Note for the owner" box
+│   │   │   ├── note_field.html       ← one notes item: the text or "Not written"
+│   │   │   ├── private_card.html     ← amber Private notes (never on an owner page)
+│   │   │   ├── medicines_card.html   ← rows, Remove only on the day the record was written, else the gray line
+│   │   │   ├── files_card.html       ← test results + "Removed files (N)" <details> (closed)
+│   │   │   ├── vaccinations_card.html ← doses at this visit, Open → pet vaccinations ?highlight=#vaccination-
+│   │   │   ├── actions_card.html     ← Edit record (the one primary) + Add medicine / file / vaccination; archived: the hint
+│   │   │   ├── follow_up_card.html   ← none / yellow with the date, when, Send reminder, last reminder (per pet)
+│   │   │   ├── owner_card.html
+│   │   │   ├── written_card.html     ← Written / Last changed (only after an edit)
+│   │   │   ├── add_medicine_dialog.html ← reopens on errors (open_dialog "add-medicine")
+│   │   │   ├── remove_medicine_dialog.html ← one per medicine, same day only
+│   │   │   ├── add_file_dialog.html  ← multipart, photo-button file input; reopens on errors (open_dialog "add-file")
+│   │   │   └── remove_file_dialog.html ← one per active file (archive URL)
+│   │   ├── record_form.html          ← New and Edit visit record (one form, MedicalRecordForm); extra_js record_form.js
+│   │   ├── record_form_parts/        ← Includes for record_form.html (not HTMX partials, so no `_`; the error summary is pets' owner_form_parts/error_summary.html with numbered=True)
+│   │   │   ├── header.html           ← back link (the visit, the pet page or the record), title, subtitle
+│   │   │   ├── pet_card.html         ← pet_avatar sm + "Pet" + owner, the violet visit line or gray "Not linked to a visit", Visit date
+│   │   │   ├── date_field.html       ← one date field (form_field markup, box max-w-xs, help line from the view, optional=True for "(optional)"); shared by vaccination_form.html
+│   │   │   ├── notes_card.html       ← Visit notes: Symptoms, Diagnosis, Treatment given + "added on the record page" line
+│   │   │   ├── owner_note_card.html  ← blue Note for the owner (the owner sees it)
+│   │   │   ├── private_card.html     ← amber Private notes (never on an owner page)
+│   │   │   ├── follow_up_card.html   ← "Needs a follow-up visit" box + the date block [data-follow-up-on] (shown while ticked)
+│   │   │   └── buttons.html          ← Cancel + new_label ("Save record" / "Save vaccination") or "Save changes", + the after_save note on new; shared by vaccination_form.html
+│   │   ├── pet_history.html          ← the pet's medical history (header + tabs, follow-up banner, record cards); no extra_js
+│   │   ├── pet_health_parts/         ← Includes for pet_history.html and vaccination_history.html (not HTMX partials, so no `_`; the reminder dialogs are record_list_parts/ and vaccination_list_parts/remind_dialog.html with return_to="history")
+│   │   │   ├── header.html           ← back to the pet, pet_avatar lg, "{pet}'s medical history" / "{pet}'s vaccinations" + Archived tag, pet line + owner link, the one violet Add button (current="records" / "vaccinations"), then tabs.html
+│   │   │   ├── tabs.html             ← Medical records (N) / Vaccinations (N), aria-current on the open page
+│   │   │   ├── archived_banner.html  ← gray banner for an archived pet and/or owner
+│   │   │   ├── list_head.html        ← "{title} (N)" + the sort-order note
+│   │   │   ├── follow_up_banner.html ← yellow banner for the soonest follow-up dated today or later + Send reminder (not while archived)
+│   │   │   ├── record_card.html      ← date tile, long date, Diagnosis / Treatment, visit line + counts (zeros left out), follow-up pill, Open; never private notes or the owner note
+│   │   │   ├── vaccination_card.html ← one dose, id="vaccination-<pk>" scroll-mt-24, the highlight ring, pills, Given / Next due / Weight / Where / Batch, record link, Corrected box, Send reminder (remindable only) + Edit
+│   │   │   ├── vaccination_pills.html ← Due today / tomorrow / in N days, N days overdue, Corrected, Later dose given
+│   │   │   └── empty.html            ← "No medical records yet" / "No vaccinations yet" (second line only while the pet and owner are active)
 │   │   ├── vaccination_list.html
-│   │   ├── vaccination_form.html
-│   │   ├── vaccination_edit.html
-│   │   └── vaccination_history.html
+│   │   ├── vaccination_list_parts/   ← Includes for vaccination_list.html (not HTMX partials, so no `_`; the pager is appointments' list_parts/pager.html; dialogs reuse appointments' detail_parts/dialog_buttons.html)
+│   │   │   ├── search_form.html      ← search (q + the open tab); top bar md+, page body on phones
+│   │   │   ├── tabs.html             ← Due in 7 days (yellow count) / Overdue (red count) / All, keep q, drop page
+│   │   │   ├── overdue_note.html     ← gray rule note on the Overdue tab
+│   │   │   ├── list_head.html        ← the open tab's heading + sort order ("Today to {due_until}" on Due)
+│   │   │   ├── results_line.html     ← "N vaccinations match “q” in …" + Clear search (keeps the tab)
+│   │   │   ├── row.html              ← split row: pet + vaccine + given / next due + pills | divider | owner | Send reminder (Due, Overdue) + Open
+│   │   │   ├── owner_half.html       ← owner avatar, name link, phone (also used by record_list_parts/row.html)
+│   │   │   ├── remind_dialog.html    ← one per row on Due / Overdue (return_to=list, tab, q); also the pet's vaccinations' (return_to="history"); takes last_reminder
+│   │   │   ├── reminder_contact.html ← mail line, or the yellow no-email box (with the phone to call); also used by the follow-up dialog
+│   │   │   └── empty.html            ← no match / no vaccinations / nothing due (link to All) / nothing overdue
+│   │   ├── vaccination_form.html     ← New vaccination (from the pet page or ?record=) and Edit vaccination (one template; VaccinationForm / VaccinationEditForm); extra_js vaccination_form.js
+│   │   ├── vaccination_form_parts/   ← Includes for vaccination_form.html (not HTMX partials, so no `_`; the error summary is pets' owner_form_parts/error_summary.html with numbered=True; the date fields and buttons are record_form_parts/date_field.html and buttons.html)
+│   │   │   ├── header.html           ← back link (the pet page, the record or the pet's vaccinations), title, subtitle
+│   │   │   ├── pet_card.html         ← pet_avatar sm + "Pet" + owner, the violet "Part of the visit record from …" or gray "Not part of a visit record"
+│   │   │   ├── vaccination_card.html ← The vaccination: Vaccine select, the indented "Vaccine name" box [data-vaccine-other] (Other only), Date given + Next dose due, Weight + Where it was given; on edit the "Changing these is a correction" pill
+│   │   │   ├── label_card.html       ← From the vial label: Batch / lot no., Maker, Given by (+ the edit line)
+│   │   │   └── correction_card.html  ← edit only: Reason for a correction, the red state with "You changed: …", Corrected before
+│   │   └── vaccination_history.html  ← the pet's vaccinations (header + tabs, dose cards, ?highlight=<pk>); no extra_js
 │   ├── billing/
 │   │   ├── receipt_list.html
 │   │   ├── receipt_detail.html
@@ -374,7 +434,7 @@ static/
 │   ├── owner/              ← Pet owner page styles
 │   └── shared/             ← Styles used by both roles (header, clinic info)
 ├── js/
-│   ├── admin/              ← Admin page scripts; dialogs.js and auto_submit.js are loaded by layouts/admin.html on every page; photo_input.js by admin/pets/owner_form.html and pet_form.html, owner_form.js / pet_form.js only by their form (extra_js)
+│   ├── admin/              ← Admin page scripts; dialogs.js and auto_submit.js are loaded by layouts/admin.html on every page; photo_input.js by admin/pets/owner_form.html, pet_form.html and admin/medical/record_detail.html (the Add file dialog), owner_form.js / pet_form.js / record_form.js / vaccination_form.js only by their form (extra_js)
 │   ├── owner/              ← Pet owner page scripts
 │   └── shared/             ← Scripts used by both roles
 ├── vendor/
@@ -396,8 +456,34 @@ static/
 > `css/admin/pets_list.css`, `js/admin/deletion_requests.js` and
 > `css/admin/deletion_requests.css` (Slice 4b-2), `css/admin/pet_detail.css`
 > (Slice 4b-3), `css/admin/pet_form.css` (Slice 4b-4; added: `js/admin/photo_input.js`,
-> shared by the owner and pet forms, and `js/admin/pet_form.js`). Other old files still
+> shared by the owner and pet forms, and `js/admin/pet_form.js`), `js/admin/record_list.js`,
+> `js/admin/vaccination_list.js`, `css/admin/record_list.css` and
+> `css/admin/vaccination_list.css` (Slice 5b-1: no page loads them and no comment
+> names them any more; Krys deletes the files). Other old files still
 > mention them in comments; those comments go when their own pages migrate.
+> Slice 5b-2: `admin/medical/record_detail.html` no longer loads
+> `css/admin/record_detail.css` (the old `admin/medical/pet_history.html`
+> kept importing it until 5b-5). There is no record-detail JS file. The old inline vaccination form on the record page
+> and its view `admin_vaccination_add` (URL
+> `admin/medical/<record_pk>/vaccination/add/`) are gone; the page links to
+> `admin_vaccination_standalone_create?record=<pk>`.
+> Slice 5b-3: `admin/medical/record_form.html` no longer loads
+> `css/admin/record_form.css`; nothing else loads or names it (Krys deletes
+> the file). Added: `js/admin/record_form.js` (the follow-up date show/hide).
+> Slice 5b-4: `admin/medical/vaccination_form.html` no longer loads
+> `css/admin/vaccination_form.css`, and no view renders
+> `admin/medical/vaccination_edit.html` any more (edit uses
+> `vaccination_form.html`); nothing loads or names either (Krys deletes the
+> files). Added: `js/admin/vaccination_form.js` (the "Vaccine name" box
+> show/hide).
+> Slice 5b-5: `admin/medical/pet_history.html` and
+> `admin/medical/vaccination_history.html` no longer load
+> `js/admin/pet_history.js` (the split-pane side panel),
+> `css/admin/pet_history.css`, `css/admin/record_detail.css` or
+> `css/admin/vaccination_history.css`; nothing loads them and they only name
+> each other (Krys deletes all four). There was no vaccination-history JS.
+> Every template under `templates/admin/medical/` is now on the new layout:
+> no `legacy_css` block and no Tailwind CDN. No file added.
 
 ### Media files (user uploads)
 Upload paths come from the `upload_to` values in the models:
@@ -692,7 +778,7 @@ class AppointmentBookingForm(forms.ModelForm):
 ### Four base templates
 | Base | Used by | What it provides |
 |---|---|---|
-| `layouts/admin.html` | Every admin page: redesigned ones (e.g. `admin/dashboard/index.html`) and ones not redesigned yet, which add their old CSS in `legacy_css` (e.g. `admin/billing/receipt_detail.html`) | Sidebar with count badges and logout, top bar with search ("Find a pet or owner"; the appointments, pet owners and pets lists and the deletion requests page put their own search there) and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/admin/dialogs.js`, `static/js/admin/auto_submit.js`, CSRF + `X-Admin-Layout` via `hx-headers`, confirm modal |
+| `layouts/admin.html` | Every admin page: redesigned ones (e.g. `admin/dashboard/index.html`) and ones not redesigned yet, which add their old CSS in `legacy_css` (e.g. `admin/billing/receipt_detail.html`) | Sidebar with count badges and logout, top bar with search ("Find a pet or owner"; the appointments, pet owners, pets, vaccinations and medical records lists and the deletion requests page put their own search there) and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/admin/dialogs.js`, `static/js/admin/auto_submit.js`, CSRF + `X-Admin-Layout` via `hx-headers`, confirm modal |
 | `layouts/auth.html` | `admin/login.html` | Admin login: standalone card on a violet background, `app.css`, no HTMX |
 | `base_dashboard.html` | Logged-in owner pages (e.g. `owner/pets/list.html`; `shared/clinic_info.html` for owners, which gets its base from the view) | Header with search and bell, role-based sidebar, flash messages, Tailwind + HTMX, CSRF header for HTMX, confirm modal |
 | `base.html` | Standalone auth pages (e.g. `owner/login.html`, `owner/register.html`, password reset, `owner/onboarding/step1.html`) | Bare page with Tailwind + HTMX, no header or sidebar |
@@ -858,6 +944,20 @@ Admin dates are in Manila time (`timezone.localdate()`).
   `friendly_date_on(value, today, style=None)` (same output as
   `long_date` / `friendly_date`), e.g. `resolve_period` in
   `appointments/utils.py`.
+- Templates whose wording must follow the view's `today` (not the clock)
+  use the same functions as tags: `{% friendly_date_on value today %}`,
+  `{% long_date_on value today "mid" %}`, or `{% friendly_date_on due_until today as until %}`
+  (a datetime uses its Manila date; no value gives ""). Used by the
+  Vaccinations and Medical records lists (Slice 5b-1).
+- How far a date is from today, in words (form help lines), comes from one
+  server-side helper, `days_from_today(day, today)` in `medical/utils.py`
+  (with `long_date_with_distance` for "Thursday, November 5 · in 2 days"):
+  "today", "tomorrow", "in N days" up to 31 days ahead, then
+  "in about N months" (days // 30, "in about 1 month" for one), from 360 days
+  ahead "in about N years" (days // 360); in the past "1 day ago" /
+  "N days ago". Used by the record form's follow-up help and the vaccination
+  form's Next dose due help (Slice 5b-4). Never work it out in a template or
+  in JavaScript.
 
 ---
 
@@ -925,7 +1025,7 @@ The main admin user is an elderly vet. Every migrated admin page follows these:
 ### Components (`templates/components/`)
 | Component | Usage |
 |---|---|
-| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 53 icons (`calendar-check` added in dashboard v5, `archive` in Slice 4a-2, `map-pin`, `link`, `pencil`, `rotate-ccw`, `send` in Slice 4a-3, `upload` in Slice 4a-4). To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
+| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 55 icons (`calendar-check` added in dashboard v5, `archive` in Slice 4a-2, `map-pin`, `link`, `pencil`, `rotate-ccw`, `send` in Slice 4a-3, `upload` in Slice 4a-4, `pill` and `chevron-down` in Slice 5b-2). To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
 | `pet_avatar.html` | `{% include "components/pet_avatar.html" with pet=appointment.pet size="lg" %}`. `lg` 64px (`size-16 rounded-2xl`), `sm` 40px (`size-10 rounded-xl`). The pet's photo, or a violet tile with the `species_icon` icon (dog, cat, rabbit, bird, paw-print) at stroke 1.5, labelled "No photo of {name} yet". Optional `muted=True`: gray tile (`bg-gray-100 text-gray-600 ring-gray-300`) for archived pets, or every pet of an archived owner (owner page); a photo is unchanged. |
 | `owner_avatar.html` | `{% include "components/owner_avatar.html" with owner=appointment.owner size="xs" %}`. Circle; `lg` 64px (`size-16`, `text-xl` initials; owner page header), `sm` 40px, `xs` 32px. The profile photo, or initials (one letter when the last name is blank). Optional `muted=True`: gray initials tile (`bg-gray-100 text-gray-700 ring-gray-300`) for archived owners (owners list Archived tab, owner page). |
 | `form_field.html` | `{% include "components/form_field.html" with field=form.email %}`. Label, control, help text, errors (red text with the `triangle-alert` icon). Optional `optional=True` adds a gray "(optional)" after the label; `required=True` adds the red * for a field only `clean()` requires (the pet form's "Type the species"). Needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple field uses it. |

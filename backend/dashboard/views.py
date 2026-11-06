@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date
 
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
@@ -14,7 +14,8 @@ from dashboard.utils import (
     pending_requests,
     picked_day,
 )
-from medical.models import MedicalRecord, Vaccination
+from medical.models import MedicalRecord
+from medical.utils import followups_due, vaccinations_due
 from notifications.models import Notification
 from pets.models import Pet, PetOwner
 
@@ -26,7 +27,6 @@ def _get_admin_dashboard_context(today=None):
     both always stay in sync with the same query logic.
     """
     today = today or timezone.localdate()
-    week_end = today + timedelta(days=7)
 
     pending_approvals = Appointment.objects.filter(
         status=Appointment.PENDING,
@@ -36,23 +36,12 @@ def _get_admin_dashboard_context(today=None):
         payment_status=BillingReceipt.PENDING,
     ).count()
 
-    vaccinations_due = Vaccination.objects.filter(
-        next_due_date__range=[today, week_end],
-        pet__is_archived=False,
-        is_corrected=False,
-    ).count()
-
-    followups_due = MedicalRecord.objects.filter(
-        follow_up_required=True,
-        follow_up_date__range=[today, week_end],
-        pet__is_archived=False,
-    ).count()
-
     return {
         "pending_approvals": pending_approvals,
         "unpaid_bills": unpaid_bills,
-        "vaccinations_due": vaccinations_due,
-        "followups_due": followups_due,
+        # Today to today + 7 (the shared due rule in medical/utils.py)
+        "vaccinations_due": vaccinations_due(today).count(),
+        "followups_due": followups_due(today).count(),
         "today": today,
     }
 

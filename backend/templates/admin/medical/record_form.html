@@ -1,143 +1,38 @@
 {% extends "layouts/admin.html" %}
 
 {% load static %}
-{% block legacy_css %}
-<style>
-  @import url("{% static 'css/admin/record_form.css' %}") layer(legacy);
-</style>
-{% endblock %}
 
-{% block title %}
-  {% if is_edit %}Edit Medical Record{% else %}New Medical Record{% endif %}
-  — Hapi Vet Admin
+{% block title %}{% if is_edit %}Edit {{ pet.name }}'s visit record{% else %}New visit record for {{ pet.name }}{% endif %} — Hapi Vet Admin{% endblock %}
+
+{% block extra_head %}
+  {# Without JavaScript the follow-up date always shows, so the form still works #}
+  <noscript><style>[data-follow-up-on] { display: block; }</style></noscript>
 {% endblock %}
 
 {% block page_header %}{% endblock %}
 
 {% block content %}
+<div class="mx-auto max-w-3xl">
+  {% include "admin/medical/record_form_parts/header.html" %}
 
-<div class="admin-page">
-
-  <div class="admin-page-header">
-    <h1 class="admin-page-title">
-      {% if is_edit %}Edit Medical Record{% else %}New Medical Record{% endif %}
-    </h1>
-    {% if is_edit %}
-      <a href="{% url 'admin_medical_record_detail' record.pk %}" class="btn-link">
-        Back to Record
-      </a>
-    {% else %}
-      <a href="{% url 'admin_pet_detail' pet.pk %}" class="btn-link">
-        Back to Pet
-      </a>
-    {% endif %}
-  </div>
-
-  <!-- Context info -->
-  <div class="record-context">
-    <p class="record-context-pet">
-      Pet: <strong>{{ pet.name }}</strong> ({{ pet.species }})
-    </p>
-    {% if appointment %}
-      <p class="record-context-appointment">
-        Linked appointment:
-        <strong>{{ appointment.date|date:"F j, Y" }}</strong>
-        at <strong>{{ appointment.time|time:"g:i A" }}</strong>
-      </p>
-    {% endif %}
-  </div>
-
-  <form method="post" class="medical-form">
+  <form method="post" class="space-y-6" novalidate>
     {% csrf_token %}
+    {% if appointment and not is_edit %}<input type="hidden" name="appointment" value="{{ appointment.pk }}">{% endif %}
 
-    {% if appointment %}
-      <input type="hidden" name="appointment" value="{{ appointment.pk }}" />
+    {% if form.errors %}
+      {% include "admin/pets/owner_form_parts/error_summary.html" with numbered=True %}
     {% endif %}
 
-    <!-- Date -->
-    <div class="form-group">
-      <label for="{{ form.record_date.id_for_label }}" class="form-label">
-        Record Date
-      </label>
-      {{ form.record_date }}
-      {% if form.record_date.errors %}
-        <p class="form-error">{{ form.record_date.errors.0 }}</p>
-      {% endif %}
-    </div>
-
-    <!-- Clinical fields -->
-    <div class="form-group">
-      <label for="{{ form.symptoms.id_for_label }}" class="form-label">
-        Symptoms
-      </label>
-      {{ form.symptoms }}
-    </div>
-
-    <div class="form-group">
-      <label for="{{ form.diagnosis.id_for_label }}" class="form-label">
-        Diagnosis
-      </label>
-      {{ form.diagnosis }}
-    </div>
-
-    <div class="form-group">
-      <label for="{{ form.treatment_given.id_for_label }}" class="form-label">
-        Treatment Given
-      </label>
-      {{ form.treatment_given }}
-    </div>
-
-    <!-- Notes -->
-    <div class="form-group">
-      <label for="{{ form.public_notes.id_for_label }}" class="form-label">
-        Public Notes
-        <span class="form-help-inline">Visible to pet owner</span>
-      </label>
-      {{ form.public_notes }}
-    </div>
-
-    <div class="form-group">
-      <label for="{{ form.private_notes.id_for_label }}" class="form-label">
-        Private Notes
-        <span class="form-help-inline">Admin only — never shown to pet owner</span>
-      </label>
-      {{ form.private_notes }}
-    </div>
-
-    <!-- Follow-up -->
-    <div class="form-group">
-      <label class="checkbox-label">
-        {{ form.follow_up_required }}
-        Follow-up required
-      </label>
-    </div>
-
-    <div class="form-group">
-      <label for="{{ form.follow_up_date.id_for_label }}" class="form-label">
-        Follow-up Date
-      </label>
-      {{ form.follow_up_date }}
-      {% if form.follow_up_date.errors %}
-        <p class="form-error">{{ form.follow_up_date.errors.0 }}</p>
-      {% endif %}
-    </div>
-
-    {% if form.non_field_errors %}
-      <div class="form-error-block">
-        {% for error in form.non_field_errors %}
-          <p class="form-error">{{ error }}</p>
-        {% endfor %}
-      </div>
-    {% endif %}
-
-    <div class="form-actions">
-      <button type="submit" class="btn-primary">
-        {% if is_edit %}Save Changes{% else %}Create Record{% endif %}
-      </button>
-    </div>
-
+    {% include "admin/medical/record_form_parts/pet_card.html" %}
+    {% include "admin/medical/record_form_parts/notes_card.html" %}
+    {% include "admin/medical/record_form_parts/owner_note_card.html" %}
+    {% include "admin/medical/record_form_parts/private_card.html" %}
+    {% include "admin/medical/record_form_parts/follow_up_card.html" %}
+    {% include "admin/medical/record_form_parts/buttons.html" with new_label="Save record" after_save="After saving you'll see the record, where you can add medicines, files and vaccinations." %}
   </form>
-
 </div>
+{% endblock %}
 
+{% block extra_js %}
+  <script src="{% static 'js/admin/record_form.js' %}" defer></script>
 {% endblock %}

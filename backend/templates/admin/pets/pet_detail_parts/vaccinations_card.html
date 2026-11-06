@@ -1,8 +1,9 @@
 {% load friendly_dates %}
 {% comment %}
   "Vaccinations": a yellow line when one is due within 30 days
-  (vaccination_due_soon, due_soon_days), the 3 newest, then a link to the
-  full list. "Add vaccination" only while the pet and owner are active.
+  (vaccination_due_soon, due_soon_days), the 3 newest (Open → the pet's
+  vaccinations with that dose highlighted), then a link to the full list.
+  "Add vaccination" only while the pet and owner are active.
 {% endcomment %}
 <section class="card" aria-labelledby="vaccinations-title">
   <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -27,7 +28,7 @@
             <span class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-gray-100 px-2.5 py-1 text-sm font-medium text-gray-800">{% include "components/icon.html" with name="pencil" class="size-4 shrink-0" %}Corrected</span>
           {% endif %}
           <span class="text-base text-gray-700">{% if vaccination.next_due_date %}Next due {{ vaccination.next_due_date|friendly_date:"mid" }}{% else %}No next date{% endif %}</span>
-          <a href="{% url 'admin_vaccination_edit' vaccination.pk %}" class="inline-flex min-h-11 items-center px-2 text-base font-medium text-blue-600 underline underline-offset-2">Open<span class="sr-only"> {{ vaccination.display_vaccine_name }} given {{ vaccination.date_administered|friendly_date:"mid" }}</span></a>
+          <a href="{% url 'admin_pet_vaccination_history' pet.pk %}?highlight={{ vaccination.pk }}#vaccination-{{ vaccination.pk }}" class="inline-flex min-h-11 items-center px-2 text-base font-medium text-blue-600 underline underline-offset-2">Open<span class="sr-only"> {{ vaccination.display_vaccine_name }} given {{ vaccination.date_administered|friendly_date:"mid" }}</span></a>
         </li>
       {% endfor %}
     </ul>

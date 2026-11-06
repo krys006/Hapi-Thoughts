@@ -1,0 +1,11 @@
+{% comment %}
+  Follow-ups in 7 days / All, same classes as the pets list's tabs. Each
+  keeps the search and drops the page. The Follow-ups count is yellow while
+  above 0. active_tab is "followups" or "all".
+{% endcomment %}
+<nav class="mb-4 flex flex-wrap gap-2" aria-label="Medical records sections">
+  {% with keep_q=q|urlencode %}
+    <a href="{% url 'admin_medical_record_list' %}?tab=followups{% if q %}&amp;q={{ keep_q }}{% endif %}" class="{% if active_tab == 'followups' %}inline-flex min-h-12 items-center gap-2 rounded-lg bg-violet-50 px-4 text-base font-semibold text-violet-800 ring-2 ring-violet-600{% else %}inline-flex min-h-12 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800 hover:bg-gray-50{% endif %}"{% if active_tab == "followups" %} aria-current="page"{% endif %}>Follow-ups in 7 days<span class="rounded-full {% if followups_count %}bg-yellow-200 text-yellow-900{% elif active_tab == 'followups' %}bg-violet-100 text-violet-800{% else %}bg-gray-100 text-gray-800{% endif %} px-2 text-sm font-semibold">{{ followups_count }}</span></a>
+    <a href="{% url 'admin_medical_record_list' %}?tab=all{% if q %}&amp;q={{ keep_q }}{% endif %}" class="{% if active_tab == 'all' %}inline-flex min-h-12 items-center gap-2 rounded-lg bg-violet-50 px-4 text-base font-semibold text-violet-800 ring-2 ring-violet-600{% else %}inline-flex min-h-12 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800 hover:bg-gray-50{% endif %}"{% if active_tab == "all" %} aria-current="page"{% endif %}>All<span class="rounded-full {% if active_tab == 'all' %}bg-violet-100 text-violet-800{% else %}bg-gray-100 text-gray-800{% endif %} px-2 text-sm font-semibold">{{ all_count }}</span></a>
+  {% endwith %}
+</nav>

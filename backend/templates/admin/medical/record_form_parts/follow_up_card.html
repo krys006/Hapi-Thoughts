@@ -1,0 +1,21 @@
+{% comment %}
+  Follow-up: the "Needs a follow-up visit" box, then the Follow-up date in
+  [data-follow-up-on], shown while the box is ticked (form.follow_up_ticked:
+  as posted on a re-render, else as saved). record_form.js switches it and
+  the unticked hint [data-follow-up-off]; without JavaScript the date always
+  shows (the <noscript> style in record_form.html). On edit with a saved
+  date the help line is that date and how far off it is (saved_follow_up).
+{% endcomment %}
+<section class="card" aria-labelledby="follow-up-title" data-follow-up>
+  <h2 id="follow-up-title" class="flex items-center gap-2 text-xl font-semibold text-gray-900">{% include "components/icon.html" with name="calendar" class="size-5 shrink-0 text-gray-600" %}Follow-up</h2>
+  {% with box=form.follow_up_required %}
+    <label for="{{ box.id_for_label }}" class="mt-3 flex min-h-11 cursor-pointer items-center gap-3 text-base font-semibold text-gray-900">
+      <input type="checkbox" name="{{ box.html_name }}" id="{{ box.id_for_label }}" class="size-6 shrink-0 accent-violet-600"{% if form.follow_up_ticked %} checked{% endif %} data-follow-up-box>
+      {{ box.label }}
+    </label>
+  {% endwith %}
+  <p class="mt-1 text-sm text-gray-700{% if form.follow_up_ticked %} hidden{% endif %}" data-follow-up-off>{{ form.follow_up_off_help }}</p>
+  <div class="mt-3 border-l-4 border-violet-200 pl-4{% if not form.follow_up_ticked %} hidden{% endif %}" data-follow-up-on>
+    {% include "admin/medical/record_form_parts/date_field.html" with field=form.follow_up_date help=saved_follow_up|default:form.follow_up_date.help_text %}
+  </div>
+</section>

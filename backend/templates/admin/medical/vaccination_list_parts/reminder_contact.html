@@ -1,0 +1,18 @@
+{% comment %}
+  How a reminder reaches the owner (needs owner, emails = "vaccination" or
+  "follow-up"). With an email: the mail line. Without one: a yellow box,
+  with the phone number to call when there is one. Also used by the
+  Medical records list's reminder dialog.
+{% endcomment %}
+{% if owner.user.email %}
+  <p class="mt-3 flex items-start gap-2 text-sm text-gray-700">{% include "components/icon.html" with name="mail" class="mt-0.5 size-4 shrink-0" %}<span>{{ owner.full_name }} gets a notification in the app, and an email if they have one and {{ emails }} emails are on.</span></p>
+{% else %}
+  <div class="mt-3 flex items-start gap-3 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-base text-gray-900">
+    {% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0 text-yellow-700" %}
+    {% if owner.contact_number %}
+      <p><b>{{ owner.full_name }} has no email on file.</b> The reminder only shows in the app, the next time they log in. To reach them sooner, call {{ owner.contact_number }}.</p>
+    {% else %}
+      <p><b>{{ owner.full_name }} has no email and no phone number on file.</b> The reminder only shows in the app, the next time they log in.</p>
+    {% endif %}
+  </div>
+{% endif %}

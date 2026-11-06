@@ -1,62 +1,30 @@
 {% extends "layouts/admin.html" %}
 
-{% load static %}
-{% block legacy_css %}
-<style>
-  @import url("{% static 'css/admin/record_detail.css' %}") layer(legacy);
-  @import url("{% static 'css/admin/pet_history.css' %}") layer(legacy);
-</style>
+{% block title %}{{ pet.name }}'s medical history — Hapi Vet Admin{% endblock %}
+
+{% block page_header %}
+  {% include "admin/medical/pet_health_parts/header.html" with current="records" %}
 {% endblock %}
 
-{% block title %}Medical History — {{ pet.name }} — Hapi Vet Admin{% endblock %}
-
-{% block page_header %}{% endblock %}
-
 {% block content %}
-
-<div class="admin-page">
-
-  <div class="admin-page-header">
-    <h1 class="admin-page-title">Medical History — {{ pet.name }}</h1>
-    <div class="header-actions">
-      <a href="{% url 'admin_medical_record_create' pet.pk %}" class="btn-primary">
-        + New Record
-      </a>
-      <a href="{% url 'admin_pet_detail' pet.pk %}" class="btn-link">
-        Back to Pet
-      </a>
-    </div>
-  </div>
+  {% include "admin/medical/pet_health_parts/archived_banner.html" %}
+  {% if follow_up_banner %}
+    {% include "admin/medical/pet_health_parts/follow_up_banner.html" %}
+  {% endif %}
 
   {% if records %}
-    <ul class="record-list">
+    {% include "admin/medical/pet_health_parts/list_head.html" with title="All records" count=records|length note="Newest first · private notes are only on each record" %}
+    <ul class="space-y-4">
       {% for record in records %}
-        <li class="record-card">
-          <div class="record-card-main">
-            <span class="record-date">
-              {{ record.record_date|date:"F j, Y" }}
-            </span>
-            {% if record.diagnosis %}
-              <span class="record-diagnosis">{{ record.diagnosis }}</span>
-            {% endif %}
-            {% if record.follow_up_required %}
-              <span class="followup-badge">Follow-up Required</span>
-            {% endif %}
-          </div>
-          <a href="{% url 'admin_medical_record_detail' record.pk %}" class="btn-link">
-            View
-          </a>
-        </li>
+        {% include "admin/medical/pet_health_parts/record_card.html" %}
       {% endfor %}
     </ul>
   {% else %}
-    <p class="empty-state-text">No medical records for {{ pet.name }}.</p>
+    {% include "admin/medical/pet_health_parts/empty.html" with current="records" %}
   {% endif %}
 
-</div>
-
-{% endblock %}
-
-{% block extra_js %}
-  <script src="{% static 'js/admin/pet_history.js' %}"></script>
+  {# The banner's Send reminder (shared with the list and the record page) #}
+  {% if follow_up_banner %}
+    {% include "admin/medical/record_list_parts/remind_dialog.html" with record=follow_up_banner.record last_reminder=last_followup_reminder return_to="history" %}
+  {% endif %}
 {% endblock %}

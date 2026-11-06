@@ -876,11 +876,21 @@ class DashboardStatFixTests(ShellTestBase):
             follow_up_date=self.soon,
         )
 
-    def test_corrected_vaccination_is_not_counted(self):
+    def test_corrected_vaccination_is_counted(self):
+        """Batch 5a-3: a corrected dose counts like any other (D1 left it out)."""
         self._vaccination(is_corrected=True)
-        self.assertEqual(self._stats()["vaccinations_due"], 0)
-        self._vaccination(is_corrected=False)
         self.assertEqual(self._stats()["vaccinations_due"], 1)
+        self._vaccination(is_corrected=False)
+        self.assertEqual(self._stats()["vaccinations_due"], 2)
+
+    def test_archived_owner_is_not_counted(self):
+        self._vaccination(is_corrected=False)
+        self._followup(self.pet)
+        stats = self._stats()
+        self.assertEqual((stats["vaccinations_due"], stats["followups_due"]), (1, 1))
+        self.owner.archive()
+        stats = self._stats()
+        self.assertEqual((stats["vaccinations_due"], stats["followups_due"]), (0, 0))
 
     def test_followup_for_archived_pet_is_not_counted(self):
         self._followup(self.archived)
@@ -1273,8 +1283,10 @@ class DashboardMarkupTests(DashboardV5TestBase):
         links = {
             "Waiting for approval": reverse("admin_appointments") + "?status=pending",
             "Unpaid bills": reverse("admin_receipt_list") + "?status=pending",
-            "Vaccinations due this week": reverse("admin_vaccination_list"),
-            "Follow-ups due this week": reverse("admin_medical_record_list"),
+            "Vaccinations due this week": reverse("admin_vaccination_list")
+            + "?tab=due",
+            "Follow-ups due this week": reverse("admin_medical_record_list")
+            + "?tab=followups",
         }
         for label, url in links.items():
             with self.subTest(label=label):

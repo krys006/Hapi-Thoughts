@@ -1,0 +1,10 @@
+{# Confirm removing one medicine (item); only rendered on the day the record was written #}
+<dialog id="remove-medicine-{{ item.pk }}" aria-labelledby="remove-medicine-{{ item.pk }}-title" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50">
+  <form method="post" action="{% url 'admin_prescription_item_delete' item.pk %}" class="p-6 sm:p-7">
+    {% csrf_token %}
+    <h2 id="remove-medicine-{{ item.pk }}-title" class="text-xl font-bold">Remove {{ item.medicine_name }}?</h2>
+    <p class="mt-2 text-base text-gray-700">It disappears from this record and from {{ record.pet.name }}'s page for {{ record.pet.owner.full_name }}.</p>
+    <p class="mt-3 flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-2 text-base text-gray-800">{% include "components/icon.html" with name="info" class="mt-0.5 size-5 shrink-0" %}<span>You can remove medicines only today, the day this record was written. From tomorrow the list is kept as it is.</span></p>
+    {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, remove it" icon="x" danger=True %}
+  </form>
+</dialog>

@@ -1,0 +1,9 @@
+{# Confirm removing (archiving) one test file (test_file); it moves to "Removed files" #}
+<dialog id="remove-file-{{ test_file.pk }}" aria-labelledby="remove-file-{{ test_file.pk }}-title" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50">
+  <form method="post" action="{% url 'admin_test_result_file_archive' test_file.pk %}" class="p-6 sm:p-7">
+    {% csrf_token %}
+    <h2 id="remove-file-{{ test_file.pk }}-title" class="break-words text-xl font-bold">Remove “{{ test_file.title }}”?</h2>
+    <p class="mt-2 text-base text-gray-700">Use this for a wrong file. It is hidden from {{ record.pet.owner.full_name }} and moves to <b>Removed files</b> at the bottom of this card, where the clinic can still open it.</p>
+    {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, remove it" icon="x" danger=True %}
+  </form>
+</dialog>

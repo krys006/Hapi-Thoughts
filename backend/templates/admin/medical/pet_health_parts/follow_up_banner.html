@@ -1,0 +1,14 @@
+{% comment %}
+  Yellow banner for the soonest follow-up dated today or later
+  (follow_up_banner from the view, worked out from its today; none for an
+  archived pet or owner): "Follow-up on {long date} ({how far}), for the
+  {diagnosis start} seen on {date}." Send reminder opens the shared
+  follow-up dialog (reminder-dialog-{record pk}, return_to=history).
+{% endcomment %}
+{% with record=follow_up_banner.record %}
+<div class="mb-6 flex flex-wrap items-center gap-4 rounded-xl border-2 border-yellow-300 bg-yellow-50 px-5 py-4">
+  {% include "components/icon.html" with name="calendar" class="size-6 shrink-0 text-yellow-800" %}
+  <p class="min-w-0 flex-1 text-base text-gray-900"><b>Follow-up on {{ follow_up_banner.long_date }}</b> ({{ follow_up_banner.distance }}), for the {{ follow_up_banner.about }} seen on {{ follow_up_banner.seen_on }}.</p>
+  <button type="button" class="btn btn-outline w-full font-semibold sm:w-auto" data-dialog-open="reminder-dialog-{{ record.pk }}">{% include "components/icon.html" with name="send" %}Send reminder<span class="sr-only"> to {{ pet.owner.full_name }} about {{ pet.name }}'s follow-up</span></button>
+</div>
+{% endwith %}

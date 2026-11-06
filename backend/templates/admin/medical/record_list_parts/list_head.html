@@ -1,0 +1,15 @@
+{% load friendly_dates %}
+{% comment %}
+  Heading above the list when not searching: the open tab's name and
+  count, and its sort order on the right (the Follow-ups tab also says
+  which days it covers, from the view's today).
+{% endcomment %}
+<div class="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+  {% if active_tab == "followups" %}
+    <h2 class="text-lg font-semibold text-gray-900">Follow-ups in the next 7 days <span class="font-normal text-gray-600">({{ followups_count }})</span></h2>
+    <p class="text-sm text-gray-600">Soonest first · Today to {% friendly_date_on due_until today %}</p>
+  {% else %}
+    <h2 class="text-lg font-semibold text-gray-900">All medical records <span class="font-normal text-gray-600">({{ all_count }})</span></h2>
+    <p class="text-sm text-gray-600">Newest visit first</p>
+  {% endif %}
+</div>

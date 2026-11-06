@@ -6,6 +6,12 @@ from django.utils import timezone
 
 from appointments.models import Appointment
 from medical.models import MedicalRecord, Vaccination
+from medical.utils import (
+    FOLLOW_UP_REMINDER_DAYS,
+    VACCINATION_REMINDER_DEFAULT_DAYS,
+    active_pet_filter,
+    later_dose_exists,
+)
 from notifications.models import Notification, NotificationPreference
 from notifications.utils import notify
 
@@ -134,11 +140,15 @@ class Command(BaseCommand):
         Sends reminders for vaccinations coming due.
         Reminder timing is per pet owner's NotificationPreference.
         Also sends a day-of reminder as a safety net.
+        Superseded doses (a later dose of the same vaccine) and archived
+        pets/owners are skipped (the shared due rule in medical/utils.py).
         """
         count = 0
 
         # Get all vaccinations with a future or today due date
         upcoming = Vaccination.objects.filter(
+            active_pet_filter(),
+            ~later_dose_exists(),
             next_due_date__gte=today,
         ).select_related("pet", "pet__owner", "pet__owner__user")
 
@@ -151,7 +161,7 @@ class Command(BaseCommand):
                 pref = owner_user.notification_preference
                 reminder_days = pref.vaccination_reminder_days
             except NotificationPreference.DoesNotExist:
-                reminder_days = 7
+                reminder_days = VACCINATION_REMINDER_DEFAULT_DAYS
 
             # Fire on the configured day OR day-of (day 0) as safety net
             if days_until not in [reminder_days, 0]:
@@ -218,12 +228,15 @@ class Command(BaseCommand):
     def _send_followup_reminders(self, today):
         """
         Sends reminders for medical record follow-ups.
-        Fixed timing: 3 days before + day-of as safety net.
+        Fixed timing: FOLLOW_UP_REMINDER_DAYS (medical/utils.py, also named
+        on the record form) before + day-of as safety net.
+        Archived pets/owners are skipped.
         """
         count = 0
 
         # Get all records with a future or today follow-up date
         upcoming = MedicalRecord.objects.filter(
+            active_pet_filter(),
             follow_up_required=True,
             follow_up_date__gte=today,
         ).select_related("pet", "pet__owner", "pet__owner__user")
@@ -232,8 +245,8 @@ class Command(BaseCommand):
             owner_user = record.pet.owner.user
             days_until = (record.follow_up_date - today).days
 
-            # Fixed: fire 3 days before or day-of only
-            if days_until not in [3, 0]:
+            # Fixed: fire FOLLOW_UP_REMINDER_DAYS before or day-of only
+            if days_until not in [FOLLOW_UP_REMINDER_DAYS, 0]:
                 continue
 
             # Duplicate prevention

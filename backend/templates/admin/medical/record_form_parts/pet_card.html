@@ -1,0 +1,24 @@
+{% load friendly_dates %}
+{% comment %}
+  First card: the pet and owner, the visit the record belongs to (violet)
+  or "Not linked to a visit" (gray), then Visit date, the only required
+  field. visit_date_help comes from the view (none on edit). Dates from the
+  view's today.
+{% endcomment %}
+<section class="card" aria-label="Pet and visit">
+  <div class="flex flex-wrap items-center gap-4">
+    {% include "components/pet_avatar.html" with pet=pet size="sm" %}
+    <div class="min-w-0 flex-1">
+      <p class="text-sm text-gray-600">Pet</p>
+      <p class="text-lg font-semibold text-gray-900">{{ pet.name }} <span class="text-base font-normal text-gray-700">· Owner: {{ pet.owner.full_name }}</span></p>
+    </div>
+  </div>
+  {% if appointment %}
+    <p class="mt-3 flex items-center gap-2 rounded-lg bg-violet-50 px-3 py-2 text-base text-gray-900">{% include "components/icon.html" with name="calendar" class="size-5 shrink-0 text-gray-600" %}<span>From the visit <b class="font-semibold">{% friendly_date_on appointment.date today %} at {{ appointment.time|time:"g:i A" }}</b></span></p>
+  {% else %}
+    <p class="mt-3 flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-base text-gray-700">{% include "components/icon.html" with name="calendar" class="size-5 shrink-0 text-gray-600" %}<span>Not linked to a visit</span></p>
+  {% endif %}
+  <div class="mt-4">
+    {% include "admin/medical/record_form_parts/date_field.html" with field=form.record_date help=visit_date_help required=True %}
+  </div>
+</section>

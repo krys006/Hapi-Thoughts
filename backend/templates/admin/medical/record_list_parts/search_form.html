@@ -1,0 +1,17 @@
+{% comment %}
+  Medical record search: a plain GET form. Used twice by record_list.html:
+  in the top bar from md up and in the page body below md (form_class sets
+  the breakpoint, id_prefix keeps the ids apart). Sends q and the open tab,
+  so a search stays inside the tab. Private notes are never searched.
+{% endcomment %}
+<form method="get" action="{% url 'admin_medical_record_list' %}" class="{{ form_class }}" role="search">
+  <label for="{{ id_prefix }}-record-search" class="sr-only">Search medical records</label>
+  <div class="relative w-full min-w-0 max-w-[30rem]">
+    <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-600">
+      {% include "components/icon.html" with name="search" %}
+    </span>
+    <input id="{{ id_prefix }}-record-search" type="search" name="q" value="{{ q }}" placeholder="Search records: pet, owner or diagnosis" class="input pl-10">
+  </div>
+  <input type="hidden" name="tab" value="{{ active_tab }}">
+  <button type="submit" class="btn btn-outline font-semibold">{% include "components/icon.html" with name="search" %}Search</button>
+</form>

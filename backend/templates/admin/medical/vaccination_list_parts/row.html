@@ -1,0 +1,51 @@
+{% load friendly_dates %}
+{% comment %}
+  One vaccination, split in two like the pets list: the pet (avatar,
+  "{pet} · {vaccine}", given / next due, pills), a thin divider, the owner
+  (avatar, link, phone), then the buttons. From md up a 4-column grid;
+  below md a card: the owner in a gray box, Remind and Open side by side.
+  Dates and pill wording come from the view's today (due_state / days).
+  Send reminder only on the Due and Overdue tabs; "Later dose given" only
+  on All.
+{% endcomment %}
+{% with pet=vaccination.pet owner=vaccination.pet.owner %}
+<li class="flex flex-col gap-3 border-t border-gray-100 p-4 first:border-t-0 hover:bg-gray-50 md:grid md:grid-cols-[minmax(0,1.25fr)_1px_minmax(0,0.9fr)_auto] md:items-center md:gap-5 md:px-5">
+  <div class="flex min-w-0 items-start gap-3 md:gap-4">
+    {% if pet.is_archived or owner.is_archived %}
+      {% include "components/pet_avatar.html" with pet=pet size="sm" muted=True %}
+    {% else %}
+      {% include "components/pet_avatar.html" with pet=pet size="sm" %}
+    {% endif %}
+    <div class="min-w-0">
+      <p class="text-lg font-semibold text-gray-900">{{ pet.name }} <span class="font-normal text-gray-500">·</span> <span class="inline-flex items-center gap-1.5">{% include "components/icon.html" with name="syringe" class="size-4 shrink-0 text-gray-600" %}{{ vaccination.display_vaccine_name }}</span></p>
+      <p class="text-base text-gray-700">Given {% friendly_date_on vaccination.date_administered today %} · {% if vaccination.next_due_date %}Next due {% friendly_date_on vaccination.next_due_date today %}{% else %}<span class="text-gray-600">No next date</span>{% endif %}</p>
+      {% if vaccination.due_state or vaccination.is_corrected or active_tab == "all" and vaccination.is_superseded %}
+        <p class="mt-1 flex flex-wrap gap-2">
+          {% if vaccination.due_state == "due" %}
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-yellow-100 px-2.5 py-1 text-sm font-medium text-yellow-900">{% include "components/icon.html" with name="clock" class="size-4 shrink-0" %}{% if vaccination.days == 0 %}Due today{% elif vaccination.days == 1 %}Due tomorrow{% else %}In {{ vaccination.days }} days{% endif %}</span>
+          {% elif vaccination.due_state == "overdue" %}
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-red-100 px-2.5 py-1 text-sm font-medium text-red-800">{% include "components/icon.html" with name="triangle-alert" class="size-4 shrink-0" %}{{ vaccination.days }} day{{ vaccination.days|pluralize }} overdue</span>
+          {% endif %}
+          {% if vaccination.is_corrected %}
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1 text-sm font-medium text-gray-800">{% include "components/icon.html" with name="pencil" class="size-4 shrink-0" %}Corrected</span>
+          {% endif %}
+          {% if active_tab == "all" and vaccination.is_superseded %}
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1 text-sm font-medium text-gray-800">{% include "components/icon.html" with name="check" class="size-4 shrink-0" %}Later dose given</span>
+          {% endif %}
+        </p>
+      {% endif %}
+    </div>
+  </div>
+
+  <span class="hidden h-10 w-px bg-gray-200 md:block" aria-hidden="true"></span>
+
+  {% include "admin/medical/vaccination_list_parts/owner_half.html" %}
+
+  <div class="flex gap-2 md:justify-end">
+    {% if active_tab != "all" and vaccination.due_state %}
+      <button type="button" class="btn btn-outline flex-1 font-semibold md:flex-none" data-dialog-open="reminder-dialog-{{ vaccination.pk }}">{% include "components/icon.html" with name="send" %}<span class="md:hidden">Remind</span><span class="hidden md:inline">Send reminder</span><span class="sr-only"> to {{ owner.full_name }} about {{ pet.name }}</span></button>
+    {% endif %}
+    <a href="{% url 'admin_pet_vaccination_history' pet.pk %}?highlight={{ vaccination.pk }}#vaccination-{{ vaccination.pk }}" class="inline-flex min-h-11 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-violet-300 bg-violet-50 px-5 text-base font-semibold text-violet-800 hover:border-violet-400 hover:bg-violet-100 md:flex-none">Open<span class="sr-only"> {{ pet.name }}'s {{ vaccination.display_vaccine_name }}</span>{% include "components/icon.html" with name="arrow-right" %}</a>
+  </div>
+</li>
+{% endwith %}

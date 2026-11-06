@@ -1,0 +1,13 @@
+{% comment %}
+  Due in 7 days / Overdue / All, same classes as the pets list's tabs. Each
+  keeps the search and drops the page. The Due count is yellow and the
+  Overdue count red while above 0; at 0 they look like any other count.
+  active_tab is "due", "overdue" or "all".
+{% endcomment %}
+<nav class="mb-4 flex flex-wrap gap-2" aria-label="Vaccinations sections">
+  {% with keep_q=q|urlencode %}
+    <a href="{% url 'admin_vaccination_list' %}?tab=due{% if q %}&amp;q={{ keep_q }}{% endif %}" class="{% if active_tab == 'due' %}inline-flex min-h-12 items-center gap-2 rounded-lg bg-violet-50 px-4 text-base font-semibold text-violet-800 ring-2 ring-violet-600{% else %}inline-flex min-h-12 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800 hover:bg-gray-50{% endif %}"{% if active_tab == "due" %} aria-current="page"{% endif %}>Due in 7 days<span class="rounded-full {% if due_count %}bg-yellow-200 text-yellow-900{% elif active_tab == 'due' %}bg-violet-100 text-violet-800{% else %}bg-gray-100 text-gray-800{% endif %} px-2 text-sm font-semibold">{{ due_count }}</span></a>
+    <a href="{% url 'admin_vaccination_list' %}?tab=overdue{% if q %}&amp;q={{ keep_q }}{% endif %}" class="{% if active_tab == 'overdue' %}inline-flex min-h-12 items-center gap-2 rounded-lg bg-violet-50 px-4 text-base font-semibold text-violet-800 ring-2 ring-violet-600{% else %}inline-flex min-h-12 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800 hover:bg-gray-50{% endif %}"{% if active_tab == "overdue" %} aria-current="page"{% endif %}>Overdue<span class="rounded-full {% if overdue_count %}bg-red-100 text-red-800{% elif active_tab == 'overdue' %}bg-violet-100 text-violet-800{% else %}bg-gray-100 text-gray-800{% endif %} px-2 text-sm font-semibold">{{ overdue_count }}</span></a>
+    <a href="{% url 'admin_vaccination_list' %}?tab=all{% if q %}&amp;q={{ keep_q }}{% endif %}" class="{% if active_tab == 'all' %}inline-flex min-h-12 items-center gap-2 rounded-lg bg-violet-50 px-4 text-base font-semibold text-violet-800 ring-2 ring-violet-600{% else %}inline-flex min-h-12 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800 hover:bg-gray-50{% endif %}"{% if active_tab == "all" %} aria-current="page"{% endif %}>All<span class="rounded-full {% if active_tab == 'all' %}bg-violet-100 text-violet-800{% else %}bg-gray-100 text-gray-800{% endif %} px-2 text-sm font-semibold">{{ all_count }}</span></a>
+  {% endwith %}
+</nav>

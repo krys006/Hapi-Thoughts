@@ -262,7 +262,7 @@ PENDING or CONFIRMED → CANCELLED
 | Feature | Status |
 |---|---|
 | Create medical record (no timing restriction) | `complete` |
-| One medical record per appointment | `planned` |
+| One medical record per appointment | `complete` |
 | Record: diagnosis, symptoms, treatment given | `complete` |
 | Structured prescriptions (list of medicine items) | `complete` |
 | Each prescription item: medicine name, dosage, frequency, duration, notes | `complete` |

@@ -1,0 +1,30 @@
+{% comment %}
+  Edit only: "Reason for a correction". The reason is never pre-filled from
+  the saved note. When the server found a clinical change with no reason, the
+  card turns red and the yellow line names each changed field and its old
+  value (form.changed_fields), above the 5a-1 error. "Corrected before" lists
+  the saved dated lines (correction_lines from the view).
+{% endcomment %}
+{% with field=form.correction_reason %}
+<section class="rounded-xl border-2 {% if field.errors %}border-red-300{% else %}border-gray-300{% endif %} bg-white p-6 shadow-sm" aria-labelledby="correction-title">
+  <h2 id="correction-title" class="flex items-center gap-2 text-xl font-semibold text-gray-900">{% include "components/icon.html" with name="pencil" class="size-5 shrink-0 text-gray-600" %}<label for="{{ field.id_for_label }}">{{ field.label }}</label></h2>
+  <p class="mt-1 text-base text-gray-700">Needed only if you change something in “The vaccination”. The record then shows a <b class="font-semibold">Corrected</b> tag with this reason and today's date.</p>
+  {% if field.errors and form.changed_fields %}
+    {# "a", "a and b", "a, b and c" #}
+    <p class="mt-3 flex items-start gap-2 rounded-lg bg-yellow-50 px-3 py-2 text-base text-gray-900">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0 text-yellow-700" %}<span>You changed: {% for label, old in form.changed_fields %}<b class="font-semibold">{{ label }}</b> (was {{ old }}){% if forloop.revcounter == 2 %} and {% elif not forloop.last %}, {% endif %}{% endfor %}.</span></p>
+  {% endif %}
+  <div class="form-field mt-3 space-y-1.5{% if field.errors %} has-error{% endif %}">
+    {{ field }}
+    {% for error in field.errors %}<p class="flex items-start gap-1 text-sm font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-4 shrink-0" %}{{ error }}</p>{% endfor %}
+  </div>
+  {% if correction_lines %}
+    <div class="mt-4 rounded-lg bg-gray-50 p-4">
+      <p class="text-sm font-semibold text-gray-800">Corrected before</p>
+      <ul class="mt-1 space-y-1 text-base text-gray-800">
+        {% for line in correction_lines %}<li>{{ line }}</li>{% endfor %}
+      </ul>
+      <p class="mt-2 text-sm text-gray-700">Earlier reasons are kept. A new one is added below them.</p>
+    </div>
+  {% endif %}
+</section>
+{% endwith %}

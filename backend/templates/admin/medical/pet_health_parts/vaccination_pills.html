@@ -1,0 +1,18 @@
+{% comment %}
+  The pills after a dose's name (same colours as the Vaccinations list):
+  yellow Due today / Due tomorrow / Due in N days (the list's 7-day
+  window), red N days overdue, gray Corrected, gray Later dose given
+  (is_superseded; such a dose is never due, so it has no due pill).
+  due_state and days come from the view's today.
+{% endcomment %}
+{% if vaccination.due_state == "due" %}
+  <span class="inline-flex items-center gap-1.5 rounded-full bg-yellow-100 px-2.5 py-1 text-sm font-medium text-yellow-900">{% include "components/icon.html" with name="clock" class="size-4 shrink-0" %}{% if vaccination.days == 0 %}Due today{% elif vaccination.days == 1 %}Due tomorrow{% else %}Due in {{ vaccination.days }} days{% endif %}</span>
+{% elif vaccination.due_state == "overdue" %}
+  <span class="inline-flex items-center gap-1.5 rounded-full bg-red-100 px-2.5 py-1 text-sm font-medium text-red-800">{% include "components/icon.html" with name="triangle-alert" class="size-4 shrink-0" %}{{ vaccination.days }} day{{ vaccination.days|pluralize }} overdue</span>
+{% endif %}
+{% if vaccination.is_corrected %}
+  <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1 text-sm font-medium text-gray-800">{% include "components/icon.html" with name="pencil" class="size-4 shrink-0" %}Corrected</span>
+{% endif %}
+{% if vaccination.is_superseded %}
+  <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1 text-sm font-medium text-gray-800">{% include "components/icon.html" with name="check" class="size-4 shrink-0" %}Later dose given</span>
+{% endif %}
