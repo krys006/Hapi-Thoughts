@@ -11,7 +11,7 @@ No model field changes and no migration in Slice 6. Choice labels shown on the p
 2. **Which visits**: CONFIRMED or COMPLETED, not dated after today (Manila date), the same rule as medical records (5a-2). Otherwise back to the appointment page with a plain message. A receipt with **no visit** is allowed (over-the-counter supplies).
 3. **Owner and pet**: an owner is always required. The pet is optional ("Not for a specific pet"); when given it must be one of that owner's active pets ("Choose one of {owner}'s pets."). From a visit, both come from the visit.
 4. **Archived owner or pet**: creating is refused (GET and POST, "Restore {owner} first." / "Restore {pet} first."). An existing receipt can still be edited, paid or cancelled.
-5. **Bad ids** (`?appointment=abc`, `?owner=abc`, a posted `pet` that isn't a whole number or doesn't exist): 404, never a 500.
+5. **Bad ids** (`?appointment=abc`, `?owner=abc`, a posted `pet` that isn't a whole number or doesn't exist): 404, never a 500. A posted pet that exists but isn't one of the owner's active pets gets the form message from rule 3.
 6. A new receipt is saved **empty** and opens the receipt page; items are added there. Exception: from a visit whose service has a **fixed price**, a checkbox (ticked by default) adds that service as the first item at its price. Range-price or no service: no checkbox.
 7. **Pet pre-pick** (not from a visit): an owner with exactly one active pet has it picked; two or more: nothing picked, and an empty choice is refused ("Choose a pet, or “Not for a specific pet”."); no pets: only "Not for a specific pet", picked.
 
@@ -57,8 +57,11 @@ No model field changes and no migration in Slice 6. Choice labels shown on the p
 
 ## Batches
 - **6a-1** receipt rules: discount, rounding, item form, mark-paid rule, cash only, form fields removed, row locks, receipt numbers, item order (rules 8–10, 12–21)
-- **6a-2** create rules + contexts for the new pages: create from a visit / from an owner, pet rules, 404s, the service checkbox, create view under 50 lines, receipt page context, list tabs / search / paging, dialog error re-renders, edit URL → receipt page (rules 1–7, 11, 28)
-- **6a-3** owner notification, owner-side fixes, appointment banner, services backend (rules 23–27, 29–31)
+- **6a-1** done 2026-11-07.
+- **6a-2** create flow (rules 1–7, 28): from a visit / from an owner, pet rules, 404s, the service checkbox, billing_date set explicitly, create view under 50 lines, plain structural template `admin/billing/receipt_new.html` (design in 6b-3)
+- **6a-3** receipt page + list contexts: receipt page context (incl. the range "Usual price" help, rule 11), list tabs / search / paging, dialog error re-renders, edit URL → receipt page
+- **6a-4** owner notification, owner-side fixes, appointment banner, services backend (rules 23–27, 29–31)
+(Split on 2026-11-07: the old 6a-2 was too big.)
 - **6b-1** receipt list · **6b-2** receipt page + print · **6b-3** new receipt page · **6b-4** services list + form
 
 ## Docs to fix during the slice

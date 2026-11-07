@@ -362,7 +362,8 @@ templates/
 │   ├── billing/
 │   │   ├── receipt_list.html
 │   │   ├── receipt_detail.html
-│   │   ├── receipt_form.html
+│   │   ├── receipt_form.html         ← edit page only (since 6a-2)
+│   │   ├── receipt_new.html          ← New receipt (admin_receipt_create): from a visit, or step 1 "Who is it for?" / step 2 "Which pet?"; structural (6a-2), design 6b-3
 │   │   ├── services_list.html
 │   │   └── service_form.html
 │   ├── health/

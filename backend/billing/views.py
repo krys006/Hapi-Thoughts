@@ -2,22 +2,37 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import transaction
+from django.utils import timezone
 
 from .models import Service, BillingReceipt, BillingItem
 from .forms import ServiceForm, BillingReceiptForm, BillingItemForm
 from .utils import (
     LOCKED_MESSAGE,  # noqa: F401 (tests import it from here)
     NO_ITEMS_MESSAGE,
+    RECEIPT_EXISTS,
+    RECEIPT_NEW_TEMPLATE,
     add_item,
+    create_receipt,
+    create_visit_receipt,
     form_error_text,
+    initial_pet_pick,
     lock_pending_receipt,
     mark_receipt_cancelled,
     mark_receipt_paid,
     notify_receipt_paid,
+    owner_for_receipt,
     receipt_items,
+    receipt_owner_context,
+    receipt_pet_choice,
+    receipt_pet_context,
+    receipt_pets,
     refuse_locked,
+    restore_message,
     save_discount,
-    save_new_receipt,
+    visit_for_receipt,
+    visit_receipt_context,
+    visit_receipt_stop,
+    visit_service,
 )
 
 from appointments.models import ClinicSettings
@@ -149,86 +164,64 @@ def admin_receipt_list(request):
 @login_required
 def admin_receipt_create(request):
     """
-    Admin view — create a new billing receipt.
-    Can be linked to an appointment via ?appointment=<pk>.
-    Owner and pet are derived from the appointment if linked.
+    Admin view — New receipt (admin/billing/receipt_new.html), three modes:
+    ?appointment=<pk> from a visit; ?owner=<pk> "Which pet?" (step 2);
+    neither: "Who is it for?" (step 1, the owner list and search).
+    Every new receipt is saved empty (from a visit, optionally with the
+    visit's fixed-price service as the first item) and opens its page.
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    from appointments.models import Appointment
-    from pets.models import PetOwner, Pet
+    if request.GET.get("appointment"):
+        appointment = visit_for_receipt(request.GET["appointment"])
+        return _new_receipt_from_visit(request, appointment)
+    if request.GET.get("owner"):
+        owner = owner_for_receipt(request.GET["owner"])
+        return _new_receipt_for_owner(request, owner)
+    return render(request, RECEIPT_NEW_TEMPLATE, receipt_owner_context(request.GET))
 
-    # Check if linking to an appointment
-    appointment = None
-    owner = None
-    pet = None
 
-    appointment_pk = request.GET.get("appointment")
-    if appointment_pk:
-        appointment = get_object_or_404(Appointment, pk=appointment_pk)
-        owner = appointment.owner
-        pet = appointment.pet
+def _receipt_created(request, receipt):
+    messages.success(request, f"Receipt {receipt.receipt_number} created.")
+    return redirect("admin_receipt_detail", pk=receipt.pk)
 
-        # Check if receipt already exists for this appointment
-        if hasattr(appointment, "billing_receipt"):
-            messages.error(
-                request,
-                "A billing receipt already exists for this appointment.",
-            )
-            return redirect(
-                "admin_receipt_detail",
-                pk=appointment.billing_receipt.pk,
-            )
 
+def _new_receipt_from_visit(request, appointment):
+    """Mode "visit". GET and POST both check the visit first."""
+    stop = visit_receipt_stop(appointment, timezone.localdate())
+    if stop:
+        level, message, url_name, pk = stop
+        messages.add_message(request, level, message)
+        return redirect(url_name, pk=pk)
+
+    service = visit_service(appointment)
     if request.method == "POST":
-        form = BillingReceiptForm(request.POST)
-
-        # Get owner and pet from POST if not from appointment
-        if not appointment:
-            owner_pk = request.POST.get("owner")
-            pet_pk = request.POST.get("pet")
-            if owner_pk:
-                owner = get_object_or_404(PetOwner, pk=owner_pk)
-            if pet_pk:
-                pet = get_object_or_404(Pet, pk=pet_pk)
-
-        if form.is_valid():
-            # billing_date (today) and payment_method ("Cash") come from
-            # the model defaults; the number from save_new_receipt
-            receipt = form.save(commit=False)
-            receipt.appointment = appointment
-            receipt.owner = owner
-            receipt.pet = pet
-            save_new_receipt(receipt)
-
-            messages.success(
-                request,
-                f"Receipt {receipt.receipt_number} created.",
-            )
+        first = service if request.POST.get("add_service") == "on" else None
+        receipt, created = create_visit_receipt(appointment, first)
+        if not created:
+            messages.info(request, RECEIPT_EXISTS)
             return redirect("admin_receipt_detail", pk=receipt.pk)
-        else:
-            messages.error(request, "Please correct the errors below.")
-    else:
-        form = BillingReceiptForm()
+        return _receipt_created(request, receipt)
+    context = visit_receipt_context(appointment, service)
+    return render(request, RECEIPT_NEW_TEMPLATE, context)
 
-    # For non-appointment receipts, load owners for manual selection
-    owners = PetOwner.objects.filter(is_archived=False).order_by(
-        "last_name", "first_name"
-    )
 
-    return render(
-        request,
-        "admin/billing/receipt_form.html",
-        {
-            "form": form,
-            "appointment": appointment,
-            "owner": owner,
-            "pet": pet,
-            "owners": owners,
-            "is_edit": False,
-        },
-    )
+def _new_receipt_for_owner(request, owner):
+    """Mode "pet". An archived owner goes back to step 1."""
+    if owner.is_archived:
+        messages.error(request, restore_message(owner.full_name))
+        return redirect("admin_receipt_create")
+
+    pets = receipt_pets(owner)
+    picked, pet_error = initial_pet_pick(pets), ""
+    if request.method == "POST":
+        pet, pet_error = receipt_pet_choice(owner, pets, request.POST.get("pet"))
+        if not pet_error:
+            return _receipt_created(request, create_receipt(owner, pet))
+        picked = ""
+    context = receipt_pet_context(owner, pets, picked, pet_error)
+    return render(request, RECEIPT_NEW_TEMPLATE, context)
 
 
 @login_required

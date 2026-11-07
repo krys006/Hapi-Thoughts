@@ -1,0 +1,228 @@
+{% extends "layouts/admin.html" %}
+{% load friendly_dates %}
+{% comment %}
+  New receipt (admin_receipt_create). Structural template from 6a-2; the
+  design pass is 6b-3 (mockup docs/mockups/receipt_new_v1.html).
+  Every mode: mode ("visit" / "owner" / "pet"), back_url, back_label.
+  visit: appointment (owner, pet with detail_line, service), visit_service
+    (the fixed-price service the checkbox adds, or None). Posts add_service.
+  owner: q, is_searching, owners (each with active_pets), owner_count,
+    is_cut, search_limit, empty_topbar_search; not searching also page_obj,
+    prev_page_query, next_page_query (the shared pager).
+  pet: owner, pets (active, each with detail_line), picked ("<pk>", "none"
+    or ""), no_pet ("none"), pet_error, change_owner_url. Posts pet.
+{% endcomment %}
+
+{% block title %}New receipt — Hapi Vet Admin{% endblock %}
+
+{# Step 1 has its own search, so the top-bar search is emptied there (as walk-in step 1) #}
+{% block topbar_search %}{% if not empty_topbar_search %}{{ block.super }}{% endif %}{% endblock %}
+
+{% block page_header %}
+  <div class="mb-4">
+    <a href="{{ back_url }}" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="arrow-left" %}{{ back_label }}</a>
+  </div>
+  <div class="mb-5">
+    <h1 class="text-2xl font-bold text-gray-900">New receipt</h1>
+    <p class="mt-1 text-base text-gray-600">{% if mode == "visit" %}For the visit below. Check it, then create the receipt.{% else %}Not from a visit, for example supplies bought over the counter.{% endif %}</p>
+  </div>
+  {% if mode != "visit" %}
+    {# Steps: 1 Who is it for? · 2 Which pet? (step 1 shows a check once done) #}
+    <ol class="mb-6 flex flex-wrap gap-x-3 gap-y-2" aria-label="Steps">
+      <li class="flex items-center gap-2 text-base {% if mode == 'owner' %}font-semibold text-gray-900{% else %}text-gray-700{% endif %}"{% if mode == "owner" %} aria-current="step"{% endif %}>
+        {% if mode == "owner" %}
+          <span class="grid size-8 place-content-center rounded-full bg-violet-600 text-base font-semibold text-white">1</span>
+        {% else %}
+          <span class="grid size-8 place-content-center rounded-full bg-violet-600 text-white">{% include "components/icon.html" with name="check" class="size-4 shrink-0" %}<span class="sr-only">Done: step 1</span></span>
+        {% endif %}
+        Who is it for?
+        <span class="mx-1 hidden h-px w-10 bg-gray-300 sm:block" aria-hidden="true"></span>
+      </li>
+      <li class="flex items-center gap-2 text-base {% if mode == 'pet' %}font-semibold text-gray-900{% else %}text-gray-700{% endif %}"{% if mode == "pet" %} aria-current="step"{% endif %}>
+        {% if mode == "pet" %}
+          <span class="grid size-8 place-content-center rounded-full bg-violet-600 text-base font-semibold text-white">2</span>
+        {% else %}
+          <span class="grid size-8 place-content-center rounded-full border-2 border-gray-300 bg-white text-base font-semibold text-gray-700">2</span>
+        {% endif %}
+        Which pet?
+      </li>
+    </ol>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+{% if mode == "owner" %}
+  {# Step 1: a plain GET search (filter as you type comes in 6b-3); no primary button #}
+  <div class="max-w-3xl">
+    <form method="get" action="{% url 'admin_receipt_create' %}" class="mb-3 flex flex-wrap items-end gap-3" role="search">
+      <div class="min-w-0 flex-1 space-y-1.5">
+        <label for="receipt-owner-q" class="block text-base font-medium text-gray-800">Find the owner</label>
+        <div class="relative">
+          {% include "components/icon.html" with name="search" class="pointer-events-none absolute top-1/2 left-3.5 size-5 shrink-0 -translate-y-1/2 text-gray-600" %}
+          <input type="search" id="receipt-owner-q" name="q" value="{{ q }}" class="input min-h-12 pl-11" placeholder="Owner name, phone or pet name" autocomplete="off">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-outline min-h-12 font-semibold">{% include "components/icon.html" with name="search" %}Search</button>
+    </form>
+
+    {% if is_searching %}
+      <div class="mb-3 flex justify-end">
+        <a href="{% url 'admin_receipt_create' %}" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="x" %}Clear search</a>
+      </div>
+    {% endif %}
+
+    <section aria-labelledby="results-title">
+      {% if is_searching %}
+        {% if owners %}
+          <h2 id="results-title" class="mb-2 text-base text-gray-700">{% if is_cut %}More than {{ search_limit }} owners match “{{ q }}”. Showing the first {{ search_limit }}.{% else %}{{ owner_count }} owner{{ owner_count|pluralize:" matches,s match" }} “{{ q }}”{% endif %}</h2>
+        {% else %}
+          <h2 id="results-title" class="sr-only">Search results</h2>
+        {% endif %}
+      {% else %}
+        <div class="mb-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <h2 id="results-title" class="text-lg font-semibold text-gray-900">All pet owners ({{ owner_count }})</h2>
+          <p class="text-sm text-gray-600">A to Z by first name</p>
+        </div>
+      {% endif %}
+
+      {% if owners %}
+        <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+          <ul>
+            {% for owner in owners %}
+              <li class="flex flex-wrap items-center gap-4 border-t border-gray-100 px-5 py-4 first:border-t-0">
+                {% include "components/owner_avatar.html" with owner=owner size="sm" %}
+                <div class="min-w-0 flex-1">
+                  <p class="text-base font-semibold text-gray-900">{{ owner.full_name }}</p>
+                  <p class="text-sm text-gray-600">{{ owner.contact_number|default:"No phone number" }}</p>
+                  {% if owner.active_pets %}
+                    <ul class="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-base text-gray-800" aria-label="Pets">
+                      {% for pet in owner.active_pets %}
+                        <li>{{ pet.name }}</li>
+                      {% endfor %}
+                    </ul>
+                  {% else %}
+                    <p class="mt-1 text-base text-gray-600">No pets yet</p>
+                  {% endif %}
+                </div>
+                <a href="{% url 'admin_receipt_create' %}?owner={{ owner.pk }}" class="btn btn-outline font-semibold" aria-label="Choose {{ owner.full_name }}">Choose{% include "components/icon.html" with name="arrow-right" %}</a>
+              </li>
+            {% endfor %}
+          </ul>
+          {% if page_obj %}
+            {% include "admin/appointments/list_parts/pager.html" %}
+          {% endif %}
+        </div>
+      {% elif is_searching %}
+        <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+          {% with title="No owner matches “"|add:q|add:"”" %}
+            {% include "components/empty_state.html" with icon="search" title=title text="Check the spelling, or add them with Add owner." %}
+          {% endwith %}
+        </div>
+      {% else %}
+        <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+          {% include "components/empty_state.html" with icon="users" title="No pet owners yet" %}
+        </div>
+      {% endif %}
+    </section>
+
+    <p class="mt-4 text-sm text-gray-700">Someone new? Add them first with <a href="{% url 'admin_owner_create' %}" class="font-medium text-blue-600 underline underline-offset-2">Add owner</a> on the Pet owners page.</p>
+  </div>
+
+{% else %}
+  {# Modes visit and pet: one POST form, posted back to the same mode #}
+  <form method="post" action="{% url 'admin_receipt_create' %}{% if mode == 'visit' %}?appointment={{ appointment.pk }}{% else %}?owner={{ owner.pk }}{% endif %}" class="grid max-w-3xl gap-6">
+    {% csrf_token %}
+
+    {% if mode == "visit" %}
+      <section class="card p-6" aria-labelledby="visit-title">
+        <h2 id="visit-title" class="mb-4 flex items-center gap-2 text-xl font-semibold text-gray-900">{% include "components/icon.html" with name="calendar" class="size-5 shrink-0 text-gray-600" %}From the visit</h2>
+        <dl>
+          <div class="border-t border-gray-100 py-3 first:border-t-0 first:pt-0">
+            <dt class="text-base font-semibold text-gray-700">Visit</dt>
+            <dd class="flex flex-wrap items-center gap-x-3 gap-y-1 text-base text-gray-900">{{ appointment.date|long_date }} at {{ appointment.time|time:"g:i A" }} {% include "components/status_badge.html" with status=appointment.status label=appointment.get_status_display %}</dd>
+          </div>
+          <div class="border-t border-gray-100 py-3">
+            <dt class="text-base font-semibold text-gray-700">Billed to</dt>
+            <dd class="text-base text-gray-900"><a href="{% url 'admin_owner_detail' appointment.owner.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ appointment.owner.full_name }}</a> · {{ appointment.owner.contact_number|default:"No phone number" }}</dd>
+          </div>
+          <div class="border-t border-gray-100 py-3">
+            <dt class="text-base font-semibold text-gray-700">Pet</dt>
+            <dd class="text-base text-gray-900"><a href="{% url 'admin_pet_detail' appointment.pet.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ appointment.pet.name }}</a>{% if appointment.pet.detail_line %} · {{ appointment.pet.detail_line }}{% endif %}</dd>
+          </div>
+          <div class="border-t border-gray-100 py-3">
+            <dt class="text-base font-semibold text-gray-700">Service</dt>
+            <dd class="text-base text-gray-900">{% if appointment.service %}{{ appointment.service.service_name }}{% else %}<span class="text-gray-600">No service picked</span>{% endif %}</dd>
+          </div>
+        </dl>
+        {# Only for a fixed-price service that can be billed (Offered or Clinic use only) #}
+        {% if visit_service %}
+          <label for="add-service" class="mt-4 flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border border-violet-200 bg-violet-50 p-4">
+            <input type="checkbox" id="add-service" name="add_service" value="on" class="mt-0.5 size-6 shrink-0 accent-violet-600" checked>
+            <span>
+              <span class="block text-base font-semibold text-gray-900">Add {{ visit_service.service_name }} ({{ visit_service.display_price }}) as the first item</span>
+              <span class="block text-sm text-gray-700">You can change its price or remove it on the next page.</span>
+            </span>
+          </label>
+        {% endif %}
+      </section>
+
+    {% else %}
+      {% if pet_error %}
+        <div class="flex items-start gap-3 rounded-xl border border-red-300 bg-red-50 px-5 py-4 text-red-900" role="alert">
+          {% include "components/icon.html" with name="triangle-alert" class="size-6 shrink-0" %}
+          <p class="text-base">Please fix the 1 item below.</p>
+        </div>
+      {% endif %}
+
+      <section class="card p-6" aria-label="Pet">
+        <div class="mb-4 flex flex-wrap items-center gap-3 border-b border-gray-100 pb-4">
+          {% include "components/owner_avatar.html" with owner=owner size="sm" %}
+          <div class="flex-1">
+            <p class="text-sm font-semibold text-gray-700">Billed to</p>
+            <p class="text-lg font-semibold text-gray-900">{{ owner.full_name }}</p>
+          </div>
+          <a href="{{ change_owner_url }}" class="inline-flex min-h-11 items-center text-base font-medium text-blue-600 underline underline-offset-2">Change owner</a>
+        </div>
+
+        {# Radios written here, not with form_field.html (it has no fieldset/legend branch yet) #}
+        <fieldset{% if pet_error %} aria-describedby="pet-error"{% endif %}>
+          <legend class="text-base font-semibold text-gray-900">Which pet is it for? <span class="text-red-700" aria-hidden="true">*</span></legend>
+          <div class="mt-3 grid gap-3">
+            {% for pet in pets %}
+              <label class="flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border-2 border-gray-200 bg-white px-4 py-3 has-[:checked]:border-violet-600 has-[:checked]:bg-violet-50">
+                <input type="radio" name="pet" value="{{ pet.pk }}" class="size-5 shrink-0 accent-violet-600" required{% if pet.pk|stringformat:"s" == picked %} checked{% endif %}>
+                {% include "components/pet_avatar.html" with pet=pet size="sm" %}
+                <span>
+                  <span class="block text-base font-semibold">{{ pet.name }}</span>
+                  {% if pet.detail_line %}<span class="block text-sm text-gray-600">{{ pet.detail_line }}</span>{% endif %}
+                </span>
+              </label>
+            {% endfor %}
+            <label class="flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border-2 border-gray-200 bg-white px-4 py-3 has-[:checked]:border-violet-600 has-[:checked]:bg-violet-50">
+              <input type="radio" name="pet" value="{{ no_pet }}" class="size-5 shrink-0 accent-violet-600" required{% if picked == no_pet %} checked{% endif %}>
+              <span class="grid size-10 shrink-0 place-content-center rounded-xl bg-gray-100 text-gray-700">{% include "components/icon.html" with name="receipt" %}</span>
+              <span>
+                <span class="block text-base font-semibold">Not for a specific pet</span>
+                <span class="block text-sm text-gray-600">Supplies or items not for one pet</span>
+              </span>
+            </label>
+          </div>
+          {% if pet_error %}
+            <p id="pet-error" class="mt-2 flex items-start gap-1 text-sm font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-4 shrink-0" %}{{ pet_error }}</p>
+          {% endif %}
+          {% if not pets %}
+            <p class="mt-3 text-sm text-gray-700">{{ owner.full_name }} has no pets yet. To bill for a pet, add it on <a href="{% url 'admin_owner_detail' owner.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ owner.full_name }}'s page</a> first.</p>
+          {% endif %}
+        </fieldset>
+      </section>
+    {% endif %}
+
+    {# Cancel + the page's one primary button; the note at the left (below sm the buttons stack, primary on top) #}
+    <div class="flex flex-col-reverse gap-3 border-t border-gray-200 pt-6 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+      <p class="flex items-start gap-2 text-sm text-gray-700 sm:mr-auto">{% include "components/icon.html" with name="info" class="mt-0.5 size-4 shrink-0" %}<span>{% if visit_service %}You add the other items on the next page.{% else %}The receipt opens empty. You add the items on the next page.{% endif %}</span></p>
+      <a href="{{ back_url }}" class="btn btn-outline min-h-12 w-full font-semibold sm:w-auto">Cancel</a>
+      <button type="submit" class="btn btn-primary min-h-12 w-full font-semibold sm:w-auto">{% include "components/icon.html" with name="receipt" %}Create receipt</button>
+    </div>
+  </form>
+{% endif %}
+{% endblock %}

@@ -558,6 +558,12 @@ FIXED = 'fixed'
 Meta: `ordering = ["-billing_date", "-created_at"]`. Choice labels shown on the pages ("No discount", "Percent off (%)", "Peso amount off (₱)", …) are set in the forms, not in `choices` (a choices change is a migration).
 
 **Rules:**
+- Creating (`admin_receipt_create`, helpers in `billing/utils.py`): a new receipt is saved empty (PENDING, `billing_date` = today in Manila, "Cash") and opens its page; items are added there.
+  - **One receipt per visit**: a visit that already has a receipt, in any status (a **cancelled** receipt still holds its visit), never gets another; the create opens the existing one. Two creates at once: the OneToOne IntegrityError is caught and the second opens the first, nothing else saved.
+  - **Which visits**: CONFIRMED or COMPLETED, not dated after today (Manila date). From a visit, the owner and pet are the visit's. A receipt with no visit (over the counter) is allowed.
+  - **Owner required, pet optional**: a receipt not from a visit needs an owner; the pet is "Not for a specific pet" (null) or one of **that owner's active pets** (another owner's or an archived pet is refused).
+  - **Archived refused**: no new receipt for an archived owner or pet ("Restore … first."); existing receipts can still be edited, paid or cancelled.
+  - From a visit whose service has a fixed price (Offered or Clinic use only), a box (ticked by default) adds it as the first item at `base_price`.
 - Receipt number auto-generated on creation: `HV-{Manila year}-NNNN`. The next number is the largest whole number after this year's prefix + 1 (worked out numerically, not by string sort; a suffix that isn't a whole number is ignored), padded to at least 4 digits: HV-2026-0001 … HV-2026-9999, then HV-2026-10000. `save_new_receipt` (`billing/utils.py`) retries once with a fresh number when the save fails only because the number was taken meanwhile; any other IntegrityError is raised.
 - Editable only while `payment_status` is PENDING
 - Locked (read-only) once PAID or CANCELLED (`is_locked`); views refuse every write to a locked receipt

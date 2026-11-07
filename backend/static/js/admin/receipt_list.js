@@ -58,7 +58,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
   buildLayout(table);
   setupDynamicHeight();
-  setupNewReceiptModal();
+  // "+ New Receipt" is a plain link to the New receipt page (6a-2): the
+  // old modal looked for form.billing-form, which that page doesn't have
 
   function buildLayout(table) {
     var layout = document.createElement('div');
@@ -170,107 +171,5 @@ document.addEventListener('DOMContentLoaded', function () {
 
     applyHeights();
     window.addEventListener('resize', applyHeights);
-  }
-
-  /* ---- New Receipt modal ----
-     "+ New Receipt" exists at page load (always visible, not per-row),
-     so this binds directly rather than using event delegation. */
-  function setupNewReceiptModal() {
-    var trigger = document.querySelector('.admin-page-header a.btn-primary');
-    if (!trigger) return;
-
-    var formUrl = trigger.getAttribute('href');
-
-    trigger.addEventListener('click', function (e) {
-      e.preventDefault();
-      openNewReceiptModal(formUrl);
-    });
-  }
-
-  function openNewReceiptModal(url) {
-    var overlay = document.createElement('div');
-    overlay.className = 'modal-overlay';
-    overlay.id = 'new-receipt-modal-overlay';
-
-    var box = document.createElement('div');
-    box.className = 'modal-box';
-    box.setAttribute('role', 'dialog');
-    box.setAttribute('aria-modal', 'true');
-
-    box.innerHTML =
-      '<div class="modal-header">' +
-      '<h2 class="modal-title">New Receipt</h2>' +
-      '<button type="button" class="modal-close" aria-label="Close">&times;</button>' +
-      '</div>' +
-      '<div class="modal-body">' +
-      '<p class="receipt-detail-loading">Loading…</p>' +
-      '</div>';
-
-    overlay.appendChild(box);
-    document.body.appendChild(overlay);
-    document.body.classList.add('modal-open');
-
-    function closeModal() {
-      overlay.remove();
-      document.body.classList.remove('modal-open');
-      document.removeEventListener('keydown', onKeydown);
-    }
-
-    function onKeydown(e) {
-      if (e.key === 'Escape') closeModal();
-    }
-
-    overlay.addEventListener('click', function (e) {
-      if (e.target === overlay) closeModal();
-    });
-
-    box.querySelector('.modal-close').addEventListener('click', closeModal);
-    document.addEventListener('keydown', onKeydown);
-
-    var body = box.querySelector('.modal-body');
-
-    fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-      .then(function (response) {
-        if (!response.ok) throw new Error('Request failed');
-        return response.text();
-      })
-      .then(function (html) {
-        var parser = new DOMParser();
-        var doc = parser.parseFromString(html, 'text/html');
-        var form = doc.querySelector('form.billing-form');
-
-        if (!form) {
-          body.innerHTML = '<p class="receipt-detail-empty-text">Unable to load the form.</p>';
-          return;
-        }
-
-        // Same missing-action bug hit on several other forms today.
-        if (!form.getAttribute('action')) {
-          form.setAttribute('action', url);
-        }
-
-        // Grab the enclosing .detail-card (keeps the "Receipt Details"
-        // title for context) rather than just the bare form.
-        var card = form.closest('.detail-card') || form;
-
-        body.innerHTML = '';
-        body.appendChild(card);
-
-        var cancelLink = form.querySelector('.form-actions a.btn-secondary');
-        if (cancelLink) {
-          cancelLink.addEventListener('click', function (e) {
-            e.preventDefault();
-            closeModal();
-          });
-        }
-
-        // Owner -> Pet HTMX lookup needs (re)activating on injected content.
-        if (window.htmx) {
-          window.htmx.process(card);
-        }
-      })
-      .catch(function () {
-        body.innerHTML = '<p class="receipt-detail-empty-text">Failed to load the form. Try again.</p>';
-      });
   }
 });

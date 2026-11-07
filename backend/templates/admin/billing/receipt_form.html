@@ -7,10 +7,8 @@
 </style>
 {% endblock %}
 
-{% block title %}
-  {% if is_edit %}Edit Receipt — {{ receipt.receipt_number }}{% else %}New Receipt{% endif %}
-  — Hapi Vet Admin
-{% endblock %}
+{# Edit page only since 6a-2 (New receipt is admin/billing/receipt_new.html); the redesign is 6b-2 #}
+{% block title %}Edit Receipt — {{ receipt.receipt_number }} — Hapi Vet Admin{% endblock %}
 
 {% block page_header %}{% endblock %}
 
@@ -19,18 +17,10 @@
 <div class="admin-page">
 
   <div class="admin-page-header">
-    <h1 class="admin-page-title">
-      {% if is_edit %}Edit Receipt — {{ receipt.receipt_number }}{% else %}New Receipt{% endif %}
-    </h1>
-    {% if is_edit %}
-      <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="btn-link">
-        Back to Receipt
-      </a>
-    {% else %}
-      <a href="{% url 'admin_receipt_list' %}" class="btn-link">
-        Back to Billing
-      </a>
-    {% endif %}
+    <h1 class="admin-page-title">Edit Receipt — {{ receipt.receipt_number }}</h1>
+    <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="btn-link">
+      Back to Receipt
+    </a>
   </div>
 
   <div class="detail-layout">
@@ -38,66 +28,12 @@
     <!-- ── Left: Receipt Header Form + Items ─────────────────────────── -->
     <div class="detail-main">
 
-      <!-- Context info — appointment link or owner/pet selection -->
-      {% if appointment %}
-        <div class="detail-card">
-          <h2 class="detail-card-title">Linked Appointment</h2>
-          <div class="detail-grid">
-            <div class="detail-row">
-              <span class="detail-label">Owner</span>
-              <span class="detail-value">{{ appointment.owner.full_name }}</span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">Pet</span>
-              <span class="detail-value">{{ appointment.pet.name }}</span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">Appointment</span>
-              <span class="detail-value">
-                {{ appointment.date|date:"F j, Y" }} at {{ appointment.time|time:"g:i A" }}
-              </span>
-            </div>
-          </div>
-        </div>
-      {% endif %}
-
       <!-- Receipt header form -->
       <div class="detail-card">
         <h2 class="detail-card-title">Receipt Details</h2>
 
         <form method="post" class="billing-form">
           {% csrf_token %}
-
-          <!-- Manual owner/pet selection — only when not linked to appointment -->
-          {% if not appointment and not is_edit %}
-            <div class="form-group">
-              <label class="form-label">Pet Owner</label>
-              <select
-                name="owner"
-                id="id_owner"
-                hx-get="{% url 'admin_get_pets_for_owner' %}"
-                hx-target="#id_pet_select"
-                hx-swap="innerHTML"
-                hx-trigger="change"
-                hx-include="[name='owner']"
-              >
-                <option value="">Select a pet owner</option>
-                {% for o in owners %}
-                  <option value="{{ o.pk }}"
-                    {% if selected_owner_pk == o.pk|stringformat:"s" %}selected{% endif %}>
-                    {{ o.full_name }}
-                  </option>
-                {% endfor %}
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Pet</label>
-              <select name="pet" id="id_pet_select">
-                <option value="">Select an owner first</option>
-              </select>
-            </div>
-          {% endif %}
 
           {% if is_edit %}
             <!-- Show owner/pet as read-only when editing -->
@@ -151,18 +87,10 @@
           {% endif %}
 
           <div class="form-actions">
-            <button type="submit" class="btn-primary">
-              {% if is_edit %}Save Changes{% else %}Create Receipt{% endif %}
-            </button>
-            {% if is_edit %}
-              <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="btn-secondary">
-                Cancel
-              </a>
-            {% else %}
-              <a href="{% url 'admin_receipt_list' %}" class="btn-secondary">
-                Cancel
-              </a>
-            {% endif %}
+            <button type="submit" class="btn-primary">Save Changes</button>
+            <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="btn-secondary">
+              Cancel
+            </a>
           </div>
 
         </form>
