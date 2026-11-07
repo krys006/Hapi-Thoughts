@@ -200,17 +200,15 @@
               {% csrf_token %}
 
               <div class="form-group">
-                <label class="form-label">
-                  Service <span class="form-optional">(optional)</span>
-                </label>
+                <label class="form-label">What is it?</label>
+                <!-- Choices from BillingItemForm: "Choose one", services, "Other (type it)" -->
                 <select
-                  name="service"
+                  name="service_choice"
                   id="id_service_select"
                   onchange="fetchServiceDetails(this.value)"
                 >
-                  <option value="">Manual item (no service)</option>
-                  {% for s in item_form.service.field.queryset %}
-                    <option value="{{ s.pk }}">{{ s.service_name }}</option>
+                  {% for value, label in item_form.service_choice.field.choices %}
+                    <option value="{{ value }}">{{ label }}</option>
                   {% endfor %}
                 </select>
               </div>

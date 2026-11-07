@@ -1,5 +1,10 @@
+from decimal import ROUND_HALF_UP, Decimal
+
 from django.db import models
 from django.utils import timezone
+
+# Money is rounded to the centavo
+CENT = Decimal("0.01")
 
 
 class Service(models.Model):
@@ -170,24 +175,32 @@ class BillingReceipt(models.Model):
     def calculate_totals(self):
         """
         Recalculates subtotal and total from billing items.
-        Call this after adding or removing billing items.
+        Call this after adding or removing billing items, or after a
+        discount change. Saves only the totals (update_fields), so a stale
+        copy of the receipt can never write an old payment_status back.
         """
-        from decimal import Decimal
-
-        # Sum all line item subtotals
         items = self.billing_items.all()
-        self.subtotal = sum(item.subtotal for item in items)
+        subtotal = sum((item.subtotal for item in items), Decimal("0"))
+        self.subtotal = subtotal.quantize(CENT, rounding=ROUND_HALF_UP)
+        discount = self._discount_for(self.subtotal)
+        self.total_amount = max(self.subtotal - discount, Decimal("0.00"))
+        self.save(update_fields=["subtotal", "total_amount", "updated_at"])
 
-        # Apply discount
-        discount = Decimal("0")
-        if self.discount_value and self.discount_type:
-            if self.discount_type == self.PERCENTAGE:
-                discount = self.subtotal * (self.discount_value / Decimal("100"))
-            elif self.discount_type == self.FIXED_DISCOUNT:
-                discount = self.discount_value
-
-        self.total_amount = max(self.subtotal - discount, Decimal("0"))
-        self.save()
+    def _discount_for(self, subtotal):
+        """The peso discount on this subtotal: a percentage of it or the
+        peso amount, capped at the subtotal (removing an item later can
+        shrink it), rounded to 2 decimals with ROUND_HALF_UP."""
+        subtotal = Decimal(subtotal or 0)
+        value = Decimal(self.discount_value or 0)
+        if value <= 0 or subtotal <= 0:
+            return Decimal("0.00")
+        if self.discount_type == self.PERCENTAGE:
+            raw = subtotal * value / Decimal("100")
+        elif self.discount_type == self.FIXED_DISCOUNT:
+            raw = value
+        else:
+            return Decimal("0.00")
+        return min(raw, subtotal).quantize(CENT, rounding=ROUND_HALF_UP)
 
     @property
     def is_locked(self):
@@ -196,44 +209,34 @@ class BillingReceipt(models.Model):
 
     @property
     def discount_amount(self):
-        """Returns the actual peso amount deducted as discount."""
-        from decimal import Decimal
+        """The peso amount taken off, the same capped and rounded value
+        calculate_totals() uses, so subtotal - discount = total on the
+        page and on the printout."""
+        return self._discount_for(self.subtotal)
 
-        if not self.discount_value or not self.discount_type:
-            return Decimal("0")
-        if self.discount_type == self.PERCENTAGE:
-            return self.subtotal * (self.discount_value / Decimal("100"))
-        if self.discount_type == self.FIXED_DISCOUNT:
-            return self.discount_value
-        return Decimal("0")
+    @property
+    def has_discount(self):
+        """True when a discount actually takes something off."""
+        return self.discount_amount > 0
 
     @classmethod
     def generate_receipt_number(cls):
         """
-        Generates the next receipt number in format HV-YYYY-XXXX.
-        Thread-safe enough for a single-clinic single-admin system.
+        Next receipt number for this Manila year: HV-YYYY-0001 … HV-YYYY-9999,
+        then HV-YYYY-10000. The largest number after the prefix is found
+        numerically (a string sort would put 9999 after 10000); numbers
+        whose suffix isn't a whole number are ignored.
         """
-        from django.utils import timezone
-
-        year = timezone.localdate().year
-        prefix = f"HV-{year}-"
-
-        # Find the highest existing number for this year
-        last = (
-            cls.objects.filter(receipt_number__startswith=prefix)
-            .order_by("-receipt_number")
-            .first()
+        prefix = f"HV-{timezone.localdate().year}-"
+        numbers = cls.objects.filter(receipt_number__startswith=prefix).values_list(
+            "receipt_number", flat=True
         )
-
-        if last:
-            try:
-                last_seq = int(last.receipt_number.split("-")[-1])
-            except ValueError:
-                last_seq = 0
-        else:
-            last_seq = 0
-
-        return f"{prefix}{str(last_seq + 1).zfill(4)}"
+        highest = 0
+        for number in numbers:
+            suffix = number[len(prefix) :]
+            if suffix.isascii() and suffix.isdigit():
+                highest = max(highest, int(suffix))
+        return f"{prefix}{highest + 1:04d}"
 
 
 class BillingItem(models.Model):

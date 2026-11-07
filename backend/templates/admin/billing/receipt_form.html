@@ -117,23 +117,6 @@
             </div>
           {% endif %}
 
-          <div class="form-group">
-            <label for="{{ form.billing_date.id_for_label }}" class="form-label">
-              Billing Date
-            </label>
-            {{ form.billing_date }}
-            {% if form.billing_date.errors %}
-              <p class="form-error">{{ form.billing_date.errors.0 }}</p>
-            {% endif %}
-          </div>
-
-          <div class="form-group">
-            <label for="{{ form.payment_method.id_for_label }}" class="form-label">
-              Payment Method
-            </label>
-            {{ form.payment_method }}
-          </div>
-
           <div class="form-row">
             <div class="form-group">
               <label for="{{ form.discount_type.id_for_label }}" class="form-label">
@@ -266,17 +249,15 @@
               {% csrf_token %}
 
               <div class="form-group">
-                <label class="form-label">
-                  Service <span class="form-optional">(optional)</span>
-                </label>
+                <label class="form-label">What is it?</label>
+                <!-- Choices from BillingItemForm: "Choose one", services, "Other (type it)" -->
                 <select
-                  name="service"
+                  name="service_choice"
                   id="id_service_select"
                   onchange="fetchServiceDetails(this.value)"
                 >
-                  <option value="">Manual item (no service)</option>
-                  {% for s in item_form.service.field.queryset %}
-                    <option value="{{ s.pk }}">{{ s.service_name }}</option>
+                  {% for value, label in item_form.service_choice.field.choices %}
+                    <option value="{{ value }}">{{ label }}</option>
                   {% endfor %}
                 </select>
               </div>

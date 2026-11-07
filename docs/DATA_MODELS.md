@@ -490,11 +490,11 @@ Clinic service catalog managed by Admin.
 | `service_name` | CharField | max_length=100 | — |
 | `category` | CharField | max_length=50, blank=True | Optional, Admin-defined |
 | `description` | TextField | blank=True | — |
-| `pricing_type` | CharField | max_length=10, choices=PRICING_CHOICES | FIXED or RANGE |
-| `base_price` | DecimalField | max_digits=10, decimal_places=2 | Used for FIXED pricing |
-| `min_price` | DecimalField | max_digits=10, decimal_places=2, null=True | Used for RANGE pricing |
-| `max_price` | DecimalField | max_digits=10, decimal_places=2, null=True | Used for RANGE pricing |
-| `status` | CharField | max_length=20, choices=STATUS_CHOICES | DRAFT / ACTIVE / UNLISTED / CLOSED |
+| `pricing_type` | CharField | max_length=10, choices=PRICING_CHOICES, default=FIXED | FIXED or RANGE |
+| `base_price` | DecimalField | max_digits=10, decimal_places=2, default=0 | Used for FIXED pricing |
+| `min_price` | DecimalField | max_digits=10, decimal_places=2, null=True, blank=True | Used for RANGE pricing |
+| `max_price` | DecimalField | max_digits=10, decimal_places=2, null=True, blank=True | Used for RANGE pricing |
+| `status` | CharField | max_length=20, choices=STATUS_CHOICES, default=DRAFT | DRAFT / ACTIVE / UNLISTED / CLOSED |
 | `created_at` | DateTimeField | auto_now_add=True | — |
 | `updated_at` | DateTimeField | auto_now=True | — |
 
@@ -526,19 +526,19 @@ Header record for each billing transaction.
 | Field | Type | Options | Notes |
 |---|---|---|---|
 | `id` | AutoField | PK | Auto |
-| `receipt_number` | CharField | max_length=50, unique=True | Auto-generated e.g. HV-2025-0001 |
-| `appointment` | ForeignKey | Appointment, null=True, blank=True, on_delete=SET_NULL | — |
-| `owner` | ForeignKey | PetOwner, on_delete=SET_NULL, null=True | — |
-| `pet` | ForeignKey | Pet, on_delete=SET_NULL, null=True | — |
-| `billing_date` | DateField | auto_now_add=True | — |
-| `subtotal` | DecimalField | max_digits=10, decimal_places=2 | Before discount |
-| `discount_type` | CharField | max_length=20, choices=DISCOUNT_CHOICES, blank=True | PERCENTAGE or FIXED |
-| `discount_value` | DecimalField | max_digits=10, decimal_places=2, default=0 | Amount or percentage |
-| `discount_note` | CharField | max_length=100, blank=True | e.g. Loyal client discount |
-| `total_amount` | DecimalField | max_digits=10, decimal_places=2 | After discount |
-| `payment_method` | CharField | max_length=50, blank=True | e.g. Cash |
-| `payment_status` | CharField | max_length=20, choices=STATUS_CHOICES | PENDING / PAID / CANCELLED |
-| `payment_date` | DateField | null=True, blank=True | When marked as Paid |
+| `receipt_number` | CharField | max_length=50, unique=True | Auto-generated e.g. HV-2026-0001 |
+| `appointment` | OneToOneField | Appointment, null=True, blank=True, on_delete=SET_NULL, related_name="billing_receipt" | One receipt per visit; null for over-the-counter |
+| `owner` | ForeignKey | PetOwner, on_delete=SET_NULL, null=True, related_name="billing_receipts" | — |
+| `pet` | ForeignKey | Pet, on_delete=SET_NULL, null=True, related_name="billing_receipts" | — |
+| `billing_date` | DateField | default=timezone.now | Set automatically: the Manila date the receipt is created (not on any form) |
+| `subtotal` | DecimalField | max_digits=10, decimal_places=2, default=0 | Sum of the items |
+| `discount_type` | CharField | max_length=20, choices=DISCOUNT_CHOICES, blank=True | "" (no discount), PERCENTAGE or FIXED |
+| `discount_value` | DecimalField | max_digits=10, decimal_places=2, default=0 | Percentage or peso amount, as typed |
+| `discount_note` | CharField | max_length=100, blank=True | e.g. Loyal client; printed next to the discount |
+| `total_amount` | DecimalField | max_digits=10, decimal_places=2, default=0 | After discount, never below 0 |
+| `payment_method` | CharField | max_length=50, blank=True, default="Cash" | Always "Cash" (not on any form); set again at mark paid |
+| `payment_status` | CharField | max_length=20, choices=PAYMENT_STATUS_CHOICES, default=PENDING | PENDING / PAID / CANCELLED |
+| `payment_date` | DateField | null=True, blank=True | Set automatically at mark paid: the Manila date |
 | `created_at` | DateTimeField | auto_now_add=True | — |
 | `updated_at` | DateTimeField | auto_now=True | — |
 
@@ -555,12 +555,17 @@ PERCENTAGE = 'percentage'
 FIXED = 'fixed'
 ```
 
+Meta: `ordering = ["-billing_date", "-created_at"]`. Choice labels shown on the pages ("No discount", "Percent off (%)", "Peso amount off (₱)", …) are set in the forms, not in `choices` (a choices change is a migration).
+
 **Rules:**
-- Receipt number auto-generated on creation (format: HV-YYYY-XXXX)
+- Receipt number auto-generated on creation: `HV-{Manila year}-NNNN`. The next number is the largest whole number after this year's prefix + 1 (worked out numerically, not by string sort; a suffix that isn't a whole number is ignored), padded to at least 4 digits: HV-2026-0001 … HV-2026-9999, then HV-2026-10000. `save_new_receipt` (`billing/utils.py`) retries once with a fresh number when the save fails only because the number was taken meanwhile; any other IntegrityError is raised.
 - Editable only while `payment_status` is PENDING
 - Locked (read-only) once PAID or CANCELLED (`is_locked`); views refuse every write to a locked receipt
 - `payment_status` / `payment_date` change only via the Mark as Paid / Cancel Receipt actions, never via the receipt form
-- `total_amount` calculated as: subtotal - discount
+- Mark as Paid needs at least one item ("Add at least one item first."); a ₱0 total with items is allowed. It sets PAID, `payment_date` = today (Manila) and `payment_method` = "Cash". Cancel sets CANCELLED (a void; can't be undone).
+- Row locks: every status change, item add/remove and discount change runs in `transaction.atomic()` with the receipt row locked (`select_for_update`, `lock_pending_receipt` in `billing/utils.py`) and acts only if the receipt is still PENDING. Status, discount and totals are saved with `update_fields`, so a stale copy of the receipt never writes an old status back.
+- Discount (form rules, `BillingReceiptForm`): negative refused; a type with no amount refused; an amount with no type refused; a percentage over 100 refused; a peso amount over the current subtotal (sum of the items) refused. "No discount" saves `discount_value` 0 and `discount_note` "".
+- Totals (`calculate_totals()`): subtotal = sum of the item subtotals; discount = the percentage of the subtotal or the peso amount, **capped at the subtotal** (removing an item later can shrink it), rounded to 2 decimals with ROUND_HALF_UP; `total_amount` = subtotal - discount, never below 0. Saved with `update_fields=["subtotal", "total_amount", "updated_at"]`. `discount_amount` returns the same capped, rounded value (so subtotal - discount = total on the page and the printout); `has_discount` is True when it is above 0.
 
 ---
 
@@ -571,18 +576,21 @@ Supports both catalog services and manual items.
 | Field | Type | Options | Notes |
 |---|---|---|---|
 | `id` | AutoField | PK | Auto |
-| `receipt` | ForeignKey | BillingReceipt, on_delete=CASCADE | — |
-| `service` | ForeignKey | Service, null=True, blank=True, on_delete=SET_NULL | Null if manual item |
-| `description` | CharField | max_length=200 | Used for manual items or overrides service name |
-| `quantity` | IntegerField | default=1 | — |
-| `unit_price` | DecimalField | max_digits=10, decimal_places=2 | Actual billed price set by Admin |
-| `subtotal` | DecimalField | max_digits=10, decimal_places=2 | quantity × unit_price |
+| `receipt` | ForeignKey | BillingReceipt, on_delete=CASCADE, related_name="billing_items" | — |
+| `service` | ForeignKey | Service, null=True, blank=True, on_delete=SET_NULL, related_name="billing_items" | Null for "Other (type it)" |
+| `description` | CharField | max_length=200 | Printed on the receipt; filled from the service name when left blank |
+| `quantity` | IntegerField | default=1 | 1 to 999 (form rule) |
+| `unit_price` | DecimalField | max_digits=10, decimal_places=2 | Actual billed price set by Admin; 0 or more |
+| `subtotal` | DecimalField | max_digits=10, decimal_places=2 | quantity × unit_price; at most ₱999,999.99 (form rule) |
 | `created_at` | DateTimeField | auto_now_add=True | — |
 
 **Rules:**
-- If `service` is null — manual item, `description` is required
-- If `service` is set — `description` can be auto-filled from service name
+- "What is it?" (`BillingItemForm.service_choice`, a form-only field): an Offered (ACTIVE) or Clinic use only (UNLISTED) service, A to Z, or "Other (type it)" (`service` null). Any other posted service is refused.
+- A blank description takes the service's name; Other needs a description ("Type what it is.")
+- A blank unit price takes a FIXED service's `base_price`; a RANGE service or Other needs a price ("Type the price."). A ₱0 item is allowed.
 - `subtotal` always calculated as `quantity × unit_price`
+- Removable while the receipt is PENDING (hard delete, row-locked, totals recalculated), then locked with the receipt
+- Listed first added first: every query that lists a receipt's items uses `order_by("created_at", "pk")` (no Meta ordering)
 
 ---
 
@@ -699,7 +707,7 @@ User ──────────────── PetOwner (OneToOne)
                                └── Appointment (ForeignKey, many)
                                      ├── MedicalRecord (ForeignKey, optional)
                                      ├── Vaccination (ForeignKey, optional)
-                                     └── BillingReceipt (ForeignKey, optional)
+                                     └── BillingReceipt (OneToOne, optional)
                                            └── BillingItem (ForeignKey, many)
                                                  └── Service (ForeignKey, optional)
 
@@ -742,7 +750,7 @@ PetDeletionRequest (ForeignKey to Pet)
 | Vaccination | Editable + correction flag | `is_corrected` + `correction_note` | Permanent health history |
 | Appointment | Status-based | CANCELLED status | Status tells the full story |
 | BillingReceipt | Status-based | CANCELLED status | Financial audit trail |
-| BillingItem | No deletion | Locked with receipt | Integrity of billing record |
+| BillingItem | Removable while the receipt is PENDING | Hard delete while PENDING, then locked with the receipt | Fix mistakes before payment; then part of the billing record |
 | Service | Status-based | CLOSED / DRAFT status | History of offered services |
 | Notification | True delete | Admin manual clear | No long-term value |
 | HealthArticle | Soft delete | `is_published = False` | Draft/unpublish workflow |

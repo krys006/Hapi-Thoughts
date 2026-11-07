@@ -1,17 +1,26 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.utils import timezone
+from django.db import transaction
 
 from .models import Service, BillingReceipt, BillingItem
 from .forms import ServiceForm, BillingReceiptForm, BillingItemForm
-
-from notifications.utils import notify
+from .utils import (
+    LOCKED_MESSAGE,  # noqa: F401 (tests import it from here)
+    NO_ITEMS_MESSAGE,
+    add_item,
+    form_error_text,
+    lock_pending_receipt,
+    mark_receipt_cancelled,
+    mark_receipt_paid,
+    notify_receipt_paid,
+    receipt_items,
+    refuse_locked,
+    save_discount,
+    save_new_receipt,
+)
 
 from appointments.models import ClinicSettings
-
-# Shown whenever a write is refused because receipt.is_locked
-LOCKED_MESSAGE = "This receipt is locked and can't be changed."
 
 # ── Admin — Services ──────────────────────────────────────────────────────────
 
@@ -185,12 +194,13 @@ def admin_receipt_create(request):
                 pet = get_object_or_404(Pet, pk=pet_pk)
 
         if form.is_valid():
+            # billing_date (today) and payment_method ("Cash") come from
+            # the model defaults; the number from save_new_receipt
             receipt = form.save(commit=False)
-            receipt.receipt_number = BillingReceipt.generate_receipt_number()
             receipt.appointment = appointment
             receipt.owner = owner
             receipt.pet = pet
-            receipt.save()
+            save_new_receipt(receipt)
 
             messages.success(
                 request,
@@ -200,8 +210,7 @@ def admin_receipt_create(request):
         else:
             messages.error(request, "Please correct the errors below.")
     else:
-        initial = {"billing_date": timezone.localdate()}
-        form = BillingReceiptForm(initial=initial)
+        form = BillingReceiptForm()
 
     # For non-appointment receipts, load owners for manual selection
     owners = PetOwner.objects.filter(is_archived=False).order_by(
@@ -235,7 +244,7 @@ def admin_receipt_detail(request, pk):
         BillingReceipt.objects.select_related("owner", "pet", "appointment"),
         pk=pk,
     )
-    items = receipt.billing_items.select_related("service").all()
+    items = receipt_items(receipt)
     item_form = BillingItemForm()
 
     return render(
@@ -259,26 +268,27 @@ def admin_receipt_edit(request, pk):
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    receipt = get_object_or_404(BillingReceipt, pk=pk)
-
-    if receipt.is_locked:
-        messages.error(request, LOCKED_MESSAGE)
-        return redirect("admin_receipt_detail", pk=pk)
-
     if request.method == "POST":
-        form = BillingReceiptForm(request.POST, instance=receipt)
-        if form.is_valid():
-            receipt = form.save()
-            # Recalculate totals in case discount changed
-            receipt.calculate_totals()
-            messages.success(request, "Receipt updated.")
-            return redirect("admin_receipt_detail", pk=pk)
-        else:
-            messages.error(request, "Please correct the errors below.")
+        # Row-locked: the discount is checked against the items as they are
+        with transaction.atomic():
+            receipt = lock_pending_receipt(pk)
+            if receipt is None:
+                return refuse_locked(request, pk)
+            form = BillingReceiptForm(request.POST, instance=receipt)
+            if form.is_valid():
+                save_discount(form)
+                messages.success(request, "Receipt updated.")
+                return redirect("admin_receipt_detail", pk=pk)
+        # The failed form wrote posted values onto the instance
+        receipt.refresh_from_db()
+        messages.error(request, "Please correct the errors below.")
     else:
+        receipt = get_object_or_404(BillingReceipt, pk=pk)
+        if receipt.is_locked:
+            return refuse_locked(request, pk)
         form = BillingReceiptForm(instance=receipt)
 
-    items = receipt.billing_items.select_related("service").all()
+    items = receipt_items(receipt)
     item_form = BillingItemForm()
 
     return render(
@@ -303,27 +313,21 @@ def admin_billing_item_add(request, receipt_pk):
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    receipt = get_object_or_404(BillingReceipt, pk=receipt_pk)
-
-    if receipt.is_locked:
-        messages.error(request, LOCKED_MESSAGE)
+    if request.method != "POST":
         return redirect("admin_receipt_detail", pk=receipt_pk)
 
-    if request.method == "POST":
+    with transaction.atomic():
+        receipt = lock_pending_receipt(receipt_pk)
+        if receipt is None:
+            return refuse_locked(request, receipt_pk)
         form = BillingItemForm(request.POST)
         if form.is_valid():
-            BillingItem.objects.create(
-                receipt=receipt,
-                service=form.cleaned_data.get("service"),
-                description=form.cleaned_data["description"],
-                quantity=form.cleaned_data["quantity"],
-                unit_price=form.cleaned_data["unit_price"],
-                subtotal=0,  # Overwritten by BillingItem.save()
-            )
-            receipt.calculate_totals()
+            add_item(receipt, form.cleaned_data)
             messages.success(request, "Item added.")
         else:
-            messages.error(request, "Please correct the errors.")
+            # The old receipt pages lose the form on redirect: flash the
+            # real errors until 6a-2 re-renders the dialog
+            messages.error(request, form_error_text(form))
 
     return redirect("admin_receipt_detail", pk=receipt_pk)
 
@@ -337,58 +341,48 @@ def admin_billing_item_delete(request, pk):
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    item = get_object_or_404(BillingItem, pk=pk)
-    receipt = item.receipt
+    receipt_pk = get_object_or_404(
+        BillingItem.objects.values_list("receipt_id", flat=True), pk=pk
+    )
+    if request.method != "POST":
+        return redirect("admin_receipt_detail", pk=receipt_pk)
 
-    if receipt.is_locked:
-        messages.error(request, LOCKED_MESSAGE)
-        return redirect("admin_receipt_detail", pk=receipt.pk)
-
-    if request.method == "POST":
-        item.delete()
+    with transaction.atomic():
+        receipt = lock_pending_receipt(receipt_pk)
+        if receipt is None:
+            return refuse_locked(request, receipt_pk)
+        # Only an item of the receipt that is locked (404 if it is gone)
+        get_object_or_404(receipt.billing_items, pk=pk).delete()
         receipt.calculate_totals()
         messages.success(request, "Item removed.")
 
-    return redirect("admin_receipt_detail", pk=receipt.pk)
+    return redirect("admin_receipt_detail", pk=receipt_pk)
 
 
 @login_required
 def admin_receipt_mark_paid(request, pk):
-    """Admin action — mark a receipt as PAID."""
+    """Admin action — mark a receipt as PAID, in cash, today."""
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    receipt = get_object_or_404(BillingReceipt, pk=pk)
+    if request.method != "POST":
+        return redirect("admin_receipt_detail", pk=pk)
 
-    if request.method == "POST":
-        if receipt.is_locked:
-            messages.error(request, LOCKED_MESSAGE)
-        else:
-            receipt.payment_status = BillingReceipt.PAID
-            receipt.payment_date = timezone.localdate()
-            receipt.save()
+    with transaction.atomic():
+        receipt = lock_pending_receipt(pk)
+        if receipt is None:
+            return refuse_locked(request, pk)
+        if not receipt.billing_items.exists():
+            messages.error(request, NO_ITEMS_MESSAGE)
+            return redirect("admin_receipt_detail", pk=pk)
+        mark_receipt_paid(receipt)
 
-            # Notify pet owner that their receipt has been marked as paid
-            if receipt.owner and receipt.owner.user:
-                notify(
-                    recipient=receipt.owner.user,
-                    notification_type="billing_generated",
-                    title="Payment Confirmed",
-                    message=(
-                        f"Your payment for receipt {receipt.receipt_number} "
-                        f"(₱{receipt.total_amount:,.2f}) has been confirmed. "
-                        f"Thank you!"
-                    ),
-                    related_billing=receipt,
-                    related_pet=receipt.pet,
-                    email_subject=f"Payment Confirmed — {receipt.receipt_number}",
-                )
-
-            messages.success(
-                request,
-                f"Receipt {receipt.receipt_number} marked as paid.",
-            )
-
+    # After the commit, so the row lock isn't held while the email sends
+    notify_receipt_paid(receipt)
+    messages.success(
+        request,
+        f"Receipt {receipt.receipt_number} marked as paid.",
+    )
     return redirect("admin_receipt_detail", pk=pk)
 
 
@@ -398,15 +392,15 @@ def admin_receipt_mark_cancelled(request, pk):
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    receipt = get_object_or_404(BillingReceipt, pk=pk)
+    if request.method != "POST":
+        return redirect("admin_receipt_detail", pk=pk)
 
-    if request.method == "POST":
-        if receipt.is_locked:
-            messages.error(request, LOCKED_MESSAGE)
-        else:
-            receipt.payment_status = BillingReceipt.CANCELLED
-            receipt.save()
-            messages.success(request, "Receipt cancelled.")
+    with transaction.atomic():
+        receipt = lock_pending_receipt(pk)
+        if receipt is None:
+            return refuse_locked(request, pk)
+        mark_receipt_cancelled(receipt)
+        messages.success(request, "Receipt cancelled.")
 
     return redirect("admin_receipt_detail", pk=pk)
 
@@ -445,7 +439,7 @@ def owner_receipt_detail(request, pk):
         pk=pk,
         owner=owner,
     )
-    items = receipt.billing_items.select_related("service").all()
+    items = receipt_items(receipt)
 
     return render(
         request,
