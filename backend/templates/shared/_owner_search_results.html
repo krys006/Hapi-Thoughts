@@ -34,7 +34,7 @@
     {% for receipt in search_receipts %}
     <a href="{% url 'owner_receipt_detail' receipt.pk %}" class="search-result-row">
       <span class="search-result-title">{{ receipt.receipt_number }}</span>
-      <span class="search-result-meta">{{ receipt.pet.name|default:"—" }} — {{ receipt.get_payment_status_display }}</span>
+      <span class="search-result-meta">{{ receipt.pet.name|default:"—" }} — {{ receipt.status_label }}</span>
     </a>
     {% endfor %}
   </div>

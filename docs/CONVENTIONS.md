@@ -829,7 +829,10 @@ Migrated pages never loop over `messages` (the layout includes
 {% block title %}Hapi Vet{% endblock %}
 {% block extra_css %}{% endblock %}   ← page CSS link, in <head>
 {% block content %}{% endblock %}     ← page body, inside <main>
-{% block extra_js %}{% endblock %}    ← page JS, end of <body>
+{% block extra_js %}{% endblock %}    ← page JS, end of <body>; the owner
+                                         receipt page puts the print partial
+                                         here too, so it is a direct child of
+                                         <body> (since 6a-4)
 
 <!-- base.html -->
 {% block title %}Hapi Vet{% endblock %}

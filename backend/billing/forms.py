@@ -2,15 +2,40 @@ from decimal import Decimal
 
 from django import forms
 from django.db.models import Sum
-from django.db.models.functions import Lower
+from django.db.models.functions import Lower, Trim
 
 from .models import Service, BillingReceipt
+
+# Service labels live here, not in the model's choices (that would be a
+# migration). Status order is the order the pages show the groups in.
+SERVICE_PRICING_CHOICES = [
+    (Service.FIXED, "One price"),
+    (Service.RANGE, "A price range"),
+]
+SERVICE_STATUS_CHOICES = [
+    (Service.ACTIVE, "Offered"),
+    (Service.UNLISTED, "Clinic use only"),
+    (Service.DRAFT, "Hidden (draft)"),
+    (Service.CLOSED, "No longer offered"),
+]
+PRICE_FIELDS = ("base_price", "min_price", "max_price")
+NEGATIVE_PRICE = "Prices can't be negative."
 
 
 class ServiceForm(forms.ModelForm):
     """
-    Admin form — create or edit a service in the catalog.
+    Admin form — create or edit a service in the catalog (rules 29–31).
+    The name is unique ignoring letter case and outer spaces. Saving clears
+    the other pricing type: One price keeps base_price only; a range keeps
+    min / max and sets base_price to the lowest (the column has no blank).
     """
+
+    pricing_type = forms.ChoiceField(
+        label="How is it priced?", choices=SERVICE_PRICING_CHOICES
+    )
+    status = forms.ChoiceField(
+        label="Who sees it", choices=SERVICE_STATUS_CHOICES, initial=Service.DRAFT
+    )
 
     class Meta:
         model = Service
@@ -24,36 +49,106 @@ class ServiceForm(forms.ModelForm):
             "max_price",
             "status",
         ]
-        widgets = {
-            "description": forms.Textarea(attrs={"rows": 3}),
+        labels = {
+            "service_name": "Name",
+            "category": "Category",
+            "description": "Description",
+            "base_price": "Price",
+            "min_price": "Lowest price",
+            "max_price": "Highest price",
         }
+        help_texts = {
+            "category": "Groups similar services. Type any word.",
+            "description": "Pet owners see this when they book.",
+        }
+        error_messages = {"service_name": {"required": "Type the service name."}}
+        widgets = {
+            "service_name": forms.TextInput(
+                attrs={"placeholder": "For example: Consultation"}
+            ),
+            "category": forms.TextInput(attrs={"placeholder": "For example: Vaccines"}),
+            "description": forms.Textarea(
+                attrs={"rows": 3, "placeholder": "What it includes, in a sentence"}
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Checked per pricing type in clean(), not at field level
+        for name in PRICE_FIELDS:
+            self.fields[name].required = False
+
+    def clean_service_name(self):
+        name = self.cleaned_data["service_name"].strip()
+        if not name:
+            raise forms.ValidationError("Type the service name.")
+        taken = (
+            Service.objects.annotate(plain_name=Lower(Trim("service_name")))
+            .filter(plain_name=name.lower())
+            .exclude(pk=self.instance.pk)
+            .first()
+        )
+        if taken:
+            raise forms.ValidationError(
+                f"There is already a service called “{taken.service_name.strip()}”."
+            )
+        return name
 
     def clean(self):
         cleaned_data = super().clean()
         pricing_type = cleaned_data.get("pricing_type")
-        base_price = cleaned_data.get("base_price")
-        min_price = cleaned_data.get("min_price")
-        max_price = cleaned_data.get("max_price")
-
         if pricing_type == Service.FIXED:
-            if base_price is None or base_price < 0:
-                raise forms.ValidationError(
-                    "Please provide a valid base price for fixed pricing."
-                )
-
-        if pricing_type == Service.RANGE:
-            if min_price is None or max_price is None:
-                raise forms.ValidationError(
-                    "Please provide both min and max price for range pricing."
-                )
-            if min_price < 0 or max_price < 0:
-                raise forms.ValidationError("Prices cannot be negative.")
-            if min_price > max_price:
-                raise forms.ValidationError(
-                    "Minimum price cannot be greater than maximum price."
-                )
-
+            self._clean_one_price(cleaned_data)
+        elif pricing_type == Service.RANGE:
+            self._clean_price_range(cleaned_data)
         return cleaned_data
+
+    def _negative(self, cleaned_data, names):
+        """Adds "Prices can't be negative." to each of these fields that is;
+        True if any was."""
+        found = False
+        for name in names:
+            value = cleaned_data.get(name)
+            if value is not None and value < 0:
+                self.add_error(name, NEGATIVE_PRICE)
+                found = True
+        return found
+
+    def _clean_one_price(self, cleaned_data):
+        if "base_price" in self.errors or self._negative(cleaned_data, ["base_price"]):
+            return
+        if cleaned_data.get("base_price") is None:
+            self.add_error("base_price", "Type the price.")
+            return
+        cleaned_data["min_price"] = None
+        cleaned_data["max_price"] = None
+
+    def _clean_price_range(self, cleaned_data):
+        names = ["min_price", "max_price"]
+        if any(name in self.errors for name in names):
+            return
+        if self._negative(cleaned_data, names):
+            return
+        low, high = cleaned_data.get("min_price"), cleaned_data.get("max_price")
+        if low is None or high is None:
+            missing = "min_price" if low is None else "max_price"
+            self.add_error(missing, "Type the lowest and the highest price.")
+        elif high <= low:
+            self.add_error(
+                "max_price", "The highest price must be more than the lowest."
+            )
+        else:
+            cleaned_data["base_price"] = low
+
+    def save(self, commit=True):
+        # Set from cleaned_data even when a price field wasn't posted at all
+        # (the model form would keep the old value or the default then)
+        service = super().save(commit=False)
+        for name in PRICE_FIELDS:
+            setattr(service, name, self.cleaned_data[name])
+        if commit:
+            service.save()
+        return service
 
 
 # Discount labels live here, not in the model's choices (that would be a

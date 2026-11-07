@@ -4,7 +4,7 @@ from django.contrib import messages
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Service, BillingReceipt, BillingItem
+from .models import Service, BillingItem
 from .forms import ServiceForm, BillingReceiptForm, BillingItemForm
 from .utils import (
     LOCKED_MESSAGE,  # noqa: F401 (tests import it from here)
@@ -21,6 +21,7 @@ from .utils import (
     mark_receipt_paid,
     notify_receipt_paid,
     owner_for_receipt,
+    owner_receipts,
     receipt_detail_context,
     receipt_for_page,
     receipt_items,
@@ -32,6 +33,8 @@ from .utils import (
     refuse_locked,
     restore_message,
     save_discount,
+    service_saved_message,
+    services_list_context,
     visit_for_receipt,
     visit_receipt_context,
     visit_receipt_stop,
@@ -45,47 +48,26 @@ from appointments.models import ClinicSettings
 
 @login_required
 def admin_service_list(request):
-    """Admin view — list all services in the catalog."""
+    """Admin view — the services, grouped by who sees them
+    (services_list_context)."""
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    status_filter = request.GET.get("status", "")
-    services = Service.objects.all()
-
-    if status_filter:
-        services = services.filter(status=status_filter)
-
-    counts = {
-        "all": Service.objects.count(),
-        "draft": Service.objects.filter(status=Service.DRAFT).count(),
-        "active": Service.objects.filter(status=Service.ACTIVE).count(),
-        "unlisted": Service.objects.filter(status=Service.UNLISTED).count(),
-        "closed": Service.objects.filter(status=Service.CLOSED).count(),
-    }
-
-    return render(
-        request,
-        "admin/billing/services_list.html",
-        {
-            "services": services,
-            "status_filter": status_filter,
-            "counts": counts,
-            "status_choices": Service.STATUS_CHOICES,
-        },
-    )
+    context = services_list_context(request.GET)
+    return render(request, "admin/billing/services_list.html", context)
 
 
 @login_required
 def admin_service_create(request):
-    """Admin view — create a new service."""
+    """Admin view — create a new service (starts as Hidden (draft))."""
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
     if request.method == "POST":
         form = ServiceForm(request.POST)
         if form.is_valid():
-            form.save()
-            messages.success(request, "Service created.")
+            service = form.save()
+            messages.success(request, service_saved_message(service, created=True))
             return redirect("admin_service_list")
         else:
             messages.error(request, "Please correct the errors below.")
@@ -111,7 +93,7 @@ def admin_service_edit(request, pk):
         form = ServiceForm(request.POST, instance=service)
         if form.is_valid():
             form.save()
-            messages.success(request, "Service updated.")
+            messages.success(request, service_saved_message(service, created=False))
             return redirect("admin_service_list")
         else:
             messages.error(request, "Please correct the errors below.")
@@ -369,12 +351,15 @@ def admin_receipt_mark_cancelled(request, pk):
 
 @login_required
 def owner_billing_list(request):
-    """Pet Owner view — list all their billing receipts."""
+    """Pet Owner view — their Unpaid and Paid receipts (never Cancelled)."""
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
-    owner = request.user.petowner
-    receipts = BillingReceipt.objects.filter(owner=owner).order_by("-billing_date")
+    receipts = (
+        owner_receipts(request.user.petowner)
+        .select_related("pet")
+        .order_by("-billing_date", "-created_at")
+    )
 
     return render(
         request,
@@ -387,16 +372,14 @@ def owner_billing_list(request):
 def owner_receipt_detail(request, pk):
     """
     Pet Owner view — view a single billing receipt.
-    Owners can only view their own receipts.
+    Owners can only view their own receipts; a cancelled one is a 404.
     """
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
-    owner = request.user.petowner
     receipt = get_object_or_404(
-        BillingReceipt.objects.select_related("pet", "appointment"),
+        owner_receipts(request.user.petowner).select_related("pet", "appointment"),
         pk=pk,
-        owner=owner,
     )
     items = receipt_items(receipt)
 

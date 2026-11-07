@@ -15,7 +15,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from appointments.models import Appointment
-from billing.models import Service
+from billing.models import BillingReceipt, Service
 from dashboard.context_processors import shell
 from dashboard.templatetags.friendly_dates import (
     friendly_date,
@@ -366,6 +366,51 @@ class TopbarSearchTests(ShellTestBase):
             response.content.decode(),
             r'<script src="/static/js/admin/dialogs\.[0-9a-f]+\.js" defer></script>',
         )
+
+
+class OwnerSearchReceiptTests(ShellTestBase):
+    """Slice 6a-4 (rule 23): the owner's header search never shows a
+    cancelled receipt; the others show "Unpaid" / "Paid"."""
+
+    def setUp(self):
+        super().setUp()
+        self.receipts = {
+            status: BillingReceipt.objects.create(
+                receipt_number=f"HV-2026-000{number}",
+                owner=self.owner,
+                pet=self.pet,
+                payment_status=status,
+            )
+            for number, status in enumerate(
+                [BillingReceipt.PENDING, BillingReceipt.PAID, BillingReceipt.CANCELLED],
+                start=1,
+            )
+        }
+        self.client.force_login(self.owner.user)
+
+    def _search(self, q):
+        return self.client.get(reverse("owner_global_search"), {"q": q})
+
+    def test_cancelled_receipts_are_left_out(self):
+        for q in ["HV-2026", "Bantay"]:
+            with self.subTest(q=q):
+                response = self._search(q)
+                found = {r.pk for r in response.context["search_receipts"]}
+                self.assertEqual(
+                    found,
+                    {
+                        self.receipts[BillingReceipt.PENDING].pk,
+                        self.receipts[BillingReceipt.PAID].pk,
+                    },
+                )
+                self.assertNotContains(response, "HV-2026-0003")
+                self.assertContains(response, "Bantay — Unpaid")
+                self.assertContains(response, "Bantay — Paid")
+
+    def test_only_a_cancelled_match_finds_no_receipt(self):
+        response = self._search("0003")
+        self.assertFalse(response.context["search_receipts"])
+        self.assertNotContains(response, "HV-2026-0003")
 
 
 class ShellLayoutTests(ShellTestBase):

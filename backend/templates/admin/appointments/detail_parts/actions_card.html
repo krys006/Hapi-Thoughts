@@ -70,6 +70,7 @@
       {% else %}
         <a href="{% url 'admin_medical_record_create' appointment.pet.pk %}?appointment={{ appointment.pk }}" class="btn btn-primary min-h-12 w-full font-semibold">{% include "components/icon.html" with name="file-text" %}Add medical record</a>
       {% endif %}
+      {# One receipt per visit: any receipt (unpaid, paid or cancelled) opens; Create only when there is none #}
       {% if receipt %}
         <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="btn btn-outline min-h-12 w-full font-semibold">{% include "components/icon.html" with name="receipt" %}Open receipt</a>
       {% elif medical_record %}

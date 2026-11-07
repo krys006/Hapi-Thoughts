@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from appointments.models import Appointment, ClinicSettings
 from billing.models import BillingReceipt
+from billing.utils import owner_receipts
 from dashboard.utils import (
     dashboard_calendar_context,
     day_schedule,
@@ -181,11 +182,10 @@ def _run_owner_search(owner, query):
         .order_by("-date", "-time")[:5]
     )
 
+    # Unpaid and Paid only: owners never see a cancelled receipt
     receipts = (
-        BillingReceipt.objects.filter(
-            Q(receipt_number__icontains=query) | Q(pet__name__icontains=query),
-            owner=owner,
-        )
+        owner_receipts(owner)
+        .filter(Q(receipt_number__icontains=query) | Q(pet__name__icontains=query))
         .select_related("pet")
         .order_by("-billing_date")[:5]
     )

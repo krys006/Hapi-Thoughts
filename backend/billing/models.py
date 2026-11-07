@@ -226,6 +226,15 @@ class BillingReceipt(models.Model):
         """True when a discount actually takes something off."""
         return self.discount_amount > 0
 
+    # The words shown on the pages (a plain dict, not the field's choices,
+    # so changing them needs no migration)
+    STATUS_LABELS = {PENDING: "Unpaid", PAID: "Paid", CANCELLED: "Cancelled"}
+
+    @property
+    def status_label(self):
+        """ "Unpaid", "Paid" or "Cancelled"."""
+        return self.STATUS_LABELS.get(self.payment_status, "")
+
     @classmethod
     def generate_receipt_number(cls):
         """

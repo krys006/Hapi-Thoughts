@@ -7,6 +7,7 @@ from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
+from django.db.models.functions import Lower
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
@@ -27,7 +28,7 @@ from pets.models import Pet, PetOwner
 
 from appointments.models import ClinicSettings
 
-from .forms import billable_services, peso, service_options
+from .forms import SERVICE_STATUS_CHOICES, billable_services, peso, service_options
 from .models import BillingItem, BillingReceipt, Service
 
 # Shown whenever a write is refused because receipt.is_locked
@@ -115,22 +116,47 @@ def mark_receipt_cancelled(receipt):
     receipt.save(update_fields=["payment_status", "updated_at"])
 
 
+def receipt_paid_title(receipt):
+    """ "Receipt HV-2026-0012 for Bantay" ("Receipt HV-2026-0012" with no pet)."""
+    title = f"Receipt {receipt.receipt_number}"
+    return f"{title} for {receipt.pet.name}" if receipt.pet else title
+
+
+def receipt_paid_message(receipt, today):
+    """ "Paid ₱1,450.00 on Fri, Nov 6. You can view or print it in Billing."
+    (the year only when the payment date isn't in this year)."""
+    return (
+        f"Paid {peso(receipt.total_amount)} on "
+        f"{short_date(receipt.payment_date, today)}. "
+        "You can view or print it in Billing."
+    )
+
+
 def notify_receipt_paid(receipt):
-    """The owner's paid notification (text unchanged; 6a-3 rewrites it)."""
+    """The owner's one billing notification, sent when a receipt is marked
+    paid (rule 24; nothing is sent on create). Call after the commit."""
     if not (receipt.owner and receipt.owner.user):
         return
+    title = receipt_paid_title(receipt)
     notify(
         recipient=receipt.owner.user,
         notification_type="billing_generated",
-        title="Payment Confirmed",
-        message=(
-            f"Your payment for receipt {receipt.receipt_number} "
-            f"(₱{receipt.total_amount:,.2f}) has been confirmed. "
-            f"Thank you!"
-        ),
+        title=title,
+        message=receipt_paid_message(receipt, timezone.localdate()),
         related_billing=receipt,
         related_pet=receipt.pet,
-        email_subject=f"Payment Confirmed — {receipt.receipt_number}",
+        email_subject=f"{title} — Hapi Vet",
+    )
+
+
+# Owners see Unpaid and Paid receipts, never Cancelled ones (rule 23)
+OWNER_RECEIPT_STATUSES = (BillingReceipt.PENDING, BillingReceipt.PAID)
+
+
+def owner_receipts(owner):
+    """The receipts this owner can see: their own, Unpaid or Paid."""
+    return BillingReceipt.objects.filter(
+        owner=owner, payment_status__in=OWNER_RECEIPT_STATUSES
     )
 
 
@@ -481,11 +507,8 @@ def receipt_list_context(params, today):
 # ── Receipt page (admin_receipt_detail, Slice 6a-3) ──────────────────────────
 
 RECEIPT_PAGE_RELATED = ("owner__user", "pet", "appointment")
-RECEIPT_STATUS_LABELS = {
-    BillingReceipt.PENDING: "Unpaid",
-    BillingReceipt.PAID: "Paid",
-    BillingReceipt.CANCELLED: "Cancelled",
-}
+# Kept as a name here; the labels live on the model (status_label)
+RECEIPT_STATUS_LABELS = BillingReceipt.STATUS_LABELS
 
 
 def receipt_for_page(pk):
@@ -502,14 +525,14 @@ def _plain_number(value):
 
 
 def discount_label(receipt):
-    """ "10%" or "₱50.00" (the amount as set), then " · {note}"; "" with
-    no discount."""
+    """What follows "Discount" on the receipt: a percentage is "10%" or
+    "10% · {note}"; a peso discount is just its note, or "" (the amount
+    column already shows the capped amount). "" with no discount."""
     if not receipt.has_discount:
         return ""
-    if receipt.discount_type == BillingReceipt.PERCENTAGE:
-        label = f"{_plain_number(receipt.discount_value)}%"
-    else:
-        label = peso(receipt.discount_value)
+    if receipt.discount_type != BillingReceipt.PERCENTAGE:
+        return receipt.discount_note
+    label = f"{_plain_number(receipt.discount_value)}%"
     return f"{label} · {receipt.discount_note}" if receipt.discount_note else label
 
 
@@ -536,7 +559,7 @@ def receipt_detail_context(receipt, today):
     is_pending = receipt.payment_status == BillingReceipt.PENDING
     return {
         "receipt": receipt,
-        "status_label": RECEIPT_STATUS_LABELS.get(receipt.payment_status, ""),
+        "status_label": receipt.status_label,
         "is_pending": is_pending,
         "can_mark_paid": is_pending and bool(items),
         "items": items,
@@ -556,4 +579,66 @@ def receipt_detail_context(receipt, today):
         "clinic_settings": ClinicSettings.objects.first(),
         "service_options": service_options(billable_services()),
         "today": today,
+    }
+
+
+# ── Services list (admin_service_list, Slice 6a-4) ───────────────────────────
+
+# The one-line explanation under each group's title (services_v1.html)
+SERVICE_GROUP_TEXT = {
+    Service.ACTIVE: (
+        "Pet owners see these when they book. You can put them on receipts."
+    ),
+    Service.UNLISTED: (
+        "Hidden from pet owners. You can put them on receipts and pick them "
+        "for walk-ins."
+    ),
+    Service.DRAFT: (
+        "Not shown anywhere yet. Finish it, then choose Offered or Clinic use only."
+    ),
+    Service.CLOSED: (
+        "Not shown anywhere. Old visits and receipts keep their names and prices."
+    ),
+}
+
+
+def service_saved_message(service, created):
+    """ "Consultation added." / "Consultation saved." """
+    return f"{service.service_name} {'added' if created else 'saved'}."
+
+
+def services_list_context(params):
+    """
+    Context for the services page: every service in one query, A to Z, in
+    groups Offered, Clinic use only, Hidden (draft), No longer offered (key,
+    title, text, services, count) and total_count. Keeps the old
+    services_list.html keys: services (filtered by ?status=), status_filter,
+    counts and status_choices.
+    """
+    services = list(Service.objects.order_by(Lower("service_name"), "pk"))
+    groups = []
+    for key, title in SERVICE_STATUS_CHOICES:
+        rows = [service for service in services if service.status == key]
+        groups.append(
+            {
+                "key": key,
+                "title": title,
+                "text": SERVICE_GROUP_TEXT[key],
+                "services": rows,
+                "count": len(rows),
+            }
+        )
+    status_filter = params.get("status", "")
+    return {
+        "groups": groups,
+        "total_count": len(services),
+        # Old services_list.html's keys
+        "services": (
+            [s for s in services if s.status == status_filter]
+            if status_filter
+            else services
+        ),
+        "status_filter": status_filter,
+        "counts": {"all": len(services), **{g["key"]: g["count"] for g in groups}},
+        "status_choices": Service.STATUS_CHOICES,
     }

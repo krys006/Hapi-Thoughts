@@ -646,6 +646,21 @@ def paging_links(page_obj, page_query):
     }
 
 
+# ── Admin detail: the visit's receipt (Slice 6a-4, rule 26) ──────────────────
+
+# BillingReceipt.payment_status → what the appointment page says about it
+# (plain strings: billing.utils imports this module)
+VISIT_RECEIPT_STATES = {"pending": "unpaid", "paid": "paid", "cancelled": "cancelled"}
+
+
+def visit_receipt_state(receipt):
+    """None (no receipt yet), "unpaid", "paid" or "cancelled". The banner
+    says "All done for this visit" only for "paid"."""
+    if receipt is None:
+        return None
+    return VISIT_RECEIPT_STATES.get(receipt.payment_status)
+
+
 # ── Admin walk-in ────────────────────────────────────────────────────────────
 
 WALKIN_SEARCH_LIMIT = 20

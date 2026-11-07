@@ -246,7 +246,7 @@
                 <div class="receipt-card-meta">
 
                     <span class="status-badge status-{{ receipt.payment_status }}">
-                        {{ receipt.get_payment_status_display }}
+                        {{ receipt.status_label }}
                     </span>
 
                     <a href="{% url 'owner_receipt_detail' receipt.pk %}"

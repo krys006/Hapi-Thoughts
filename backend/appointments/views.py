@@ -40,6 +40,7 @@ from .utils import (
     slot_in_progress,
     tab_counts,
     unfinished_visits,
+    visit_receipt_state,
     walkin_initial,
     walkin_owner_list,
     walkin_slot_context,
@@ -614,6 +615,7 @@ def _admin_detail_context(
 
     today = timezone.localdate()
     cancelled_by = appointment.cancelled_by
+    receipt = _related_or_none(appointment, "billing_receipt")
     context = {
         "appointment": appointment,
         "notes_form": notes_form,
@@ -628,7 +630,9 @@ def _admin_detail_context(
         # At most one: a moved appointment is cancelled, so it can't move again
         "moved_to": appointment.rescheduled_to.first(),
         "medical_record": _related_or_none(appointment, "medical_record"),
-        "receipt": _related_or_none(appointment, "billing_receipt"),
+        "receipt": receipt,
+        # None / "unpaid" / "paid" / "cancelled" (banner and details row)
+        "receipt_state": visit_receipt_state(receipt),
         "open_dialog": _open_dialog(cancel_form, reschedule_form),
     }
     context.update(_reschedule_slot_context(reschedule_form))

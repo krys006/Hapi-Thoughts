@@ -10,6 +10,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.messages import constants as message_levels
 from django.contrib.messages import get_messages
+from django.core import mail
 from django.db import IntegrityError, connection
 from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -18,14 +19,17 @@ from django.utils import timezone
 
 from appointments.models import Appointment
 from billing import views as billing_views
-from billing.forms import BillingItemForm, BillingReceiptForm
+from billing.forms import BillingItemForm, BillingReceiptForm, ServiceForm
 from billing.models import BillingItem, BillingReceipt, Service
 from billing.utils import (
     NO_ITEMS_MESSAGE,
     PICK_PET_MESSAGE,
     RECEIPT_EXISTS,
     RECEIPT_TABS,
+    notify_receipt_paid,
+    receipt_paid_message,
     save_new_receipt,
+    services_list_context,
 )
 from billing.views import LOCKED_MESSAGE
 from notifications.models import Notification
@@ -2145,21 +2149,24 @@ class ReceiptDetailContextTests(FrozenBillingTestBase):
         self.assertEqual(receipt.total_amount, first.total_if_removed)
 
     def test_discount_label(self):
+        """6a-4: a peso discount's label has no amount (the amount column
+        shows the capped amount): its note or "". Was "₱50.00" and
+        "₱1,250.00 · Loyal client". Percentages unchanged."""
         receipt = self._two_items()
         cases = [
             (BillingReceipt.PERCENTAGE, "10", "", "10%", "₱30.00"),
             (BillingReceipt.PERCENTAGE, "12.5", "Senior", "12.5% · Senior", "₱37.50"),
-            (BillingReceipt.FIXED_DISCOUNT, "50", "", "₱50.00", "₱50.00"),
+            (BillingReceipt.FIXED_DISCOUNT, "50", "", "", "₱50.00"),
             (
                 BillingReceipt.FIXED_DISCOUNT,
                 "1250",
                 "Loyal client",
-                "₱1,250.00 · Loyal client",
+                "Loyal client",
                 "₱300.00",
             ),
         ]
         for kind, value, note, label, amount in cases:
-            with self.subTest(label=label):
+            with self.subTest(kind=kind, value=value, note=note):
                 receipt.discount_type = kind
                 receipt.discount_value = Decimal(value)
                 receipt.discount_note = note
@@ -2397,3 +2404,547 @@ class ReceiptDialogTests(FrozenBillingTestBase):
         """6a-3: admin_get_pets_for_owner (unused since 6a-2) was removed."""
         with self.assertRaises(NoReverseMatch):
             reverse("admin_get_pets_for_owner")
+
+
+# ── Slice 6a-4: owner side, notification, services ──────────────────────────
+
+OWNER_LIST_QUERIES = 5
+SERVICES_LIST_QUERIES = 7
+
+
+@PLAIN_STATIC
+class StatusLabelTests(FrozenBillingTestBase):
+
+    def test_status_label(self):
+        cases = [
+            (BillingReceipt.PENDING, "Unpaid"),
+            (BillingReceipt.PAID, "Paid"),
+            (BillingReceipt.CANCELLED, "Cancelled"),
+        ]
+        for status, label in cases:
+            with self.subTest(status=status):
+                self.assertEqual(self._receipt(status).status_label, label)
+        self.assertEqual(BillingReceipt(payment_status="junk").status_label, "")
+
+    def test_print_partial_shows_the_label(self):
+        receipt = self._receipt()
+        response = self.client.get(reverse("admin_receipt_detail", args=[receipt.pk]))
+        self.assertContains(response, "<span>Payment Status:</span><span>Unpaid</span>")
+
+
+@PLAIN_STATIC
+class OwnerBillingTests(FrozenBillingTestBase):
+    """Rule 23 / 25: owners see Unpaid and Paid only; the printout is a
+    direct child of <body>."""
+
+    def setUp(self):
+        super().setUp()
+        self.pending = self._receipt(BillingReceipt.PENDING)
+        self.paid = self._receipt(BillingReceipt.PAID)
+        self.cancelled = self._receipt(BillingReceipt.CANCELLED)
+        self.client.force_login(self.owner.user)
+
+    def _detail(self, receipt):
+        return self.client.get(reverse("owner_receipt_detail", args=[receipt.pk]))
+
+    def test_list_leaves_out_cancelled(self):
+        response = self.client.get(reverse("owner_billing_list"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            {r.pk for r in response.context["receipts"]},
+            {self.pending.pk, self.paid.pk},
+        )
+        self.assertNotContains(response, self.cancelled.receipt_number)
+        # Badges: the labels, with the existing badge classes
+        html = response.content.decode()
+        self.assertRegex(html, r'class="status-badge status-pending">\s*Unpaid\s*<')
+        self.assertRegex(html, r'class="status-badge status-paid">\s*Paid\s*<')
+        self.assertNotRegex(html, r">\s*Pending\s*<")
+
+    def _list_queries(self, count):
+        BillingReceipt.objects.all().delete()
+        for _ in range(count):
+            self._receipt(BillingReceipt.PAID)
+        self._receipt(BillingReceipt.CANCELLED)
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(reverse("owner_billing_list"))
+        self.assertEqual(len(response.context["receipts"]), count)
+        return len(queries)
+
+    def test_list_query_count_is_flat(self):
+        three, thirty = self._list_queries(3), self._list_queries(30)
+        self.assertEqual(three, thirty)
+        self.assertEqual(thirty, OWNER_LIST_QUERIES)
+
+    def test_detail_shows_unpaid_and_paid(self):
+        for receipt, label in [(self.pending, "Unpaid"), (self.paid, "Paid")]:
+            with self.subTest(label=label):
+                response = self._detail(receipt)
+                self.assertEqual(response.status_code, 200)
+                self.assertRegex(
+                    response.content.decode(),
+                    rf'class="status-badge status-{receipt.payment_status}">'
+                    rf"\s*{label}\s*<",
+                )
+
+    def test_detail_of_a_cancelled_receipt_is_a_404(self):
+        self.assertEqual(self._detail(self.cancelled).status_code, 404)
+
+    def test_detail_of_another_owners_receipt_is_a_404(self):
+        other_user = User.objects.create_user(
+            username="other",
+            email="other@example.com",
+            password="unused-pass-123",
+            role=User.PET_OWNER,
+            is_onboarded=True,
+        )
+        other = PetOwner.objects.create(
+            user=other_user, first_name="Ben", last_name="Reyes"
+        )
+        theirs = BillingReceipt.objects.create(
+            receipt_number=BillingReceipt.generate_receipt_number(), owner=other
+        )
+        self.assertEqual(self._detail(theirs).status_code, 404)
+
+    def test_printout_is_a_direct_child_of_body(self):
+        html = self._detail(self.paid).content.decode()
+        printout = html.index('id="printable-receipt"')
+        # After the page's frame closes (</main>), before </body>
+        self.assertGreater(printout, html.index("</main>"))
+        self.assertLess(printout, html.index("</body>"))
+        self.assertEqual(html.count('id="printable-receipt"'), 1)
+        self.assertIn("<span>Payment Status:</span><span>Paid</span>", html)
+
+
+class ReceiptPaidNotificationTests(FrozenBillingTestBase):
+    """Rule 24: one notification, at mark paid; nothing on create."""
+
+    def _mark_paid(self, receipt):
+        return self._post("admin_receipt_mark_paid", receipt.pk)
+
+    def test_title_message_and_subject_with_a_pet(self):
+        receipt = self._empty_receipt()
+        self._item(receipt, "1250.00")
+        receipt.calculate_totals()
+        self._mark_paid(receipt)
+        notification = Notification.objects.get()
+        title = f"Receipt {receipt.receipt_number} for Bantay"
+        self.assertEqual(notification.notification_type, "billing_generated")
+        self.assertEqual(notification.title, title)
+        # 00:30 Manila on Sat, Nov 7 (still Nov 6 in UTC): paid on Nov 7
+        self.assertEqual(
+            notification.message,
+            "Paid ₱1,250.00 on Sat, Nov 7. You can view or print it in Billing.",
+        )
+        self.assertEqual(notification.related_billing, receipt)
+        self.assertEqual(notification.related_pet, self.pet)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].subject, f"{title} — Hapi Vet")
+        self.assertEqual(mail.outbox[0].body, notification.message)
+
+    def test_title_without_a_pet(self):
+        receipt = BillingReceipt.objects.create(
+            receipt_number=BillingReceipt.generate_receipt_number(), owner=self.owner
+        )
+        self._item(receipt, "100.00")
+        receipt.calculate_totals()
+        self._mark_paid(receipt)
+        notification = Notification.objects.get()
+        self.assertEqual(notification.title, f"Receipt {receipt.receipt_number}")
+        self.assertIsNone(notification.related_pet)
+        self.assertEqual(
+            mail.outbox[0].subject, f"Receipt {receipt.receipt_number} — Hapi Vet"
+        )
+
+    def test_the_year_shows_when_it_isnt_this_year(self):
+        receipt = self._receipt(BillingReceipt.PAID)
+        receipt.payment_date = datetime.date(2025, 11, 7)
+        self.assertEqual(
+            receipt_paid_message(receipt, TODAY),
+            "Paid ₱200.00 on Fri, Nov 7, 2025. You can view or print it in Billing.",
+        )
+        notify_receipt_paid(receipt)
+        self.assertIn("on Fri, Nov 7, 2025.", Notification.objects.get().message)
+
+    def test_sent_once(self):
+        receipt = self._receipt()
+        self._mark_paid(receipt)
+        self._mark_paid(receipt)  # refused: already paid
+        self.assertEqual(Notification.objects.count(), 1)
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_nothing_on_create(self):
+        url = reverse("admin_receipt_create")
+        self.client.post(f"{url}?owner={self.owner.pk}", {"pet": self.pet.pk})
+        visit = Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=TODAY,
+            time=datetime.time(9, 0),
+            status=Appointment.COMPLETED,
+        )
+        self.client.post(f"{url}?appointment={visit.pk}")
+        self.assertEqual(BillingReceipt.objects.count(), 2)
+        self.assertEqual(Notification.objects.count(), 0)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_sent_after_the_commit(self):
+        """The receipt is already PAID in the database when notify runs."""
+        receipt = self._receipt()
+        seen = []
+
+        def check(*args, **kwargs):
+            seen.append(BillingReceipt.objects.get(pk=receipt.pk).payment_status)
+
+        with mock.patch.object(billing_views, "notify_receipt_paid", check):
+            self._mark_paid(receipt)
+        self.assertEqual(seen, [BillingReceipt.PAID])
+
+
+class ServiceFormTests(FrozenBillingTestBase):
+    """Rules 29–31: ServiceForm labels, messages, unique names, pricing."""
+
+    def _data(self, **extra):
+        data = {
+            "service_name": "Consultation",
+            "category": "Check-ups",
+            "description": "",
+            "pricing_type": Service.FIXED,
+            "base_price": "300.00",
+            "min_price": "",
+            "max_price": "",
+            "status": Service.ACTIVE,
+        }
+        data.update(extra)
+        return data
+
+    def _form(self, instance=None, **extra):
+        return ServiceForm(self._data(**extra), instance=instance)
+
+    def _range(self, **extra):
+        data = self._data(
+            pricing_type=Service.RANGE, min_price="300.00", max_price="800.00"
+        )
+        data.update(extra)
+        return data
+
+    def test_labels_choices_help_and_placeholders(self):
+        form = ServiceForm()
+        labels = {name: field.label for name, field in form.fields.items()}
+        self.assertEqual(
+            labels,
+            {
+                "service_name": "Name",
+                "category": "Category",
+                "description": "Description",
+                "pricing_type": "How is it priced?",
+                "base_price": "Price",
+                "min_price": "Lowest price",
+                "max_price": "Highest price",
+                "status": "Who sees it",
+            },
+        )
+        self.assertEqual(
+            list(form.fields["pricing_type"].choices),
+            [("fixed", "One price"), ("range", "A price range")],
+        )
+        self.assertEqual(
+            list(form.fields["status"].choices),
+            [
+                ("active", "Offered"),
+                ("unlisted", "Clinic use only"),
+                ("draft", "Hidden (draft)"),
+                ("closed", "No longer offered"),
+            ],
+        )
+        placeholders = {
+            "service_name": "For example: Consultation",
+            "category": "For example: Vaccines",
+            "description": "What it includes, in a sentence",
+        }
+        for name, text in placeholders.items():
+            with self.subTest(field=name):
+                self.assertEqual(form.fields[name].widget.attrs["placeholder"], text)
+        self.assertEqual(
+            form.fields["category"].help_text, "Groups similar services. Type any word."
+        )
+        self.assertEqual(
+            form.fields["description"].help_text, "Pet owners see this when they book."
+        )
+        for name in ["base_price", "min_price", "max_price"]:
+            self.assertFalse(form.fields[name].required)
+
+    def test_a_new_service_starts_as_draft(self):
+        self.assertEqual(ServiceForm()["status"].value(), Service.DRAFT)
+        service = self._service("Bath", status=Service.ACTIVE)
+        self.assertEqual(ServiceForm(instance=service)["status"].value(), "active")
+
+    def test_name_is_needed_and_stripped(self):
+        for name in ["", "   "]:
+            with self.subTest(name=repr(name)):
+                form = self._form(service_name=name)
+                self.assertEqual(
+                    form.errors["service_name"], ["Type the service name."]
+                )
+        form = self._form(service_name="  Deworming  ")
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.save().service_name, "Deworming")
+
+    def test_name_is_unique_ignoring_case_and_spaces(self):
+        self._service("Consultation")
+        Service.objects.create(service_name=" Grooming ", base_price=Decimal("1"))
+        cases = [
+            ("consultation", "Consultation"),
+            ("  CONSULTATION ", "Consultation"),
+            ("grooming", "Grooming"),
+        ]
+        for typed, existing in cases:
+            with self.subTest(typed=typed):
+                form = self._form(service_name=typed)
+                self.assertEqual(
+                    form.errors["service_name"],
+                    [f"There is already a service called “{existing}”."],
+                )
+        self.assertTrue(self._form(service_name="Consultation plus").is_valid())
+
+    def test_edit_keeps_its_own_name(self):
+        service = self._service("Consultation")
+        self._service("Bath")
+        form = self._form(instance=service, service_name=" consultation ")
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.save().service_name, "consultation")
+        form = self._form(instance=service, service_name="BATH")
+        self.assertEqual(
+            form.errors["service_name"], ["There is already a service called “Bath”."]
+        )
+
+    def test_one_price_needs_the_price(self):
+        form = self._form(base_price="")
+        self.assertEqual(form.errors, {"base_price": ["Type the price."]})
+
+    def test_one_price_clears_the_range(self):
+        form = self._form(min_price="100.00", max_price="900.00")
+        self.assertTrue(form.is_valid(), form.errors)
+        service = form.save()
+        service.refresh_from_db()
+        self.assertEqual(service.base_price, Decimal("300.00"))
+        self.assertIsNone(service.min_price)
+        self.assertIsNone(service.max_price)
+
+    def test_a_range_needs_both_prices(self):
+        message = ["Type the lowest and the highest price."]
+        cases = [
+            ({"min_price": ""}, "min_price"),
+            ({"max_price": ""}, "max_price"),
+            ({"min_price": "", "max_price": ""}, "min_price"),
+        ]
+        for extra, field in cases:
+            with self.subTest(extra=extra):
+                form = ServiceForm(self._range(**extra))
+                self.assertEqual(form.errors, {field: message})
+
+    def test_highest_must_be_more_than_lowest(self):
+        for high in ["300.00", "299.99"]:
+            with self.subTest(high=high):
+                form = ServiceForm(self._range(max_price=high))
+                self.assertEqual(
+                    form.errors,
+                    {"max_price": ["The highest price must be more than the lowest."]},
+                )
+
+    def test_a_range_sets_base_price_to_the_lowest(self):
+        form = ServiceForm(self._range(base_price="999.00"))
+        self.assertTrue(form.is_valid(), form.errors)
+        service = form.save()
+        service.refresh_from_db()
+        self.assertEqual(service.min_price, Decimal("300.00"))
+        self.assertEqual(service.max_price, Decimal("800.00"))
+        self.assertEqual(service.base_price, Decimal("300.00"))
+
+    def test_a_range_without_a_posted_base_price(self):
+        """base_price missing from the POST (not just empty): still the lowest."""
+        data = self._range()
+        del data["base_price"]
+        form = ServiceForm(data)
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.save().base_price, Decimal("300.00"))
+
+    def test_edit_from_one_price_to_a_range_and_back(self):
+        service = self._service("Grooming", "500.00")
+        form = ServiceForm(self._range(service_name="Grooming"), instance=service)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        service.refresh_from_db()
+        self.assertEqual(
+            (service.base_price, service.min_price, service.max_price),
+            (Decimal("300.00"), Decimal("300.00"), Decimal("800.00")),
+        )
+        form = self._form(instance=service, service_name="Grooming", base_price="450")
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        service.refresh_from_db()
+        self.assertEqual(
+            (service.base_price, service.min_price, service.max_price),
+            (Decimal("450.00"), None, None),
+        )
+
+    def test_negative_prices(self):
+        message = ["Prices can't be negative."]
+        form = self._form(base_price="-1")
+        self.assertEqual(form.errors, {"base_price": message})
+        form = ServiceForm(self._range(min_price="-1"))
+        self.assertEqual(form.errors, {"min_price": message})
+        form = ServiceForm(self._range(max_price="-5"))
+        self.assertEqual(form.errors, {"max_price": message})
+        form = ServiceForm(self._range(min_price="-5", max_price="-1"))
+        self.assertEqual(form.errors, {"min_price": message, "max_price": message})
+
+
+@PLAIN_STATIC
+class ServicePagesTests(FrozenBillingTestBase):
+    """services_list_context and the old services pages."""
+
+    def test_groups_order_text_and_counts(self):
+        self._service("consultation")
+        self._service("Bath")
+        self._service("X-ray", status=Service.UNLISTED)
+        self._service("Dental", status=Service.DRAFT)
+        context = services_list_context({})
+        groups = context["groups"]
+        self.assertEqual(
+            [(g["key"], g["title"]) for g in groups],
+            [
+                ("active", "Offered"),
+                ("unlisted", "Clinic use only"),
+                ("draft", "Hidden (draft)"),
+                ("closed", "No longer offered"),
+            ],
+        )
+        self.assertEqual(
+            [g["text"] for g in groups],
+            [
+                "Pet owners see these when they book. You can put them on receipts.",
+                "Hidden from pet owners. You can put them on receipts and pick them "
+                "for walk-ins.",
+                "Not shown anywhere yet. Finish it, then choose Offered or Clinic use "
+                "only.",
+                "Not shown anywhere. Old visits and receipts keep their names and "
+                "prices.",
+            ],
+        )
+        self.assertEqual(
+            [[s.service_name for s in g["services"]] for g in groups],
+            [["Bath", "consultation"], ["X-ray"], ["Dental"], []],
+        )
+        self.assertEqual([g["count"] for g in groups], [2, 1, 1, 0])
+        self.assertEqual(context["total_count"], 4)
+        self.assertEqual(
+            context["counts"],
+            {"all": 4, "active": 2, "unlisted": 1, "draft": 1, "closed": 0},
+        )
+        self.assertEqual(context["status_filter"], "")
+        self.assertEqual(len(context["services"]), 4)
+        self.assertEqual(context["status_choices"], Service.STATUS_CHOICES)
+
+    def test_old_status_filter_still_works(self):
+        self._service("Bath")
+        self._service("Dental", status=Service.DRAFT)
+        context = services_list_context({"status": "draft"})
+        self.assertEqual([s.service_name for s in context["services"]], ["Dental"])
+        self.assertEqual(context["status_filter"], "draft")
+        self.assertEqual(context["counts"]["all"], 2)
+
+    def _list_queries(self, count):
+        Service.objects.all().delete()
+        for number in range(count):
+            status = [Service.ACTIVE, Service.UNLISTED, Service.DRAFT, Service.CLOSED]
+            self._service(f"Service {number}", status=status[number % 4])
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(reverse("admin_service_list"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["total_count"], count)
+        return len(queries)
+
+    def test_query_count_is_flat(self):
+        three, thirty = self._list_queries(3), self._list_queries(30)
+        self.assertEqual(three, thirty)
+        self.assertEqual(thirty, SERVICES_LIST_QUERIES)
+
+    def test_old_list_page_renders(self):
+        self._service("Bath")
+        response = self.client.get(reverse("admin_service_list") + "?status=active")
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "admin/billing/services_list.html")
+        self.assertContains(response, "Bath")
+
+    def test_old_form_renders_with_the_posted_names(self):
+        service = self._service("Bath")
+        for url in [
+            reverse("admin_service_create"),
+            reverse("admin_service_edit", args=[service.pk]),
+        ]:
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, 200)
+                self.assertTemplateUsed(response, "admin/billing/service_form.html")
+                for name in [
+                    "service_name",
+                    "category",
+                    "description",
+                    "pricing_type",
+                    "base_price",
+                    "min_price",
+                    "max_price",
+                    "status",
+                ]:
+                    self.assertContains(response, f'name="{name}"')
+        response = self.client.get(reverse("admin_service_create"))
+        self.assertContains(response, '<option value="draft" selected>Hidden (draft)')
+
+    def test_create_and_edit_save_with_the_flash(self):
+        data = {
+            "service_name": " Deworming ",
+            "category": "",
+            "description": "",
+            "pricing_type": Service.FIXED,
+            "base_price": "150",
+            "min_price": "",
+            "max_price": "",
+            "status": Service.DRAFT,
+        }
+        response = self.client.post(reverse("admin_service_create"), data)
+        self.assertRedirects(
+            response, reverse("admin_service_list"), fetch_redirect_response=False
+        )
+        self.assertEqual(self._messages(response), ["Deworming added."])
+        service = Service.objects.get()
+        self.assertEqual(service.service_name, "Deworming")
+        self.assertEqual(service.status, Service.DRAFT)
+
+        self.client.cookies.pop("messages", None)
+        data.update(
+            service_name="Deworming",
+            pricing_type=Service.RANGE,
+            min_price="100",
+            max_price="250",
+            status=Service.ACTIVE,
+        )
+        response = self.client.post(
+            reverse("admin_service_edit", args=[service.pk]), data
+        )
+        self.assertEqual(self._messages(response), ["Deworming saved."])
+        service.refresh_from_db()
+        self.assertEqual(service.status, Service.ACTIVE)
+        self.assertEqual(service.base_price, Decimal("100.00"))
+        self.assertEqual(service.max_price, Decimal("250.00"))
+
+    def test_errors_show_on_the_old_form(self):
+        self._service("Bath")
+        response = self.client.post(
+            reverse("admin_service_create"),
+            {"service_name": "bath", "pricing_type": Service.FIXED, "status": "draft"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "There is already a service called “Bath”.")
+        self.assertContains(response, "Type the price.")
+        self.assertEqual(Service.objects.count(), 1)

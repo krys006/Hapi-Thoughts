@@ -74,7 +74,7 @@
         <dd class="flex min-h-11 flex-wrap items-center gap-x-2 text-base text-gray-900">
           {% if receipt %}
             <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="font-medium text-blue-600 underline underline-offset-2">Open receipt</a>
-            <span class="text-gray-600">· {{ receipt.receipt_number }}</span>
+            <span class="text-gray-600">· {{ receipt.receipt_number }} · {{ receipt.status_label }}</span>
           {% else %}
             <span class="text-gray-600">Not created yet</span>
           {% endif %}

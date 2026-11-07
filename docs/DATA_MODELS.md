@@ -491,9 +491,9 @@ Clinic service catalog managed by Admin.
 | `category` | CharField | max_length=50, blank=True | Optional, Admin-defined |
 | `description` | TextField | blank=True | — |
 | `pricing_type` | CharField | max_length=10, choices=PRICING_CHOICES, default=FIXED | FIXED or RANGE |
-| `base_price` | DecimalField | max_digits=10, decimal_places=2, default=0 | Used for FIXED pricing |
-| `min_price` | DecimalField | max_digits=10, decimal_places=2, null=True, blank=True | Used for RANGE pricing |
-| `max_price` | DecimalField | max_digits=10, decimal_places=2, null=True, blank=True | Used for RANGE pricing |
+| `base_price` | DecimalField | max_digits=10, decimal_places=2, default=0 | The price for FIXED; for RANGE it is set to `min_price` (the column has no blank) |
+| `min_price` | DecimalField | max_digits=10, decimal_places=2, null=True, blank=True | RANGE only; None for FIXED |
+| `max_price` | DecimalField | max_digits=10, decimal_places=2, null=True, blank=True | RANGE only; None for FIXED |
 | `status` | CharField | max_length=20, choices=STATUS_CHOICES, default=DRAFT | DRAFT / ACTIVE / UNLISTED / CLOSED |
 | `created_at` | DateTimeField | auto_now_add=True | — |
 | `updated_at` | DateTimeField | auto_now=True | — |
@@ -513,10 +513,16 @@ CLOSED = 'closed'
 ```
 
 **Status rules:**
-- DRAFT — not visible anywhere
+- DRAFT — not visible anywhere (a new service starts here)
 - ACTIVE — visible to pet owners, bookable
 - UNLISTED — not visible to pet owners, Admin use only
-- CLOSED — visible to pet owners as unavailable, not bookable
+- CLOSED — not visible to pet owners, not bookable, not billable (old visits and receipts keep it). There is no delete; CLOSED retires a service.
+
+Page labels (set in `ServiceForm`, not in `choices`): pricing FIXED "One price", RANGE "A price range"; status ACTIVE "Offered", UNLISTED "Clinic use only", DRAFT "Hidden (draft)", CLOSED "No longer offered" (that order on the pages).
+
+**Rules (`ServiceForm`, no DB constraint):**
+- `service_name` is stripped and **unique ignoring letter case and outer spaces** among the other services ("There is already a service called “Consultation”."); missing: "Type the service name.".
+- Saving **clears the other pricing type**: FIXED needs `base_price` ("Type the price.") and saves `min_price` / `max_price` as None; RANGE needs both ("Type the lowest and the highest price."), the highest more than the lowest ("The highest price must be more than the lowest."), and saves `base_price` = `min_price`. A negative price is refused on its field ("Prices can't be negative.").
 
 ---
 
@@ -569,6 +575,8 @@ Meta: `ordering = ["-billing_date", "-created_at"]`. Choice labels shown on the 
 - Locked (read-only) once PAID or CANCELLED (`is_locked`); views refuse every write to a locked receipt
 - `payment_status` / `payment_date` change only via the Mark as Paid / Cancel Receipt actions, never via the receipt form
 - Mark as Paid needs at least one item ("Add at least one item first."); a ₱0 total with items is allowed. It sets PAID, `payment_date` = today (Manila) and `payment_method` = "Cash". Cancel sets CANCELLED (a void; can't be undone).
+- **Owners see PENDING and PAID receipts only, never CANCELLED** (owner list, owner receipt page = 404, owner search; `owner_receipts` in `billing/utils.py`). Page labels: `status_label` "Unpaid" / "Paid" / "Cancelled" (a model property, not `choices`).
+- **Notification**: one, when a receipt is marked paid (after the commit; nothing on create): type `billing_generated`, `related_billing` + `related_pet`, title "Receipt {number} for {pet}" ("Receipt {number}" with no pet), message "Paid ₱1,450.00 on Fri, Nov 6. You can view or print it in Billing." (the payment date; the year only when it isn't this year), email subject "{title} — Hapi Vet". Sent only when the owner has a user account; the email follows `email_billing`.
 - Row locks: every status change, item add/remove and discount change runs in `transaction.atomic()` with the receipt row locked (`select_for_update`, `lock_pending_receipt` in `billing/utils.py`) and acts only if the receipt is still PENDING. Status, discount and totals are saved with `update_fields`, so a stale copy of the receipt never writes an old status back.
 - Discount (form rules, `BillingReceiptForm`): negative refused; a type with no amount refused; an amount with no type refused; a percentage over 100 refused; a peso amount over the current subtotal (sum of the items) refused. "No discount" saves `discount_value` 0 and `discount_note` "".
 - Totals (`calculate_totals()`): subtotal = sum of the item subtotals; discount = the percentage of the subtotal or the peso amount, **capped at the subtotal** (removing an item later can shrink it), rounded to 2 decimals with ROUND_HALF_UP; `total_amount` = subtotal - discount, never below 0. Saved with `update_fields=["subtotal", "total_amount", "updated_at"]`. `discount_amount` returns the same capped, rounded value (so subtotal - discount = total on the page and the printout); `has_discount` is True when it is above 0.

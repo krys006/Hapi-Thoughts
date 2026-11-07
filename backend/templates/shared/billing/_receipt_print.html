@@ -210,7 +210,7 @@
     <h3 class="receipt-print-section-title">RECEIPT</h3>
     <div class="receipt-print-field"><span>Receipt #:</span><span>{{ receipt.receipt_number }}</span></div>
     <div class="receipt-print-field"><span>Date:</span><span>{{ receipt.billing_date|date:"F j, Y" }}</span></div>
-    <div class="receipt-print-field"><span>Payment Status:</span><span>{{ receipt.get_payment_status_display }}</span></div>
+    <div class="receipt-print-field"><span>Payment Status:</span><span>{{ receipt.status_label }}</span></div>
   </div>
 
   <!-- Billed to -->
