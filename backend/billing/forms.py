@@ -152,17 +152,60 @@ def billable_services():
     ).order_by(Lower("service_name"), "pk")
 
 
-def service_choice_label(service):
-    """ "Consultation · ₱300.00" or "Grooming · ₱300.00 to ₱800.00"."""
-    if (
+def _has_range(service):
+    """A Range service with both prices set (otherwise its base price is
+    shown, as before)."""
+    return (
         service.pricing_type == Service.RANGE
         and service.min_price is not None
         and service.max_price is not None
-    ):
+    )
+
+
+def service_choice_label(service):
+    """ "Consultation · ₱300.00" or "Grooming · ₱300.00 to ₱800.00"."""
+    if _has_range(service):
         price = f"{peso(service.min_price)} to {peso(service.max_price)}"
     else:
         price = peso(service.base_price)
     return f"{service.service_name} · {price}"
+
+
+def service_options(services):
+    """
+    One dict per service for "What is it?": the form's choices and the
+    receipt page's Add item options (data-* in 6b-2) both come from here.
+    pricing "range" (with min_price / max_price, price None) or "fixed"
+    (with price, min / max None).
+    """
+    options = []
+    for service in services:
+        is_range = _has_range(service)
+        options.append(
+            {
+                "value": str(service.pk),
+                "label": service_choice_label(service),
+                "name": service.service_name,
+                "pricing": Service.RANGE if is_range else Service.FIXED,
+                "price": None if is_range else service.base_price,
+                "min_price": service.min_price if is_range else None,
+                "max_price": service.max_price if is_range else None,
+            }
+        )
+    return options
+
+
+def price_help(service):
+    """Rule 11: the Unit price help for the picked service ("" for none
+    or Other)."""
+    if service is None:
+        return ""
+    if _has_range(service):
+        return (
+            f"Usual price {peso(service.min_price)} to {peso(service.max_price)}. "
+            "You can bill outside it."
+        )
+    return f"Price list: {peso(service.base_price)}."
 
 
 class BillingItemForm(forms.Form):
@@ -200,11 +243,18 @@ class BillingItemForm(forms.Form):
         super().__init__(*args, **kwargs)
         # Built per form, so a service hidden or closed since is refused
         self.services = {str(s.pk): s for s in billable_services()}
+        options = service_options(self.services.values())
         self.fields["service_choice"].choices = [
             ("", "Choose one"),
-            *[(pk, service_choice_label(s)) for pk, s in self.services.items()],
+            *[(option["value"], option["label"]) for option in options],
             (OTHER_ITEM, "Other (type it)"),
         ]
+        # Rule 11: the help under Unit price for the posted choice ("" when
+        # unbound, nothing picked, Other or not a billable service)
+        picked = (
+            self.data.get(self.add_prefix("service_choice")) if self.is_bound else ""
+        )
+        self.price_help = price_help(self.services.get(str(picked or "")))
 
     def clean_quantity(self):
         quantity = self.cleaned_data.get("quantity")

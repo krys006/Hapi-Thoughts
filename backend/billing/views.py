@@ -14,14 +14,17 @@ from .utils import (
     add_item,
     create_receipt,
     create_visit_receipt,
-    form_error_text,
+    discount_saved_message,
     initial_pet_pick,
     lock_pending_receipt,
     mark_receipt_cancelled,
     mark_receipt_paid,
     notify_receipt_paid,
     owner_for_receipt,
+    receipt_detail_context,
+    receipt_for_page,
     receipt_items,
+    receipt_list_context,
     receipt_owner_context,
     receipt_pet_choice,
     receipt_pet_context,
@@ -127,38 +130,15 @@ def admin_service_edit(request, pk):
 
 @login_required
 def admin_receipt_list(request):
-    """Admin view — list all billing receipts."""
+    """
+    Admin view — the receipt list: tabs (?status=, Unpaid by default),
+    search (?q=) and pages (receipt_list_context).
+    """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    status_filter = request.GET.get("status", "")
-    receipts = BillingReceipt.objects.select_related("owner", "pet", "appointment")
-
-    if status_filter:
-        receipts = receipts.filter(payment_status=status_filter)
-
-    counts = {
-        "all": BillingReceipt.objects.count(),
-        "pending": BillingReceipt.objects.filter(
-            payment_status=BillingReceipt.PENDING
-        ).count(),
-        "paid": BillingReceipt.objects.filter(
-            payment_status=BillingReceipt.PAID
-        ).count(),
-        "cancelled": BillingReceipt.objects.filter(
-            payment_status=BillingReceipt.CANCELLED
-        ).count(),
-    }
-
-    return render(
-        request,
-        "admin/billing/receipt_list.html",
-        {
-            "receipts": receipts,
-            "status_filter": status_filter,
-            "counts": counts,
-        },
-    )
+    context = receipt_list_context(request.GET, timezone.localdate())
+    return render(request, "admin/billing/receipt_list.html", context)
 
 
 @login_required
@@ -224,84 +204,71 @@ def _new_receipt_for_owner(request, owner):
     return render(request, RECEIPT_NEW_TEMPLATE, context)
 
 
-@login_required
-def admin_receipt_detail(request, pk):
+def _render_receipt_detail(
+    request, receipt, item_form=None, discount_form=None, open_dialog=None
+):
     """
-    Admin view — view a billing receipt with all line items.
-    Also handles adding billing items.
+    The receipt page. Shared by admin_receipt_detail and the item add /
+    discount views, which pass their bound form and the dialog to reopen
+    ("add-item" / "discount") when it has errors. receipt comes from
+    receipt_for_page (the saved values, not a failed form's).
     """
-    if request.user.role != "admin":
-        return redirect("owner_dashboard")
-
-    receipt = get_object_or_404(
-        BillingReceipt.objects.select_related("owner", "pet", "appointment"),
-        pk=pk,
-    )
-    items = receipt_items(receipt)
-    item_form = BillingItemForm()
-
     return render(
         request,
         "admin/billing/receipt_detail.html",
         {
-            "receipt": receipt,
-            "items": items,
-            "item_form": item_form,
-            "clinic_settings": ClinicSettings.objects.first(),
+            **receipt_detail_context(receipt, timezone.localdate()),
+            "item_form": item_form or BillingItemForm(),
+            "discount_form": discount_form or BillingReceiptForm(instance=receipt),
+            "open_dialog": open_dialog,
         },
     )
+
+
+@login_required
+def admin_receipt_detail(request, pk):
+    """Admin view — the receipt page (receipt_detail_context)."""
+    if request.user.role != "admin":
+        return redirect("owner_dashboard")
+
+    return _render_receipt_detail(request, receipt_for_page(pk))
 
 
 @login_required
 def admin_receipt_edit(request, pk):
     """
-    Admin view — edit a billing receipt header.
-    Locked if payment status is PAID or CANCELLED.
+    Admin view — the Discount dialog's endpoint (POST; the old edit page is
+    gone, so a GET opens the receipt page). Refused once PAID or CANCELLED;
+    errors re-render the receipt page with the Discount dialog open.
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    if request.method == "POST":
-        # Row-locked: the discount is checked against the items as they are
-        with transaction.atomic():
-            receipt = lock_pending_receipt(pk)
-            if receipt is None:
-                return refuse_locked(request, pk)
-            form = BillingReceiptForm(request.POST, instance=receipt)
-            if form.is_valid():
-                save_discount(form)
-                messages.success(request, "Receipt updated.")
-                return redirect("admin_receipt_detail", pk=pk)
-        # The failed form wrote posted values onto the instance
-        receipt.refresh_from_db()
-        messages.error(request, "Please correct the errors below.")
-    else:
-        receipt = get_object_or_404(BillingReceipt, pk=pk)
-        if receipt.is_locked:
+    if request.method != "POST":
+        return redirect("admin_receipt_detail", pk=pk)
+
+    # Row-locked: the discount is checked against the items as they are
+    with transaction.atomic():
+        receipt = lock_pending_receipt(pk)
+        if receipt is None:
             return refuse_locked(request, pk)
-        form = BillingReceiptForm(instance=receipt)
+        form = BillingReceiptForm(request.POST, instance=receipt)
+        if form.is_valid():
+            save_discount(form)
+            messages.success(request, discount_saved_message(form))
+            return redirect("admin_receipt_detail", pk=pk)
 
-    items = receipt_items(receipt)
-    item_form = BillingItemForm()
-
-    return render(
-        request,
-        "admin/billing/receipt_form.html",
-        {
-            "form": form,
-            "receipt": receipt,
-            "items": items,
-            "item_form": item_form,
-            "is_edit": True,
-        },
+    return _render_receipt_detail(
+        request, receipt_for_page(pk), discount_form=form, open_dialog="discount"
     )
 
 
 @login_required
 def admin_billing_item_add(request, receipt_pk):
     """
-    Admin view — add a billing line item to a receipt.
-    Recalculates receipt totals after adding.
+    Admin view — add a billing line item to a receipt (POST) and
+    recalculate the totals. Errors re-render the receipt page with the
+    Add item dialog open (nothing saved, no flash).
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
@@ -317,12 +284,11 @@ def admin_billing_item_add(request, receipt_pk):
         if form.is_valid():
             add_item(receipt, form.cleaned_data)
             messages.success(request, "Item added.")
-        else:
-            # The old receipt pages lose the form on redirect: flash the
-            # real errors until 6a-2 re-renders the dialog
-            messages.error(request, form_error_text(form))
+            return redirect("admin_receipt_detail", pk=receipt_pk)
 
-    return redirect("admin_receipt_detail", pk=receipt_pk)
+    return _render_receipt_detail(
+        request, receipt_for_page(receipt_pk), item_form=form, open_dialog="add-item"
+    )
 
 
 @login_required

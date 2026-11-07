@@ -182,9 +182,16 @@ class BillingReceipt(models.Model):
         items = self.billing_items.all()
         subtotal = sum((item.subtotal for item in items), Decimal("0"))
         self.subtotal = subtotal.quantize(CENT, rounding=ROUND_HALF_UP)
-        discount = self._discount_for(self.subtotal)
-        self.total_amount = max(self.subtotal - discount, Decimal("0.00"))
+        self.total_amount = self.total_for(self.subtotal)
         self.save(update_fields=["subtotal", "total_amount", "updated_at"])
+
+    def total_for(self, subtotal):
+        """The total for this subtotal with this receipt's discount (the
+        same rules as calculate_totals: percentage worked out again, peso
+        amount capped, rounded half up), never below 0. Also used for
+        "the total if this item is removed"."""
+        subtotal = Decimal(subtotal or 0).quantize(CENT, rounding=ROUND_HALF_UP)
+        return max(subtotal - self._discount_for(subtotal), Decimal("0.00"))
 
     def _discount_for(self, subtotal):
         """The peso discount on this subtotal: a percentage of it or the

@@ -78,11 +78,6 @@ urlpatterns = [
     ),
     # ── Admin — HTMX helpers ──────────────────────────────────────────────
     path(
-        "admin/appointments/pets/",
-        views.admin_get_pets_for_owner,
-        name="admin_get_pets_for_owner",
-    ),
-    path(
         "admin/appointments/slots/",
         views.admin_get_slots_for_date,
         name="admin_get_slots_for_date",

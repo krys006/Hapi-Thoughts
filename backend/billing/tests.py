@@ -10,9 +10,10 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.messages import constants as message_levels
 from django.contrib.messages import get_messages
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
 from django.test import TestCase, override_settings
-from django.urls import reverse
+from django.test.utils import CaptureQueriesContext
+from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
 from appointments.models import Appointment
@@ -23,6 +24,7 @@ from billing.utils import (
     NO_ITEMS_MESSAGE,
     PICK_PET_MESSAGE,
     RECEIPT_EXISTS,
+    RECEIPT_TABS,
     save_new_receipt,
 )
 from billing.views import LOCKED_MESSAGE
@@ -137,7 +139,10 @@ class LockedReceiptTests(BillingTestBase):
     """Every write path refuses PAID and CANCELLED receipts."""
 
     def test_edit_get_redirects_to_detail(self):
-        """GET edit on a locked receipt redirects with LOCKED_MESSAGE."""
+        """GET edit on a locked receipt redirects to the receipt page.
+        6a-3: the edit page is gone, so a GET just opens the receipt page
+        with no flash (was: LOCKED_MESSAGE flashed), like the other action
+        URLs since 6a-1."""
         for status in LOCKED_STATUSES:
             with self.subTest(status=status):
                 receipt = self._receipt(status)
@@ -149,7 +154,7 @@ class LockedReceiptTests(BillingTestBase):
                     reverse("admin_receipt_detail", args=[receipt.pk]),
                     fetch_redirect_response=False,
                 )
-                self.assertIn(LOCKED_MESSAGE, self._messages(response))
+                self.assertEqual(self._messages(response), [])
 
     def test_edit_post_redirects_and_changes_nothing(self):
         """POST edit on a locked receipt redirects; fields stay the same."""
@@ -653,9 +658,13 @@ class DiscountFormTests(FrozenBillingTestBase):
             self.receipt.pk,
             {"discount_type": BillingReceipt.FIXED_DISCOUNT, "discount_value": "900"},
         )
+        # 6a-3: the receipt page with the Discount dialog open (was the edit
+        # page, whose form was context["form"])
         self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "admin/billing/receipt_detail.html")
+        self.assertEqual(response.context["open_dialog"], "discount")
         self.assertEqual(
-            response.context["form"].errors["discount_value"],
+            response.context["discount_form"].errors["discount_value"],
             ["A discount can't be more than the subtotal (₱700.00)."],
         )
         # The page shows the saved values, not the refused ones
@@ -833,17 +842,25 @@ class ItemViewTests(FrozenBillingTestBase):
         receipt.refresh_from_db()
         self.assertEqual(receipt.total_amount, Decimal("600.00"))
 
-    def test_add_item_with_errors_flashes_them_and_adds_nothing(self):
+    def test_add_item_with_errors_reopens_the_dialog_and_adds_nothing(self):
+        """6a-3: the receipt page is re-rendered with the bound form and the
+        Add item dialog open, no flash (was: a redirect flashing "Type what
+        it is. The quantity must be from 1 to 999. Type the price.")."""
         receipt = self._empty_receipt()
         response = self._post(
             "admin_billing_item_add",
             receipt.pk,
             {"service_choice": "other", "quantity": "0"},
         )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["open_dialog"], "add-item")
+        form = response.context["item_form"]
+        self.assertEqual(form.errors["description"], ["Type what it is."])
         self.assertEqual(
-            self._messages(response),
-            ["Type what it is. The quantity must be from 1 to 999. Type the price."],
+            form.errors["quantity"], ["The quantity must be from 1 to 999."]
         )
+        self.assertEqual(form.errors["unit_price"], ["Type the price."])
+        self.assertEqual(self._messages(response), [])
         self.assertFalse(receipt.billing_items.exists())
 
     def test_delete_removes_the_item_and_recalculates(self):
@@ -883,9 +900,12 @@ class ItemViewTests(FrozenBillingTestBase):
             self._item(receipt, "10.00", description=description)
         expected = ["Zeta shot", "Alpha tablet", "Mid check"]
 
+        # 6a-3: the edit URL now redirects to the receipt page (followed)
         for name in ["admin_receipt_detail", "admin_receipt_edit"]:
             with self.subTest(page=name):
-                response = self.client.get(reverse(name, args=[receipt.pk]))
+                response = self.client.get(
+                    reverse(name, args=[receipt.pk]), follow=True
+                )
                 self.assertEqual(
                     [i.description for i in response.context["items"]], expected
                 )
@@ -903,9 +923,12 @@ class ItemViewTests(FrozenBillingTestBase):
         Payment Method field any more."""
         receipt = self._receipt()
         consult = self._service("Consultation")
+        # 6a-3: the edit URL redirects to the receipt page (followed below)
         for name in ["admin_receipt_detail", "admin_receipt_edit"]:
             with self.subTest(page=name):
-                response = self.client.get(reverse(name, args=[receipt.pk]))
+                response = self.client.get(
+                    reverse(name, args=[receipt.pk]), follow=True
+                )
                 self.assertEqual(response.status_code, 200)
                 self.assertContains(response, 'name="service_choice"', count=1)
                 self.assertContains(
@@ -920,7 +943,7 @@ class ItemViewTests(FrozenBillingTestBase):
             reverse("admin_receipt_create"),
         ]:
             with self.subTest(url=url):
-                response = self.client.get(url)
+                response = self.client.get(url, follow=True)
                 self.assertEqual(response.status_code, 200)
                 self.assertNotContains(response, "Billing Date")
                 self.assertNotContains(response, 'name="payment_method"')
@@ -1722,3 +1745,655 @@ class NewReceiptPageTests(NewReceiptTestBase):
         for link in links:
             with self.subTest(link=link[:60]):
                 self.assertNotIn("\n", link)
+
+
+# ── Slice 6a-3: receipt list and receipt page contexts ────────────────────────
+
+# Whole-page query counts, measured: session + user + the admin layout's
+# own (4 on these pages) + the page's. List: counts aggregate, paginator
+# count, the page. Receipt page: receipt (owner, user, pet, visit), items
+# (with service), clinic settings, service options, the item form's services.
+LIST_QUERIES = 9
+DETAIL_QUERIES = 11
+
+
+@PLAIN_STATIC
+class ReceiptListTests(FrozenBillingTestBase):
+    """admin_receipt_list: tabs, order, search, counts, pages."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("admin_receipt_list")
+        ben_user = User.objects.create(
+            username="ben", email="ben@example.com", role=User.PET_OWNER
+        )
+        self.ben = PetOwner.objects.create(
+            user=ben_user, first_name="Ben", last_name="Reyes"
+        )
+        self.luna = Pet.objects.create(owner=self.ben, name="Luna", species="Cat")
+
+    def _make(self, number, status=BillingReceipt.PENDING, hours_ago=0, **fields):
+        """A receipt created hours_ago before now (Ana and Bantay unless
+        owner / pet are given)."""
+        fields.setdefault("owner", self.owner)
+        fields.setdefault("pet", self.pet)
+        receipt = BillingReceipt.objects.create(
+            receipt_number=number, payment_status=status, **fields
+        )
+        created = self.now - datetime.timedelta(hours=hours_ago)
+        BillingReceipt.objects.filter(pk=receipt.pk).update(created_at=created)
+        return receipt
+
+    def _paid(self, number, day, hours_ago):
+        return self._make(
+            number, BillingReceipt.PAID, hours_ago, payment_date=datetime.date(*day)
+        )
+
+    def _context(self, query=""):
+        response = self.client.get(f"{self.url}{query}")
+        self.assertEqual(response.status_code, 200)
+        return response.context
+
+    def _numbers(self, context):
+        return [r.receipt_number for r in context["receipts"]]
+
+    def _tabs_fixture(self):
+        """Pending, paid and cancelled receipts with created_at ties (the pk
+        breaks them)."""
+        made = {}
+        for key, hours in [("p1", 5), ("p2", 1), ("p3", 1)]:
+            made[key] = self._make(f"P-{key}", hours_ago=hours)
+        made["a"] = self._paid("PD-a", (2026, 11, 5), 1)
+        made["b"] = self._paid("PD-b", (2026, 11, 6), 6)
+        made["c"] = self._paid("PD-c", (2026, 11, 6), 2)
+        made["d"] = self._paid("PD-d", (2026, 11, 6), 2)
+        for key in ("x", "y"):
+            made[key] = self._make(f"C-{key}", BillingReceipt.CANCELLED, 3)
+        return made
+
+    def test_default_and_unknown_status_is_pending(self):
+        made = self._tabs_fixture()
+        for query in [
+            "",
+            "?status=",
+            "?status=junk",
+            "?status=PAID",
+            "?status=pending",
+        ]:
+            with self.subTest(query=query):
+                context = self._context(query)
+                self.assertEqual(context["active_tab"], "pending")
+                self.assertEqual(
+                    self._numbers(context),
+                    [made[key].receipt_number for key in ("p1", "p2", "p3")],
+                )
+
+    def test_each_tab_rows_and_order(self):
+        made = self._tabs_fixture()
+        expected = {
+            # Oldest first; p2 / p3 tie on created_at → pk
+            "pending": ["p1", "p2", "p3"],
+            # Newest paid first; c / d tie on both dates → -pk
+            "paid": ["d", "c", "b", "a"],
+            "cancelled": ["y", "x"],
+            "all": ["a", "p3", "p2", "d", "c", "y", "x", "p1", "b"],
+        }
+        for tab, keys in expected.items():
+            with self.subTest(tab=tab):
+                context = self._context(f"?status={tab}")
+                self.assertEqual(context["active_tab"], tab)
+                self.assertEqual(
+                    self._numbers(context), [made[k].receipt_number for k in keys]
+                )
+
+    def test_counts_in_context(self):
+        self._tabs_fixture()
+        context = self._context()
+        self.assertEqual(
+            [context[f"{name}_count"] for name in RECEIPT_TABS], [3, 4, 2, 9]
+        )
+
+    def _search_fixture(self):
+        self._make("HV-2026-0012")
+        self._make("HV-2026-0120", owner=self.ben, pet=self.luna)
+        self._make(
+            "HV-2026-0003",
+            BillingReceipt.PAID,
+            pet=None,
+            payment_date=TODAY,
+        )
+
+    def test_search(self):
+        self._search_fixture()
+        cases = {
+            "0012": ["HV-2026-0012"],
+            "HV-2026-0012": ["HV-2026-0012"],
+            "hv-2026-0120": ["HV-2026-0120"],
+            "ana": ["HV-2026-0012"],
+            "CRUZ": ["HV-2026-0012"],
+            "ben": ["HV-2026-0120"],
+            "reyes": ["HV-2026-0120"],
+            "luna": ["HV-2026-0120"],
+            "bantay": ["HV-2026-0012"],
+            "ana  bantay": ["HV-2026-0012"],
+            "ana luna": [],
+            "nobody": [],
+        }
+        for q, numbers in cases.items():
+            with self.subTest(q=q):
+                context = self.client.get(self.url, {"q": q}).context
+                self.assertEqual(self._numbers(context), numbers)
+                self.assertEqual(context["q"], " ".join(q.split()))
+                self.assertTrue(context["is_searching"])
+
+    def test_search_stays_in_the_tab_and_counts_ignore_it(self):
+        self._search_fixture()
+        cases = [
+            ("paid", ["HV-2026-0003"]),
+            ("pending", ["HV-2026-0012"]),
+            ("cancelled", []),
+            ("all", ["HV-2026-0003", "HV-2026-0012"]),
+        ]
+        for tab, numbers in cases:
+            with self.subTest(tab=tab):
+                context = self.client.get(self.url, {"status": tab, "q": "ana"}).context
+                self.assertEqual(sorted(self._numbers(context)), numbers)
+                self.assertEqual(
+                    [context[f"{name}_count"] for name in RECEIPT_TABS], [2, 1, 0, 3]
+                )
+        context = self._context()
+        self.assertEqual(context["q"], "")
+        self.assertFalse(context["is_searching"])
+
+    def test_paging_keeps_status_and_q(self):
+        for number in range(27):
+            self._make(f"HV-2026-{number + 1:04d}")
+        context = self._context()
+        self.assertEqual(len(context["receipts"]), 25)
+        self.assertEqual(context["page_obj"].paginator.count, 27)
+        self.assertEqual(context["prev_page_query"], "")
+        self.assertEqual(context["next_page_query"], "?status=pending&page=2")
+
+        context = self.client.get(
+            self.url, {"status": "all", "q": "ana  cruz", "page": "2"}
+        ).context
+        self.assertEqual(len(context["receipts"]), 2)
+        self.assertEqual(context["prev_page_query"], "?status=all&q=ana+cruz&page=1")
+        self.assertEqual(context["next_page_query"], "")
+        # Junk and out-of-range pages: get_page's first / last page
+        self.assertEqual(self._context("?page=abc")["page_obj"].number, 1)
+        self.assertEqual(self._context("?page=99")["page_obj"].number, 2)
+
+    def test_item_count(self):
+        empty = self._make("HV-2026-0001", hours_ago=2)
+        full = self._make("HV-2026-0002", hours_ago=1)
+        for _ in range(3):
+            self._item(full, "10.00")
+        rows = {r.pk: r.item_count for r in self._context()["receipts"]}
+        self.assertEqual(rows, {empty.pk: 0, full.pk: 3})
+
+    def test_old_template_still_renders(self):
+        self._tabs_fixture()
+        response = self.client.get(self.url)
+        self.assertTemplateUsed(response, "admin/billing/receipt_list.html")
+        context = response.context
+        self.assertEqual(context["status_filter"], "pending")
+        self.assertEqual(
+            context["counts"], {"all": 9, "pending": 3, "paid": 4, "cancelled": 2}
+        )
+        self.assertContains(
+            response,
+            'class="filter-tab filter-tab--active">Pending '
+            '<span class="filter-count">3</span>',
+        )
+        self.assertContains(response, "P-p1")
+        self.assertNotContains(response, "PD-a")
+        self.assertEqual(self._context("?status=all")["status_filter"], "")
+        self.assertEqual(self._context("?status=paid")["status_filter"], "paid")
+        self.assertContains(self.client.get(self.url, {"status": "all"}), "PD-a")
+
+    def test_context_keys(self):
+        context = self._context()
+        for key in [
+            "page_obj",
+            "receipts",
+            "q",
+            "is_searching",
+            "active_tab",
+            "pending_count",
+            "paid_count",
+            "cancelled_count",
+            "all_count",
+            "prev_page_query",
+            "next_page_query",
+            "today",
+        ]:
+            with self.subTest(key=key):
+                self.assertIn(key, context)
+        self.assertEqual(context["today"], TODAY)
+
+    def _queries_for(self, count):
+        BillingReceipt.objects.all().delete()
+        for number in range(count):
+            receipt = self._make(f"HV-2026-{number + 1:04d}", appointment=None)
+            self._item(receipt, "10.00")
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(self.url, {"status": "all"})
+        self.assertEqual(len(response.context["receipts"]), min(count, 25))
+        return len(queries)
+
+    def test_query_count_is_flat(self):
+        few, many = self._queries_for(3), self._queries_for(30)
+        self.assertEqual(few, many)
+        self.assertEqual(many, LIST_QUERIES)
+
+
+@PLAIN_STATIC
+class ReceiptDetailContextTests(FrozenBillingTestBase):
+    """receipt_detail_context through admin_receipt_detail."""
+
+    def _context(self, receipt):
+        response = self.client.get(reverse("admin_receipt_detail", args=[receipt.pk]))
+        self.assertEqual(response.status_code, 200)
+        return response.context
+
+    def _two_items(self, **fields):
+        """₱200.00 (from a service) and ₱100.00 (Other), with the totals."""
+        receipt = self._empty_receipt(**fields)
+        consult = self._service("Consultation", "200.00")
+        self._item(receipt, "200.00", description="Consultation", service=consult)
+        self._item(receipt, "100.00", description="Dog food")
+        receipt.calculate_totals()
+        return receipt
+
+    def test_every_key(self):
+        visit = Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=TODAY,
+            time=datetime.time(9, 30),
+            status=Appointment.COMPLETED,
+        )
+        PetOwner.objects.filter(pk=self.owner.pk).update(contact_number="0917 123 4567")
+        self.owner.refresh_from_db()
+        receipt = self._two_items(appointment=visit)
+        context = self._context(receipt)
+        self.assertEqual(context["receipt"], receipt)
+        self.assertEqual(context["status_label"], "Unpaid")
+        self.assertTrue(context["is_pending"])
+        self.assertTrue(context["can_mark_paid"])
+        self.assertEqual(
+            [i.description for i in context["items"]], ["Consultation", "Dog food"]
+        )
+        self.assertEqual(context["item_count"], 2)
+        first, second = context["items"]
+        self.assertEqual(first.amount, Decimal("200.00"))
+        self.assertTrue(first.from_price_list)
+        self.assertFalse(second.from_price_list)
+        self.assertEqual(context["subtotal"], Decimal("300.00"))
+        self.assertEqual(context["discount_amount"], Decimal("0.00"))
+        self.assertFalse(context["has_discount"])
+        self.assertEqual(context["discount_label"], "")
+        self.assertEqual(context["total"], Decimal("300.00"))
+        self.assertEqual(context["owner"], self.owner)
+        self.assertTrue(context["owner_has_email"])
+        self.assertEqual(context["owner_phone"], "0917 123 4567")
+        self.assertEqual(context["pet"], self.pet)
+        self.assertEqual(context["appointment"], visit)
+        self.assertEqual(context["appointment"].date, TODAY)
+        self.assertEqual(context["appointment"].time, datetime.time(9, 30))
+        self.assertEqual(context["created_at"], receipt.created_at)
+        self.assertIsNone(context["payment_date"])
+        self.assertIn("clinic_settings", context)
+        self.assertEqual(context["today"], TODAY)
+        self.assertIsNone(context["open_dialog"])
+        self.assertFalse(context["item_form"].is_bound)
+        self.assertFalse(context["discount_form"].is_bound)
+
+    def test_no_pet_no_visit_no_email(self):
+        User.objects.filter(pk=self.owner.user.pk).update(email="")
+        receipt = BillingReceipt.objects.create(
+            receipt_number=BillingReceipt.generate_receipt_number(), owner=self.owner
+        )
+        context = self._context(receipt)
+        self.assertIsNone(context["pet"])
+        self.assertIsNone(context["appointment"])
+        self.assertFalse(context["owner_has_email"])
+        self.assertEqual(context["owner_phone"], "")
+        self.assertEqual(context["items"], [])
+        self.assertEqual(context["item_count"], 0)
+
+    def test_status_labels_and_can_mark_paid(self):
+        empty = self._empty_receipt()
+        context = self._context(empty)
+        self.assertTrue(context["is_pending"])
+        self.assertFalse(context["can_mark_paid"])  # no items
+        cases = [
+            (BillingReceipt.PENDING, "Unpaid", True, True),
+            (BillingReceipt.PAID, "Paid", False, False),
+            (BillingReceipt.CANCELLED, "Cancelled", False, False),
+        ]
+        for status, label, is_pending, can_mark_paid in cases:
+            with self.subTest(status=status):
+                context = self._context(self._receipt(status))
+                self.assertEqual(context["status_label"], label)
+                self.assertEqual(context["is_pending"], is_pending)
+                self.assertEqual(context["can_mark_paid"], can_mark_paid)
+        paid = self._receipt(BillingReceipt.PAID)
+        self.assertEqual(self._context(paid)["payment_date"], TODAY)
+
+    def _removed_totals(self, receipt):
+        return [i.total_if_removed for i in self._context(receipt)["items"]]
+
+    def test_total_if_removed_with_no_discount(self):
+        receipt = self._two_items()
+        self.assertEqual(
+            self._removed_totals(receipt), [Decimal("100.00"), Decimal("200.00")]
+        )
+
+    def test_total_if_removed_with_a_percentage(self):
+        """10% off ₱300.00 is ₱270.00; without the ₱200.00 item 10% of
+        ₱100.00 (₱90.00), without the ₱100.00 one 10% of ₱200.00."""
+        receipt = self._two_items(
+            discount_type=BillingReceipt.PERCENTAGE, discount_value=Decimal("10")
+        )
+        receipt.calculate_totals()
+        self.assertEqual(self._context(receipt)["total"], Decimal("270.00"))
+        self.assertEqual(
+            self._removed_totals(receipt), [Decimal("90.00"), Decimal("180.00")]
+        )
+
+    def test_total_if_removed_rounds_half_up(self):
+        """12.5% of ₱0.20 is ₱0.025 → ₱0.03: ₱0.17 left."""
+        receipt = self._empty_receipt(
+            discount_type=BillingReceipt.PERCENTAGE, discount_value=Decimal("12.5")
+        )
+        self._item(receipt, "10.00")
+        self._item(receipt, "0.20")
+        receipt.calculate_totals()
+        self.assertEqual(self._removed_totals(receipt)[0], Decimal("0.17"))
+
+    def test_total_if_removed_with_a_capped_peso_discount(self):
+        """₱250 off ₱300.00 is ₱50.00; without either item the discount is
+        capped at what is left, so ₱0.00."""
+        receipt = self._two_items(
+            discount_type=BillingReceipt.FIXED_DISCOUNT, discount_value=Decimal("250")
+        )
+        receipt.calculate_totals()
+        context = self._context(receipt)
+        self.assertEqual(context["total"], Decimal("50.00"))
+        self.assertEqual(
+            [i.total_if_removed for i in context["items"]],
+            [Decimal("0.00"), Decimal("0.00")],
+        )
+        receipt.discount_value = Decimal("60")
+        receipt.save()
+        receipt.calculate_totals()
+        self.assertEqual(
+            self._removed_totals(receipt), [Decimal("40.00"), Decimal("140.00")]
+        )
+
+    def test_total_if_removed_matches_calculate_totals(self):
+        """What the Remove dialog says is what the total becomes."""
+        receipt = self._two_items(
+            discount_type=BillingReceipt.PERCENTAGE, discount_value=Decimal("33.33")
+        )
+        receipt.calculate_totals()
+        first = self._context(receipt)["items"][0]
+        self._post("admin_billing_item_delete", first.pk)
+        receipt.refresh_from_db()
+        self.assertEqual(receipt.total_amount, first.total_if_removed)
+
+    def test_discount_label(self):
+        receipt = self._two_items()
+        cases = [
+            (BillingReceipt.PERCENTAGE, "10", "", "10%", "₱30.00"),
+            (BillingReceipt.PERCENTAGE, "12.5", "Senior", "12.5% · Senior", "₱37.50"),
+            (BillingReceipt.FIXED_DISCOUNT, "50", "", "₱50.00", "₱50.00"),
+            (
+                BillingReceipt.FIXED_DISCOUNT,
+                "1250",
+                "Loyal client",
+                "₱1,250.00 · Loyal client",
+                "₱300.00",
+            ),
+        ]
+        for kind, value, note, label, amount in cases:
+            with self.subTest(label=label):
+                receipt.discount_type = kind
+                receipt.discount_value = Decimal(value)
+                receipt.discount_note = note
+                receipt.save()
+                receipt.calculate_totals()
+                context = self._context(receipt)
+                self.assertEqual(context["discount_label"], label)
+                self.assertTrue(context["has_discount"])
+                self.assertEqual(f"₱{context['discount_amount']:,.2f}", amount)
+
+    def test_service_options_match_the_form(self):
+        fixed = self._service("Consultation", "150.00")
+        ranged = self._range_service("grooming", "300.00", "800.00", Service.UNLISTED)
+        self._service("Bath", status=Service.DRAFT)
+        self._service("X-ray", status=Service.CLOSED)
+        context = self._context(self._empty_receipt())
+        options = context["service_options"]
+        choices = list(context["item_form"].fields["service_choice"].choices)
+        self.assertEqual([(o["value"], o["label"]) for o in options], choices[1:-1])
+        self.assertEqual(
+            options,
+            [
+                {
+                    "value": str(fixed.pk),
+                    "label": "Consultation · ₱150.00",
+                    "name": "Consultation",
+                    "pricing": "fixed",
+                    "price": Decimal("150.00"),
+                    "min_price": None,
+                    "max_price": None,
+                },
+                {
+                    "value": str(ranged.pk),
+                    "label": "grooming · ₱300.00 to ₱800.00",
+                    "name": "grooming",
+                    "pricing": "range",
+                    "price": None,
+                    "min_price": Decimal("300.00"),
+                    "max_price": Decimal("800.00"),
+                },
+            ],
+        )
+
+    def _queries_for(self, item_count):
+        receipt = self._empty_receipt()
+        visit = Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=TODAY,
+            time=datetime.time(8 + item_count // 5, 0),
+            status=Appointment.COMPLETED,
+        )
+        BillingReceipt.objects.filter(pk=receipt.pk).update(appointment=visit)
+        for number in range(item_count):
+            service = self._service(f"Service {item_count}-{number}")
+            self._item(receipt, "10.00", service=service)
+        receipt.calculate_totals()
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(
+                reverse("admin_receipt_detail", args=[receipt.pk])
+            )
+        self.assertEqual(response.context["item_count"], item_count)
+        return len(queries)
+
+    def test_query_count_is_flat(self):
+        none, ten = self._queries_for(0), self._queries_for(10)
+        self.assertEqual(none, ten)
+        self.assertEqual(ten, DETAIL_QUERIES)
+
+
+class PriceHelpTests(FrozenBillingTestBase):
+    """Rule 11: BillingItemForm.price_help for the picked service."""
+
+    def test_price_help(self):
+        fixed = self._service("Consultation", "150.00")
+        ranged = self._range_service("Grooming", "300.00", "800.00")
+        draft = self._service("Bath", status=Service.DRAFT)
+        cases = [
+            (fixed.pk, "Price list: ₱150.00."),
+            (str(fixed.pk), "Price list: ₱150.00."),
+            (ranged.pk, "Usual price ₱300.00 to ₱800.00. You can bill outside it."),
+            ("other", ""),
+            ("", ""),
+            ("abc", ""),
+            (draft.pk, ""),
+        ]
+        for choice, help_text in cases:
+            with self.subTest(choice=choice):
+                form = BillingItemForm({"service_choice": choice})
+                self.assertEqual(form.price_help, help_text)
+        self.assertEqual(BillingItemForm({}).price_help, "")
+        self.assertEqual(BillingItemForm().price_help, "")
+        unbound = BillingItemForm(initial={"service_choice": fixed.pk})
+        self.assertEqual(unbound.price_help, "")
+
+
+@PLAIN_STATIC
+class ReceiptDialogTests(FrozenBillingTestBase):
+    """Item add and discount errors re-render the receipt page with the
+    dialog open; the edit URL is the discount endpoint."""
+
+    def setUp(self):
+        super().setUp()
+        self.receipt = self._receipt()  # one ₱200.00 item
+        self.grooming = self._range_service("Grooming", "300.00", "800.00")
+
+    def test_invalid_item_add_reopens_the_dialog_with_the_typed_values(self):
+        data = {
+            "service_choice": str(self.grooming.pk),
+            "description": "Big dog groom",
+            "quantity": "2",
+            "unit_price": "",
+        }
+        response = self._post("admin_billing_item_add", self.receipt.pk, data)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "admin/billing/receipt_detail.html")
+        self.assertEqual(response.context["open_dialog"], "add-item")
+        form = response.context["item_form"]
+        self.assertTrue(form.is_bound)
+        self.assertEqual(form.errors, {"unit_price": ["Type the price."]})
+        for name, value in data.items():
+            with self.subTest(field=name):
+                self.assertEqual(form[name].value(), value)
+        self.assertEqual(
+            form.price_help, "Usual price ₱300.00 to ₱800.00. You can bill outside it."
+        )
+        self.assertFalse(response.context["discount_form"].is_bound)
+        self.assertEqual(self._messages(response), [])
+        self.assertEqual(self.receipt.billing_items.count(), 1)
+        self.assertEqual(response.context["total"], Decimal("200.00"))
+        # The old page shows the error under the field
+        self.assertContains(response, '<p class="form-error">Type the price.</p>')
+
+    def test_old_page_shows_every_item_error(self):
+        response = self._post(
+            "admin_billing_item_add",
+            self.receipt.pk,
+            {"service_choice": "", "quantity": "0"},
+        )
+        self.assertContains(
+            response,
+            '<p class="form-error">Choose what it is, or Other (type it).</p>',
+        )
+        self.assertContains(
+            response, '<p class="form-error">The quantity must be from 1 to 999.</p>'
+        )
+
+    def test_invalid_discount_reopens_the_dialog(self):
+        response = self._post(
+            "admin_receipt_edit",
+            self.receipt.pk,
+            {"discount_type": BillingReceipt.PERCENTAGE, "discount_value": "150"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "admin/billing/receipt_detail.html")
+        self.assertTemplateNotUsed(response, "admin/billing/receipt_form.html")
+        self.assertEqual(response.context["open_dialog"], "discount")
+        form = response.context["discount_form"]
+        self.assertEqual(
+            form.errors["discount_value"], ["A discount can't be more than 100%."]
+        )
+        self.assertEqual(form["discount_value"].value(), "150")
+        self.assertFalse(response.context["item_form"].is_bound)
+        # The page shows the saved receipt, not the refused discount
+        self.assertFalse(response.context["has_discount"])
+        self.assertEqual(response.context["total"], Decimal("200.00"))
+        self.assertEqual(self._messages(response), [])
+        self.receipt.refresh_from_db()
+        self.assertEqual(self.receipt.discount_type, "")
+
+    def test_valid_discount_and_no_discount_flash(self):
+        url = reverse("admin_receipt_detail", args=[self.receipt.pk])
+        response = self._post(
+            "admin_receipt_edit",
+            self.receipt.pk,
+            {"discount_type": BillingReceipt.PERCENTAGE, "discount_value": "10"},
+        )
+        self.assertRedirects(response, url, fetch_redirect_response=False)
+        self.assertEqual(self._messages(response), ["Discount saved."])
+        self.receipt.refresh_from_db()
+        self.assertEqual(self.receipt.total_amount, Decimal("180.00"))
+
+        self.client.cookies.pop("messages", None)
+        response = self._post(
+            "admin_receipt_edit",
+            self.receipt.pk,
+            {"discount_type": "", "discount_value": ""},
+        )
+        self.assertRedirects(response, url, fetch_redirect_response=False)
+        self.assertEqual(self._messages(response), ["Discount removed."])
+        self.receipt.refresh_from_db()
+        self.assertEqual(self.receipt.total_amount, Decimal("200.00"))
+
+    def test_get_on_the_edit_url_opens_the_receipt_page(self):
+        url = reverse("admin_receipt_detail", args=[self.receipt.pk])
+        response = self.client.get(
+            reverse("admin_receipt_edit", args=[self.receipt.pk])
+        )
+        self.assertRedirects(response, url, fetch_redirect_response=False)
+        self.assertEqual(self._messages(response), [])
+        response = self.client.get(
+            reverse("admin_receipt_edit", args=[self.receipt.pk]), follow=True
+        )
+        self.assertTemplateUsed(response, "admin/billing/receipt_detail.html")
+        self.assertTemplateNotUsed(response, "admin/billing/receipt_form.html")
+
+    def test_locked_receipts_are_still_refused(self):
+        for status in LOCKED_STATUSES:
+            receipt = self._receipt(status)
+            url = reverse("admin_receipt_detail", args=[receipt.pk])
+            posts = [
+                (
+                    "admin_billing_item_add",
+                    {"service_choice": "other", "quantity": "0"},
+                ),
+                (
+                    "admin_receipt_edit",
+                    {
+                        "discount_type": BillingReceipt.PERCENTAGE,
+                        "discount_value": "150",
+                    },
+                ),
+            ]
+            for name, data in posts:
+                with self.subTest(status=status, view=name):
+                    self.client.cookies.pop("messages", None)
+                    response = self._post(name, receipt.pk, data)
+                    self.assertRedirects(response, url, fetch_redirect_response=False)
+                    self.assertEqual(self._messages(response), [LOCKED_MESSAGE])
+            receipt.refresh_from_db()
+            self.assertEqual(receipt.billing_items.count(), 1)
+            self.assertEqual(receipt.discount_type, "")
+
+    def test_pets_for_owner_url_is_gone(self):
+        """6a-3: admin_get_pets_for_owner (unused since 6a-2) was removed."""
+        with self.assertRaises(NoReverseMatch):
+            reverse("admin_get_pets_for_owner")

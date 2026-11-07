@@ -1150,36 +1150,6 @@ def admin_walkin_appointment_visit(request):
 
 
 @login_required
-def admin_get_pets_for_owner(request):
-    """
-    HTMX view — returns pet <option> elements for a selected owner.
-    Used in the walk-in appointment form to filter pets by owner.
-    """
-    if request.user.role != "admin":
-        return redirect("owner_dashboard")
-
-    from pets.models import Pet
-
-    owner_id = request.GET.get("owner", "")
-    pets = Pet.objects.none()
-
-    if owner_id:
-        try:
-            pets = Pet.objects.filter(
-                owner_id=int(owner_id),
-                is_archived=False,
-            ).order_by("name")
-        except (ValueError, TypeError):
-            pass
-
-    return render(
-        request,
-        "admin/appointments/_pet_options.html",
-        {"pets": pets},
-    )
-
-
-@login_required
 def admin_get_slots_for_date(request):
     """
     HTMX view — returns slot <option> elements for a selected date.

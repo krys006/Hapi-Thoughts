@@ -211,7 +211,7 @@ templates/
 │   │   │   └── step.html
 │   │   ├── _calendar_grid.html
 │   │   ├── _calendar_day_panel.html
-│   │   ├── _pet_options.html
+│   │   ├── _pet_options.html         ← unused since 6a-3 (view and URL removed); Krys deletes it
 │   │   ├── _slot_buttons.html
 │   │   ├── _slot_options.html
 │   │   └── _walkin_owner_results.html ← step 1 owner list / search results (filter as you type)
@@ -360,9 +360,9 @@ templates/
 │   │   │   └── correction_card.html  ← edit only: Reason for a correction, the red state with "You changed: …", Corrected before
 │   │   └── vaccination_history.html  ← the pet's vaccinations (header + tabs, dose cards, ?highlight=<pk>); no extra_js
 │   ├── billing/
-│   │   ├── receipt_list.html
-│   │   ├── receipt_detail.html
-│   │   ├── receipt_form.html         ← edit page only (since 6a-2)
+│   │   ├── receipt_list.html         ← old template, context from receipt_list_context (6a-3); design 6b-1
+│   │   ├── receipt_detail.html       ← old template, context from receipt_detail_context + the dialog forms (6a-3); design 6b-2
+│   │   ├── receipt_form.html         ← no longer rendered (6a-3: the edit URL redirects to the receipt page); Krys deletes it
 │   │   ├── receipt_new.html          ← New receipt (admin_receipt_create): from a visit, or step 1 "Who is it for?" / step 2 "Which pet?"; structural (6a-2), design 6b-3
 │   │   ├── services_list.html
 │   │   └── service_form.html
@@ -460,8 +460,12 @@ static/
 > shared by the owner and pet forms, and `js/admin/pet_form.js`), `js/admin/record_list.js`,
 > `js/admin/vaccination_list.js`, `css/admin/record_list.css` and
 > `css/admin/vaccination_list.css` (Slice 5b-1: no page loads them and no comment
-> names them any more; Krys deletes the files). Other old files still
+> names them any more; Krys deletes the files), `css/admin/receipt_form.css`
+> (Slice 6a-3: the receipt edit page is gone; only `receipt_form.html`, itself
+> unused, loads it; Krys deletes both). Other old files still
 > mention them in comments; those comments go when their own pages migrate.
+> Templates gone with them: `admin/billing/receipt_form.html` and
+> `admin/appointments/_pet_options.html` (Slice 6a-3; Krys deletes them).
 > Slice 5b-2: `admin/medical/record_detail.html` no longer loads
 > `css/admin/record_detail.css` (the old `admin/medical/pet_history.html`
 > kept importing it until 5b-5). There is no record-detail JS file. The old inline vaccination form on the record page

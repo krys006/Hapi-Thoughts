@@ -1,9 +1,12 @@
 """Shared billing logic for the receipt views (Slice 6)."""
 
+from decimal import Decimal
+from urllib.parse import urlencode
+
 from django.contrib import messages
-from django.core.exceptions import NON_FIELD_ERRORS
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
+from django.db.models import Count, Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
@@ -22,6 +25,9 @@ from medical.utils import short_date
 from notifications.utils import notify
 from pets.models import Pet, PetOwner
 
+from appointments.models import ClinicSettings
+
+from .forms import billable_services, peso, service_options
 from .models import BillingItem, BillingReceipt, Service
 
 # Shown whenever a write is refused because receipt.is_locked
@@ -57,14 +63,6 @@ def receipt_items(receipt):
     return receipt.billing_items.select_related("service").order_by("created_at", "pk")
 
 
-def form_error_text(form):
-    """Every error on a form as one line, for a flash message (the old
-    receipt pages redirect after a failed item add, so the form is lost).
-    Field order, then the form-wide errors."""
-    names = [*form.fields, NON_FIELD_ERRORS]
-    return " ".join(str(error) for name in names for error in form.errors.get(name, []))
-
-
 def save_discount(form):
     """Saves a valid BillingReceiptForm's three discount fields (and
     updated_at) only, then recalculates the totals."""
@@ -74,6 +72,16 @@ def save_discount(form):
     receipt.save(update_fields=[*DISCOUNT_FIELDS, "updated_at"])
     receipt.calculate_totals()
     return receipt
+
+
+DISCOUNT_SAVED = "Discount saved."
+DISCOUNT_REMOVED = "Discount removed."
+
+
+def discount_saved_message(form):
+    """The flash after a valid Discount dialog: "Discount removed." when
+    No discount was posted."""
+    return DISCOUNT_SAVED if form.cleaned_data["discount_type"] else DISCOUNT_REMOVED
 
 
 def add_item(receipt, data):
@@ -387,4 +395,165 @@ def receipt_pet_context(owner, pets, picked, pet_error=""):
         "pet_error": pet_error,
         "change_owner_url": reverse("admin_receipt_create"),
         **_receipts_back(),
+    }
+
+
+# ── Receipt list (admin_receipt_list, Slice 6a-3) ────────────────────────────
+
+RECEIPT_TABS = ("pending", "paid", "cancelled", "all")
+RECEIPT_DEFAULT_TAB = "pending"
+RECEIPT_PAGE_SIZE = 25
+# Unpaid oldest first; Paid newest paid first; Cancelled and All newest first
+RECEIPT_TAB_ORDER = {
+    "pending": ("created_at", "pk"),
+    "paid": ("-payment_date", "-created_at", "-pk"),
+    "cancelled": ("-created_at", "-pk"),
+    "all": ("-created_at", "-pk"),
+}
+
+
+def search_receipts(receipts, q):
+    """Every word in q must match the receipt number (any part: "0012"
+    finds HV-2026-0012), the owner's first or last name or the pet's name."""
+    for word in q.split():
+        receipts = receipts.filter(
+            Q(receipt_number__icontains=word)
+            | Q(owner__first_name__icontains=word)
+            | Q(owner__last_name__icontains=word)
+            | Q(pet__name__icontains=word)
+        )
+    return receipts
+
+
+def _receipt_counts():
+    """The four tab counts in one query (the search doesn't change them)."""
+    return BillingReceipt.objects.aggregate(
+        pending_count=Count("pk", filter=Q(payment_status=BillingReceipt.PENDING)),
+        paid_count=Count("pk", filter=Q(payment_status=BillingReceipt.PAID)),
+        cancelled_count=Count("pk", filter=Q(payment_status=BillingReceipt.CANCELLED)),
+        all_count=Count("pk"),
+    )
+
+
+def receipt_list_context(params, today):
+    """
+    Context for the admin receipt list from the request's GET params:
+    ?status=pending|paid|cancelled|all (anything else → pending, so the
+    dashboard's ?status=pending keeps working), ?q= and ?page=. The search
+    stays inside the tab; the counts ignore it. The pager keeps status and q.
+    """
+    status = params.get("status")
+    active_tab = status if status in RECEIPT_TABS else RECEIPT_DEFAULT_TAB
+    q = " ".join(params.get("q", "").split())
+    counts = _receipt_counts()
+
+    rows = BillingReceipt.objects.all()
+    if active_tab != "all":
+        rows = rows.filter(payment_status=active_tab)
+    rows = (
+        search_receipts(rows, q)
+        .select_related("owner", "owner__user", "pet", "appointment")
+        .annotate(item_count=Count("billing_items"))
+        .order_by(*RECEIPT_TAB_ORDER[active_tab])
+    )
+    page_obj = Paginator(rows, RECEIPT_PAGE_SIZE).get_page(params.get("page"))
+    page_query = urlencode({"status": active_tab, **({"q": q} if q else {})})
+    return {
+        "page_obj": page_obj,
+        "receipts": page_obj.object_list,
+        "q": q,
+        "is_searching": bool(q),
+        "active_tab": active_tab,
+        **counts,
+        **paging_links(page_obj, page_query),
+        "today": today,
+        # Old receipt_list.html's keys (its "All" tab is the empty status)
+        "status_filter": "" if active_tab == "all" else active_tab,
+        "counts": {
+            "all": counts["all_count"],
+            "pending": counts["pending_count"],
+            "paid": counts["paid_count"],
+            "cancelled": counts["cancelled_count"],
+        },
+    }
+
+
+# ── Receipt page (admin_receipt_detail, Slice 6a-3) ──────────────────────────
+
+RECEIPT_PAGE_RELATED = ("owner__user", "pet", "appointment")
+RECEIPT_STATUS_LABELS = {
+    BillingReceipt.PENDING: "Unpaid",
+    BillingReceipt.PAID: "Paid",
+    BillingReceipt.CANCELLED: "Cancelled",
+}
+
+
+def receipt_for_page(pk):
+    """The receipt with what its page shows loaded (404 if missing)."""
+    return get_object_or_404(
+        BillingReceipt.objects.select_related(*RECEIPT_PAGE_RELATED), pk=pk
+    )
+
+
+def _plain_number(value):
+    """10.00 → "10", 12.50 → "12.5"."""
+    text = f"{value:f}"
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+def discount_label(receipt):
+    """ "10%" or "₱50.00" (the amount as set), then " · {note}"; "" with
+    no discount."""
+    if not receipt.has_discount:
+        return ""
+    if receipt.discount_type == BillingReceipt.PERCENTAGE:
+        label = f"{_plain_number(receipt.discount_value)}%"
+    else:
+        label = peso(receipt.discount_value)
+    return f"{label} · {receipt.discount_note}" if receipt.discount_note else label
+
+
+def items_with_totals(receipt, items):
+    """Gives each item amount, from_price_list (it has a service) and
+    total_if_removed: the receipt's total without it, with the same
+    discount rules (BillingReceipt.total_for)."""
+    subtotal = sum((item.subtotal for item in items), Decimal("0"))
+    for item in items:
+        item.amount = item.subtotal
+        item.from_price_list = item.service_id is not None
+        item.total_if_removed = receipt.total_for(subtotal - item.subtotal)
+    return items
+
+
+def receipt_detail_context(receipt, today):
+    """
+    Context for the admin receipt page (6b-2). receipt needs
+    RECEIPT_PAGE_RELATED selected (receipt_for_page). Keeps the old
+    template's keys (receipt, items, clinic_settings).
+    """
+    items = items_with_totals(receipt, list(receipt_items(receipt)))
+    owner = receipt.owner
+    is_pending = receipt.payment_status == BillingReceipt.PENDING
+    return {
+        "receipt": receipt,
+        "status_label": RECEIPT_STATUS_LABELS.get(receipt.payment_status, ""),
+        "is_pending": is_pending,
+        "can_mark_paid": is_pending and bool(items),
+        "items": items,
+        "item_count": len(items),
+        "subtotal": receipt.subtotal,
+        "discount_amount": receipt.discount_amount,
+        "has_discount": receipt.has_discount,
+        "discount_label": discount_label(receipt),
+        "total": receipt.total_amount,
+        "owner": owner,
+        "owner_has_email": bool(owner and owner.user and owner.user.email),
+        "owner_phone": owner.contact_number if owner else "",
+        "pet": receipt.pet,
+        "appointment": receipt.appointment,
+        "created_at": receipt.created_at,
+        "payment_date": receipt.payment_date,
+        "clinic_settings": ClinicSettings.objects.first(),
+        "service_options": service_options(billable_services()),
+        "today": today,
     }
