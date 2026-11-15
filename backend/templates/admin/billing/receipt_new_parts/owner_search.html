@@ -1,0 +1,16 @@
+{% comment %}
+  Step 1's search box. Typing filters the list below (HTMX swaps
+  #owner-results, never the input, 500 ms after the last key, replacing the
+  URL so no history entry per pause); Search is a plain GET for no-JS.
+  Needs: q.
+{% endcomment %}
+<form method="get" action="{% url 'admin_receipt_create' %}" class="mb-3 flex flex-wrap items-end gap-3" role="search">
+  <div class="min-w-0 flex-1 space-y-1.5">
+    <label for="receipt-owner-q" class="block text-base font-medium text-gray-800">Find the owner</label>
+    <div class="relative">
+      {% include "components/icon.html" with name="search" class="pointer-events-none absolute top-1/2 left-3.5 size-5 shrink-0 -translate-y-1/2 text-gray-600" %}
+      <input type="search" id="receipt-owner-q" name="q" value="{{ q }}" class="input min-h-12 pl-11" placeholder="Owner name, phone or pet name" autocomplete="off" autofocus hx-get="{% url 'admin_receipt_create' %}" hx-trigger="input changed delay:500ms, search" hx-target="#owner-results" hx-replace-url="true">
+    </div>
+  </div>
+  <button type="submit" class="btn btn-outline min-h-12 font-semibold">{% include "components/icon.html" with name="search" %}Search</button>
+</form>

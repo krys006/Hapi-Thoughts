@@ -676,6 +676,19 @@ def _walkin_owner_rows(owners):
     )
 
 
+def is_owner_results_swap(request):
+    """True for the filter-as-you-type request from an owner step's search
+    box (walk-in step 1, New receipt step 1), which only needs the results
+    (target #owner-results). A history restore (or a request without HTMX)
+    gets the full page."""
+    headers = request.headers
+    return (
+        bool(headers.get("HX-Request"))
+        and headers.get("HX-Target") == "owner-results"
+        and not headers.get("HX-History-Restore-Request")
+    )
+
+
 def walkin_owner_list():
     """Step 1 with no search: every non-archived owner, first name A to Z."""
     return _walkin_owner_rows(PetOwner.objects.filter(is_archived=False))

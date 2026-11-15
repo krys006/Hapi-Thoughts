@@ -31,6 +31,7 @@ from .utils import (
     get_available_slots,
     get_walkin_owner,
     group_by_day,
+    is_owner_results_swap,
     list_links,
     list_period,
     list_tabs,
@@ -1019,18 +1020,6 @@ def _walk_in_booked_message(appointment):
     return f"Walk-in booked for {appointment.pet.name} {on}{_when(appointment)}."
 
 
-def _is_owner_results_swap(request):
-    """True for the filter-as-you-type request from step 1's search box,
-    which only needs the results. A history restore (or a request without
-    HTMX) gets the full page."""
-    headers = request.headers
-    return (
-        bool(headers.get("HX-Request"))
-        and headers.get("HX-Target") == "owner-results"
-        and not headers.get("HX-History-Restore-Request")
-    )
-
-
 @login_required
 def admin_walkin_appointment_create(request):
     """
@@ -1059,7 +1048,7 @@ def admin_walkin_appointment_create(request):
 
     template = (
         "admin/appointments/_walkin_owner_results.html"
-        if _is_owner_results_swap(request)
+        if is_owner_results_swap(request)
         else "admin/appointments/walkin_find.html"
     )
     response = render(request, template, context)

@@ -7,7 +7,7 @@
   shown only when printing or saving as PDF. Self-contained: its own <style>,
   no app.css, no CDN. Black on white.
   Needs: receipt, items, clinic_settings, discount_label (the label after
-  "Discount": "10% · Loyal client", or "").
+  "Discount": "10% · Loyal client", or ""; an empty label prints just "Discount").
 {% endcomment %}
 <style>
   .receipt-print-wrapper {
@@ -257,7 +257,7 @@
   <div class="receipt-print-totals">
     <div class="receipt-print-total-row"><span>Subtotal</span><span>{{ receipt.subtotal|peso }}</span></div>
     {% if receipt.has_discount %}
-    <div class="receipt-print-total-row"><span>Discount ({{ discount_label|default:"Discount" }})</span><span>−{{ receipt.discount_amount|peso }}</span></div>
+    <div class="receipt-print-total-row"><span>Discount{% if discount_label %} ({{ discount_label }}){% endif %}</span><span>−{{ receipt.discount_amount|peso }}</span></div>
     {% endif %}
     <div class="receipt-print-total-row receipt-print-total-row--grand"><span>TOTAL</span><span>{{ receipt.total_amount|peso }}</span></div>
   </div>

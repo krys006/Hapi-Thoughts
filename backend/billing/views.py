@@ -3,6 +3,9 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import transaction
 from django.utils import timezone
+from django.utils.cache import patch_vary_headers
+
+from appointments.utils import is_owner_results_swap
 
 from .models import Service, BillingItem
 from .forms import ServiceForm, BillingReceiptForm, BillingItemForm
@@ -11,6 +14,7 @@ from .utils import (
     NO_ITEMS_MESSAGE,
     RECEIPT_EXISTS,
     RECEIPT_NEW_TEMPLATE,
+    RECEIPT_OWNER_RESULTS_TEMPLATE,
     add_item,
     create_receipt,
     create_visit_receipt,
@@ -142,7 +146,16 @@ def admin_receipt_create(request):
     if request.GET.get("owner"):
         owner = owner_for_receipt(request.GET["owner"])
         return _new_receipt_for_owner(request, owner)
-    return render(request, RECEIPT_NEW_TEMPLATE, receipt_owner_context(request.GET))
+    # Step 1: the search box filters as you type (HTMX gets only the results)
+    template = (
+        RECEIPT_OWNER_RESULTS_TEMPLATE
+        if is_owner_results_swap(request)
+        else RECEIPT_NEW_TEMPLATE
+    )
+    response = render(request, template, receipt_owner_context(request.GET))
+    # The same URL answers with the partial or the full page
+    patch_vary_headers(response, ["HX-Request"])
+    return response
 
 
 def _receipt_created(request, receipt):
@@ -166,7 +179,7 @@ def _new_receipt_from_visit(request, appointment):
             messages.info(request, RECEIPT_EXISTS)
             return redirect("admin_receipt_detail", pk=receipt.pk)
         return _receipt_created(request, receipt)
-    context = visit_receipt_context(appointment, service)
+    context = visit_receipt_context(appointment, service, timezone.localdate())
     return render(request, RECEIPT_NEW_TEMPLATE, context)
 
 

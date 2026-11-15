@@ -388,7 +388,16 @@ templates/
 │   │   │   ├── mark_paid_dialog.html ← only with items (can_mark_paid)
 │   │   │   └── cancel_dialog.html    ← "Keep it" is the go-back button (dialog_buttons.html back_text)
 │   │   ├── receipt_form.html         ← no longer rendered (6a-3: the edit URL redirects to the receipt page); Krys deletes it
-│   │   ├── receipt_new.html          ← New receipt (admin_receipt_create): from a visit, or step 1 "Who is it for?" / step 2 "Which pet?"; structural (6a-2), design 6b-3
+│   │   ├── receipt_new.html          ← New receipt (admin_receipt_create) on layouts/admin.html (6b-3): from a visit, or step 1 "Who is it for?" / step 2 "Which pet?"; no legacy_css
+│   │   ├── _receipt_owner_results.html ← step 1 results (Clear search, heading / match line, owner rows, pager, empty states); included by receipt_new.html and returned alone for the filter-as-you-type HTMX request (target #owner-results; Vary: HX-Request)
+│   │   ├── receipt_new_parts/        ← Includes for receipt_new.html (not HTMX partials, so no `_`)
+│   │   │   ├── header.html           ← back link, "New receipt", subtitle per mode
+│   │   │   ├── steps.html            ← modes owner / pet: current violet, done green with a check (takes active=1 or 2)
+│   │   │   ├── visit_card.html       ← mode visit: "From the visit" dl + the fixed-price service checkbox
+│   │   │   ├── owner_search.html     ← step 1 search form (hx-get into #owner-results, 500 ms, hx-replace-url)
+│   │   │   ├── owner_row.html        ← one owner: avatar, phone, active pets, light-violet Choose
+│   │   │   ├── pet_choices.html      ← mode pet: error summary, Billed to + Change owner, the radio cards (CSS-only checked state), no-pets line
+│   │   │   └── buttons.html          ← note + Cancel + the one btn-primary "Create receipt" (modes visit and pet)
 │   │   ├── services_list.html
 │   │   └── service_form.html
 │   ├── health/

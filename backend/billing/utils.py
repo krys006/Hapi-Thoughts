@@ -195,6 +195,8 @@ BILLABLE_SERVICE_STATUSES = (Service.ACTIVE, Service.UNLISTED)
 NO_PET = "none"
 PICK_PET_MESSAGE = "Choose a pet, or “Not for a specific pet”."
 RECEIPT_NEW_TEMPLATE = "admin/billing/receipt_new.html"
+# Step 1's results alone, for the filter-as-you-type request
+RECEIPT_OWNER_RESULTS_TEMPLATE = "admin/billing/_receipt_owner_results.html"
 
 
 def _whole_number_or_404(value):
@@ -316,13 +318,14 @@ def _receipts_back():
     return {"back_url": reverse("admin_receipt_list"), "back_label": "Back to receipts"}
 
 
-def visit_receipt_context(appointment, service):
-    """Mode "visit": the summary card and the service checkbox."""
-    with_pet_lines([appointment.pet])
+def visit_receipt_context(appointment, service, today):
+    """Mode "visit": the summary card and the service checkbox. today (the
+    view's Manila date) words the visit's date."""
     return {
         "mode": "visit",
         "appointment": appointment,
         "visit_service": service,
+        "today": today,
         "back_url": reverse("admin_appointment_detail", args=[appointment.pk]),
         "back_label": "Back to the visit",
     }
@@ -419,6 +422,8 @@ def receipt_pet_context(owner, pets, picked, pet_error=""):
         "picked": picked,
         "no_pet": NO_PET,
         "pet_error": pet_error,
+        # What error_summary.html reads (one radio group, one error)
+        "error_summary": {"error_count": 1 if pet_error else 0},
         "change_owner_url": reverse("admin_receipt_create"),
         **_receipts_back(),
     }

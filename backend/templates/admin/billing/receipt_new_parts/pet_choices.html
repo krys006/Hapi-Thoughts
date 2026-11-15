@@ -1,0 +1,52 @@
+{% comment %}
+  Mode pet (step 2): the owner's card with Change owner, and the radio
+  cards (each active pet, then "Not for a specific pet"). Lives inside the
+  page's POST form. Radios are written here, not with form_field.html (it
+  has no fieldset/legend branch yet). A checked card is styled by CSS alone
+  (has-[:checked]). Needs: owner, pets (each with detail_line), picked,
+  no_pet, pet_error, change_owner_url.
+{% endcomment %}
+{% if pet_error %}
+  {% include "admin/pets/owner_form_parts/error_summary.html" with form=error_summary numbered=True %}
+{% endif %}
+
+<section class="card p-6" aria-label="Pet">
+  <div class="mb-4 flex flex-wrap items-center gap-3 border-b border-gray-100 pb-4">
+    {% include "components/owner_avatar.html" with owner=owner size="sm" %}
+    <div class="min-w-0 flex-1">
+      <p class="text-sm font-semibold text-gray-700">Billed to</p>
+      <p class="text-lg font-semibold text-gray-900">{{ owner.full_name }}</p>
+    </div>
+    <a href="{{ change_owner_url }}" class="inline-flex min-h-11 items-center text-base font-medium text-blue-600 underline underline-offset-2">Change owner</a>
+  </div>
+
+  <fieldset{% if pet_error %} aria-describedby="pet-error"{% endif %}>
+    <legend class="text-base font-semibold text-gray-900">Which pet is it for? <span class="text-red-700" aria-hidden="true">*</span></legend>
+    <div class="mt-3 space-y-3{% if pet_error %} rounded-lg ring-2 ring-red-300 ring-offset-4{% endif %}">
+      {% for pet in pets %}
+        <label class="flex min-h-11 cursor-pointer items-center gap-4 rounded-lg border-2 {% if pet_error %}border-red-300{% else %}border-gray-200{% endif %} bg-white p-4 hover:border-violet-300 has-[:checked]:border-violet-600 has-[:checked]:bg-violet-50 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-violet-600 has-[:focus-visible]:ring-offset-2">
+          <input type="radio" name="pet" value="{{ pet.pk }}" class="size-6 shrink-0 accent-violet-600" required{% if pet.pk|stringformat:"s" == picked %} checked{% endif %}>
+          {% include "components/pet_avatar.html" with pet=pet size="sm" %}
+          <span>
+            <span class="block text-lg font-semibold text-gray-900">{{ pet.name }}</span>
+            {% if pet.detail_line %}<span class="block text-sm text-gray-700">{{ pet.detail_line }}</span>{% endif %}
+          </span>
+        </label>
+      {% endfor %}
+      <label class="flex min-h-11 cursor-pointer items-center gap-4 rounded-lg border-2 {% if pet_error %}border-red-300{% else %}border-gray-200{% endif %} bg-white p-4 hover:border-violet-300 has-[:checked]:border-violet-600 has-[:checked]:bg-violet-50 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-violet-600 has-[:focus-visible]:ring-offset-2">
+        <input type="radio" name="pet" value="{{ no_pet }}" class="size-6 shrink-0 accent-violet-600" required{% if picked == no_pet %} checked{% endif %}>
+        <span class="grid size-10 shrink-0 place-content-center rounded-xl bg-gray-100 text-gray-700">{% include "components/icon.html" with name="receipt" %}</span>
+        <span>
+          <span class="block text-lg font-semibold text-gray-900">Not for a specific pet</span>
+          <span class="block text-sm text-gray-700">Supplies or items not for one pet</span>
+        </span>
+      </label>
+    </div>
+    {% if pet_error %}
+      <p id="pet-error" class="mt-2 flex items-start gap-1.5 text-base text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-1 size-4 shrink-0" %}{{ pet_error }}</p>
+    {% endif %}
+    {% if not pets %}
+      <p class="mt-3 text-sm text-gray-700">{{ owner.full_name }} has no pets yet. To bill for a pet, add it on <a href="{% url 'admin_owner_detail' owner.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ owner.full_name }}'s page</a> first.</p>
+    {% endif %}
+  </fieldset>
+</section>

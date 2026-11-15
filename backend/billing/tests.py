@@ -1158,9 +1158,13 @@ class ReceiptNumberTests(FrozenBillingTestBase):
 
 # ── Slice 6a-2: New receipt ───────────────────────────────────────────────────
 
-RECEIPT_NEW_FILE = (
-    Path(settings.BASE_DIR) / "templates" / "admin" / "billing" / "receipt_new.html"
-)
+NEW_RECEIPT_TEMPLATES = Path(settings.BASE_DIR) / "templates" / "admin" / "billing"
+# The page, its includes and step 1's results partial
+RECEIPT_NEW_FILES = [
+    NEW_RECEIPT_TEMPLATES / "receipt_new.html",
+    NEW_RECEIPT_TEMPLATES / "_receipt_owner_results.html",
+    *sorted((NEW_RECEIPT_TEMPLATES / "receipt_new_parts").glob("*.html")),
+]
 
 
 @PLAIN_STATIC
@@ -1476,9 +1480,10 @@ class OwnerStepTests(NewReceiptTestBase):
         self.assertContains(response, "A to Z by first name")
         self.assertContains(response, "No phone number")
         self.assertContains(response, "0998 112 0045")
-        self.assertContains(response, "<li>Bantay</li>")
+        # The pet's name follows its species icon
+        self.assertRegex(response.content.decode(), r"(?s)</svg>\s*Bantay</li>")
         self.assertContains(response, "No pets yet")
-        choose = f'<a href="{self.url}?owner={self.owner.pk}" class="btn btn-outline'
+        choose = f'<a href="{self.url}?owner={self.owner.pk}" class="inline-flex'
         self.assertContains(response, choose)
         self.assertContains(response, 'href="' + reverse("admin_owner_create") + '"')
 
@@ -1597,7 +1602,7 @@ class PetStepTests(NewReceiptTestBase):
         self.assertEqual(response.context["picked"], str(self.pet.pk))
         self.assertContains(
             response,
-            f'value="{self.pet.pk}" class="size-5 shrink-0 accent-violet-600" '
+            f'value="{self.pet.pk}" class="size-6 shrink-0 accent-violet-600" '
             "required checked>",
         )
 
@@ -1627,7 +1632,7 @@ class PetStepTests(NewReceiptTestBase):
         self.assertEqual(response.context["picked"], "none")
         self.assertContains(
             response,
-            'value="none" class="size-5 shrink-0 accent-violet-600" required checked>',
+            'value="none" class="size-6 shrink-0 accent-violet-600" required checked>',
         )
         self.assertContains(
             response,
@@ -1766,12 +1771,630 @@ class NewReceiptPageTests(NewReceiptTestBase):
                 self.assertEqual(active, [reverse("admin_receipt_list")])
 
     def test_every_link_is_on_one_line(self):
-        source = RECEIPT_NEW_FILE.read_text(encoding="utf-8")
-        links = re.findall(r"(?s)<a\b.*?</a>", source)
+        links = []
+        for path in RECEIPT_NEW_FILES:
+            source = path.read_text(encoding="utf-8")
+            links += re.findall(r"(?s)<a\b.*?</a>", source)
         self.assertTrue(links)
         for link in links:
             with self.subTest(link=link[:60]):
                 self.assertNotIn("\n", link)
+
+
+# ── Slice 6b-3: New receipt design pass ───────────────────────────────────────
+
+# Whole-page query counts of the New receipt steps, measured: session + user
+# + the admin layout's own (4) + the page's. Owner step: the paginator count,
+# the owners, their active pets (one prefetch). Pet step: the owner, the pets.
+NEW_OWNER_STEP_QUERIES = 9
+NEW_PET_STEP_QUERIES = 8
+
+HTMX_RESULTS = {"HTTP_HX_REQUEST": "true", "HTTP_HX_TARGET": "owner-results"}
+
+
+@PLAIN_STATIC
+class NewReceiptDesignTests(NewReceiptTestBase):
+    """receipt_new.html and receipt_new_parts/ (mockup receipt_new_v1.html)."""
+
+    def setUp(self):
+        super().setUp()
+        self.owner_url = f"{self.url}?owner={self.owner.pk}"
+
+    def _visit_url(self, **fields):
+        visit = self._visit(**fields)
+        return f"{self.url}?appointment={visit.pk}"
+
+    def _dd(self, html, term):
+        match = re.search(rf"(?s)<dt[^>]*>{term}</dt>\s*<dd[^>]*>(.*?)</dd>", html)
+        self.assertIsNotNone(match, term)
+        return match.group(1)
+
+    def _step_items(self, html):
+        ol = re.search(r'(?s)<ol class="mb-6[^>]*aria-label="Steps">.*?</ol>', html)
+        self.assertIsNotNone(ol)
+        return re.findall(r"(?s)<li\b.*?</li>", ol.group(0))
+
+    def _cards(self, html):
+        """(opening tag, inner html) of every radio card."""
+        return re.findall(
+            r'(?s)(<label class="flex min-h-11[^"]*">)(.*?)</label>', html
+        )
+
+    # ─── Header and steps ─────────────────────────────────────────────────────
+
+    def test_header_per_mode(self):
+        visit_url = self._visit_url(service=self._service("Consultation"))
+        cases = [
+            (
+                visit_url,
+                "For the visit below. Check it, then create the receipt.",
+                "Back to the visit",
+            ),
+            (
+                self.url,
+                "Not from a visit, for example supplies bought over the counter.",
+                "Back to receipts",
+            ),
+            (
+                self.owner_url,
+                "Not from a visit, for example supplies bought over the counter.",
+                "Back to receipts",
+            ),
+        ]
+        for url, subtitle, back in cases:
+            with self.subTest(url=url):
+                html = self._html(url)
+                self.assertIn(
+                    '<h1 class="text-2xl font-bold text-gray-900">New receipt</h1>',
+                    html,
+                )
+                self.assertIn(
+                    f'<p class="mt-1 text-base text-gray-700">{subtitle}</p>', html
+                )
+                self.assertRegex(
+                    html,
+                    r'(?s)<a href="[^"]+" class="inline-flex min-h-11 items-center '
+                    r"gap-2 text-base font-medium text-blue-600 underline "
+                    r'underline-offset-2">\s*<svg[^>]*aria-hidden="true".*?</svg>\s*'
+                    + back
+                    + "</a>",
+                )
+
+    def test_steps_in_the_owner_step(self):
+        first, second = self._step_items(self._html(self.url))
+        self.assertIn('aria-current="step"', first)
+        self.assertIn("text-violet-800", first)
+        self.assertIn("bg-violet-600", first)
+        self.assertIn(">1</span>", first)
+        self.assertIn("Who is it for?", first)
+        self.assertNotIn("aria-current", second)
+        self.assertIn("bg-gray-200 text-gray-700", second)
+        self.assertIn("Which pet?", second)
+
+    def test_steps_in_the_pet_step(self):
+        first, second = self._step_items(self._html(self.owner_url))
+        # Step 1 is done: green, a check, no number, not current
+        self.assertNotIn("aria-current", first)
+        self.assertIn("bg-green-100 text-green-800", first)
+        self.assertIn("<svg", first)
+        self.assertIn("Done: step 1", first)
+        self.assertNotIn(">1</span>", first)
+        self.assertIn('aria-current="step"', second)
+        self.assertIn("bg-violet-600", second)
+        self.assertIn(">2</span>", second)
+
+    def test_no_steps_in_the_visit_mode(self):
+        html = self._html(self._visit_url())
+        self.assertNotIn('aria-label="Steps"', html)
+        self.assertNotIn("Who is it for?", html)
+
+    # ─── Mode visit ───────────────────────────────────────────────────────────
+
+    def test_visit_card_rows(self):
+        self.owner.contact_number = "0917 555 0142"
+        self.owner.save()
+        Pet.objects.filter(pk=self.pet.pk).update(breed="Aspin")
+        html = self._html(self._visit_url(service=self._service("Consultation")))
+        self.assertIn("From the visit</h2>", html)
+        self.assertRegex(
+            html, r'(?s)<h2 id="visit-title"[^>]*>\s*<svg[^>]*aria-hidden="true"'
+        )
+        visit = self._dd(html, "Visit")
+        self.assertEqual(
+            page_text(visit), "Today, Saturday, November 7 at 9:00 AM Completed"
+        )
+        self.assertIn("bg-green-100 text-green-800", visit)
+        billed = self._dd(html, "Billed to")
+        self.assertIn('role="img" aria-label="Ana Cruz"', billed)
+        self.assertIn(
+            f'<a href="{reverse("admin_owner_detail", args=[self.owner.pk])}"', billed
+        )
+        self.assertIn("Ana Cruz</a> · 0917 555 0142", billed)
+        pet = self._dd(html, "Pet")
+        self.assertIn('aria-label="No photo of Bantay yet"', pet)
+        self.assertIn(
+            f'<a href="{reverse("admin_pet_detail", args=[self.pet.pk])}"', pet
+        )
+        self.assertIn("Bantay</a> · Dog · Aspin", pet)
+        self.assertNotIn("yrs", pet)
+        self.assertEqual(page_text(self._dd(html, "Service")), "Consultation")
+
+    def test_visit_card_without_a_service_or_breed(self):
+        html = self._html(self._visit_url())
+        self.assertIn('<span class="text-gray-600">No service picked</span>', html)
+        # Species only: no breed, so no second "·"
+        self.assertIn("Bantay</a> · Dog</span>", self._dd(html, "Pet"))
+        self.assertIn("Ana Cruz</a> · No phone number", self._dd(html, "Billed to"))
+
+    def test_visit_card_shows_the_visit_status(self):
+        html = self._html(self._visit_url(status=Appointment.CONFIRMED))
+        self.assertIn("bg-blue-100 text-blue-800", self._dd(html, "Visit"))
+        self.assertIn("Confirmed", self._dd(html, "Visit"))
+
+    def test_visit_date_follows_the_views_today(self):
+        yesterday = TODAY - datetime.timedelta(days=1)
+        html = self._html(self._visit_url(day=yesterday))
+        self.assertEqual(
+            page_text(self._dd(html, "Visit")),
+            "Friday, November 6 at 9:00 AM Completed",
+        )
+
+    def test_checkbox_label_checked_by_default_with_the_price(self):
+        service = self._service("Consultation", price="1250.00")
+        html = self._html(self._visit_url(service=service))
+        label = re.search(r'(?s)<label for="add-service"[^>]*>.*?</label>', html)
+        self.assertIsNotNone(label)
+        label = label.group(0)
+        self.assertIn("min-h-11", label)
+        self.assertIn("border-violet-200 bg-violet-50", label)
+        self.assertEqual(label.count('type="checkbox"'), 1)
+        self.assertIn('id="add-service" name="add_service" value="on"', label)
+        self.assertIn("size-6", label)
+        self.assertRegex(label, r"(?s)<input[^>]* checked>")
+        self.assertEqual(
+            page_text(label),
+            "Add Consultation (₱1,250.00) as the first item "
+            "You can change its price or remove it on the next page.",
+        )
+
+    def test_no_checkbox_without_a_fixed_service(self):
+        for hour, service in enumerate(
+            (None, self._range_service("Surgery", "1000.00", "5000.00")), start=9
+        ):
+            with self.subTest(service=service):
+                html = self._html(self._visit_url(hour=hour, service=service))
+                self.assertNotIn('type="checkbox"', html)
+                self.assertNotIn("add-service", html)
+
+    # ─── Mode owner ───────────────────────────────────────────────────────────
+
+    def test_search_box_and_heading_line(self):
+        self.owner.contact_number = "0917 555 0142"
+        self.owner.save()
+        html = self._html(self.url)
+        self.assertIn(">Find the owner</label>", html)
+        self.assertIn('class="input min-h-12 pl-11"', html)
+        self.assertRegex(
+            html, r'(?s)<div class="relative">\s*<svg[^>]*pointer-events-none'
+        )
+        self.assertIn(
+            '<h2 id="results-title" class="text-lg font-semibold text-gray-900" '
+            'aria-live="polite">All pet owners (1)</h2>',
+            html,
+        )
+        self.assertIn("A to Z by first name", html)
+        self.assertIn(
+            "Someone new? Add them first with "
+            f'<a href="{reverse("admin_owner_create")}"',
+            html,
+        )
+        self.assertIn("on the Pet owners page.</p>", html)
+        self.assertNotIn("Clear search", html)
+
+    def test_owner_rows(self):
+        self.owner.contact_number = "0917 555 0142"
+        self.owner.save()
+        Pet.objects.create(owner=self.owner, name="Mingming", species="Cat")
+        Pet.objects.create(
+            owner=self.owner, name="Ghost", species="Cat", is_archived=True
+        )
+        jun = self._owner("Jun", "Reyes")
+        html = self._html(self.url)
+        rows = re.findall(
+            r'(?s)<li class="flex flex-wrap items-center gap-4.*?</a>\s*</li>', html
+        )
+        self.assertEqual(len(rows), 2)
+        ana, jun_row = rows
+        self.assertIn('role="img" aria-label="Ana Cruz"', ana)
+        self.assertIn(
+            '<p class="text-lg font-semibold text-gray-900">Ana Cruz</p>', ana
+        )
+        self.assertIn("0917 555 0142", ana)
+        self.assertRegex(ana, r"(?s)</svg>\s*Bantay</li>")
+        self.assertRegex(ana, r"(?s)</svg>\s*Mingming</li>")
+        self.assertNotIn("Ghost", ana)
+        self.assertNotIn("No pets yet", ana)
+        self.assertIn("No phone number", jun_row)
+        self.assertIn("No pets yet", jun_row)
+        self.assertNotIn('aria-label="Pets"', jun_row)
+        self.assertIn(
+            f'<a href="{self.url}?owner={jun.pk}" class="inline-flex min-h-11 '
+            "items-center gap-2 rounded-lg border border-violet-300 bg-violet-50 "
+            'px-5 text-base font-semibold text-violet-800 hover:bg-violet-100">'
+            'Choose<span class="sr-only"> Jun Reyes</span>',
+            jun_row,
+        )
+
+    def test_search_box_filters_as_you_type(self):
+        html = self._html(self.url)
+        tag = re.search(r'<input type="search"[^>]*>', html).group(0)
+        self.assertIn(f'hx-get="{self.url}"', tag)
+        self.assertIn('hx-trigger="input changed delay:500ms, search"', tag)
+        self.assertIn('hx-target="#owner-results"', tag)
+        self.assertIn('hx-replace-url="true"', tag)
+        self.assertNotIn("hx-push-url", html)
+        self.assertIn('<div id="owner-results">', html)
+        # Without JS the GET form still works
+        self.assertIn(f'<form method="get" action="{self.url}"', html)
+        self.assertIn('type="submit"', html)
+
+    def test_htmx_request_for_the_results_gets_only_the_partial(self):
+        self._owner("Liza", "Cruz")
+        response = self.client.get(self.url, {"q": "cruz"}, **HTMX_RESULTS)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "admin/billing/_receipt_owner_results.html")
+        self.assertTemplateNotUsed(response, "layouts/admin.html")
+        self.assertTemplateNotUsed(response, "admin/billing/receipt_new.html")
+        html = response.content.decode()
+        self.assertNotIn("<html", html)
+        self.assertNotIn('id="receipt-owner-q"', html)
+        self.assertIn("2 owners match “cruz”", html)
+        self.assertIn("Clear search", html)
+        self.assertIn("HX-Request", response.headers["Vary"])
+
+    def test_htmx_request_without_a_query_gets_the_whole_list_partial(self):
+        response = self.client.get(self.url, **HTMX_RESULTS)
+        self.assertTemplateNotUsed(response, "layouts/admin.html")
+        self.assertContains(response, "All pet owners (1)")
+        self.assertContains(response, "Showing all 1")
+
+    def test_the_full_page_in_every_other_case(self):
+        cases = {
+            "plain": {},
+            "history restore": {
+                **HTMX_RESULTS,
+                "HTTP_HX_HISTORY_RESTORE_REQUEST": "true",
+            },
+            "another target": {"HTTP_HX_REQUEST": "true", "HTTP_HX_TARGET": "main"},
+            "no target": {"HTTP_HX_REQUEST": "true"},
+        }
+        for name, headers in cases.items():
+            with self.subTest(case=name):
+                response = self.client.get(self.url, {"q": "ana"}, **headers)
+                self.assertTemplateUsed(response, "layouts/admin.html")
+                self.assertTemplateUsed(response, "admin/billing/receipt_new.html")
+                self.assertTemplateUsed(
+                    response, "admin/billing/_receipt_owner_results.html"
+                )
+                self.assertContains(response, 'id="receipt-owner-q"')
+                self.assertIn("HX-Request", response.headers["Vary"])
+
+    def test_htmx_does_not_change_the_other_modes(self):
+        for url in (self.owner_url, self._visit_url()):
+            with self.subTest(url=url):
+                response = self.client.get(url, **HTMX_RESULTS)
+                self.assertTemplateUsed(response, "layouts/admin.html")
+
+    def test_clear_search_only_with_a_query(self):
+        link = (
+            f'<a href="{self.url}" class="inline-flex min-h-11 items-center gap-2 '
+            'text-base font-medium text-blue-600 underline underline-offset-2">'
+        )
+        self.assertNotIn("Clear search", self._html(self.url))
+        for q in ("ana", "zzz"):
+            with self.subTest(q=q):
+                html = self._html(f"{self.url}?q={q}")
+                self.assertIn(link, html)
+                self.assertEqual(html.count("Clear search"), 1)
+                # Under the box, above the results
+                self.assertLess(
+                    html.index('id="receipt-owner-q"'), html.index("Clear search")
+                )
+                self.assertLess(html.index("Clear search"), html.index("results-title"))
+
+    def test_polite_live_region_only_on_the_results_line(self):
+        self._owner("Liza", "Cruz")
+        cases = {
+            self.url: '<h2 id="results-title"',
+            f"{self.url}?q=cruz": '<h2 id="results-title" class="mb-2 text-base text-gray-700" aria-live="polite">2 owners match',
+            f"{self.url}?q=zzz": '<p class="text-lg font-semibold text-gray-900" aria-live="polite">No owner matches “zzz”</p>',
+        }
+        for url, expected in cases.items():
+            with self.subTest(url=url):
+                html = self._html(url)
+                self.assertEqual(html.count("aria-live"), 1)
+                self.assertIn(expected, html)
+        # No match: the heading is screen-reader only and not live
+        self.assertIn(
+            '<h2 id="results-title" class="sr-only">Search results</h2>',
+            self._html(f"{self.url}?q=zzz"),
+        )
+        # The partial has the same single live region
+        partial = self.client.get(self.url, {"q": "cruz"}, **HTMX_RESULTS)
+        self.assertEqual(partial.content.decode().count("aria-live"), 1)
+
+    def test_empty_states_in_the_partial(self):
+        none = self.client.get(self.url, {"q": "zzz"}, **HTMX_RESULTS)
+        self.assertContains(none, "No owner matches “zzz”")
+        self.assertContains(none, "Check the spelling, or add them with Add owner.")
+        self._archive(self.owner)
+        empty = self.client.get(self.url, **HTMX_RESULTS)
+        self.assertContains(empty, "No pet owners yet")
+        self.assertContains(empty, "All pet owners (0)")
+
+    def test_the_pager_is_inside_the_results(self):
+        for number in range(1, 30):
+            self._owner(f"Owner{number:02d}", "Test")
+        html = self._html(self.url)
+        self.assertIn('aria-label="Pages"', html)
+        self.assertGreater(
+            html.index('id="owner-results"'), html.index('role="search"')
+        )
+        self.assertGreater(
+            html.index('aria-label="Pages"'), html.index('id="owner-results"')
+        )
+        partial = self.client.get(self.url, {"page": "2"}, **HTMX_RESULTS)
+        self.assertContains(partial, "Showing 26–30 of 30")
+
+    # ─── Mode pet ─────────────────────────────────────────────────────────────
+
+    def test_billed_to_card(self):
+        html = self._html(self.owner_url)
+        self.assertIn("Billed to</p>", html)
+        self.assertIn(
+            '<p class="text-lg font-semibold text-gray-900">Ana Cruz</p>', html
+        )
+        self.assertIn('role="img" aria-label="Ana Cruz"', html)
+        self.assertIn(f'<a href="{self.url}" class="inline-flex min-h-11', html)
+        self.assertIn(">Change owner</a>", html)
+
+    def test_pet_cards(self):
+        choco = Pet.objects.create(
+            owner=self.owner,
+            name="Choco",
+            species="dog",
+            breed="Shih Tzu",
+            date_of_birth=datetime.date(2023, 11, 1),
+        )
+        html = self._html(self.owner_url)
+        self.assertRegex(
+            html,
+            r'(?s)<legend class="text-base font-semibold text-gray-900">Which pet '
+            r'is it for\? <span class="text-red-700" aria-hidden="true">\*</span>'
+            r"</legend>",
+        )
+        cards = self._cards(html)
+        self.assertEqual(len(cards), 3)
+        for tag, _ in cards:
+            for css in (
+                "border-2",
+                "min-h-11",
+                "has-[:checked]:border-violet-600",
+                "has-[:checked]:bg-violet-50",
+                "has-[:focus-visible]:ring-2",
+            ):
+                self.assertIn(css, tag)
+        bantay, second, none = (inner for _, inner in cards)
+        self.assertIn(f'value="{self.pet.pk}"', bantay)
+        self.assertIn('aria-label="No photo of Bantay yet"', bantay)
+        self.assertIn(
+            '<span class="block text-lg font-semibold text-gray-900">Bantay</span>',
+            bantay,
+        )
+        self.assertIn('<span class="block text-sm text-gray-700">Dog</span>', bantay)
+        self.assertIn(f'value="{choco.pk}"', second)
+        self.assertIn(">Dog · Shih Tzu · 3 yrs</span>", second)
+        # "Not for a specific pet" is last, with a receipt icon in a gray tile
+        self.assertIn('value="none"', none)
+        self.assertIn("Not for a specific pet", none)
+        self.assertIn("Supplies or items not for one pet", none)
+        self.assertIn("bg-gray-100 text-gray-700", none)
+        self.assertEqual(html.count("Not for a specific pet"), 1)
+        # Two pets: nothing is picked
+        self.assertNotIn(" checked>", html)
+        # No JS to style the checked card: CSS only
+        self.assertNotIn(
+            "<script", html[html.index("<fieldset") :].split("</fieldset>")[0]
+        )
+
+    def test_the_pre_picked_card(self):
+        html = self._html(self.owner_url)
+        bantay, none = (inner for _, inner in self._cards(html))
+        self.assertRegex(bantay, r"<input[^>]* checked>")
+        self.assertNotIn(" checked>", none)
+        jun = self._owner("Jun", "Reyes")
+        only = [
+            inner for _, inner in self._cards(self._html(f"{self.url}?owner={jun.pk}"))
+        ]
+        self.assertEqual(len(only), 1)
+        self.assertRegex(only[0], r"<input[^>]* checked>")
+
+    def test_error_state(self):
+        Pet.objects.create(owner=self.owner, name="Choco", species="Dog")
+        response = self.client.post(self.owner_url, {})
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        self.assertEqual(html.count('role="alert"'), 1)
+        self.assertIn("Please fix the 1 item below.", html)
+        self.assertIn("Nothing was saved yet.", html)
+        self.assertIn('<fieldset aria-describedby="pet-error">', html)
+        self.assertIn(
+            '<div class="mt-3 space-y-3 rounded-lg ring-2 ring-red-300 ring-offset-4">',
+            html,
+        )
+        self.assertRegex(
+            html,
+            r'(?s)<p id="pet-error" class="mt-2 flex items-start gap-1\.5 text-base '
+            r'text-red-700">\s*<svg[^>]*aria-hidden="true".*?</svg>\s*'
+            + re.escape(PICK_PET_MESSAGE)
+            + "</p>",
+        )
+        # The summary comes first, above the card
+        self.assertLess(html.index('role="alert"'), html.index("Billed to"))
+        self._nothing_saved()
+
+    def test_no_error_markup_without_an_error(self):
+        html = self._html(self.owner_url)
+        for text in ("pet-error", "ring-red-300", 'role="alert"', "Please fix"):
+            with self.subTest(text=text):
+                self.assertNotIn(text, html)
+
+    def test_owner_without_pets(self):
+        jun = self._owner("Jun", "Reyes")
+        html = self._html(f"{self.url}?owner={jun.pk}")
+        self.assertEqual(len(self._cards(html)), 1)
+        self.assertIn(
+            "Jun Reyes has no pets yet. To bill for a pet, add it on "
+            f'<a href="{reverse("admin_owner_detail", args=[jun.pk])}" ',
+            html,
+        )
+
+    # ─── Buttons ──────────────────────────────────────────────────────────────
+
+    def test_buttons_and_the_note_per_mode(self):
+        service = self._service("Consultation")
+        pages = {
+            "visit with a service": (
+                self._visit_url(service=service),
+                "You add the other items on the next page.",
+            ),
+            "visit without a service": (
+                self._visit_url(hour=10),
+                "The receipt opens empty. You add the items on the next page.",
+            ),
+            "pet": (
+                self.owner_url,
+                "The receipt opens empty. You add the items on the next page.",
+            ),
+        }
+        for name, (url, note) in pages.items():
+            with self.subTest(page=name):
+                html = self._html(url)
+                self.assertRegex(
+                    html,
+                    r'(?s)<p class="flex items-start gap-2 text-sm text-gray-700 '
+                    r'sm:mr-auto">\s*<svg[^>]*aria-hidden="true".*?</svg>\s*<span>'
+                    + re.escape(note)
+                    + "</span></p>",
+                )
+                self.assertEqual(
+                    html.count("The receipt opens empty"), int("empty" in note)
+                )
+                self.assertIn("flex flex-col-reverse gap-3", html)
+                self.assertRegex(
+                    html,
+                    r'<a href="[^"]+" class="btn btn-outline min-h-12 w-full '
+                    r'font-semibold sm:w-auto">Cancel</a>',
+                )
+                self.assertRegex(
+                    html,
+                    r'(?s)<button type="submit" class="btn btn-primary min-h-12 '
+                    r'w-full font-semibold sm:w-auto">\s*<svg[^>]*aria-hidden="true"'
+                    r".*?</svg>\s*Create receipt</button>",
+                )
+                self.assertEqual(html.count("btn-primary"), 1)
+
+    def test_cancel_goes_back(self):
+        visit_url = self._visit_url()
+        visit = Appointment.objects.get()
+        back = reverse("admin_appointment_detail", args=[visit.pk])
+        self.assertIn(f'<a href="{back}" class="btn btn-outline', self._html(visit_url))
+        back = reverse("admin_receipt_list")
+        self.assertIn(
+            f'<a href="{back}" class="btn btn-outline', self._html(self.owner_url)
+        )
+
+    def test_no_primary_button_in_the_owner_step(self):
+        for url in (self.url, f"{self.url}?q=ana"):
+            with self.subTest(url=url):
+                html = self._html(url)
+                self.assertNotIn("btn-primary", html)
+                self.assertNotIn("Create receipt", html)
+
+    # ─── Page rules ───────────────────────────────────────────────────────────
+
+    def test_top_bar_search_is_empty_in_the_owner_step_only(self):
+        self.assertNotIn('id="global-search"', self._html(self.url))
+        self.assertNotIn('id="global-search"', self._html(f"{self.url}?q=ana"))
+        self.assertIn('id="global-search"', self._html(self.owner_url))
+        self.assertIn('id="global-search"', self._html(self._visit_url()))
+
+    def test_templates_have_no_inline_handlers_or_faint_text(self):
+        for path in RECEIPT_NEW_FILES:
+            source = path.read_text(encoding="utf-8")
+            with self.subTest(file=path.name):
+                self.assertIsNone(re.search(r"\son[a-z]+\s*=", source))
+                self.assertNotIn("javascript:", source)
+                self.assertNotIn("legacy_css", source)
+                self.assertIsNone(re.search(r"text-gray-(100|200|300|400)\b", source))
+                self.assertIsNone(re.search(r"\btext-(xs|\[)", source))
+
+    def test_rendered_pages_have_no_inline_handlers(self):
+        for url in (
+            self.url,
+            f"{self.url}?q=ana",
+            self.owner_url,
+            self._visit_url(),
+        ):
+            with self.subTest(url=url):
+                # The page itself: the layout's own flash and modal markup
+                # (shared components) is not part of this page
+                body = self._html(url).split(">New receipt</h1>", 1)[1]
+                body = body.split("</main>", 1)[0]
+                self.assertIn("<form", body)
+                self.assertIsNone(re.search(r"\son[a-z]+\s*=\s*[\"']", body))
+
+    def test_no_legacy_css_in_any_mode(self):
+        for url in (self.url, self.owner_url, self._visit_url()):
+            with self.subTest(url=url):
+                self.assertNotIn("layer(legacy)", self._html(url))
+
+    def test_every_link_in_the_pieces_is_on_one_line(self):
+        for path in RECEIPT_NEW_FILES:
+            for link in re.findall(
+                r"(?s)<a\b.*?</a>", path.read_text(encoding="utf-8")
+            ):
+                with self.subTest(file=path.name, link=link[:50]):
+                    self.assertNotIn("\n", link)
+
+    # ─── Queries ──────────────────────────────────────────────────────────────
+
+    def _owner_step_queries(self, total):
+        for number in range(PetOwner.objects.count(), total):
+            owner = self._owner(f"Owner{number:02d}", "Test", "0917 000 0000")
+            Pet.objects.create(owner=owner, name=f"Pet{number}", species="Cat")
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(self.url)
+        self.assertEqual(len(response.context["owners"]), min(total, 25))
+        return len(queries)
+
+    def test_owner_step_query_count_is_flat(self):
+        few, many = self._owner_step_queries(3), self._owner_step_queries(30)
+        self.assertEqual(few, many)
+        self.assertEqual(many, NEW_OWNER_STEP_QUERIES)
+
+    def _pet_step_queries(self, total):
+        for number in range(Pet.objects.filter(owner=self.owner).count(), total):
+            Pet.objects.create(owner=self.owner, name=f"Pet{number}", species="Dog")
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(self.owner_url)
+        self.assertEqual(len(response.context["pets"]), total)
+        return len(queries)
+
+    def test_pet_step_query_count_is_flat(self):
+        one, five = self._pet_step_queries(1), self._pet_step_queries(5)
+        self.assertEqual(one, five)
+        self.assertEqual(five, NEW_PET_STEP_QUERIES)
 
 
 # ── Slice 6a-3: receipt list and receipt page contexts ────────────────────────
@@ -4731,7 +5354,10 @@ class ReceiptPageTests(FrozenBillingTestBase):
         plain = self._make(
             discount_type=BillingReceipt.FIXED_DISCOUNT, discount_value=Decimal("50")
         )
-        self.assertIn("Discount (Discount) −₱50.00", self._printout(self._html(plain)))
+        # An empty label prints "Discount" alone, with no parentheses
+        printed_plain = self._printout(self._html(plain))
+        self.assertIn("Discount −₱50.00", printed_plain)
+        self.assertNotIn("Discount (", printed_plain)
         self.assertNotIn("Discount", self._printout(self._html(self._make())))
 
     def test_the_printout_pet_line_only_with_a_pet(self):

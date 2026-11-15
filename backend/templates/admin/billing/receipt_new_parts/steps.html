@@ -1,0 +1,23 @@
+{% comment %}
+  New receipt steps (modes owner and pet only): 1 Who is it for? · 2 Which
+  pet? The current step is violet, a done step is green with a check, a
+  coming step is gray. Same <ol> / aria-current / sr-only "Done" / connector
+  pattern as the walk-in steps (walkin_parts/step.html), but written here
+  because a done step is green, not violet.
+  Usage: {% include "admin/billing/receipt_new_parts/steps.html" with active=1 %}
+{% endcomment %}
+<ol class="mb-6 flex flex-wrap gap-x-3 gap-y-2" aria-label="Steps">
+  <li class="flex items-center gap-2 text-base {% if active == 1 %}font-semibold text-violet-800{% else %}text-gray-700{% endif %}"{% if active == 1 %} aria-current="step"{% endif %}>
+    {% if active == 1 %}
+      <span class="grid size-8 place-content-center rounded-full bg-violet-600 text-base font-semibold text-white">1</span>
+    {% else %}
+      <span class="grid size-8 place-content-center rounded-full bg-green-100 text-green-800">{% include "components/icon.html" with name="check" class="size-4 shrink-0" %}<span class="sr-only">Done: step 1</span></span>
+    {% endif %}
+    Who is it for?
+    <span class="mx-1 hidden h-px w-10 bg-gray-300 sm:block" aria-hidden="true"></span>
+  </li>
+  <li class="flex items-center gap-2 text-base {% if active == 2 %}font-semibold text-violet-800{% else %}text-gray-700{% endif %}"{% if active == 2 %} aria-current="step"{% endif %}>
+    <span class="grid size-8 place-content-center rounded-full text-base font-semibold {% if active == 2 %}bg-violet-600 text-white{% else %}bg-gray-200 text-gray-700{% endif %}">2</span>
+    Which pet?
+  </li>
+</ol>
