@@ -1,6 +1,7 @@
 # HANDOFF.md — Hapi Vet Project State
 
-> Last updated: 2026-11-16, after Services split out of Billing into its own sidebar page
+> Last updated: 2026-11-16, after the walk-in and New receipt pages were centered
+> (Services split out of Billing into its own sidebar page: 2026-11-16)
 > (Slice 6b-4 services list + form, Slice 6 complete: 2026-11-15)
 > (Slice 6b-3 New receipt design pass: 2026-11-15)
 > (Slice 6b-2 receipt page + print: 2026-11-15)
@@ -543,6 +544,7 @@ to needs-approval) and the appointments list.
     - Services list: no Billing tabs; h1 "Services and prices", subtitle "The price list for receipts and for booking."; the one `btn-primary` "Add service" is unchanged. `services_list_context` no longer returns the four receipt counts; the page is 7 queries (was 8) for 3 and for 30 services (`SERVICES_LIST_QUERIES`). The form's back link stays "Back to services".
     - Icon: `tag` added to `components/icon.html` from `lucide-static@1.66.0` (59 icons).
     - Tests changed (old → new): see the list in the session report; billing `ReceiptListPageTests.test_services_and_prices_link_after_a_divider` → `test_four_tabs_only_and_no_services_link`, `test_phone_tabs_are_a_two_by_two_grid` (`assertIn("col-span-2")` → `assertNotIn`), `test_the_services_page_uses_the_shared_tabs` → `test_the_services_page_has_no_billing_tabs`; `ServicesListPageTests` (tabs template, h1, subtitle, sidebar, empty-state tabs line); `ServiceFormPageTests` sidebar test; dashboard `SidebarTests` (9 → 10 links, Services link allowed in the sidebar, Services no longer highlights Billing). `app.css` needs no rebuild (no new Tailwind class).
+  - Walk-in and New receipt pages centered, 2026-11-16. Templates and tests only. Each page's header (back link, h1, subtitle, steps) now sits inside one `<div id="page-column" class="mx-auto max-w-…">` with the cards (the `page_header` block is emptied and the header include moved into `content`): walk-in step 1 `max-w-3xl`, step 2 `max-w-4xl`, step 3 `max-w-3xl`, New owner `max-w-4xl`, New receipt (visit, owner, pet) `max-w-3xl`. Widths unchanged, only centered; `#owner-results` is inside the column and its partials have no width of their own. Tests added: `WalkInCenteredColumnTests`, `WalkInStepOneHtmxTests.test_results_sit_inside_the_centered_column`, `WalkInOwnerCreateTests.test_page_is_one_centered_column`, `NewReceiptDesignTests.test_page_is_one_centered_column_in_every_mode`.
 - Slice 7 health + clinic settings (`escapejs` on article titles; server-rendered settings tabs)
 - Slice 8 admin mobile pass (incl. dashboard schedule rows keep a 3-column grid that is tight at phone width); then the owner side
 - Open: `form_field.html` needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple form is migrated.

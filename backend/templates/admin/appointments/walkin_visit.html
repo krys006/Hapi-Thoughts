@@ -10,12 +10,13 @@
 
 {% block title %}New walk-in — Hapi Vet Admin{% endblock %}
 
-{% block page_header %}
-  {% include "admin/appointments/walkin_parts/header.html" with title="New walk-in" subtitle="Pick the pet and the time." active=2 %}
-{% endblock %}
+{# The header is drawn inside the content column below, so the title and steps line up with the cards #}
+{% block page_header %}{% endblock %}
 
 {% block content %}
-<div class="grid max-w-4xl gap-6">
+<div id="page-column" class="mx-auto max-w-4xl">
+{% include "admin/appointments/walkin_parts/header.html" with title="New walk-in" subtitle="Pick the pet and the time." active=2 %}
+<div class="grid gap-6">
   {% if taken_time %}
     <div class="flex items-start gap-3 rounded-xl border border-red-300 bg-red-50 px-5 py-4 text-red-900" role="alert">
       {% include "components/icon.html" with name="triangle-alert" class="size-6 shrink-0" %}
@@ -115,5 +116,6 @@
       </div>
     </section>
   {% endif %}
+</div>
 </div>
 {% endblock %}

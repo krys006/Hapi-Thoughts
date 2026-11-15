@@ -2731,6 +2731,41 @@ class WalkInStepOneHtmxTests(WalkInFlowTestBase):
         self.assertNotContains(response, "hx-push-url")
         self.assertContains(response, '<div id="owner-results">')
 
+    def test_results_sit_inside_the_centered_column(self):
+        """The partial has no width of its own: after a swap the list is
+        still inside the page's centered column."""
+        html = self._get().content.decode()
+        self.assertLess(
+            html.index('id="page-column"'), html.index('id="owner-results"')
+        )
+        partial = self._get(**self.SWAP).content.decode()
+        self.assertNotRegex(partial, r"mx-auto|max-w-(?:xl|2xl|3xl|4xl|5xl|6xl|7xl)")
+
+
+class WalkInCenteredColumnTests(WalkInFlowTestBase):
+    """Walk-in steps 1 to 3: the whole page (back link, h1, steps, cards) is
+    one centered column (mx-auto + the page's max width)."""
+
+    def _assert_column(self, response, width):
+        html = response.content.decode()
+        match = re.search(r'<div id="page-column" class="([^"]*)">', html)
+        self.assertIsNotNone(match)
+        classes = match.group(1).split()
+        self.assertIn("mx-auto", classes)
+        self.assertIn(width, classes)
+        self.assertGreater(html.index("<h1"), match.end())
+        self.assertEqual(html.count("<h1"), 1)
+
+    def test_step_1(self):
+        self._assert_column(self.client.get(reverse(self.STEP_1)), "max-w-3xl")
+
+    def test_step_2(self):
+        response = self._visit(owner=self.owner.pk)
+        self._assert_column(response, "max-w-4xl")
+
+    def test_step_3(self):
+        self._assert_column(self._post_visit(), "max-w-3xl")
+
 
 # ─── Appointments list v4: period, top-bar search, day cards ─────────────────
 

@@ -1822,6 +1822,27 @@ class NewReceiptDesignTests(NewReceiptTestBase):
 
     # ─── Header and steps ─────────────────────────────────────────────────────
 
+    def test_page_is_one_centered_column_in_every_mode(self):
+        """Back link, h1, steps and cards share one mx-auto max-w-3xl column;
+        the owner list that HTMX swaps in sits inside it."""
+        urls = {
+            "visit": self._visit_url(service=self._service("Consultation")),
+            "owner": self.url,
+            "pet": self.owner_url,
+        }
+        for mode, url in urls.items():
+            with self.subTest(mode=mode):
+                html = self._html(url)
+                match = re.search(r'<div id="page-column" class="([^"]*)">', html)
+                self.assertIsNotNone(match)
+                classes = match.group(1).split()
+                self.assertIn("mx-auto", classes)
+                self.assertIn("max-w-3xl", classes)
+                self.assertEqual(html.count("<h1"), 1)
+                self.assertGreater(html.index("<h1"), match.end())
+                if mode == "owner":
+                    self.assertGreater(html.index('id="owner-results"'), match.end())
+
     def test_header_per_mode(self):
         visit_url = self._visit_url(service=self._service("Consultation"))
         cases = [

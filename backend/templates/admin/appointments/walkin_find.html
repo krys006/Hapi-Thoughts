@@ -12,12 +12,13 @@
 {# This page has its own search #}
 {% block topbar_search %}{% endblock %}
 
-{% block page_header %}
-  {% include "admin/appointments/walkin_parts/header.html" with title="New walk-in" subtitle="Book a visit for a pet that is here now, or for someone who called." active=1 %}
-{% endblock %}
+{# The header is drawn inside the content column below, so the title and steps line up with the cards #}
+{% block page_header %}{% endblock %}
 
 {% block content %}
-<div class="max-w-3xl">
+<div id="page-column" class="mx-auto max-w-3xl">
+  {% include "admin/appointments/walkin_parts/header.html" with title="New walk-in" subtitle="Book a visit for a pet that is here now, or for someone who called." active=1 %}
+
   <section class="mb-6 flex flex-wrap items-center gap-4 rounded-xl border-2 border-violet-300 bg-violet-50 px-5 py-4" aria-labelledby="new-owner-title">
     <span class="grid size-12 shrink-0 place-content-center rounded-xl bg-violet-600 text-white">{% include "components/icon.html" with name="user-plus" class="size-6 shrink-0" %}</span>
     <div class="min-w-0 flex-1">
