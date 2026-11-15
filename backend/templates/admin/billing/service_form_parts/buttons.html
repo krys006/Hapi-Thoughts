@@ -1,0 +1,9 @@
+{% comment %}
+  Service form buttons: Cancel (outline, back to the list) and the page's one
+  primary button, "Add service" (plus) or "Save changes" (check). Below sm
+  both are full width, the primary on top.
+{% endcomment %}
+<div class="flex flex-col-reverse gap-3 border-t border-gray-200 pt-6 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+  <a href="{% url 'admin_service_list' %}" class="btn btn-outline min-h-12 w-full font-semibold sm:w-auto">Cancel</a>
+  <button type="submit" class="btn btn-primary min-h-12 w-full font-semibold sm:w-auto">{% if is_edit %}{% include "components/icon.html" with name="check" %}Save changes{% else %}{% include "components/icon.html" with name="plus" %}Add service{% endif %}</button>
+</div>

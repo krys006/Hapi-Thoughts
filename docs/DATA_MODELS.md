@@ -538,7 +538,7 @@ Header record for each billing transaction.
 | `pet` | ForeignKey | Pet, on_delete=SET_NULL, null=True, related_name="billing_receipts" | — |
 | `billing_date` | DateField | default=timezone.now | Set automatically: the Manila date the receipt is created (not on any form) |
 | `subtotal` | DecimalField | max_digits=10, decimal_places=2, default=0 | Sum of the items |
-| `discount_type` | CharField | max_length=20, choices=DISCOUNT_CHOICES, blank=True | "" (no discount), PERCENTAGE or FIXED |
+| `discount_type` | CharField | max_length=20, choices=DISCOUNT_CHOICES, blank=True | "" (no discount), PERCENTAGE or FIXED_DISCOUNT (value 'fixed') |
 | `discount_value` | DecimalField | max_digits=10, decimal_places=2, default=0 | Percentage or peso amount, as typed |
 | `discount_note` | CharField | max_length=100, blank=True | e.g. Loyal client; printed next to the discount |
 | `total_amount` | DecimalField | max_digits=10, decimal_places=2, default=0 | After discount, never below 0 |
@@ -558,7 +558,7 @@ CANCELLED = 'cancelled'
 **Discount type choices:**
 ```python
 PERCENTAGE = 'percentage'
-FIXED = 'fixed'
+FIXED_DISCOUNT = 'fixed'   # the constant is FIXED_DISCOUNT; FIXED is the Service pricing type
 ```
 
 Meta: `ordering = ["-billing_date", "-created_at"]`. Choice labels shown on the pages ("No discount", "Percent off (%)", "Peso amount off (₱)", …) are set in the forms, not in `choices` (a choices change is a migration).

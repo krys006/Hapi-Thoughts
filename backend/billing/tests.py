@@ -3554,7 +3554,12 @@ class ServicePagesTests(FrozenBillingTestBase):
                 ]:
                     self.assertContains(response, f'name="{name}"')
         response = self.client.get(reverse("admin_service_create"))
-        self.assertContains(response, '<option value="draft" selected>Hidden (draft)')
+        # The status is four radio cards now (was a select): Hidden (draft) is checked
+        self.assertRegex(
+            response.content.decode(),
+            r'<input type="radio" name="status" id="id_status_2" value="draft" '
+            r'class="[^"]*" checked>',
+        )
 
     def test_create_and_edit_save_with_the_flash(self):
         data = {
@@ -4323,8 +4328,8 @@ class ReceiptListPageTests(FrozenBillingTestBase):
         self.assertTemplateUsed(response, "admin/billing/billing_parts/tabs.html")
         self.assertTemplateNotUsed(response, "admin/billing/_billing_tabs.html")
         html = response.content.decode()
-        # Still the old page, with its legacy CSS, until 6b-4
-        self.assertIn("layer(legacy)", html)
+        # On the new layout since 6b-4: no legacy CSS (was assertIn until 6b-4)
+        self.assertNotIn("layer(legacy)", html)
         tabs = self._tabs(html)
         self.assertEqual(tabs.count('aria-current="page"'), 1)
         self.assertRegex(
@@ -5469,3 +5474,1067 @@ class ReceiptPageTests(FrozenBillingTestBase):
                         path.read_text(encoding="utf-8"),
                     )
                 )
+
+
+# ── Slice 6b-4: the services list and the service form ───────────────────────
+
+SERVICES_LIST_SOURCES = [
+    BILLING_TEMPLATES / "services_list.html",
+    *sorted((BILLING_TEMPLATES / "services_list_parts").glob("*.html")),
+]
+SERVICE_FORM_SOURCES = [
+    BILLING_TEMPLATES / "service_form.html",
+    *sorted((BILLING_TEMPLATES / "service_form_parts").glob("*.html")),
+]
+SERVICE_JS = Path(settings.BASE_DIR) / "static" / "js" / "admin" / "service_form.js"
+OLD_SERVICE_FILES = (
+    "css/admin/service_form.css",
+    "css/admin/service_list.css",
+    "js/admin/service_list.js",
+)
+
+
+def group_sections(markup):
+    """{group key: its <section> markup} for the services page, in page order."""
+    return dict(
+        (m.group(1), m.group(0))
+        for m in re.finditer(
+            r'(?s)<section [^>]*aria-labelledby="group-(\w+)">.*?</section>', markup
+        )
+    )
+
+
+@PLAIN_STATIC
+class ServicesListPageTests(FrozenBillingTestBase):
+    """admin/billing/services_list.html on layouts/admin.html (Slice 6b-4)."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("admin_service_list")
+
+    def _fixture(self):
+        """Three Offered (one range), one Clinic use only, one Hidden (draft),
+        none No longer offered."""
+        self.consult = self._service(
+            "Consultation",
+            "300.00",
+            category="Check-ups",
+            description="General check-up and advice.",
+        )
+        self.bath = self._service("Bath", "150.00")
+        self.wound = self._range_service("Wound cleaning", "300.00", "800.00")
+        self.wound.category = "Treatment"
+        self.wound.save()
+        self.home = self._service("Home visit fee", "500.00", Service.UNLISTED)
+        self.dental = self._range_service(
+            "Dental cleaning", "1500.00", "3000.00", Service.DRAFT
+        )
+
+    def _html(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _row(self, html, service):
+        rows = [
+            row
+            for row in re.findall(r'(?s)<li class="grid.*?</li>', html)
+            if f'<span class="sr-only"> {escape(service.service_name)}</span>' in row
+        ]
+        self.assertEqual(len(rows), 1)
+        return rows[0]
+
+    # ─── Layout, header, tabs ─────────────────────────────────────────────────
+
+    def test_new_layout_without_the_old_files(self):
+        self._fixture()
+        response = self.client.get(self.url)
+        self.assertTemplateUsed(response, "layouts/admin.html")
+        self.assertTemplateUsed(response, "admin/billing/services_list.html")
+        self.assertTemplateUsed(response, "admin/billing/billing_parts/tabs.html")
+        self.assertTemplateUsed(
+            response, "admin/billing/services_list_parts/group.html"
+        )
+        self.assertTemplateUsed(response, "admin/billing/services_list_parts/row.html")
+        for old in (
+            *OLD_SERVICE_FILES,
+            "layer(legacy)",
+            "admin-page",
+            "data-table",
+            "filter-tab",
+            "status-badge",
+        ):
+            with self.subTest(old=old):
+                self.assertNotContains(response, old)
+        self.assertContains(
+            response, "<title>Services and prices — Hapi Vet Admin</title>"
+        )
+        self.assertContains(
+            response, '<h1 class="text-2xl font-bold text-gray-900">Billing</h1>'
+        )
+        self.assertContains(
+            response,
+            "Services and prices: the price list for receipts and for booking.",
+        )
+        source = (BILLING_TEMPLATES / "services_list.html").read_text(encoding="utf-8")
+        for word in ("legacy_css", "extra_js", "messages"):
+            with self.subTest(word=word):
+                self.assertNotIn(word, source)
+
+    def test_only_the_layouts_scripts_load(self):
+        self._fixture()
+        scripts = re.findall(r'<script src="([^"]+)"', self._html())
+        self.assertEqual(
+            [s.rsplit("/", 1)[-1] for s in scripts],
+            ["htmx-2.0.11.min.js", "dialogs.js", "auto_submit.js"],
+        )
+
+    def test_one_primary_button_add_service(self):
+        for fixture in (True, False):
+            if fixture:
+                self._fixture()
+            with self.subTest(services=fixture):
+                html = self._html()
+                self.assertEqual(html.count("btn-primary"), 1)
+                self.assertRegex(
+                    html,
+                    r'(?s)<a href="'
+                    + re.escape(reverse("admin_service_create"))
+                    + r'" class="btn btn-primary font-semibold">\s*<svg[^>]*'
+                    r'aria-hidden="true"[^>]*>.*?</svg>\s*Add service</a>',
+                )
+
+    def test_sidebar_highlights_billing(self):
+        html = self._html()
+        self.assertEqual(html.count(ACTIVE_NAV), 1)
+        self.assertIn(f'<a href="{reverse("admin_receipt_list")}" {ACTIVE_NAV}', html)
+
+    def test_tabs_with_services_current(self):
+        self._empty_receipt()
+        html = self._html()
+        tabs = re.search(
+            r'(?s)<nav [^>]*aria-label="Billing sections">.*?</nav>', html
+        ).group()
+        self.assertEqual(tabs.count('aria-current="page"'), 1)
+        self.assertRegex(
+            tabs,
+            rf'(?s)<a href="{self.url}" class="[^"]*" aria-current="page">'
+            r"\s*<svg[^>]*>.*?</svg>\s*Services and prices</a>",
+        )
+        self.assertIn(
+            '">Unpaid<span class="'
+            + PILL.format("bg-yellow-200 text-yellow-900")
+            + '">1<span class="sr-only"> waiting</span></span></a>',
+            tabs,
+        )
+
+    # ─── Groups ───────────────────────────────────────────────────────────────
+
+    def test_heading_and_the_groups_in_order(self):
+        self._fixture()
+        html = self._html()
+        self.assertIn(
+            '<h2 class="text-xl font-semibold text-gray-900">All services (5)</h2>',
+            html,
+        )
+        self.assertIn("Grouped by who sees them · A to Z", html)
+        self.assertEqual(
+            list(group_sections(html)), ["active", "unlisted", "draft", "closed"]
+        )
+
+    def test_each_group_has_its_pill_count_and_text(self):
+        cases = {
+            "active": (
+                "bg-green-100 px-2.5 py-1 text-sm font-medium text-green-800",
+                "Offered",
+                "3 services",
+                "Pet owners see these when they book. You can put them on receipts.",
+            ),
+            "unlisted": (
+                "bg-blue-100 px-2.5 py-1 text-sm font-medium text-blue-800",
+                "Clinic use only",
+                "1 service",
+                "Hidden from pet owners. You can put them on receipts and pick them "
+                "for walk-ins.",
+            ),
+            "draft": (
+                "bg-gray-100 px-2.5 py-1 text-sm font-medium text-gray-800",
+                "Hidden (draft)",
+                "1 service",
+                "Not shown anywhere yet. Finish it, then choose Offered or Clinic "
+                "use only.",
+            ),
+            "closed": (
+                "bg-red-100 px-2.5 py-1 text-sm font-medium text-red-800",
+                "No longer offered",
+                "0 services",
+                "Not shown anywhere. Old visits and receipts keep their names and "
+                "prices.",
+            ),
+        }
+        self._fixture()
+        sections = group_sections(self._html())
+        for key, (classes, title, count, text) in cases.items():
+            with self.subTest(group=key):
+                section = sections[key]
+                self.assertRegex(
+                    section,
+                    rf'(?s){re.escape(classes)}">\s*<svg[^>]*aria-hidden="true"'
+                    rf"[^>]*>.*?</svg>\s*{re.escape(title)}</span>",
+                )
+                self.assertIn(count, page_text(section))
+                self.assertIn(text, page_text(section))
+
+    def test_an_empty_group_says_none(self):
+        self._fixture()
+        sections = group_sections(self._html())
+        self.assertIn("None.", sections["closed"])
+        for key in ("active", "unlisted", "draft"):
+            with self.subTest(group=key):
+                self.assertNotIn("None.", sections[key])
+
+    def test_rows_sit_in_their_group_a_to_z(self):
+        self._service("zebra care")
+        self._service("Alpha")
+        self._service("beta")
+        self._service("Hidden thing", status=Service.DRAFT)
+        sections = group_sections(self._html())
+        self.assertEqual(
+            re.findall(r'<span class="sr-only"> (.*?)</span>', sections["active"]),
+            ["Alpha", "beta", "zebra care"],
+        )
+        self.assertEqual(
+            re.findall(r'<span class="sr-only"> (.*?)</span>', sections["draft"]),
+            ["Hidden thing"],
+        )
+
+    # ─── Rows ─────────────────────────────────────────────────────────────────
+
+    def test_a_row_with_everything(self):
+        self._fixture()
+        row = self._row(self._html(), self.consult)
+        self.assertIn(
+            'text-lg font-semibold text-gray-900">Consultation<span class="rounded-full '
+            'bg-gray-100 px-2.5 py-0.5 text-sm font-medium text-gray-800">Check-ups'
+            "</span></p>",
+            row,
+        )
+        self.assertIn(
+            '<p class="hidden truncate text-base text-gray-700 md:block">'
+            "General check-up and advice.</p>",
+            row,
+        )
+        self.assertIn('text-lg font-semibold text-gray-900">₱300.00</p>', row)
+        self.assertIn("One price</p>", row)
+        self.assertNotIn("Price range", row)
+        self.assertRegex(
+            row,
+            r'(?s)<a href="'
+            + re.escape(reverse("admin_service_edit", args=[self.consult.pk]))
+            + r'" class="btn btn-outline col-span-2 w-full font-semibold md:col-span-1 '
+            r'md:w-auto">\s*<svg[^>]*aria-hidden="true"[^>]*>.*?</svg>\s*Edit'
+            r'<span class="sr-only"> Consultation</span></a>',
+        )
+
+    def test_a_row_without_category_or_description(self):
+        self._fixture()
+        row = self._row(self._html(), self.bath)
+        self.assertNotIn("rounded-full", row)
+        self.assertIn(
+            '<p class="hidden truncate text-base text-gray-600 md:block">'
+            "No description</p>",
+            row,
+        )
+        self.assertIn("₱150.00", row)
+
+    def test_a_range_row(self):
+        self._fixture()
+        row = self._row(self._html(), self.wound)
+        self.assertIn("₱300.00 to ₱800.00</p>", row)
+        self.assertIn("Price range</p>", row)
+        self.assertNotIn("One price", row)
+        self.assertIn("Treatment</span>", row)
+        # Money has commas
+        self.assertIn("₱1,500.00 to ₱3,000.00", self._html())
+
+    def test_a_range_missing_a_price_shows_its_base_price(self):
+        broken = self._service(
+            "Broken", "120.00", pricing_type=Service.RANGE, min_price=Decimal("1.00")
+        )
+        row = self._row(self._html(), broken)
+        self.assertIn("₱120.00</p>", row)
+        self.assertIn("One price", row)
+
+    def test_the_phone_layout_in_the_same_row(self):
+        self._fixture()
+        row = self._row(self._html(), self.consult)
+        # Name and price share the first line, Edit is full width below md
+        self.assertIn("grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2", row)
+        self.assertIn("col-span-2 w-full", row)
+        # The description and the price kind only show from md
+        self.assertEqual(row.count("hidden "), 2)
+
+    def test_names_are_escaped(self):
+        self._service("<b>Bold</b> & co", category="<i>x</i>")
+        html = self._html()
+        self.assertIn("&lt;b&gt;Bold&lt;/b&gt; &amp; co", html)
+        self.assertIn("&lt;i&gt;x&lt;/i&gt;", html)
+        self.assertNotIn("<b>Bold</b>", html)
+
+    # ─── No services, queries, markup rules ───────────────────────────────────
+
+    def test_no_services_at_all(self):
+        html = self._html()
+        text = page_text(html)
+        self.assertIn("No services yet Add the first one with Add service.", text)
+        self.assertNotIn("All services", text)
+        self.assertNotIn("None.", text)
+        self.assertEqual(group_sections(html), {})
+        self.assertIn('aria-label="Billing sections"', html)
+
+    def _queries(self, count):
+        Service.objects.all().delete()
+        statuses = [Service.ACTIVE, Service.UNLISTED, Service.DRAFT, Service.CLOSED]
+        for number in range(count):
+            if number % 2:
+                self._range_service(
+                    f"Service {number}", "100.00", "900.00", statuses[number % 4]
+                )
+            else:
+                self._service(
+                    f"Service {number}",
+                    status=statuses[number % 4],
+                    category="Care",
+                    description="Something",
+                )
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["total_count"], count)
+        return len(queries)
+
+    def test_query_count_is_flat(self):
+        three, thirty = self._queries(3), self._queries(30)
+        self.assertEqual(three, thirty)
+        self.assertEqual(thirty, SERVICES_LIST_QUERIES)
+
+    def test_every_link_is_on_one_line(self):
+        for path in SERVICES_LIST_SOURCES:
+            for link in re.findall(
+                r"(?s)<a\b.*?</a>", path.read_text(encoding="utf-8")
+            ):
+                with self.subTest(file=path.name, link=link[:50]):
+                    self.assertNotIn("\n", link)
+        self.assertTrue(
+            any("<a " in p.read_text(encoding="utf-8") for p in SERVICES_LIST_SOURCES)
+        )
+
+    def test_text_is_never_gray_400_or_lighter(self):
+        for path in [*SERVICES_LIST_SOURCES, *SERVICE_FORM_SOURCES]:
+            with self.subTest(file=path.name):
+                self.assertIsNone(
+                    re.search(
+                        r"text-(gray|slate|zinc|neutral)-(50|100|200|300|400)\b",
+                        path.read_text(encoding="utf-8"),
+                    )
+                )
+
+    def test_no_template_loads_the_legacy_service_files(self):
+        for path in BILLING_TEMPLATES.parents[1].rglob("*.html"):
+            source = path.read_text(encoding="utf-8")
+            for old in OLD_SERVICE_FILES:
+                with self.subTest(file=path.name, old=old):
+                    self.assertNotIn(old, source)
+
+    def test_no_billing_template_uses_legacy_css(self):
+        for path in BILLING_TEMPLATES.rglob("*.html"):
+            source = path.read_text(encoding="utf-8")
+            for old in ("legacy_css", "layer(legacy)"):
+                with self.subTest(file=path.name, old=old):
+                    self.assertNotIn(old, source)
+
+
+@PLAIN_STATIC
+class ServiceFormPageTests(FrozenBillingTestBase):
+    """admin/billing/service_form.html (add and edit) on layouts/admin.html
+    (Slice 6b-4)."""
+
+    def setUp(self):
+        super().setUp()
+        self.add_url = reverse("admin_service_create")
+        self.consult = self._service(
+            "Consultation",
+            "300.00",
+            status=Service.ACTIVE,
+            category="Check-ups",
+            description="General check-up and advice.",
+        )
+        self.edit_url = reverse("admin_service_edit", args=[self.consult.pk])
+        self.range = self._range_service("Wound cleaning", "300.00", "800.00")
+        self.range_url = reverse("admin_service_edit", args=[self.range.pk])
+        self.closed = self._service("Old thing", "50.00", status=Service.CLOSED)
+        self.closed_url = reverse("admin_service_edit", args=[self.closed.pk])
+
+    # ─── Helpers ──────────────────────────────────────────────────────────────
+
+    def _html(self, url):
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _data(self, **extra):
+        data = {
+            "service_name": "Deworming",
+            "category": "",
+            "description": "",
+            "pricing_type": Service.FIXED,
+            "base_price": "150",
+            "min_price": "",
+            "max_price": "",
+            "status": Service.ACTIVE,
+        }
+        data.update(extra)
+        return data
+
+    def _bad(self, url, **extra):
+        """The page after a POST that failed."""
+        response = self.client.post(url, self._data(**extra))
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _checked(self, html, name):
+        """The values of the checked radios called name."""
+        return [
+            m.group(2)
+            for m in re.finditer(
+                rf'<input type="radio" name="{name}" id="(id_\w+)" '
+                r'value="([^"]+)" class="[^"]*"( checked)?>',
+                html,
+            )
+            if m.group(3)
+        ]
+
+    def _radios(self, html, name):
+        return re.findall(rf'<input type="radio" name="{name}" id="(id_\w+)"', html)
+
+    def _after(self, html, field_id):
+        """The page from this field's input to the next label (its errors
+        sit in between)."""
+        start = html.index(f'id="{field_id}"')
+        end = html.find("<label for=", start)
+        return html[start : end if end != -1 else len(html)]
+
+    # ─── Layout, header, buttons ──────────────────────────────────────────────
+
+    def test_layout_script_and_no_old_files(self):
+        for url in (self.add_url, self.edit_url):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertTemplateUsed(response, "layouts/admin.html")
+                self.assertTemplateUsed(response, "admin/billing/service_form.html")
+                for part in (
+                    "header",
+                    "service_card",
+                    "price_card",
+                    "price_field",
+                    "radio_card",
+                    "status_card",
+                    "buttons",
+                ):
+                    self.assertTemplateUsed(
+                        response, f"admin/billing/service_form_parts/{part}.html"
+                    )
+                for old in (
+                    *OLD_SERVICE_FILES,
+                    "layer(legacy)",
+                    "admin-page",
+                    "billing-form",
+                    "form-group",
+                ):
+                    self.assertNotContains(response, old)
+                self.assertContains(response, "js/admin/service_form.js")
+                self.assertContains(
+                    response,
+                    '<form method="post" class="space-y-6" novalidate data-service-form>',
+                )
+                self.assertContains(response, '<div class="mx-auto max-w-3xl">')
+        source = (BILLING_TEMPLATES / "service_form.html").read_text(encoding="utf-8")
+        self.assertNotIn("legacy_css", source)
+
+    def test_one_primary_button_with_and_without_errors(self):
+        pages = [
+            self._html(self.add_url),
+            self._html(self.edit_url),
+            self._bad(self.add_url, service_name=""),
+            self._bad(self.edit_url, base_price=""),
+        ]
+        for html in pages:
+            self.assertEqual(html.count("btn-primary"), 1)
+
+    def test_add_header_subtitle_and_buttons(self):
+        html = self._html(self.add_url)
+        self.assertIn("<title>Add service — Hapi Vet Admin</title>", html)
+        self.assertIn(
+            '<h1 class="text-2xl font-bold text-gray-900">Add service</h1>', html
+        )
+        self.assertIn("A service on the price list. You can change it later.", html)
+        self.assertNotIn("Receipts already made keep their prices.", html)
+        self.assertRegex(
+            html,
+            r'(?s)<a href="'
+            + re.escape(reverse("admin_service_list"))
+            + r'" class="mb-2 inline-flex[^"]*">\s*<svg[^>]*aria-hidden="true"[^>]*>'
+            r".*?</svg>\s*Back to services</a>",
+        )
+        self.assertIn(
+            f'<a href="{reverse("admin_service_list")}" class="btn btn-outline '
+            'min-h-12 w-full font-semibold sm:w-auto">Cancel</a>',
+            html,
+        )
+        self.assertRegex(
+            html,
+            r'(?s)<button type="submit" class="btn btn-primary min-h-12 w-full '
+            r'font-semibold sm:w-auto">\s*<svg[^>]*aria-hidden="true"[^>]*>.*?</svg>'
+            r"\s*Add service</button>",
+        )
+        self.assertNotIn("Save changes", html)
+
+    def test_edit_header_subtitle_and_buttons(self):
+        html = self._html(self.edit_url)
+        self.assertIn(
+            "<title>Edit service · Consultation — Hapi Vet Admin</title>", html
+        )
+        self.assertIn(
+            '<h1 class="text-2xl font-bold text-gray-900">Edit service · Consultation</h1>',
+            html,
+        )
+        self.assertIn(
+            "Changes apply to new receipts and bookings. Receipts already made keep "
+            "their prices.",
+            html,
+        )
+        self.assertNotIn("A service on the price list.", html)
+        self.assertRegex(
+            html,
+            r'(?s)<button type="submit" class="btn btn-primary min-h-12 w-full '
+            r'font-semibold sm:w-auto">\s*<svg[^>]*aria-hidden="true"[^>]*>.*?</svg>'
+            r"\s*Save changes</button>",
+        )
+        self.assertNotIn(">Add service</", html)
+        self.assertIn(">Cancel</a>", html)
+
+    def test_a_failed_save_does_not_change_the_edit_title_or_note(self):
+        html = self._bad(
+            self.closed_url,
+            service_name="Renamed thing",
+            base_price="",
+            status="closed",
+        )
+        self.assertIn("Edit service · Old thing</h1>", html)
+        self.assertIn("<title>Edit service · Old thing — Hapi Vet Admin</title>", html)
+        self.assertNotIn("Edit service · Renamed thing", html)
+        self.assertIn("Upcoming visits booked with Old thing keep it.", html)
+        # The typed name is still in the box
+        self.assertRegex(html, r'name="service_name"[^>]*value="Renamed thing"')
+        self.closed.refresh_from_db()
+        self.assertEqual(self.closed.service_name, "Old thing")
+
+    # ─── The service card ─────────────────────────────────────────────────────
+
+    def test_the_service_card_fields(self):
+        html = self._html(self.add_url)
+        self.assertRegex(
+            html,
+            r'(?s)<h2 id="service-title"[^>]*>\s*<svg[^>]*aria-hidden="true"[^>]*>'
+            r".*?</svg>\s*The service</h2>",
+        )
+        self.assertRegex(
+            html,
+            r'<label for="id_service_name"[^>]*>\s*Name <span class="text-red-700" '
+            r'aria-hidden="true">\*</span>\s*</label>',
+        )
+        self.assertRegex(
+            html,
+            r'<label for="id_category"[^>]*>\s*Category <span class="font-normal '
+            r'text-gray-600">\(optional\)</span>\s*</label>',
+        )
+        self.assertRegex(
+            html,
+            r'<label for="id_description"[^>]*>\s*Description <span class="font-normal '
+            r'text-gray-600">\(optional\)</span>\s*</label>',
+        )
+        for text in (
+            "Groups similar services. Type any word.",
+            "Pet owners see this when they book.",
+        ):
+            self.assertIn(f'<p class="text-sm text-gray-600">{text}</p>', html)
+        self.assertIn('placeholder="For example: Consultation"', html)
+        self.assertIn('placeholder="What it includes, in a sentence"', html)
+
+    def test_edit_shows_the_saved_values(self):
+        html = self._html(self.edit_url)
+        self.assertRegex(html, r'name="service_name"[^>]*value="Consultation"')
+        self.assertRegex(html, r'name="category"[^>]*value="Check-ups"')
+        self.assertRegex(html, r">\s*General check-up and advice\.</textarea>")
+        self.assertIn('name="base_price" id="id_base_price" value="300.00"', html)
+
+    # ─── The price card ───────────────────────────────────────────────────────
+
+    def test_a_new_services_price_box_starts_empty(self):
+        html = self._html(self.add_url)
+        self.assertIn('name="base_price" id="id_base_price" value=""', html)
+        self.assertNotIn('id="id_base_price" value="0', html)
+        self.assertEqual(ServiceForm()["base_price"].value(), None)
+        # Edit keeps the saved price, even 0
+        free = self._service("Free", "0.00")
+        html = self._html(reverse("admin_service_edit", args=[free.pk]))
+        self.assertIn('id="id_base_price" value="0.00"', html)
+
+    def test_the_price_card_heading_legend_and_cards(self):
+        html = self._html(self.add_url)
+        self.assertRegex(
+            html,
+            r'(?s)<h2 id="price-title"[^>]*>\s*<svg[^>]*aria-hidden="true"[^>]*>'
+            r".*?</svg>\s*Price</h2>",
+        )
+        self.assertIn(
+            '<legend class="text-base font-semibold text-gray-900">How is it priced? '
+            '<span class="text-red-700" aria-hidden="true">*</span></legend>',
+            html,
+        )
+        self.assertIn('<div class="mt-3 grid gap-3 sm:grid-cols-2">', html)
+        text = page_text(html)
+        self.assertIn("One price The same price every time.", text)
+        self.assertIn(
+            "A price range For example ₱300.00 to ₱800.00. You set the real price on "
+            "each receipt.",
+            text,
+        )
+        self.assertEqual(
+            self._radios(html, "pricing_type"),
+            [
+                "id_pricing_type_0",
+                "id_pricing_type_1",
+            ],
+        )
+        values = re.findall(
+            r'name="pricing_type" id="id_pricing_type_\d" value="(\w+)"', html
+        )
+        self.assertEqual(values, ["fixed", "range"])
+
+    def test_radio_cards_style_the_checked_card_and_the_focus_ring(self):
+        html = self._html(self.add_url)
+        cards = re.findall(
+            r'<label for="id_(?:pricing_type|status)_\d" class="([^"]*)"', html
+        )
+        self.assertEqual(len(cards), 6)
+        for classes in cards:
+            for expected in (
+                "border-2",
+                "min-h-11",
+                "has-[:checked]:border-violet-600",
+                "has-[:checked]:bg-violet-50",
+                "has-[:focus-visible]:ring-2",
+                "has-[:focus-visible]:ring-violet-600",
+            ):
+                with self.subTest(expected=expected):
+                    self.assertIn(expected, classes)
+        # Every label points at an input that exists, and the radios are 44px-class big
+        for target in re.findall(r'<label for="(id_\w+)"', html):
+            with self.subTest(target=target):
+                self.assertIn(f'id="{target}"', html)
+        self.assertEqual(
+            html.count('class="mt-0.5 size-6 shrink-0 accent-violet-600"'), 6
+        )
+
+    def test_pricing_card_checked_from_initial_saved_and_posted_values(self):
+        self.assertEqual(
+            self._checked(self._html(self.add_url), "pricing_type"), ["fixed"]
+        )
+        self.assertEqual(
+            self._checked(self._html(self.edit_url), "pricing_type"), ["fixed"]
+        )
+        self.assertEqual(
+            self._checked(self._html(self.range_url), "pricing_type"), ["range"]
+        )
+        # Posted wins over saved, also when the save failed
+        html = self._bad(
+            self.edit_url, pricing_type="range", min_price="", max_price=""
+        )
+        self.assertEqual(self._checked(html, "pricing_type"), ["range"])
+        html = self._bad(self.range_url, pricing_type="fixed", base_price="")
+        self.assertEqual(self._checked(html, "pricing_type"), ["fixed"])
+
+    def test_only_the_chosen_price_set_shows(self):
+        fixed, ranged = "<div data-price-one>", "<div data-price-range>"
+        hidden_fixed, hidden_range = (
+            '<div data-price-one class="hidden">',
+            '<div data-price-range class="hidden">',
+        )
+        for url, show_one in (
+            (self.add_url, True),
+            (self.edit_url, True),
+            (self.range_url, False),
+        ):
+            with self.subTest(url=url):
+                html = self._html(url)
+                self.assertIn(fixed if show_one else hidden_fixed, html)
+                self.assertIn(hidden_range if show_one else ranged, html)
+                self.assertNotIn(hidden_fixed if show_one else fixed, html)
+        # A failed save keeps the posted choice
+        html = self._bad(self.add_url, pricing_type="range", min_price="", max_price="")
+        self.assertIn(ranged, html)
+        self.assertIn(hidden_fixed, html)
+
+    def test_both_sets_show_without_javascript(self):
+        html = self._html(self.add_url)
+        self.assertIn(
+            "<noscript><style>[data-price-one], [data-price-range] "
+            "{ display: block; }</style></noscript>",
+            html,
+        )
+
+    def test_the_price_sets_are_indented_under_the_cards(self):
+        html = self._html(self.add_url)
+        self.assertIn('<div class="mt-4 border-l-4 border-violet-200 pl-4">', html)
+        # One price box is narrow; Lowest and Highest sit side by side from sm
+        self.assertIn('form-field space-y-1.5 max-w-xs">', html)
+        self.assertIn('<div class="grid gap-4 sm:grid-cols-2">', html)
+        for label in ("Price", "Lowest price", "Highest price"):
+            with self.subTest(label=label):
+                self.assertRegex(
+                    html,
+                    rf'<label for="id_\w+_price" class="[^"]*">{label} '
+                    r'<span class="text-red-700" aria-hidden="true">\*</span></label>',
+                )
+
+    def test_the_peso_sign_does_not_cover_the_typed_number(self):
+        html = self._html(self.add_url)
+        signs = html.count(
+            '<span class="pointer-events-none absolute inset-y-0 left-3 flex '
+            'items-center text-base text-gray-700" aria-hidden="true">₱</span>'
+        )
+        self.assertEqual(signs, 3)
+        for name in ("base_price", "min_price", "max_price"):
+            with self.subTest(name=name):
+                self.assertRegex(
+                    html,
+                    rf'<input type="text" inputmode="decimal" name="{name}" '
+                    rf'id="id_{name}" value="[^"]*" class="pl-8">',
+                )
+
+    def test_the_range_preview_text(self):
+        empty = "Pet owners see the range when they book."
+        self.assertIn(empty, page_text(self._html(self.add_url)))
+        self.assertIn(
+            "Pet owners see “₱300.00 to ₱800.00” when they book.",
+            page_text(self._html(self.range_url)),
+        )
+        cases = [
+            (dict(min_price="1,250", max_price="3000"), "“₱1,250.00 to ₱3,000.00”"),
+            (dict(min_price="100", max_price=""), None),
+            (dict(min_price="", max_price="900"), None),
+            (dict(min_price="abc", max_price="900"), None),
+            (dict(min_price="NaN", max_price="900"), None),
+            (dict(min_price="Infinity", max_price="900"), None),
+        ]
+        for extra, expected in cases:
+            with self.subTest(extra=extra):
+                html = self._bad(self.add_url, pricing_type="range", **extra)
+                text = page_text(html)
+                if expected:
+                    self.assertIn(f"Pet owners see {expected} when they book.", text)
+                else:
+                    self.assertIn(empty, text)
+                    self.assertNotIn("Pet owners see “", text)
+
+    # ─── The status card ──────────────────────────────────────────────────────
+
+    def test_the_status_cards_in_order_with_their_lines(self):
+        html = self._html(self.add_url)
+        self.assertRegex(
+            html,
+            r'(?s)<h2 id="status-title"[^>]*>\s*<svg[^>]*aria-hidden="true"[^>]*>'
+            r".*?</svg>\s*Who sees it</h2>",
+        )
+        self.assertIn('<legend class="sr-only">Who sees it</legend>', html)
+        self.assertEqual(
+            re.findall(r'name="status" id="id_status_\d" value="(\w+)"', html),
+            ["active", "unlisted", "draft", "closed"],
+        )
+        text = page_text(html)
+        for label, line in (
+            (
+                "Offered",
+                "Pet owners see it when they book. You can put it on receipts.",
+            ),
+            (
+                "Clinic use only",
+                "Hidden from pet owners. You can put it on receipts and pick it for "
+                "walk-ins.",
+            ),
+            ("Hidden (draft)", "Not shown anywhere yet."),
+            (
+                "No longer offered",
+                "Not shown anywhere. Old visits and receipts keep it.",
+            ),
+        ):
+            with self.subTest(label=label):
+                self.assertIn(f"{label} {line}", text)
+
+    def test_status_card_checked_from_initial_saved_and_posted_values(self):
+        self.assertEqual(self._checked(self._html(self.add_url), "status"), ["draft"])
+        self.assertEqual(self._checked(self._html(self.edit_url), "status"), ["active"])
+        self.assertEqual(
+            self._checked(self._html(self.closed_url), "status"), ["closed"]
+        )
+        html = self._bad(self.add_url, service_name="", status="unlisted")
+        self.assertEqual(self._checked(html, "status"), ["unlisted"])
+
+    def test_the_closed_note(self):
+        note = (
+            "Upcoming visits booked with Old thing keep it. Owners can't pick it for "
+            "new bookings."
+        )
+        # Add: no note at all
+        add = self._html(self.add_url)
+        self.assertNotIn("data-closed-note", add)
+        self.assertNotIn("Upcoming visits booked with", add)
+        # Edit, saved closed: showing (flex), with the name and the icon
+        shown = self._html(self.closed_url)
+        self.assertRegex(
+            shown,
+            r'(?s)<p class="mt-3 items-start gap-2 rounded-lg bg-gray-50 px-3 py-2 '
+            r'text-base text-gray-800 flex" data-closed-note>\s*<svg[^>]*'
+            r'aria-hidden="true"[^>]*>.*?</svg>\s*<span>'
+            + re.escape(note)
+            + "</span></p>",
+        )
+        # Edit, saved another status: there, but hidden
+        hidden = self._html(self.edit_url)
+        self.assertIn('text-gray-800 hidden" data-closed-note>', hidden)
+        self.assertNotIn('text-gray-800 flex" data-closed-note>', hidden)
+        # A failed save follows what was posted
+        posted_closed = self._bad(self.edit_url, base_price="", status="closed")
+        self.assertIn('text-gray-800 flex" data-closed-note>', posted_closed)
+        self.assertIn(
+            "Upcoming visits booked with Consultation keep it.", posted_closed
+        )
+        posted_open = self._bad(self.closed_url, base_price="", status="active")
+        self.assertIn('text-gray-800 hidden" data-closed-note>', posted_open)
+
+    # ─── Errors ───────────────────────────────────────────────────────────────
+
+    def test_every_error_sits_under_its_field_and_values_are_kept(self):
+        cases = [
+            (
+                dict(service_name="  "),
+                "id_service_name",
+                "Type the service name.",
+            ),
+            (
+                dict(service_name="consultation "),
+                "id_service_name",
+                "There is already a service called “Consultation”.",
+            ),
+            (dict(base_price=""), "id_base_price", "Type the price."),
+            (dict(base_price="-1"), "id_base_price", "Prices can't be negative."),
+            (
+                dict(pricing_type="range", min_price="", max_price="800"),
+                "id_min_price",
+                "Type the lowest and the highest price.",
+            ),
+            (
+                dict(pricing_type="range", min_price="300", max_price=""),
+                "id_max_price",
+                "Type the lowest and the highest price.",
+            ),
+            (
+                dict(pricing_type="range", min_price="-5", max_price="800"),
+                "id_min_price",
+                "Prices can't be negative.",
+            ),
+            (
+                dict(pricing_type="range", min_price="800", max_price="300"),
+                "id_max_price",
+                "The highest price must be more than the lowest.",
+            ),
+            (
+                dict(pricing_type="range", min_price="300", max_price="300"),
+                "id_max_price",
+                "The highest price must be more than the lowest.",
+            ),
+        ]
+        for extra, field_id, message in cases:
+            with self.subTest(extra=extra, message=message):
+                html = self._bad(
+                    self.add_url,
+                    category="Typed category",
+                    description="Typed description",
+                    **extra,
+                )
+                self.assertRegex(self._after(html, field_id), error_line(message))
+                self.assertIn('<div class="form-field space-y-1.5 has-error', html)
+                self.assertIn("Please fix the 1 item below.", html)
+                self.assertNotIn("Please correct the errors below.", html)
+                # Typed values stay
+                self.assertRegex(html, r'name="category"[^>]*value="Typed category"')
+                self.assertRegex(html, r">\s*Typed description</textarea>")
+                for name in ("service_name", "base_price", "min_price", "max_price"):
+                    typed = extra.get(name, self._data()[name])
+                    if typed.strip():
+                        self.assertRegex(
+                            html,
+                            rf'name="{name}"[^>]*value="{re.escape(typed)}"',
+                        )
+                self.assertEqual(
+                    Service.objects.filter(category="Typed category").count(), 0
+                )
+
+    def test_two_errors_give_the_summary_two_items(self):
+        html = self._bad(self.add_url, service_name="", base_price="")
+        self.assertIn("Please fix the 2 items below.", html)
+        self.assertIn(
+            "Nothing was saved yet. Everything you typed is still here.", html
+        )
+        self.assertRegex(
+            self._after(html, "id_service_name"), error_line("Type the service name.")
+        )
+        self.assertRegex(
+            self._after(html, "id_base_price"), error_line("Type the price.")
+        )
+        self.assertNotIn("Please fix", self._html(self.add_url))
+
+    def test_the_typed_name_is_escaped(self):
+        html = self._bad(
+            self.add_url, service_name='"><script>x</script>', base_price=""
+        )
+        self.assertNotIn("<script>x</script>", html)
+        self.assertIn("&quot;&gt;&lt;script&gt;x&lt;/script&gt;", html)
+
+    # ─── Saving ───────────────────────────────────────────────────────────────
+
+    def test_add_saves_and_flashes(self):
+        response = self.client.post(
+            self.add_url,
+            self._data(
+                service_name=" Deworming ",
+                category="Preventive care",
+                description="Tablet or syrup.",
+                status=Service.DRAFT,
+            ),
+        )
+        self.assertRedirects(
+            response, reverse("admin_service_list"), fetch_redirect_response=False
+        )
+        service = Service.objects.get(service_name="Deworming")
+        self.assertEqual(
+            (service.category, service.base_price, service.status),
+            ("Preventive care", Decimal("150.00"), Service.DRAFT),
+        )
+        followed = self.client.get(reverse("admin_service_list"))
+        self.assertContains(followed, "Deworming added.")
+
+    def test_edit_saves_and_flashes(self):
+        response = self.client.post(
+            self.edit_url,
+            self._data(
+                service_name="Consultation",
+                pricing_type=Service.RANGE,
+                min_price="300",
+                max_price="900",
+                status=Service.UNLISTED,
+            ),
+        )
+        self.assertRedirects(
+            response, reverse("admin_service_list"), fetch_redirect_response=False
+        )
+        self.consult.refresh_from_db()
+        self.assertEqual(
+            (
+                self.consult.pricing_type,
+                self.consult.min_price,
+                self.consult.max_price,
+                self.consult.status,
+            ),
+            (Service.RANGE, Decimal("300.00"), Decimal("900.00"), Service.UNLISTED),
+        )
+        followed = self.client.get(reverse("admin_service_list"))
+        self.assertContains(followed, "Consultation saved.")
+        # Edit again: the range shows, with what owners will see
+        html = self._html(self.edit_url)
+        self.assertEqual(self._checked(html, "pricing_type"), ["range"])
+        self.assertIn(
+            "Pet owners see “₱300.00 to ₱900.00” when they book.", page_text(html)
+        )
+
+    def test_an_unknown_service_is_a_404(self):
+        response = self.client.get(reverse("admin_service_edit", args=[999999]))
+        self.assertEqual(response.status_code, 404)
+
+    # ─── Sidebar, script, markup rules ────────────────────────────────────────
+
+    def test_sidebar_highlights_billing(self):
+        for url in (self.add_url, self.edit_url):
+            with self.subTest(url=url):
+                html = self._html(url)
+                self.assertEqual(html.count(ACTIVE_NAV), 1)
+                self.assertIn(
+                    f'<a href="{reverse("admin_receipt_list")}" {ACTIVE_NAV}', html
+                )
+
+    def test_the_script_switches_the_sets_and_the_note(self):
+        script = SERVICE_JS.read_text(encoding="utf-8")
+        for word in (
+            "[data-price-one]",
+            "[data-price-range]",
+            "[data-closed-note]",
+            "pricing_type",
+            "closed",
+            "querySelectorAll",
+        ):
+            with self.subTest(word=word):
+                self.assertIn(word, script)
+        for word in ("fetch(", "XMLHttpRequest", "onclick", "{% url", "eval("):
+            with self.subTest(word=word):
+                self.assertNotIn(word, script)
+
+    def test_every_link_is_on_one_line(self):
+        for path in SERVICE_FORM_SOURCES:
+            for link in re.findall(
+                r"(?s)<a\b.*?</a>", path.read_text(encoding="utf-8")
+            ):
+                with self.subTest(file=path.name, link=link[:50]):
+                    self.assertNotIn("\n", link)
+        self.assertTrue(
+            any("<a " in p.read_text(encoding="utf-8") for p in SERVICE_FORM_SOURCES)
+        )
+
+    def test_no_billing_template_has_an_inline_handler(self):
+        for path in BILLING_TEMPLATES.rglob("*.html"):
+            with self.subTest(file=path.name):
+                self.assertIsNone(
+                    re.search(r"<[^>]*\son[a-z]+\s*=", path.read_text(encoding="utf-8"))
+                )
+
+    def test_the_form_has_the_choice_cards_helpers(self):
+        form = ServiceForm()
+        self.assertEqual(
+            [(c["value"], c["checked"]) for c in form.pricing_cards],
+            [("fixed", True), ("range", False)],
+        )
+        self.assertEqual(
+            [(c["value"], c["checked"]) for c in form.status_cards],
+            [
+                ("active", False),
+                ("unlisted", False),
+                ("draft", True),
+                ("closed", False),
+            ],
+        )
+        self.assertFalse(form.is_closed)
+        self.assertEqual(form.pricing_shown, "fixed")
+        # A bad pricing value shows One price
+        bad = ServiceForm(self._data(pricing_type="nonsense"))
+        self.assertEqual(bad.pricing_shown, "fixed")
+        self.assertTrue(ServiceForm(instance=self.closed).is_closed)

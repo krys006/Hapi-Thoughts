@@ -313,6 +313,7 @@ PENDING or CONFIRMED → CANCELLED
 | Service names are unique, ignoring letter case and outer spaces | `complete` |
 | Saving clears the other pricing type (One price clears the range; a range sets the base price to its lowest price) | `complete` |
 | Optional service category (Admin-defined freely) | `complete` |
+| Services page: one list grouped by who sees each service (Offered, Clinic use only, Hidden (draft), No longer offered), A to Z, with the price and "One price" / "Price range"; add and edit on one form (the price boxes follow the chosen pricing type) | `complete` |
 
 ### Service Status Behavior
 | Status | Visible to Pet Owner | Bookable |

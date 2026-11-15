@@ -23,13 +23,32 @@ SERVICE_STATUS_CHOICES = [
 PRICE_FIELDS = ("base_price", "min_price", "max_price")
 NEGATIVE_PRICE = "Prices can't be negative."
 
+# The one line under each radio card on the service form (services_v1.html)
+SERVICE_PRICING_TEXT = {
+    Service.FIXED: "The same price every time.",
+    Service.RANGE: (
+        "For example ₱300.00 to ₱800.00. You set the real price on each receipt."
+    ),
+}
+SERVICE_STATUS_TEXT = {
+    Service.ACTIVE: "Pet owners see it when they book. You can put it on receipts.",
+    Service.UNLISTED: (
+        "Hidden from pet owners. You can put it on receipts and pick it for walk-ins."
+    ),
+    Service.DRAFT: "Not shown anywhere yet.",
+    Service.CLOSED: "Not shown anywhere. Old visits and receipts keep it.",
+}
+RANGE_PREVIEW_EMPTY = "Pet owners see the range when they book."
 
-class ServiceForm(forms.ModelForm):
+
+class ServiceForm(ErrorCountMixin, forms.ModelForm):
     """
     Admin form — create or edit a service in the catalog (rules 29–31).
     The name is unique ignoring letter case and outer spaces. Saving clears
     the other pricing type: One price keeps base_price only; a range keeps
     min / max and sets base_price to the lowest (the column has no blank).
+    pricing_cards / status_cards / range_preview / is_closed feed the page's
+    hand-written radio cards and notes (service_form.html).
     """
 
     pricing_type = forms.ChoiceField(
@@ -79,6 +98,68 @@ class ServiceForm(forms.ModelForm):
         # Checked per pricing type in clean(), not at field level
         for name in PRICE_FIELDS:
             self.fields[name].required = False
+        # A new service's Price box starts empty, not at the model's 0
+        if not self.instance.pk:
+            self.initial["base_price"] = None
+
+    def _cards(self, name, texts, current):
+        """One dict per choice of a radio field: value, label, text, the
+        input's id and whether it is the checked one."""
+        return [
+            {
+                "value": value,
+                "label": label,
+                "text": texts[value],
+                "id": f"id_{name}_{index}",
+                "checked": value == current,
+            }
+            for index, (value, label) in enumerate(self.fields[name].choices)
+        ]
+
+    @property
+    def pricing_cards(self):
+        """The two pricing cards; One price is checked when nothing valid
+        was picked."""
+        current = self["pricing_type"].value()
+        if current not in SERVICE_PRICING_TEXT:
+            current = Service.FIXED
+        return self._cards("pricing_type", SERVICE_PRICING_TEXT, current)
+
+    @property
+    def pricing_shown(self):
+        """The pricing type whose price boxes show (the checked card)."""
+        return next(card["value"] for card in self.pricing_cards if card["checked"])
+
+    @property
+    def status_cards(self):
+        """The four status cards, checked as posted, else as saved."""
+        return self._cards("status", SERVICE_STATUS_TEXT, self["status"].value())
+
+    @property
+    def is_closed(self):
+        """The status as posted, else as saved, is No longer offered."""
+        return self["status"].value() == Service.CLOSED
+
+    def _typed_price(self, name):
+        """A price box's posted or saved value as a Decimal, None when empty
+        or not a number."""
+        value = self[name].value()
+        if value in (None, ""):
+            return None
+        try:
+            amount = Decimal(str(value).replace(",", "").strip())
+        except ArithmeticError:
+            return None
+        return amount if amount.is_finite() else None
+
+    @property
+    def range_preview(self):
+        """What owners will see for the typed range, or the plain sentence
+        while either price is empty or not a number."""
+        low, high = self._typed_price("min_price"), self._typed_price("max_price")
+        if low is None or high is None:
+            return RANGE_PREVIEW_EMPTY
+        return f"Pet owners see “{peso(low)} to {peso(high)}” when they book."
 
     def clean_service_name(self):
         name = self.cleaned_data["service_name"].strip()

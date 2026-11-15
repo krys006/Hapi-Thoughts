@@ -1,0 +1,32 @@
+{% comment %}
+  One group of the services page (needs group: key, title, text, services,
+  count). The pill's colour and icon follow the status key; the saved value
+  stays draft / active / unlisted / closed, only the label differs.
+  An empty group says "None.".
+{% endcomment %}
+<section class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm" aria-labelledby="group-{{ group.key }}">
+  <div class="border-b border-gray-200 bg-gray-50 px-5 py-3">
+    <h2 id="group-{{ group.key }}" class="flex flex-wrap items-center gap-2 text-xl font-semibold text-gray-900">
+      {% if group.key == "active" %}
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-1 text-sm font-medium text-green-800">{% include "components/icon.html" with name="eye" class="size-4 shrink-0" %}{{ group.title }}</span>
+      {% elif group.key == "unlisted" %}
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2.5 py-1 text-sm font-medium text-blue-800">{% include "components/icon.html" with name="lock" class="size-4 shrink-0" %}{{ group.title }}</span>
+      {% elif group.key == "draft" %}
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1 text-sm font-medium text-gray-800">{% include "components/icon.html" with name="pencil" class="size-4 shrink-0" %}{{ group.title }}</span>
+      {% else %}
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-red-100 px-2.5 py-1 text-sm font-medium text-red-800">{% include "components/icon.html" with name="ban" class="size-4 shrink-0" %}{{ group.title }}</span>
+      {% endif %}
+      <span class="text-base font-normal text-gray-700">{{ group.count }} service{{ group.count|pluralize }}</span>
+    </h2>
+    <p class="mt-1 text-sm text-gray-700">{{ group.text }}</p>
+  </div>
+  {% if group.services %}
+    <ul>
+      {% for service in group.services %}
+        {% include "admin/billing/services_list_parts/row.html" %}
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="px-5 py-4 text-base text-gray-700">None.</p>
+  {% endif %}
+</section>

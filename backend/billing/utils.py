@@ -620,12 +620,21 @@ def services_list_context(params):
     """
     Context for the services page: every service in one query, A to Z, in
     groups Offered, Clinic use only, Hidden (draft), No longer offered (key,
-    title, text, services, count) and total_count. Keeps the old
-    services_list.html keys: services (filtered by ?status=), status_filter,
-    counts and status_choices. Also the four receipt counts (pending_count,
+    title, text, services, count) and total_count; each service gets
+    is_range. Old keys no template reads now but billing tests still do:
+    services (filtered by ?status=), status_filter, counts and
+    status_choices. Also the four receipt counts (pending_count,
     paid_count, cancelled_count, all_count) for the shared Billing tabs.
     """
     services = list(Service.objects.order_by(Lower("service_name"), "pk"))
+    for service in services:
+        # A range with both prices shows "₱300.00 to ₱800.00"; anything else
+        # shows its base price (as the receipt's "What is it?" does)
+        service.is_range = (
+            service.pricing_type == Service.RANGE
+            and service.min_price is not None
+            and service.max_price is not None
+        )
     groups = []
     for key, title in SERVICE_STATUS_CHOICES:
         rows = [service for service in services if service.status == key]
@@ -643,7 +652,7 @@ def services_list_context(params):
         **_receipt_counts(),
         "groups": groups,
         "total_count": len(services),
-        # Old services_list.html's keys
+        # The old services_list.html's keys (no template uses them now)
         "services": (
             [s for s in services if s.status == status_filter]
             if status_filter

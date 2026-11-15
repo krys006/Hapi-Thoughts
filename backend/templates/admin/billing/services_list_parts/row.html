@@ -1,0 +1,23 @@
+{% load billing_extras %}
+{% comment %}
+  One service (needs service, with is_range from services_list_context).
+  One markup for every width: from md a 3-column row (name + category pill
+  and the description | price and its kind | Edit); below md the name and
+  price share the first line, the category pill follows the name, the
+  description and the price kind are left out, and Edit is full width.
+{% endcomment %}
+<li class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 border-b border-gray-100 px-4 py-4 last:border-b-0 md:grid-cols-[minmax(0,1fr)_12rem_auto] md:items-center md:gap-5 md:px-5">
+  <div class="min-w-0">
+    <p class="flex flex-wrap items-center gap-2 text-lg font-semibold text-gray-900">{{ service.service_name }}{% if service.category %}<span class="rounded-full bg-gray-100 px-2.5 py-0.5 text-sm font-medium text-gray-800">{{ service.category }}</span>{% endif %}</p>
+    {% if service.description %}
+      <p class="hidden truncate text-base text-gray-700 md:block">{{ service.description }}</p>
+    {% else %}
+      <p class="hidden truncate text-base text-gray-600 md:block">No description</p>
+    {% endif %}
+  </div>
+  <div class="text-right">
+    <p class="text-lg font-semibold text-gray-900">{% if service.is_range %}{{ service.min_price|peso }} to {{ service.max_price|peso }}{% else %}{{ service.base_price|peso }}{% endif %}</p>
+    <p class="hidden text-sm text-gray-700 md:block">{% if service.is_range %}Price range{% else %}One price{% endif %}</p>
+  </div>
+  <a href="{% url 'admin_service_edit' service.pk %}" class="btn btn-outline col-span-2 w-full font-semibold md:col-span-1 md:w-auto">{% include "components/icon.html" with name="pencil" %}Edit<span class="sr-only"> {{ service.service_name }}</span></a>
+</li>

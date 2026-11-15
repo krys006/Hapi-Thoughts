@@ -111,9 +111,9 @@ Never use per-app template folders.
 - `base_dashboard.html` is the base for logged-in owner pages (header,
   bell, sidebar, flash messages). No admin page uses it.
 - `layouts/admin.html` is the base for every admin page (see §10). Pages
-  not redesigned yet (e.g. `admin/billing/services_list.html`) import their old
-  `static/css/admin/` file in the `legacy_css` block, inside the `legacy`
-  cascade layer.
+  not redesigned yet (e.g. `admin/health/article_list.html`; no billing page
+  is left, since 6b-4) import their old `static/css/admin/` file in the
+  `legacy_css` block, inside the `legacy` cascade layer.
 - `layouts/auth.html` is the base for the admin login: a standalone card
   with no sidebar (see §10).
 - `base.html` is the base for standalone auth pages (login, register,
@@ -387,7 +387,6 @@ templates/
 │   │   │   ├── remove_item_dialog.html ← one per item; says the new total
 │   │   │   ├── mark_paid_dialog.html ← only with items (can_mark_paid)
 │   │   │   └── cancel_dialog.html    ← "Keep it" is the go-back button (dialog_buttons.html back_text)
-│   │   ├── receipt_form.html         ← no longer rendered (6a-3: the edit URL redirects to the receipt page); Krys deletes it
 │   │   ├── receipt_new.html          ← New receipt (admin_receipt_create) on layouts/admin.html (6b-3): from a visit, or step 1 "Who is it for?" / step 2 "Which pet?"; no legacy_css
 │   │   ├── _receipt_owner_results.html ← step 1 results (Clear search, heading / match line, owner rows, pager, empty states); included by receipt_new.html and returned alone for the filter-as-you-type HTMX request (target #owner-results; Vary: HX-Request)
 │   │   ├── receipt_new_parts/        ← Includes for receipt_new.html (not HTMX partials, so no `_`)
@@ -398,8 +397,19 @@ templates/
 │   │   │   ├── owner_row.html        ← one owner: avatar, phone, active pets, light-violet Choose
 │   │   │   ├── pet_choices.html      ← mode pet: error summary, Billed to + Change owner, the radio cards (CSS-only checked state), no-pets line
 │   │   │   └── buttons.html          ← note + Cancel + the one btn-primary "Create receipt" (modes visit and pet)
-│   │   ├── services_list.html
-│   │   └── service_form.html
+│   │   ├── services_list.html        ← Billing: services and prices on layouts/admin.html (6b-4): context from services_list_context (groups, total_count, receipt counts for the tabs); no legacy_css, no extra_js
+│   │   ├── services_list_parts/      ← Includes for services_list.html (not HTMX partials, so no `_`)
+│   │   │   ├── group.html            ← one group: gray header (status pill + "N services" + the one-line text), the rows or "None."
+│   │   │   └── row.html              ← one service, one markup for every width: name + category pill, description or "No description", price + "One price" / "Price range", outline Edit (stacks below md)
+│   │   ├── service_form.html         ← add + edit on layouts/admin.html (6b-4): `mx-auto max-w-3xl`, novalidate, the error summary (numbered), extra_js = service_form.js, a <noscript> style showing both price sets
+│   │   └── service_form_parts/       ← Includes for service_form.html (not HTMX partials, so no `_`)
+│   │       ├── header.html           ← back link, "Add service" / "Edit service · {saved_name}", subtitle
+│   │       ├── service_card.html     ← Name, Category (optional), Description (optional) through components/form_field.html
+│   │       ├── price_card.html       ← "How is it priced?" radio cards (ServiceForm.pricing_cards), then [data-price-one] / [data-price-range] indented
+│   │       ├── price_field.html      ← one price box with the ₱ sign inside (pl-8 utility beats the .form-field padding)
+│   │       ├── radio_card.html       ← one radio card (CSS-only checked state and focus ring); used by the price and status cards
+│   │       ├── status_card.html      ← "Who sees it": four radio cards (ServiceForm.status_cards) + the closed note on edit ([data-closed-note])
+│   │       └── buttons.html          ← Cancel + the one btn-primary "Add service" / "Save changes"
 │   ├── health/
 │   │   ├── article_list.html
 │   │   └── article_form.html
@@ -469,7 +479,7 @@ static/
 │   ├── owner/              ← Pet owner page styles
 │   └── shared/             ← Styles used by both roles (header, clinic info)
 ├── js/
-│   ├── admin/              ← Admin page scripts; dialogs.js and auto_submit.js are loaded by layouts/admin.html on every page; photo_input.js by admin/pets/owner_form.html, pet_form.html and admin/medical/record_detail.html (the Add file dialog), owner_form.js / pet_form.js / record_form.js / vaccination_form.js only by their form, receipt_detail.js (print buttons, Add item prefill, discount sign) only by the receipt page (extra_js)
+│   ├── admin/              ← Admin page scripts; dialogs.js and auto_submit.js are loaded by layouts/admin.html on every page; photo_input.js by admin/pets/owner_form.html, pet_form.html and admin/medical/record_detail.html (the Add file dialog), owner_form.js / pet_form.js / record_form.js / vaccination_form.js only by their form, receipt_detail.js (print buttons, Add item prefill, discount sign) only by the receipt page and service_form.js (price sets, closed note) only by the service form (extra_js)
 │   ├── owner/              ← Pet owner page scripts
 │   └── shared/             ← Scripts used by both roles
 ├── vendor/
@@ -495,11 +505,10 @@ static/
 > `js/admin/vaccination_list.js`, `css/admin/record_list.css` and
 > `css/admin/vaccination_list.css` (Slice 5b-1: no page loads them and no comment
 > names them any more; Krys deletes the files), `css/admin/receipt_form.css`
-> (Slice 6a-3: the receipt edit page is gone; only `receipt_form.html`, itself
-> unused, loads it; Krys deletes both). Other old files still
+> (Slice 6a-3: the receipt edit page is gone). Other old files still
 > mention them in comments; those comments go when their own pages migrate.
-> Templates gone with them: `admin/billing/receipt_form.html` and
-> `admin/appointments/_pet_options.html` (Slice 6a-3; Krys deletes them).
+> Template gone with them: `admin/appointments/_pet_options.html` (Slice 6a-3;
+> Krys deletes it).
 > Slice 5b-2: `admin/medical/record_detail.html` no longer loads
 > `css/admin/record_detail.css` (the old `admin/medical/pet_history.html`
 > kept importing it until 5b-5). There is no record-detail JS file. The old inline vaccination form on the record page
@@ -534,6 +543,13 @@ static/
 > discount sign; no fetch). The billing pages no longer use `openConfirmModal`
 > (`shared/modals.html` stays in the layout for the health articles page), and
 > the unused view `admin_get_service_details` and its URL are gone.
+> Slice 6b-4: `admin/billing/services_list.html` and `service_form.html` no
+> longer load `css/admin/service_form.css`, `css/admin/service_list.css` or
+> `js/admin/service_list.js` (the split pane + Add Service modal); nothing loads
+> them (Krys deletes the three; `service_list.js` and `service_form.css` only
+> name each other in comments). Added: `js/admin/service_form.js` (shows one
+> set of price boxes and the closed note; no fetch). No billing template uses
+> `legacy_css` any more.
 
 ### Media files (user uploads)
 Upload paths come from the `upload_to` values in the models:
@@ -828,7 +844,7 @@ class AppointmentBookingForm(forms.ModelForm):
 ### Four base templates
 | Base | Used by | What it provides |
 |---|---|---|
-| `layouts/admin.html` | Every admin page: redesigned ones (e.g. `admin/dashboard/index.html`) and ones not redesigned yet, which add their old CSS in `legacy_css` (e.g. `admin/billing/receipt_detail.html`) | Sidebar with count badges and logout, top bar with search ("Find a pet or owner"; the appointments, pet owners, pets, vaccinations and medical records lists and the deletion requests page put their own search there) and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/admin/dialogs.js`, `static/js/admin/auto_submit.js`, CSRF + `X-Admin-Layout` via `hx-headers`, confirm modal |
+| `layouts/admin.html` | Every admin page: redesigned ones (e.g. `admin/dashboard/index.html`) and ones not redesigned yet, which add their old CSS in `legacy_css` (e.g. `admin/health/article_list.html`) | Sidebar with count badges and logout, top bar with search ("Find a pet or owner"; the appointments, pet owners, pets, vaccinations and medical records lists and the deletion requests page put their own search there) and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/admin/dialogs.js`, `static/js/admin/auto_submit.js`, CSRF + `X-Admin-Layout` via `hx-headers`, confirm modal |
 | `layouts/auth.html` | `admin/login.html` | Admin login: standalone card on a violet background, `app.css`, no HTMX |
 | `base_dashboard.html` | Logged-in owner pages (e.g. `owner/pets/list.html`; `shared/clinic_info.html` for owners, which gets its base from the view) | Header with search and bell, role-based sidebar, flash messages, Tailwind + HTMX, CSRF header for HTMX, confirm modal |
 | `base.html` | Standalone auth pages (e.g. `owner/login.html`, `owner/register.html`, password reset, `owner/onboarding/step1.html`) | Bare page with Tailwind + HTMX, no header or sidebar |
@@ -925,31 +941,44 @@ dropdown (`admin/appointments/list_parts/tabs.html`):
 ```
 
 ### Example admin page not redesigned yet
-The receipt pages are all redesigned (6b-2). The last admin pages in billing
-still on legacy CSS are the services pages (until 6b-4); from
-`admin/billing/services_list.html` (shortened):
+No billing page is on legacy CSS any more (the last two, the services pages,
+moved in 6b-4). Pages still on it are the health library and Clinic settings
+(Slice 7); from `admin/health/article_list.html` (head and tail, shortened
+with `…`):
 ```html
 {% extends "layouts/admin.html" %}
 
 {% load static %}
 {% block legacy_css %}
 <style>
-  @import url("{% static 'css/admin/service_list.css' %}") layer(legacy);
+  @import url("{% static 'css/admin/article_form.css' %}") layer(legacy);
+  @import url("{% static 'css/admin/article_list.css' %}") layer(legacy);
 </style>
 {% endblock %}
 
-{% block title %}Services — Hapi Vet Admin{% endblock %}
+{% block title %}Health Library — Hapi Vet{% endblock %}
 
 {% block page_header %}{% endblock %}
 
 {% block content %}
-  <!-- page content here -->
-{% endblock content %}
+
+<div class="admin-page">
+
+  <div class="admin-page-header">
+    <h1 class="admin-page-title">Health Library</h1>
+    <a href="{% url 'admin_health_article_create' %}" class="btn-primary">New Article</a>
+  </div>
+  …
+</div>
+
+{% endblock %}
 
 {% block extra_js %}
-  <!-- page scripts here -->
-{% endblock extra_js %}
+  <script src="{% static 'js/admin/article_list.js' %}"></script>
+{% endblock %}
 ```
+(That page also has an inline `onclick="openConfirmModal(…)"`: the old
+pattern, not to copy; new pages use `data-dialog-open`, see Dialogs above.)
 
 ### HTMX partial templates
 Partials are prefixed with underscore and never extend a base template.

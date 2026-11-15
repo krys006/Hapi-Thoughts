@@ -1,0 +1,10 @@
+{% comment %}
+  Card "The service": Name (required), Category and Description (optional).
+  Errors, help and typed values come from form_field.html.
+{% endcomment %}
+<section class="card space-y-4" aria-labelledby="service-title">
+  <h2 id="service-title" class="flex items-center gap-2 text-xl font-semibold text-gray-900">{% include "components/icon.html" with name="file-text" class="size-5 shrink-0 text-gray-600" %}The service</h2>
+  {% include "components/form_field.html" with field=form.service_name %}
+  {% include "components/form_field.html" with field=form.category optional=True %}
+  {% include "components/form_field.html" with field=form.description optional=True %}
+</section>

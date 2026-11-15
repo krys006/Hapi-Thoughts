@@ -74,8 +74,6 @@ def admin_service_create(request):
             service = form.save()
             messages.success(request, service_saved_message(service, created=True))
             return redirect("admin_service_list")
-        else:
-            messages.error(request, "Please correct the errors below.")
     else:
         form = ServiceForm()
 
@@ -93,6 +91,9 @@ def admin_service_edit(request, pk):
         return redirect("owner_dashboard")
 
     service = get_object_or_404(Service, pk=pk)
+    # The form changes the instance while it validates; the page's title and
+    # note must keep the saved name after a failed save
+    saved_name = service.service_name
 
     if request.method == "POST":
         form = ServiceForm(request.POST, instance=service)
@@ -100,15 +101,13 @@ def admin_service_edit(request, pk):
             form.save()
             messages.success(request, service_saved_message(service, created=False))
             return redirect("admin_service_list")
-        else:
-            messages.error(request, "Please correct the errors below.")
     else:
         form = ServiceForm(instance=service)
 
     return render(
         request,
         "admin/billing/service_form.html",
-        {"form": form, "service": service, "is_edit": True},
+        {"form": form, "saved_name": saved_name, "is_edit": True},
     )
 
 
