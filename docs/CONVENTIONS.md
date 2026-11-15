@@ -360,7 +360,18 @@ templates/
 │   │   │   └── correction_card.html  ← edit only: Reason for a correction, the red state with "You changed: …", Corrected before
 │   │   └── vaccination_history.html  ← the pet's vaccinations (header + tabs, dose cards, ?highlight=<pk>); no extra_js
 │   ├── billing/
-│   │   ├── receipt_list.html         ← old template, context from receipt_list_context (6a-3); design 6b-1
+│   │   ├── receipt_list.html         ← Billing: receipts on layouts/admin.html, context from receipt_list_context (6b-1)
+│   │   ├── receipt_list_parts/       ← Includes for receipt_list.html (not HTMX partials, so no `_`; the pager is appointments' list_parts/pager.html)
+│   │   │   ├── search_form.html      ← search (q + the open tab as status); top bar md+, page body on phones
+│   │   │   ├── list_head.html        ← "Unpaid / Paid / Cancelled / All receipts (N)" + the sort order
+│   │   │   ├── results_line.html     ← "N receipts match “q” in …" + Clear search (keeps the tab)
+│   │   │   ├── cancelled_note.html   ← gray note on the Cancelled tab (when it has rows)
+│   │   │   ├── row.html              ← md+: 5-column grid (receipt | divider | owner + pet | total | Open); includes phone_card.html
+│   │   │   ├── phone_card.html       ← below md: number + total, date line, owner in a gray box, Open full width (stretched ::after link, owner is plain text)
+│   │   │   ├── date_line.html        ← "Created … · From the visit … at …" / "Paid … · Over the counter" (one line, no trailing newline)
+│   │   │   └── empty.html            ← no match / Nothing unpaid (link to Paid) / no paid / no cancelled / no receipts yet
+│   │   ├── billing_parts/            ← Includes shared by the Billing pages (not HTMX partials, so no `_`; replaced `_billing_tabs.html`)
+│   │   │   └── tabs.html             ← Unpaid / Paid / Cancelled / All with counts + Services and prices; takes active_tab and the four counts; keeps q, drops page
 │   │   ├── receipt_detail.html       ← old template, context from receipt_detail_context + the dialog forms (6a-3); design 6b-2
 │   │   ├── receipt_form.html         ← no longer rendered (6a-3: the edit URL redirects to the receipt page); Krys deletes it
 │   │   ├── receipt_new.html          ← New receipt (admin_receipt_create): from a visit, or step 1 "Who is it for?" / step 2 "Which pet?"; structural (6a-2), design 6b-3
@@ -489,6 +500,12 @@ static/
 > each other (Krys deletes all four). There was no vaccination-history JS.
 > Every template under `templates/admin/medical/` is now on the new layout:
 > no `legacy_css` block and no Tailwind CDN. No file added.
+> Slice 6b-1: `admin/billing/receipt_list.html` no longer loads
+> `js/admin/receipt_list.js` or `css/admin/receipt_list.css`, and nothing
+> includes `admin/billing/_billing_tabs.html` (the tabs are
+> `admin/billing/billing_parts/tabs.html` now); nothing loads or names any of
+> the three (Krys deletes them). `css/admin/receipt_detail.css` stays: the
+> receipt page loads it until 6b-2. No file added.
 
 ### Media files (user uploads)
 Upload paths come from the `upload_to` values in the models:

@@ -1,0 +1,46 @@
+{% comment %}
+  One receipt (needs receipt). From md up a 5-column grid like the medical
+  lists: receipt tile + number + date line | divider | owner + pet | total |
+  Open. Below md the phone card instead. A cancelled receipt gets a gray tile
+  and avatar and a struck-through total. The status badge shows on the All
+  tab only. Keep the grid columns the same as the column names row in
+  receipt_list.html.
+{% endcomment %}
+<li class="border-b border-gray-100 last:border-b-0">
+  <div class="hidden items-center gap-5 px-5 py-4 hover:bg-gray-50 md:grid md:grid-cols-[minmax(0,1.1fr)_1px_minmax(0,1fr)_9rem_7.5rem]">
+    <div class="flex min-w-0 items-center gap-3">
+      <span class="grid size-10 shrink-0 place-content-center rounded-xl ring-1 {% if receipt.payment_status == 'cancelled' %}bg-gray-100 text-gray-700 ring-gray-300{% else %}bg-violet-50 text-violet-700 ring-violet-200{% endif %}">{% include "components/icon.html" with name="receipt" %}</span>
+      <div class="min-w-0">
+        <p class="flex flex-wrap items-center gap-2 text-lg font-semibold text-gray-900">{{ receipt.receipt_number }}{% if active_tab == "all" %}{% include "components/status_badge.html" with status=receipt.payment_status label=receipt.status_label %}{% endif %}</p>
+        <p class="text-sm text-gray-700">{% include "admin/billing/receipt_list_parts/date_line.html" %}</p>
+      </div>
+    </div>
+
+    <span class="h-10 w-px bg-gray-200" aria-hidden="true"></span>
+
+    <div class="flex min-w-0 items-center gap-3">
+      {% if receipt.owner %}
+        {% if receipt.payment_status == "cancelled" %}
+          {% include "components/owner_avatar.html" with owner=receipt.owner size="sm" muted=True %}
+        {% else %}
+          {% include "components/owner_avatar.html" with owner=receipt.owner size="sm" %}
+        {% endif %}
+        <div class="min-w-0">
+          <p class="truncate text-base"><a href="{% url 'admin_owner_detail' receipt.owner.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ receipt.owner.full_name }}</a></p>
+          <p class="truncate text-sm text-gray-700">{% if receipt.pet %}for {{ receipt.pet.name }}{% else %}not for a specific pet{% endif %}</p>
+        </div>
+      {% else %}
+        <p class="text-base text-gray-700">No owner on file</p>
+      {% endif %}
+    </div>
+
+    <div class="text-right">
+      <p class="text-lg font-semibold {% if receipt.payment_status == 'cancelled' %}text-gray-700 line-through decoration-gray-500{% else %}text-gray-900{% endif %}">₱{{ receipt.total_amount|floatformat:"2g" }}</p>
+      {% if not receipt.item_count %}<p class="text-sm text-gray-700">No items yet</p>{% endif %}
+    </div>
+
+    <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-violet-300 bg-violet-50 px-5 text-base font-semibold text-violet-800 hover:border-violet-400 hover:bg-violet-100">Open<span class="sr-only"> receipt {{ receipt.receipt_number }}</span>{% include "components/icon.html" with name="arrow-right" %}</a>
+  </div>
+
+  {% include "admin/billing/receipt_list_parts/phone_card.html" %}
+</li>

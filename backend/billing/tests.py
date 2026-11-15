@@ -1936,7 +1936,9 @@ class ReceiptListTests(FrozenBillingTestBase):
         rows = {r.pk: r.item_count for r in self._context()["receipts"]}
         self.assertEqual(rows, {empty.pk: 0, full.pk: 3})
 
-    def test_old_template_still_renders(self):
+    def test_old_context_keys_are_kept(self):
+        """status_filter and counts are read by no template since 6b-1 (the
+        page is the new design) but are still returned."""
         self._tabs_fixture()
         response = self.client.get(self.url)
         self.assertTemplateUsed(response, "admin/billing/receipt_list.html")
@@ -1944,11 +1946,6 @@ class ReceiptListTests(FrozenBillingTestBase):
         self.assertEqual(context["status_filter"], "pending")
         self.assertEqual(
             context["counts"], {"all": 9, "pending": 3, "paid": 4, "cancelled": 2}
-        )
-        self.assertContains(
-            response,
-            'class="filter-tab filter-tab--active">Pending '
-            '<span class="filter-count">3</span>',
         )
         self.assertContains(response, "P-p1")
         self.assertNotContains(response, "PD-a")
@@ -2409,7 +2406,8 @@ class ReceiptDialogTests(FrozenBillingTestBase):
 # ── Slice 6a-4: owner side, notification, services ──────────────────────────
 
 OWNER_LIST_QUERIES = 5
-SERVICES_LIST_QUERIES = 7
+# 7 until 6b-1; the shared Billing tabs add the receipt counts (one aggregate)
+SERVICES_LIST_QUERIES = 8
 
 
 @PLAIN_STATIC
@@ -2948,3 +2946,747 @@ class ServicePagesTests(FrozenBillingTestBase):
         self.assertContains(response, "There is already a service called “Bath”.")
         self.assertContains(response, "Type the price.")
         self.assertEqual(Service.objects.count(), 1)
+
+
+# ── Slice 6b-1: the receipt list page ─────────────────────────────────────────
+
+BILLING_TEMPLATES = Path(settings.BASE_DIR) / "templates" / "admin" / "billing"
+RECEIPT_LIST_SOURCES = [
+    BILLING_TEMPLATES / "receipt_list.html",
+    BILLING_TEMPLATES / "billing_parts" / "tabs.html",
+    *sorted((BILLING_TEMPLATES / "receipt_list_parts").glob("*.html")),
+]
+ACTIVE_NAV = (
+    'class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base bg-white '
+    'font-semibold text-violet-800 shadow-sm ring-1 ring-violet-200" '
+    'aria-current="page">'
+)
+ROW = '<li class="border-b border-gray-100 last:border-b-0">'
+PHONE_CARD = '<div class="relative p-4'
+PILL = "rounded-full {} px-2 text-sm font-semibold"
+
+
+@PLAIN_STATIC
+class ReceiptListPageTests(FrozenBillingTestBase):
+    """admin/billing/receipt_list.html on layouts/admin.html (Slice 6b-1),
+    at 00:30 Manila on Sat, Nov 7, 2026."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("admin_receipt_list")
+        ben_user = User.objects.create(
+            username="ben", email="ben@example.com", role=User.PET_OWNER
+        )
+        self.ben = PetOwner.objects.create(
+            user=ben_user, first_name="Ben", last_name="Reyes"
+        )
+        self.luna = Pet.objects.create(owner=self.ben, name="Luna", species="Cat")
+
+    # ─── Helpers ──────────────────────────────────────────────────────────────
+
+    def _visit(self, day, hour, minute=0):
+        return Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=day,
+            time=datetime.time(hour, minute),
+            status=Appointment.COMPLETED,
+        )
+
+    def _make(
+        self, number, status=BillingReceipt.PENDING, hours_ago=0, price=None, **f
+    ):
+        """A receipt created hours_ago before now (Ana and Bantay unless
+        given), with one item at price when price is given."""
+        f.setdefault("owner", self.owner)
+        f.setdefault("pet", self.pet)
+        receipt = BillingReceipt.objects.create(
+            receipt_number=number, payment_status=status, **f
+        )
+        created = self.now - datetime.timedelta(hours=hours_ago)
+        BillingReceipt.objects.filter(pk=receipt.pk).update(created_at=created)
+        if price:
+            self._item(receipt, price)
+            receipt.calculate_totals()
+        return receipt
+
+    def _fixture(self):
+        """Two unpaid, two paid and one cancelled receipt."""
+        day = datetime.timedelta(days=1)
+        self.a = self._make(
+            "HV-2026-0012", price="630.00", appointment=self._visit(TODAY, 9)
+        )
+        self.b = self._make("HV-2026-0013", hours_ago=48, owner=self.ben, pet=None)
+        self.c = self._make(
+            "HV-2026-0010",
+            BillingReceipt.PAID,
+            30,
+            price="1450.00",
+            appointment=self._visit(TODAY - 2 * day, 14, 30),
+            payment_date=TODAY - day,
+        )
+        self.d = self._make(
+            "HV-2026-0007",
+            BillingReceipt.PAID,
+            72,
+            price="385.00",
+            owner=self.ben,
+            pet=self.luna,
+            payment_date=TODAY - 3 * day,
+        )
+        self.e = self._make(
+            "HV-2026-0011", BillingReceipt.CANCELLED, 24, price="300.00"
+        )
+
+    def _html(self, **params):
+        response = self.client.get(self.url, params)
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _tabs(self, html):
+        return re.search(
+            r'(?s)<nav [^>]*aria-label="Billing sections">.*?</nav>', html
+        ).group()
+
+    def _row(self, html, number):
+        """(desktop part, phone card) of one receipt's row."""
+        rows = [
+            row
+            for row in re.findall(rf"(?s){re.escape(ROW)}.*?</li>", html)
+            if f"receipt {number}</span>" in row
+        ]
+        self.assertEqual(len(rows), 1)
+        desktop, phone = rows[0].split(PHONE_CARD)
+        return desktop, PHONE_CARD + phone
+
+    def _empty(self, html):
+        """(title, text) of the page's empty state (text None when absent)."""
+        title = re.search(
+            r'<p class="text-lg font-semibold text-gray-900">(.*?)</p>', html
+        )
+        text = re.search(
+            r'<p class="mt-1 max-w-sm text-base text-gray-600">(.*?)</p>', html
+        )
+        return (title.group(1) if title else None, text.group(1) if text else None)
+
+    def _open_link(self, receipt):
+        return (
+            f'<a href="{reverse("admin_receipt_detail", args=[receipt.pk])}" '
+            'class="inline-flex min-h-11 items-center justify-center gap-2 '
+            "whitespace-nowrap rounded-lg border border-violet-300 bg-violet-50 px-5 "
+            "text-base font-semibold text-violet-800 hover:border-violet-400 "
+            f'hover:bg-violet-100">Open<span class="sr-only"> receipt '
+            f"{receipt.receipt_number}</span>"
+        )
+
+    def _owner_link(self, owner):
+        return (
+            f'<a href="{reverse("admin_owner_detail", args=[owner.pk])}" '
+            'class="font-medium text-blue-600 underline underline-offset-2">'
+            f"{owner.full_name}</a>"
+        )
+
+    # ─── Layout, header, sidebar ──────────────────────────────────────────────
+
+    def test_new_layout_without_old_files(self):
+        self._fixture()
+        response = self.client.get(self.url)
+        self.assertTemplateUsed(response, "layouts/admin.html")
+        self.assertTemplateUsed(response, "admin/billing/receipt_list.html")
+        self.assertTemplateUsed(response, "admin/billing/billing_parts/tabs.html")
+        self.assertTemplateNotUsed(response, "admin/billing/_billing_tabs.html")
+        for old in (
+            "receipt_list.css",
+            "receipt_list.js",
+            "receipt_detail.css",
+            "layer(legacy)",
+            "admin-page",
+            "data-table",
+            "filter-tab",
+            "SERVICE_DETAILS_URL",
+        ):
+            with self.subTest(old=old):
+                self.assertNotContains(response, old)
+        self.assertContains(response, "<title>Billing — Hapi Vet Admin</title>")
+        self.assertContains(
+            response, '<h1 class="text-2xl font-bold text-gray-900">Billing</h1>'
+        )
+        self.assertContains(
+            response, "Receipts for visits and supplies. Payment is cash."
+        )
+        source = (BILLING_TEMPLATES / "receipt_list.html").read_text(encoding="utf-8")
+        for word in ("legacy_css", "extra_js", "messages"):
+            with self.subTest(word=word):
+                self.assertNotIn(word, source)
+
+    def test_no_template_loads_the_legacy_files(self):
+        for path in BILLING_TEMPLATES.parents[1].rglob("*.html"):
+            source = path.read_text(encoding="utf-8")
+            for old in (
+                "js/admin/receipt_list.js",
+                "css/admin/receipt_list.css",
+                "_billing_tabs.html",
+            ):
+                with self.subTest(file=path.name, old=old):
+                    self.assertNotIn(old, source)
+
+    def test_header_has_the_one_primary_button(self):
+        self._fixture()
+        for tab in RECEIPT_TABS:
+            with self.subTest(tab=tab):
+                html = self._html(status=tab)
+                self.assertEqual(html.count("btn-primary"), 1)
+                self.assertRegex(
+                    html,
+                    r'(?s)<a href="'
+                    + re.escape(reverse("admin_receipt_create"))
+                    + r'" class="btn btn-primary">\s*<svg[^>]*aria-hidden="true"'
+                    r"[^>]*>.*?</svg>\s*New receipt</a>",
+                )
+
+    def test_sidebar_highlights_billing(self):
+        html = self._html()
+        self.assertEqual(html.count(ACTIVE_NAV), 1)
+        self.assertIn(f'<a href="{self.url}" {ACTIVE_NAV}', html)
+
+    def test_search_forms_with_the_hidden_status(self):
+        for tab in RECEIPT_TABS:
+            with self.subTest(tab=tab):
+                html = self._html(status=tab, q="cruz")
+                self.assertEqual(html.count('role="search"'), 2)
+                for prefix, form_class in (
+                    ("topbar", "hidden min-w-0 flex-1 items-center gap-3 md:flex"),
+                    ("page", "mb-4 flex items-center gap-3 md:hidden"),
+                ):
+                    self.assertIn(
+                        f'<form method="get" action="{self.url}" '
+                        f'class="{form_class}" role="search">',
+                        html,
+                    )
+                    self.assertIn(
+                        f'<label for="{prefix}-receipt-search" class="sr-only">'
+                        "Search receipts</label>",
+                        html,
+                    )
+                    self.assertIn(
+                        f'<input id="{prefix}-receipt-search" type="search" '
+                        'name="q" value="cruz" placeholder="Search receipts: '
+                        'number, owner or pet" class="input pl-10">',
+                        html,
+                    )
+                self.assertEqual(
+                    html.count(f'<input type="hidden" name="status" value="{tab}">'), 2
+                )
+                self.assertEqual(
+                    html.count(
+                        '<button type="submit" class="btn btn-outline font-semibold">'
+                    ),
+                    2,
+                )
+        # No ?status=: the open tab is Unpaid
+        self.assertIn(
+            '<input type="hidden" name="status" value="pending">', self._html()
+        )
+
+    # ─── Tabs ─────────────────────────────────────────────────────────────────
+
+    def test_tabs_counts_and_current(self):
+        self._fixture()
+        for tab in RECEIPT_TABS:
+            with self.subTest(tab=tab):
+                tabs = self._tabs(self._html(status=tab))
+                self.assertEqual(tabs.count('aria-current="page"'), 1)
+                self.assertRegex(
+                    tabs,
+                    rf'<a href="{self.url}\?status={tab}" class="[^"]*" '
+                    r'aria-current="page">',
+                )
+        tabs = self._tabs(self._html(status="paid"))
+        self.assertIn(
+            '">Unpaid<span class="'
+            + PILL.format("bg-yellow-200 text-yellow-900")
+            + '">2<span class="sr-only"> waiting</span></span></a>',
+            tabs,
+        )
+        self.assertIn(
+            'aria-current="page">Paid<span class="'
+            + PILL.format("bg-violet-100 text-violet-800")
+            + '">2</span></a>',
+            tabs,
+        )
+        self.assertIn(
+            '">Cancelled<span class="'
+            + PILL.format("bg-gray-100 text-gray-800")
+            + '">1</span></a>',
+            tabs,
+        )
+        self.assertIn(
+            '">All<span class="'
+            + PILL.format("bg-gray-100 text-gray-800")
+            + '">5</span></a>',
+            tabs,
+        )
+        # Unpaid open and with receipts waiting: still yellow
+        tabs = self._tabs(self._html())
+        self.assertIn(
+            'aria-current="page">Unpaid<span class="'
+            + PILL.format("bg-yellow-200 text-yellow-900")
+            + '">2<span class="sr-only"> waiting</span></span></a>',
+            tabs,
+        )
+
+    def test_the_unpaid_count_is_yellow_only_above_zero(self):
+        self._make("HV-2026-0001", BillingReceipt.PAID, payment_date=TODAY)
+        for tab in ("pending", "paid"):
+            with self.subTest(tab=tab):
+                tabs = self._tabs(self._html(status=tab))
+                self.assertNotIn("bg-yellow-200", tabs)
+                self.assertNotIn("waiting", tabs)
+        self.assertIn(
+            'aria-current="page">Unpaid<span class="'
+            + PILL.format("bg-violet-100 text-violet-800")
+            + '">0</span></a>',
+            self._tabs(self._html()),
+        )
+        self.assertIn(
+            '">Unpaid<span class="'
+            + PILL.format("bg-gray-100 text-gray-800")
+            + '">0</span></a>',
+            self._tabs(self._html(status="paid")),
+        )
+
+    def test_tab_links_keep_q_and_drop_page(self):
+        for number in range(30):
+            self._make(f"HV-2026-{number + 1:04d}")
+        tabs = self._tabs(self._html(status="all", q="ana cruz", page=2))
+        for tab in RECEIPT_TABS:
+            with self.subTest(tab=tab):
+                self.assertIn(f'href="{self.url}?status={tab}&amp;q=ana%20cruz"', tabs)
+        self.assertNotIn("page=", tabs)
+        # No search: the links are just the status
+        tabs = self._tabs(self._html())
+        self.assertIn(f'href="{self.url}?status=paid" ', tabs)
+        self.assertNotIn("q=", tabs)
+
+    def test_services_and_prices_link_after_a_divider(self):
+        tabs = self._tabs(self._html(q="ana"))
+        services = reverse("admin_service_list")
+        self.assertRegex(
+            tabs,
+            rf'(?s)<span class="mx-2 hidden h-8 w-px bg-gray-300 md:block" '
+            rf'aria-hidden="true"></span>\s*<a href="{services}" class="[^"]*">'
+            r'\s*<svg[^>]*aria-hidden="true"[^>]*>.*?</svg>\s*Services and prices</a>',
+        )
+        # The link does not carry the search
+        self.assertNotIn(f'href="{services}?', tabs)
+
+    def test_phone_tabs_are_a_two_by_two_grid(self):
+        tabs = self._tabs(self._html())
+        self.assertIn("grid grid-cols-2 gap-2", tabs)
+        self.assertIn("md:flex md:flex-wrap md:items-center", tabs)
+        self.assertIn("col-span-2", tabs)
+
+    # ─── Heads, note, results line ────────────────────────────────────────────
+
+    def test_list_heads(self):
+        self._fixture()
+        heads = {
+            "pending": ("Unpaid receipts", 2, "Oldest first"),
+            "paid": ("Paid receipts", 2, "Newest paid first"),
+            "cancelled": ("Cancelled receipts", 1, "Newest first"),
+            "all": ("All receipts", 5, "Newest first"),
+        }
+        for tab, (title, count, sort) in heads.items():
+            with self.subTest(tab=tab):
+                html = self._html(status=tab)
+                self.assertIn(
+                    f'<h2 class="text-xl font-semibold text-gray-900">{title} '
+                    f'<span class="font-normal text-gray-700">({count})</span></h2>',
+                    html,
+                )
+                self.assertIn(f'<p class="text-sm text-gray-700">{sort}</p>', html)
+
+    def test_column_names_row(self):
+        self._fixture()
+        html = self._html()
+        self.assertRegex(
+            html,
+            r'(?s)aria-hidden="true">\s*<span>Receipt</span><span></span>'
+            r'<span>Billed to</span><span class="text-right">Total</span><span></span>',
+        )
+        self.assertNotIn(
+            "<span>Billed to</span>", self._html(status="cancelled", q="zzz")
+        )
+
+    def test_results_line_one_many_none_and_clear_search(self):
+        self._fixture()
+        cases = [
+            ("pending", "0012", "1 receipt matches", "unpaid receipts"),
+            ("pending", "hv", "2 receipts match", "unpaid receipts"),
+            ("pending", "zzz", "No receipt matches", "unpaid receipts"),
+            ("paid", "hv", "2 receipts match", "paid receipts"),
+            ("cancelled", "hv", "1 receipt matches", "cancelled receipts"),
+            ("cancelled", "zzz", "No receipt matches", "cancelled receipts"),
+            ("all", "hv", "5 receipts match", "all receipts"),
+        ]
+        for tab, q, start, scope in cases:
+            with self.subTest(tab=tab, q=q):
+                html = self._html(status=tab, q=q)
+                self.assertIn(
+                    f'<h2 class="text-base font-normal text-gray-800" '
+                    f'aria-live="polite">{start} <strong class="font-semibold">'
+                    f"“{q}”</strong> in {scope}</h2>",
+                    html,
+                )
+                # Clear search keeps the tab and drops q
+                self.assertRegex(
+                    html,
+                    rf'(?s)<a href="{self.url}\?status={tab}" class="[^"]*">'
+                    r".*?</svg>\s*Clear search</a>",
+                )
+                # The tab's heading is replaced by the results line
+                self.assertNotIn('<span class="font-normal text-gray-700">(', html)
+
+    def test_the_cancelled_note_only_on_cancelled_with_rows(self):
+        note = "Cancelled receipts are kept for the clinic. Owners don't see them, and they can't be changed."
+        self.assertNotIn(note, self._html(status="cancelled"))
+        self._fixture()
+        for tab in RECEIPT_TABS:
+            with self.subTest(tab=tab):
+                html = self._html(status=tab)
+                self.assertEqual(html.count(note), 1 if tab == "cancelled" else 0)
+        self.assertRegex(
+            self._html(status="cancelled"),
+            r'(?s)<svg[^>]*aria-hidden="true"[^>]*>(?:(?!</svg>).)*</svg>\s*<p>'
+            + re.escape(note),
+        )
+
+    # ─── Rows ─────────────────────────────────────────────────────────────────
+
+    def test_unpaid_rows(self):
+        self._fixture()
+        html = self._html()
+        # Oldest first
+        self.assertLess(html.index("HV-2026-0013"), html.index("HV-2026-0012"))
+        desktop, phone = self._row(html, "HV-2026-0012")
+        for text in (
+            'text-lg font-semibold text-gray-900">HV-2026-0012</p>',
+            '<p class="text-sm text-gray-700">Created Today · From the visit Today '
+            "at 9:00 AM</p>",
+            self._owner_link(self.owner),
+            '<p class="truncate text-sm text-gray-700">for Bantay</p>',
+            '<p class="text-lg font-semibold text-gray-900">₱630.00</p>',
+            self._open_link(self.a),
+        ):
+            with self.subTest(text=text):
+                self.assertIn(text, desktop)
+        self.assertNotIn("No items yet", desktop)
+        self.assertNotIn("Paid ", desktop)
+        desktop, phone = self._row(html, "HV-2026-0013")
+        for text in (
+            "Created Thu, Nov 5 · Over the counter</p>",
+            self._owner_link(self.ben),
+            '<p class="truncate text-sm text-gray-700">not for a specific pet</p>',
+            '<p class="text-lg font-semibold text-gray-900">₱0.00</p>',
+            '<p class="text-sm text-gray-700">No items yet</p>',
+        ):
+            with self.subTest(text=text):
+                self.assertIn(text, desktop)
+
+    def test_paid_rows_show_when_they_were_paid(self):
+        self._fixture()
+        html = self._html(status="paid")
+        # Newest paid first
+        self.assertLess(html.index("HV-2026-0010"), html.index("HV-2026-0007"))
+        desktop, _ = self._row(html, "HV-2026-0010")
+        self.assertIn(
+            '<p class="text-sm text-gray-700">Paid Yesterday · From the visit '
+            "Thu, Nov 5 at 2:30 PM</p>",
+            desktop,
+        )
+        self.assertIn("₱1,450.00</p>", desktop)
+        self.assertNotIn("Created", desktop)
+        desktop, _ = self._row(html, "HV-2026-0007")
+        self.assertIn("Paid Wed, Nov 4 · Over the counter</p>", desktop)
+        self.assertIn("for Luna</p>", desktop)
+        self.assertNotIn("line-through", html)
+
+    def test_a_paid_receipt_without_a_payment_date_says_created(self):
+        self._make("HV-2026-0001", BillingReceipt.PAID)
+        desktop, _ = self._row(self._html(status="paid"), "HV-2026-0001")
+        self.assertIn("Created Today · Over the counter</p>", desktop)
+
+    def test_status_badges_only_on_all(self):
+        self._fixture()
+        html = self._html(status="all")
+        badges = {
+            "HV-2026-0012": '<span class="badge bg-yellow-100 text-yellow-800">Unpaid</span>',
+            "HV-2026-0010": '<span class="badge bg-green-100 text-green-800">Paid</span>',
+            "HV-2026-0011": '<span class="badge bg-red-100 text-red-800">Cancelled</span>',
+        }
+        for number, badge in badges.items():
+            with self.subTest(number=number):
+                desktop, phone = self._row(html, number)
+                self.assertEqual(desktop.count(badge), 1)
+                self.assertEqual(phone.count(badge), 1)
+        for tab in ("pending", "paid", "cancelled"):
+            with self.subTest(tab=tab):
+                self.assertNotIn('<span class="badge ', self._html(status=tab))
+
+    def test_cancelled_rows_are_gray_and_struck_through(self):
+        self._fixture()
+        html = self._html(status="all")
+        tile = "bg-gray-100 text-gray-700 ring-gray-300"
+        avatar = (
+            "rounded-full bg-gray-100 font-semibold tracking-wide text-gray-700 "
+            "ring-1 ring-gray-300"
+        )
+        struck = (
+            '<p class="text-lg font-semibold text-gray-700 line-through '
+            'decoration-gray-500">₱300.00</p>'
+        )
+        desktop, phone = self._row(html, "HV-2026-0011")
+        for part in (desktop, phone):
+            self.assertIn(avatar, part)
+            self.assertIn(struck, part)
+        self.assertIn(tile, desktop)
+        for number in ("HV-2026-0012", "HV-2026-0010", "HV-2026-0013"):
+            with self.subTest(number=number):
+                for part in self._row(html, number):
+                    self.assertNotIn("line-through", part)
+                    self.assertNotIn("ring-gray-300", part)
+        # Not on the other tabs
+        for tab in ("pending", "paid"):
+            with self.subTest(tab=tab):
+                other = self._html(status=tab)
+                self.assertNotIn("line-through", other)
+                self.assertNotIn("ring-gray-300", other)
+
+    def test_a_receipt_without_an_owner_still_lists(self):
+        self._make("HV-2026-0001", owner=None, pet=None)
+        html = self._html()
+        desktop, phone = self._row(html, "HV-2026-0001")
+        for part in (desktop, phone):
+            self.assertIn("No owner on file", part)
+            self.assertNotIn("/admin/pets/owners/", part)
+
+    def test_phone_cards(self):
+        self._fixture()
+        html = self._html()
+        _, phone = self._row(html, "HV-2026-0012")
+        self.assertIn(
+            '<p class="flex flex-wrap items-center gap-2 text-lg font-semibold '
+            'text-gray-900">HV-2026-0012</p>',
+            phone,
+        )
+        self.assertIn(
+            '<p class="text-lg font-semibold text-gray-900">₱630.00</p>', phone
+        )
+        self.assertIn(
+            '<p class="text-sm text-gray-700">Created Today · From the visit Today '
+            "at 9:00 AM</p>",
+            phone,
+        )
+        # The owner in a gray box, as plain text: no link inside the card link
+        self.assertIn(
+            '<div class="mt-2 flex min-w-0 items-center gap-3 rounded-lg bg-gray-50 p-3">',
+            phone,
+        )
+        self.assertIn(
+            '<p class="truncate text-base font-medium text-gray-900">Ana Cruz</p>',
+            phone,
+        )
+        self.assertNotIn("/admin/pets/owners/", phone)
+        # One link: Open, full width, stretched over the whole card
+        self.assertEqual(phone.count("<a "), 1)
+        self.assertIn(
+            f'<a href="{reverse("admin_receipt_detail", args=[self.a.pk])}" '
+            'class="mt-3 flex min-h-11 w-full items-center justify-center gap-2 '
+            "rounded-lg border border-violet-300 bg-violet-50 text-base "
+            "font-semibold text-violet-800 after:absolute after:inset-0 "
+            'hover:bg-violet-100">Open',
+            phone,
+        )
+        _, phone = self._row(html, "HV-2026-0013")
+        self.assertIn('<p class="mt-2 text-sm text-gray-700">No items yet</p>', phone)
+        # The grid row and the card swap at md
+        desktop, _ = self._row(html, "HV-2026-0012")
+        self.assertIn('<div class="hidden items-center gap-5', desktop)
+        self.assertIn(
+            "md:grid md:grid-cols-[minmax(0,1.1fr)_1px_minmax(0,1fr)_9rem_7.5rem]",
+            desktop,
+        )
+        self.assertIn("md:hidden", phone)
+
+    def test_dates_follow_the_views_today(self):
+        self._fixture()
+        # created_at is Sat, Nov 7 00:30 Manila, which is still Nov 6 in UTC
+        self.assertIn("Created Today · From the visit Today at 9:00 AM", self._html())
+        self.now = JUST_AFTER_MIDNIGHT + datetime.timedelta(days=1)
+        html = self._html()
+        self.assertIn("Created Yesterday · From the visit Yesterday at 9:00 AM", html)
+        self.assertIn("Created Thu, Nov 5 · Over the counter", html)
+        self.assertIn("Paid Fri, Nov 6 · From the visit", self._html(status="paid"))
+
+    # ─── Empty states ─────────────────────────────────────────────────────────
+
+    def test_empty_states(self):
+        cases = {
+            "pending": ("Nothing unpaid", "Every receipt is paid or cancelled."),
+            "paid": ("No paid receipts yet", None),
+            "cancelled": ("No cancelled receipts", None),
+            "all": (
+                "No receipts yet",
+                "Make one with New receipt, or from a visit's page.",
+            ),
+        }
+        for tab, expected in cases.items():
+            with self.subTest(tab=tab):
+                html = self._html(status=tab)
+                self.assertEqual(self._empty(html), expected)
+                self.assertNotIn("text-xl font-semibold", html)
+                self.assertNotIn("<span>Billed to</span>", html)
+                self.assertNotIn("Showing", html)
+
+    def test_nothing_unpaid_links_to_paid_receipts(self):
+        self._make("HV-2026-0001", BillingReceipt.PAID, payment_date=TODAY)
+        html = self._html()
+        self.assertEqual(self._empty(html)[0], "Nothing unpaid")
+        self.assertIn(
+            f'<a href="{self.url}?status=paid" class="inline-flex min-h-11 '
+            "items-center gap-2 text-base font-medium text-blue-600 underline "
+            'underline-offset-2">See paid receipts',
+            html,
+        )
+        self.assertNotIn("See paid receipts", self._html(status="paid"))
+        self.assertNotIn("bg-yellow-200", self._tabs(html))
+
+    def test_no_match_states(self):
+        self._fixture()
+        text = "Check the spelling, try another tab, or clear the search."
+        scopes = {
+            "pending": "unpaid receipts",
+            "paid": "paid receipts",
+            "cancelled": "cancelled receipts",
+            "all": "all receipts",
+        }
+        for tab, scope in scopes.items():
+            with self.subTest(tab=tab):
+                html = self._html(status=tab, q="zzz")
+                self.assertEqual(
+                    self._empty(html), (f"No receipt matches “zzz” in {scope}", text)
+                )
+                self.assertEqual(html.count("Clear search"), 1)
+        # A search with no rows never shows the Cancelled note
+        self.assertNotIn(
+            "Cancelled receipts are kept", self._html(status="cancelled", q="zzz")
+        )
+
+    def test_the_search_is_escaped(self):
+        html = self._html(status="all", q="<i>x</i>")
+        self.assertNotIn("<i>x</i>", html)
+        self.assertIn("&lt;i&gt;x&lt;/i&gt;", html)
+
+    # ─── Pager ────────────────────────────────────────────────────────────────
+
+    def test_pager_keeps_status_and_q(self):
+        for number in range(30):
+            self._make(f"HV-2026-{number + 1:04d}")
+        html = self._html(status="all", q="cruz")
+        self.assertIn("Showing 1–25 of 30", html)
+        self.assertIn(
+            '<a href="?status=all&amp;q=cruz&amp;page=2" class="btn btn-outline">',
+            html,
+        )
+        self.assertEqual(html.count(ROW), 25)
+        html = self._html(status="all", q="cruz", page=2)
+        self.assertIn("Showing 26–30 of 30", html)
+        self.assertIn(
+            '<a href="?status=all&amp;q=cruz&amp;page=1" class="btn btn-outline">', html
+        )
+        self.assertEqual(html.count(ROW), 5)
+        # No search: the status alone
+        self.assertIn('href="?status=pending&amp;page=2"', self._html())
+
+    def test_one_page_says_showing_all(self):
+        self._fixture()
+        self.assertIn("Showing all 2", self._html())
+
+    # ─── Queries, links, other pages ──────────────────────────────────────────
+
+    def _queries_for(self, count):
+        BillingReceipt.objects.all().delete()
+        Appointment.objects.all().delete()
+        for number in range(count):
+            self._make(
+                f"HV-2026-{number + 1:04d}",
+                price="10.00",
+                appointment=self._visit(TODAY - datetime.timedelta(days=number), 9),
+            )
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(self.url, {"status": "all"})
+        self.assertEqual(len(response.context["receipts"]), min(count, 25))
+        return len(queries)
+
+    def test_full_page_query_count_is_flat(self):
+        few, many = self._queries_for(3), self._queries_for(30)
+        self.assertEqual(few, many)
+        self.assertEqual(many, LIST_QUERIES)
+
+    def test_every_link_in_the_templates_is_on_one_line(self):
+        for path in RECEIPT_LIST_SOURCES:
+            links = re.findall(r"(?s)<a\b.*?</a>", path.read_text(encoding="utf-8"))
+            for link in links:
+                with self.subTest(file=path.name, link=link[:60]):
+                    self.assertNotIn("\n", link)
+        self.assertTrue(
+            any("<a " in p.read_text(encoding="utf-8") for p in RECEIPT_LIST_SOURCES)
+        )
+
+    def test_the_dashboards_unpaid_bills_link_opens_the_unpaid_tab(self):
+        self._fixture()
+        dashboard = self.client.get(reverse("admin_dashboard")).content.decode()
+        href = re.search(
+            r'<a href="([^"]*)"[^>]*>(?:(?!</a>).)*Unpaid bills</span>', dashboard, re.S
+        ).group(1)
+        self.assertEqual(href, f"{self.url}?status=pending")
+        html = self.client.get(href).content.decode()
+        self.assertRegex(
+            self._tabs(html),
+            rf'<a href="{self.url}\?status=pending" class="[^"]*" aria-current="page">',
+        )
+        self.assertIn("Unpaid receipts <span", html)
+
+    def test_the_services_page_uses_the_shared_tabs(self):
+        self._fixture()
+        services = reverse("admin_service_list")
+        response = self.client.get(services)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "admin/billing/services_list.html")
+        self.assertTemplateUsed(response, "admin/billing/billing_parts/tabs.html")
+        self.assertTemplateNotUsed(response, "admin/billing/_billing_tabs.html")
+        html = response.content.decode()
+        # Still the old page, with its legacy CSS, until 6b-4
+        self.assertIn("layer(legacy)", html)
+        tabs = self._tabs(html)
+        self.assertEqual(tabs.count('aria-current="page"'), 1)
+        self.assertRegex(
+            tabs,
+            rf'(?s)<a href="{services}" class="[^"]*" aria-current="page">'
+            r"\s*<svg[^>]*>.*?</svg>\s*Services and prices</a>",
+        )
+        self.assertIn(
+            '">Unpaid<span class="'
+            + PILL.format("bg-yellow-200 text-yellow-900")
+            + '">2<span class="sr-only"> waiting</span></span></a>',
+            tabs,
+        )
+        self.assertIn(
+            '">All<span class="'
+            + PILL.format("bg-gray-100 text-gray-800")
+            + '">5</span></a>',
+            tabs,
+        )
+        self.assertNotIn("&amp;q=", tabs)
+        # Billing stays highlighted in the sidebar
+        self.assertIn(f'<a href="{self.url}" {ACTIVE_NAV}', html)

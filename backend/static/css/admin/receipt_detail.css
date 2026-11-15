@@ -28,9 +28,7 @@
   --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
-/* ---- Fix for base_dashboard.html forcing outer page scroll (standalone) ----
-   No !important — receipt_list.css's !important always wins when both
-   load together, correctly disabling this for the list page. */
+/* ---- Fix for base_dashboard.html forcing outer page scroll (standalone) ---- */
 .dashboard-layout {
   align-items: flex-start;
 }
@@ -52,8 +50,7 @@
 }
 
 /* ---- Page shell (standalone viewing only) ----
-   No max-width/margin — avoids fighting receipt_list.css's full-width
-   .admin-page, same fix applied on the other list/detail page pairs. */
+   No max-width/margin: the page fills the admin layout's main area. */
 .admin-page {
   padding: 32px 24px 64px;
   box-sizing: border-box;

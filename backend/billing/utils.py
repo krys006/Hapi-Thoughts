@@ -493,7 +493,8 @@ def receipt_list_context(params, today):
         **counts,
         **paging_links(page_obj, page_query),
         "today": today,
-        # Old receipt_list.html's keys (its "All" tab is the empty status)
+        # Old keys no template reads now (the old list's "All" tab was the
+        # empty status); the billing tests still read them
         "status_filter": "" if active_tab == "all" else active_tab,
         "counts": {
             "all": counts["all_count"],
@@ -613,7 +614,8 @@ def services_list_context(params):
     groups Offered, Clinic use only, Hidden (draft), No longer offered (key,
     title, text, services, count) and total_count. Keeps the old
     services_list.html keys: services (filtered by ?status=), status_filter,
-    counts and status_choices.
+    counts and status_choices. Also the four receipt counts (pending_count,
+    paid_count, cancelled_count, all_count) for the shared Billing tabs.
     """
     services = list(Service.objects.order_by(Lower("service_name"), "pk"))
     groups = []
@@ -630,6 +632,7 @@ def services_list_context(params):
         )
     status_filter = params.get("status", "")
     return {
+        **_receipt_counts(),
         "groups": groups,
         "total_count": len(services),
         # Old services_list.html's keys
