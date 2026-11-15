@@ -60,12 +60,6 @@ urlpatterns = [
         views.admin_billing_item_delete,
         name="admin_billing_item_delete",
     ),
-    # ── Admin — HTMX helpers ──────────────────────────────────────────────
-    path(
-        "admin/billing/service-details/",
-        views.admin_get_service_details,
-        name="admin_get_service_details",
-    ),
     # ── Pet Owner — Billing ───────────────────────────────────────────────
     path(
         "owner/billing/",

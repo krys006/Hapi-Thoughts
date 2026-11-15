@@ -4,6 +4,8 @@ from django import forms
 from django.db.models import Sum
 from django.db.models.functions import Lower, Trim
 
+from medical.forms import ErrorCountMixin
+
 from .models import Service, BillingReceipt
 
 # Service labels live here, not in the model's choices (that would be a
@@ -165,7 +167,7 @@ def peso(amount):
     return f"₱{amount:,.2f}"
 
 
-class BillingReceiptForm(forms.ModelForm):
+class BillingReceiptForm(ErrorCountMixin, forms.ModelForm):
     """
     Admin form — the receipt's discount. Items are added separately via
     BillingItemForm. Billing date (today on create) and payment method
@@ -271,7 +273,7 @@ def service_options(services):
     One dict per service for "What is it?": the form's choices and the
     receipt page's Add item options (data-* in 6b-2) both come from here.
     pricing "range" (with min_price / max_price, price None) or "fixed"
-    (with price, min / max None).
+    (with price, min / max None); help = the price_help text.
     """
     options = []
     for service in services:
@@ -285,6 +287,9 @@ def service_options(services):
                 "price": None if is_range else service.base_price,
                 "min_price": service.min_price if is_range else None,
                 "max_price": service.max_price if is_range else None,
+                # Same text as BillingItemForm.price_help, worked out here
+                # so the page's script only copies it
+                "help": price_help(service),
             }
         )
     return options
@@ -303,7 +308,7 @@ def price_help(service):
     return f"Price list: {peso(service.base_price)}."
 
 
-class BillingItemForm(forms.Form):
+class BillingItemForm(ErrorCountMixin, forms.Form):
     """
     Admin form — add a billing line item to a receipt.
     "What is it?" lists the billable services and Other (type it). A picked

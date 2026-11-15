@@ -1,0 +1,52 @@
+{% load billing_extras %}
+{% comment %}
+  "Items (N)": the items and, under them, the totals. From md a grid (Item /
+  Qty / Unit price / Amount, plus Remove while Unpaid); below md each item is
+  stacked: name and amount, "{qty} × {unit}", then Remove full width. The two
+  layouts share one row: the qty and unit cells are hidden below md and the
+  "× " line is hidden from md up. Keep the grid columns the same in the
+  column names row and in each row. Remove and Add item open dialogs.
+{% endcomment %}
+<section class="card" aria-labelledby="items-title">
+  <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
+    <h2 id="items-title" class="flex items-center gap-2 text-xl font-semibold text-gray-900">{% include "components/icon.html" with name="receipt" class="size-5 shrink-0 text-gray-600" %}Items ({{ item_count }})</h2>
+    {% if is_pending %}
+      <button type="button" class="btn btn-outline font-semibold" data-dialog-open="add-item-dialog" aria-haspopup="dialog">{% include "components/icon.html" with name="plus" %}Add item</button>
+    {% endif %}
+  </div>
+
+  {% if not items %}
+    <div class="rounded-lg border-2 border-dashed border-gray-300 px-6 py-8 text-center">
+      {% if is_pending %}
+        <p class="text-lg font-semibold text-gray-900">No items yet</p>
+        <p class="mt-1 text-base text-gray-700">Add each service, medicine or supply. The total adds up as you go.</p>
+        <button type="button" class="btn btn-outline mt-4 font-semibold" data-dialog-open="add-item-dialog" aria-haspopup="dialog">{% include "components/icon.html" with name="plus" %}Add item</button>
+      {% else %}
+        <p class="text-lg font-semibold text-gray-900">No items</p>
+        <p class="mt-1 text-base text-gray-700">This receipt has no items.</p>
+      {% endif %}
+    </div>
+  {% else %}
+    <div class="hidden items-center gap-4 border-b border-gray-200 pb-2 text-sm font-semibold text-gray-700 md:grid {% if is_pending %}md:grid-cols-[minmax(0,1fr)_4rem_8rem_8rem_7.5rem]{% else %}md:grid-cols-[minmax(0,1fr)_4rem_8rem_8rem]{% endif %}" aria-hidden="true">
+      <span>Item</span><span class="text-right">Qty</span><span class="text-right">Unit price</span><span class="text-right">Amount</span>{% if is_pending %}<span></span>{% endif %}
+    </div>
+    <ul>
+      {% for item in items %}
+        <li class="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 border-b border-gray-100 py-3 md:items-center md:gap-4 {% if is_pending %}md:grid-cols-[minmax(0,1fr)_4rem_8rem_8rem_7.5rem]{% else %}md:grid-cols-[minmax(0,1fr)_4rem_8rem_8rem]{% endif %}">
+          <div class="min-w-0 md:order-1">
+            <p class="text-base font-semibold text-gray-900">{{ item.description }}</p>
+            {% if item.from_price_list %}<p class="text-sm text-gray-700">From the price list</p>{% endif %}
+          </div>
+          <span class="text-right text-base font-semibold md:order-4">{{ item.amount|peso }}</span>
+          <p class="col-span-2 text-sm text-gray-700 md:hidden">{{ item.quantity }} × {{ item.unit_price|peso }}</p>
+          <span class="hidden text-right text-base md:order-2 md:block">{{ item.quantity }}</span>
+          <span class="hidden text-right text-base md:order-3 md:block">{{ item.unit_price|peso }}</span>
+          {% if is_pending %}
+            <button type="button" class="btn col-span-2 mt-1 w-full border border-red-300 bg-white px-3 font-semibold text-red-700 hover:bg-red-50 md:order-5 md:col-span-1 md:mt-0 md:w-auto" data-dialog-open="remove-item-{{ item.pk }}" aria-haspopup="dialog">{% include "components/icon.html" with name="x" %}Remove<span class="sr-only"> {{ item.description }}</span></button>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+    {% include "admin/billing/receipt_detail_parts/totals.html" %}
+  {% endif %}
+</section>

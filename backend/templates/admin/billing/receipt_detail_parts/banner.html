@@ -1,0 +1,26 @@
+{% load friendly_dates %}
+{% comment %}
+  One banner per status: Unpaid (what to do next; wording differs with no
+  items), Paid (locked, the payment date in a sentence), Cancelled (locked,
+  hidden from the owner).
+{% endcomment %}
+{% if receipt.payment_status == "pending" %}
+  <div class="mb-6 flex items-start gap-3 rounded-xl border border-yellow-300 bg-yellow-50 px-5 py-4 text-base text-gray-900">
+    {% include "components/icon.html" with name="clock" class="mt-0.5 size-5 shrink-0 text-yellow-800" %}
+    {% if item_count %}
+      <p><b>Not paid yet.</b> Check the items, then press <b>Mark as paid</b> when {{ owner_name }} pays in cash.</p>
+    {% else %}
+      <p><b>Not paid yet.</b> Add what {{ owner_name }} is paying for: services, medicines or supplies.</p>
+    {% endif %}
+  </div>
+{% elif receipt.payment_status == "paid" %}
+  <div class="mb-6 flex items-start gap-3 rounded-xl border border-green-300 bg-green-50 px-5 py-4 text-base text-gray-900">
+    {% include "components/icon.html" with name="circle-check" class="mt-0.5 size-5 shrink-0 text-green-700" %}
+    <p><b>Paid in cash{% if payment_date %} {% long_date_on payment_date today "mid" %}{% endif %}.</b> This receipt is locked and can't be changed.</p>
+  </div>
+{% else %}
+  <div class="mb-6 flex items-start gap-3 rounded-xl border border-gray-300 bg-gray-100 px-5 py-4 text-base text-gray-900">
+    {% include "components/icon.html" with name="ban" class="mt-0.5 size-5 shrink-0 text-gray-700" %}
+    <p><b>This receipt was cancelled.</b> It is locked and can't be changed. {{ owner_name }} doesn't see it.</p>
+  </div>
+{% endif %}

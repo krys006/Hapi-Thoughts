@@ -1,3 +1,4 @@
+{% load billing_extras %}
 {% comment %}
   A receipt below md (needs receipt): number and total, the date line, the
   owner in a gray box (plain text: the whole card opens the receipt through
@@ -7,7 +8,7 @@
 <div class="relative p-4 hover:bg-gray-50 md:hidden">
   <div class="flex items-start justify-between gap-3">
     <p class="flex flex-wrap items-center gap-2 text-lg font-semibold text-gray-900">{{ receipt.receipt_number }}{% if active_tab == "all" %}{% include "components/status_badge.html" with status=receipt.payment_status label=receipt.status_label %}{% endif %}</p>
-    <p class="text-lg font-semibold {% if receipt.payment_status == 'cancelled' %}text-gray-700 line-through decoration-gray-500{% else %}text-gray-900{% endif %}">₱{{ receipt.total_amount|floatformat:"2g" }}</p>
+    <p class="text-lg font-semibold {% if receipt.payment_status == 'cancelled' %}text-gray-700 line-through decoration-gray-500{% else %}text-gray-900{% endif %}">{{ receipt.total_amount|peso }}</p>
   </div>
   <p class="text-sm text-gray-700">{% include "admin/billing/receipt_list_parts/date_line.html" %}</p>
   <div class="mt-2 flex min-w-0 items-center gap-3 rounded-lg bg-gray-50 p-3">

@@ -1,0 +1,10 @@
+{% load billing_extras %}
+{# Confirm removing one item (item, from items_with_totals): says what the total becomes #}
+<dialog id="remove-item-{{ item.pk }}" aria-labelledby="remove-item-{{ item.pk }}-title" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50">
+  <form method="post" action="{% url 'admin_billing_item_delete' item.pk %}" class="p-6 sm:p-7">
+    {% csrf_token %}
+    <h2 id="remove-item-{{ item.pk }}-title" class="text-xl font-bold">Remove {{ item.description }}?</h2>
+    <p class="mt-2 text-base text-gray-700">It comes off this receipt. The total goes from <b>{{ total|peso }}</b> to <b>{{ item.total_if_removed|peso }}</b>.</p>
+    {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, remove it" icon="x" danger=True %}
+  </form>
+</dialog>

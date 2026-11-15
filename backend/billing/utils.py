@@ -551,7 +551,8 @@ def items_with_totals(receipt, items):
 
 def receipt_detail_context(receipt, today):
     """
-    Context for the admin receipt page (6b-2). receipt needs
+    Context for the admin receipt page (6b-2; owner_name is its one added
+    key, "The owner" when the owner is gone). receipt needs
     RECEIPT_PAGE_RELATED selected (receipt_for_page). Keeps the old
     template's keys (receipt, items, clinic_settings).
     """
@@ -571,6 +572,8 @@ def receipt_detail_context(receipt, today):
         "discount_label": discount_label(receipt),
         "total": receipt.total_amount,
         "owner": owner,
+        # For the page's sentences ("when {owner_name} pays in cash")
+        "owner_name": owner.full_name if owner else "The owner",
         "owner_has_email": bool(owner and owner.user and owner.user.email),
         "owner_phone": owner.contact_number if owner else "",
         "pet": receipt.pet,

@@ -1,0 +1,14 @@
+{# Cancel receipt (void): "Keep it" gets the focus, the safe choice. The visit bullet only with a visit. #}
+<dialog id="cancel-dialog" aria-labelledby="cancel-title" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50">
+  <form method="post" action="{% url 'admin_receipt_mark_cancelled' receipt.pk %}" class="p-6 sm:p-7">
+    {% csrf_token %}
+    <h2 id="cancel-title" class="text-xl font-bold">Cancel receipt {{ receipt.receipt_number }}?</h2>
+    <p class="mt-2 text-base text-gray-700">Use this for a receipt made by mistake, or when nothing will be charged.</p>
+    <ul class="mt-3 list-disc space-y-1 pl-6 text-base text-gray-800">
+      <li>It can't be changed or paid after this, and it can't be undone.</li>
+      <li>{{ owner_name }} won't see it. It stays on the <b>Cancelled</b> tab for the clinic.</li>
+      {% if appointment %}<li>This visit can't get another receipt.</li>{% endif %}
+    </ul>
+    {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, cancel receipt" icon="ban" danger=True back_text="Keep it" %}
+  </form>
+</dialog>

@@ -1,0 +1,15 @@
+{% load billing_extras %}
+{% comment %}
+  Subtotal, the discount row ("Discount" and " · {label}" only when the label
+  isn't empty; the amount only with a discount, else a gray "No discount")
+  and the Total. Shown only when the receipt has items.
+{% endcomment %}
+<dl class="mt-4 space-y-2 text-base md:ml-auto md:w-96">
+  <div class="flex justify-between gap-3"><dt class="text-gray-700">Subtotal</dt><dd>{{ subtotal|peso }}</dd></div>
+  {% if has_discount %}
+    <div class="flex justify-between gap-3"><dt class="text-gray-700">Discount{% if discount_label %} · {{ discount_label }}{% endif %}</dt><dd>−{{ discount_amount|peso }}</dd></div>
+  {% else %}
+    <div class="flex justify-between gap-3 text-gray-700"><dt>No discount</dt><dd></dd></div>
+  {% endif %}
+  <div class="flex justify-between gap-3 border-t-2 border-gray-200 pt-3 text-xl font-bold"><dt>Total</dt><dd>{{ total|peso }}</dd></div>
+</dl>

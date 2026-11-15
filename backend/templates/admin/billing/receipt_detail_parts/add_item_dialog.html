@@ -1,0 +1,48 @@
+{% comment %}
+  Add item (BillingItemForm), posting to admin_billing_item_add. "What is it?"
+  is written by hand from service_options (the same list and order as the
+  form's choices): each option carries data-name, data-price, data-pricing
+  and data-help, which receipt_detail.js copies into Description, Unit price
+  and the help line. Without JS the server fills a blank description and a
+  Fixed price (BillingItemForm). A POST with errors re-renders the page with
+  open_dialog "add-item": the dialog opens on load, typed values kept.
+{% endcomment %}
+{% with picked=item_form.service_choice.value %}
+<dialog id="add-item-dialog" aria-labelledby="add-item-title" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50"{% if open_dialog == "add-item" %} data-open-on-load{% endif %}>
+  <form method="post" action="{% url 'admin_billing_item_add' receipt.pk %}" class="p-6 sm:p-7" novalidate>
+    {% csrf_token %}
+    <h2 id="add-item-title" class="text-xl font-bold">Add an item to {{ receipt.receipt_number }}</h2>
+    <p class="mt-1 text-base text-gray-700">Pick it from the price list, or choose “Other (type it)” for a medicine or supply.</p>
+    {% if item_form.errors %}
+      <div class="mt-4">{% include "admin/pets/owner_form_parts/error_summary.html" with form=item_form numbered=True %}</div>
+    {% endif %}
+    <div class="mt-5 space-y-4">
+      <div class="form-field space-y-1.5{% if item_form.service_choice.errors %} has-error{% endif %}">
+        <label for="id_service_choice" class="block text-base font-medium text-gray-800">What is it? <span class="text-red-700" aria-hidden="true">*</span></label>
+        <select name="service_choice" id="id_service_choice" data-item-service>
+          <option value="">Choose one</option>
+          {% for option in service_options %}
+            <option value="{{ option.value }}" data-name="{{ option.name }}" data-price="{{ option.price|default_if_none:'' }}" data-pricing="{{ option.pricing }}" data-help="{{ option.help }}"{% if picked == option.value %} selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+          <option value="other"{% if picked == "other" %} selected{% endif %}>Other (type it)</option>
+        </select>
+        {% include "admin/billing/receipt_detail_parts/field_errors.html" with field=item_form.service_choice %}
+      </div>
+      {% include "components/form_field.html" with field=item_form.description required=True %}
+      <div class="grid gap-4 sm:grid-cols-2">
+        {% include "components/form_field.html" with field=item_form.quantity required=True %}
+        <div class="form-field space-y-1.5{% if item_form.unit_price.errors %} has-error{% endif %}">
+          <label for="id_unit_price" class="block text-base font-medium text-gray-800">Unit price <span class="text-red-700" aria-hidden="true">*</span></label>
+          <div class="relative">
+            <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-base text-gray-700" aria-hidden="true">₱</span>
+            <input type="text" inputmode="decimal" name="unit_price" id="id_unit_price" value="{{ item_form.unit_price.value|default_if_none:'' }}" class="pl-8" aria-describedby="item-price-help">
+          </div>
+          <p id="item-price-help" class="text-sm text-gray-700" aria-live="polite" data-item-help>{{ item_form.price_help }}</p>
+          {% include "admin/billing/receipt_detail_parts/field_errors.html" with field=item_form.unit_price %}
+        </div>
+      </div>
+    </div>
+    {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Add item" icon="plus" %}
+  </form>
+</dialog>
+{% endwith %}

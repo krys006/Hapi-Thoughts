@@ -2,6 +2,7 @@ import datetime
 import inspect
 import re
 from decimal import Decimal
+from html import unescape
 from pathlib import Path
 from unittest import mock
 from zoneinfo import ZoneInfo
@@ -16,11 +17,13 @@ from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
+from django.utils.html import escape
 
-from appointments.models import Appointment
+from appointments.models import Appointment, ClinicSettings
 from billing import views as billing_views
 from billing.forms import BillingItemForm, BillingReceiptForm, ServiceForm
 from billing.models import BillingItem, BillingReceipt, Service
+from billing.templatetags.billing_extras import peso
 from billing.utils import (
     NO_ITEMS_MESSAGE,
     PICK_PET_MESSAGE,
@@ -53,6 +56,23 @@ PLAIN_STATIC = override_settings(
         },
     }
 )
+
+
+def error_line(text):
+    """Regex for one error under a dialog field (form_field.html style:
+    red text, triangle-alert icon, then the message)."""
+    return (
+        r'(?s)<p class="flex items-start gap-1 text-sm font-medium text-red-700">'
+        r"\s*<svg.*?</svg>\s*" + re.escape(escape(text)) + "</p>"
+    )
+
+
+def page_text(markup):
+    """The text of some HTML: tags to spaces, entities decoded, spaces
+    collapsed (so "Billed to <a>Ana</a> · for" reads "Billed to Ana · for")."""
+    text = " ".join(unescape(re.sub(r"<[^>]+>", " ", markup)).split())
+    # "<b>₱450.00</b>." would read "₱450.00 ."
+    return re.sub(r" ([.,;:!?])", r"\1", text)
 
 
 class BillingTestBase(TestCase):
@@ -935,9 +955,12 @@ class ItemViewTests(FrozenBillingTestBase):
                 )
                 self.assertEqual(response.status_code, 200)
                 self.assertContains(response, 'name="service_choice"', count=1)
+                # 6b-2: the option now carries the data-* the script reads
                 self.assertContains(
                     response,
-                    f'<option value="{consult.pk}">Consultation · ₱300.00</option>',
+                    f'<option value="{consult.pk}" data-name="Consultation" '
+                    'data-price="300.00" data-pricing="fixed" '
+                    'data-help="Price list: ₱300.00.">Consultation · ₱300.00</option>',
                 )
                 self.assertContains(
                     response, '<option value="other">Other (type it)</option>'
@@ -2194,6 +2217,8 @@ class ReceiptDetailContextTests(FrozenBillingTestBase):
                     "price": Decimal("150.00"),
                     "min_price": None,
                     "max_price": None,
+                    # 6b-2: the new "help" key (the price_help text)
+                    "help": "Price list: ₱150.00.",
                 },
                 {
                     "value": str(ranged.pk),
@@ -2203,9 +2228,17 @@ class ReceiptDetailContextTests(FrozenBillingTestBase):
                     "price": None,
                     "min_price": Decimal("300.00"),
                     "max_price": Decimal("800.00"),
+                    "help": (
+                        "Usual price ₱300.00 to ₱800.00. You can bill outside it."
+                    ),
                 },
             ],
         )
+        # The same text the form works out for a re-render
+        for option in options:
+            with self.subTest(value=option["value"]):
+                form = BillingItemForm({"service_choice": option["value"]})
+                self.assertEqual(option["help"], form.price_help)
 
     def _queries_for(self, item_count):
         receipt = self._empty_receipt()
@@ -2294,22 +2327,19 @@ class ReceiptDialogTests(FrozenBillingTestBase):
         self.assertEqual(self._messages(response), [])
         self.assertEqual(self.receipt.billing_items.count(), 1)
         self.assertEqual(response.context["total"], Decimal("200.00"))
-        # The old page shows the error under the field
-        self.assertContains(response, '<p class="form-error">Type the price.</p>')
+        # 6b-2: the page shows the error under the field (was the old
+        # page's <p class="form-error">)
+        self.assertRegex(response.content.decode(), error_line("Type the price."))
 
-    def test_old_page_shows_every_item_error(self):
+    def test_page_shows_every_item_error(self):
         response = self._post(
             "admin_billing_item_add",
             self.receipt.pk,
             {"service_choice": "", "quantity": "0"},
         )
-        self.assertContains(
-            response,
-            '<p class="form-error">Choose what it is, or Other (type it).</p>',
-        )
-        self.assertContains(
-            response, '<p class="form-error">The quantity must be from 1 to 999.</p>'
-        )
+        html = response.content.decode()
+        self.assertRegex(html, error_line("Choose what it is, or Other (type it)."))
+        self.assertRegex(html, error_line("The quantity must be from 1 to 999."))
 
     def test_invalid_discount_reopens_the_dialog(self):
         response = self._post(
@@ -2427,7 +2457,9 @@ class StatusLabelTests(FrozenBillingTestBase):
     def test_print_partial_shows_the_label(self):
         receipt = self._receipt()
         response = self.client.get(reverse("admin_receipt_detail", args=[receipt.pk]))
-        self.assertContains(response, "<span>Payment Status:</span><span>Unpaid</span>")
+        # 6b-2: the restyled printout shows the label as a stamp, upper case
+        # (was the "Payment Status:" field)
+        self.assertContains(response, '<p class="receipt-print-stamp">UNPAID</p>')
 
 
 @PLAIN_STATIC
@@ -2511,7 +2543,9 @@ class OwnerBillingTests(FrozenBillingTestBase):
         self.assertGreater(printout, html.index("</main>"))
         self.assertLess(printout, html.index("</body>"))
         self.assertEqual(html.count('id="printable-receipt"'), 1)
-        self.assertIn("<span>Payment Status:</span><span>Paid</span>", html)
+        # 6b-2: the restyled printout shows the status as a stamp (was the
+        # "Payment Status:" field)
+        self.assertIn('<p class="receipt-print-stamp">PAID</p>', html)
 
 
 class ReceiptPaidNotificationTests(FrozenBillingTestBase):
@@ -3690,3 +3724,1122 @@ class ReceiptListPageTests(FrozenBillingTestBase):
         self.assertNotIn("&amp;q=", tabs)
         # Billing stays highlighted in the sidebar
         self.assertIn(f'<a href="{self.url}" {ACTIVE_NAV}', html)
+
+
+# ── Slice 6b-2: the receipt page ──────────────────────────────────────────────
+
+SHARED_BILLING = Path(settings.BASE_DIR) / "templates" / "shared" / "billing"
+RECEIPT_PAGE_SOURCES = [
+    BILLING_TEMPLATES / "receipt_detail.html",
+    *sorted((BILLING_TEMPLATES / "receipt_detail_parts").glob("*.html")),
+    SHARED_BILLING / "_receipt_print.html",
+]
+RECEIPT_JS = Path(settings.BASE_DIR) / "static" / "js" / "admin" / "receipt_detail.js"
+LINK = "font-medium text-blue-600 underline underline-offset-2"
+
+
+def dialogs_in(markup):
+    """{dialog id: its markup} for every <dialog> on the page."""
+    return {
+        m.group(1): m.group(0)
+        for m in re.finditer(r'(?s)<dialog id="([^"]+)".*?</dialog>', markup)
+    }
+
+
+def primary_labels(markup):
+    """The text of every btn-primary outside the dialogs."""
+    outside = re.sub(r"(?s)<dialog.*?</dialog>", "", markup)
+    found = re.findall(
+        r'(?s)<(?:button|a)\b[^>]*class="[^"]*btn-primary[^"]*"[^>]*>(.*?)</(?:button|a)>',
+        outside,
+    )
+    return [page_text(part) for part in found]
+
+
+def section(markup, title_id):
+    """One card by its aria-labelledby id."""
+    return re.search(
+        rf'(?s)<section [^>]*aria-labelledby="{title_id}".*?</section>', markup
+    ).group()
+
+
+def button_labels(markup):
+    return [page_text(b) for b in re.findall(r"(?s)<button\b.*?</button>", markup)]
+
+
+@PLAIN_STATIC
+class ReceiptPageTests(FrozenBillingTestBase):
+    """admin/billing/receipt_detail.html on layouts/admin.html (Slice 6b-2),
+    at 00:30 Manila on Sat, Nov 7, 2026."""
+
+    def setUp(self):
+        super().setUp()
+        PetOwner.objects.filter(pk=self.owner.pk).update(contact_number="0917 555 0142")
+        self.owner.refresh_from_db()
+        self.consult = self._service("Consultation", "300.00")
+        self.visit = Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=TODAY,
+            time=datetime.time(9, 0),
+            status=Appointment.COMPLETED,
+        )
+
+    # ─── Helpers ──────────────────────────────────────────────────────────────
+
+    def _make(
+        self, status=BillingReceipt.PENDING, items=True, visit=None, pet=True, **fields
+    ):
+        """A receipt: Consultation (from the price list, ₱300.00) and
+        Amoxicillin 250 mg (10 × ₱15.00) = ₱450.00, or no items."""
+        receipt = BillingReceipt.objects.create(
+            receipt_number=BillingReceipt.generate_receipt_number(),
+            owner=self.owner,
+            pet=self.pet if pet else None,
+            appointment=visit,
+            payment_status=status,
+            billing_date=TODAY,
+            payment_date=TODAY if status == BillingReceipt.PAID else None,
+            **fields,
+        )
+        if items:
+            self._item(
+                receipt, "300.00", description="Consultation", service=self.consult
+            )
+            self._item(receipt, "15.00", 10, "Amoxicillin 250 mg")
+        receipt.calculate_totals()
+        return receipt
+
+    def _html(self, receipt):
+        response = self.client.get(reverse("admin_receipt_detail", args=[receipt.pk]))
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _header(self, markup):
+        return re.search(
+            r'(?s)<a href="[^"]*" class="mb-2 inline-flex.*?'
+            r'(?=<div class="mb-6 flex items-start gap-3)',
+            markup,
+        ).group()
+
+    def _banner(self, markup):
+        return page_text(
+            re.search(
+                r'(?s)<div class="mb-6 flex items-start gap-3.*?</div>', markup
+            ).group()
+        )
+
+    def _rows(self, markup):
+        return re.findall(r'(?s)<li class="grid grid-cols.*?</li>', markup)
+
+    def _printout(self, markup):
+        return page_text(markup[markup.index('id="printable-receipt"') :])
+
+    # ─── Layout, sidebar, legacy ──────────────────────────────────────────────
+
+    def test_layout_title_and_parts(self):
+        receipt = self._make()
+        response = self.client.get(reverse("admin_receipt_detail", args=[receipt.pk]))
+        self.assertTemplateUsed(response, "layouts/admin.html")
+        self.assertTemplateUsed(response, "admin/billing/receipt_detail.html")
+        for part in (
+            "header",
+            "banner",
+            "items_card",
+            "totals",
+            "actions_card",
+            "billed_card",
+            "info_card",
+            "add_item_dialog",
+            "discount_dialog",
+            "remove_item_dialog",
+            "mark_paid_dialog",
+            "cancel_dialog",
+        ):
+            with self.subTest(part=part):
+                self.assertTemplateUsed(
+                    response, f"admin/billing/receipt_detail_parts/{part}.html"
+                )
+        self.assertContains(
+            response,
+            f"<title>Receipt {receipt.receipt_number} — Hapi Vet Admin</title>",
+        )
+        for old in (
+            "receipt_detail.css",
+            "layer(legacy)",
+            "admin-page",
+            "detail-card",
+            "SERVICE_DETAILS_URL",
+            "service-details",
+        ):
+            with self.subTest(old=old):
+                self.assertNotContains(response, old)
+        self.assertContains(response, "js/admin/receipt_detail.js")
+
+    def test_templates_use_no_legacy_files_modals_or_inline_handlers(self):
+        source = (BILLING_TEMPLATES / "receipt_detail.html").read_text(encoding="utf-8")
+        for word in ("legacy_css", "modals"):
+            with self.subTest(word=word):
+                self.assertNotIn(word, source)
+        folders = [BILLING_TEMPLATES, SHARED_BILLING]
+        for folder in folders:
+            for path in folder.rglob("*.html"):
+                text = path.read_text(encoding="utf-8")
+                for old in ("openConfirmModal", "receipt_detail.css", "modals.html"):
+                    with self.subTest(file=path.name, old=old):
+                        self.assertNotIn(old, text)
+                with self.subTest(file=path.name, rule="no inline handlers"):
+                    self.assertIsNone(re.search(r"<[^>]*\son[a-z]+\s*=", text))
+
+    def test_the_script_has_no_inline_handlers_urls_or_fetch(self):
+        script = RECEIPT_JS.read_text(encoding="utf-8")
+        for word in (
+            "fetch(",
+            "XMLHttpRequest",
+            "onclick",
+            "{% url",
+            "service-details",
+        ):
+            with self.subTest(word=word):
+                self.assertNotIn(word, script)
+        self.assertIn("[data-print]", script)
+
+    def test_service_details_view_and_url_are_gone(self):
+        self.assertFalse(hasattr(billing_views, "admin_get_service_details"))
+        with self.assertRaises(NoReverseMatch):
+            reverse("admin_get_service_details")
+
+    def test_sidebar_highlights_billing(self):
+        html = self._html(self._make())
+        self.assertEqual(html.count(ACTIVE_NAV), 1)
+        self.assertIn(f'<a href="{reverse("admin_receipt_list")}" {ACTIVE_NAV}', html)
+
+    # ─── Header ───────────────────────────────────────────────────────────────
+
+    def test_header_with_a_visit_and_a_pet(self):
+        receipt = self._make(visit=self.visit)
+        header = self._header(self._html(receipt))
+        self.assertIn(
+            f'<a href="{reverse("admin_receipt_list")}" class="mb-2 inline-flex',
+            header,
+        )
+        text = page_text(header)
+        self.assertIn("Back to receipts", text)
+        self.assertIn(f"Receipt {receipt.receipt_number} Unpaid", text)
+        self.assertIn("Billed to Ana Cruz · for Bantay", text)
+        self.assertIn("From the visit Today at 9:00 AM", text)
+        owner_url = reverse("admin_owner_detail", args=[self.owner.pk])
+        pet_url = reverse("admin_pet_detail", args=[self.pet.pk])
+        visit_url = reverse("admin_appointment_detail", args=[self.visit.pk])
+        self.assertIn(f'<a href="{owner_url}" class="{LINK}">Ana Cruz</a>', header)
+        self.assertIn(f'<a href="{pet_url}" class="{LINK}">Bantay</a>', header)
+        self.assertRegex(
+            header, rf'<a href="{visit_url}" class="[^"]*">Today at 9:00 AM</a>'
+        )
+        self.assertNotIn("Not linked to a visit", text)
+        self.assertNotIn("not for a specific pet", text)
+
+    def test_header_without_a_visit_or_a_pet(self):
+        receipt = self._make(pet=False)
+        header = self._header(self._html(receipt))
+        text = page_text(header)
+        self.assertIn("Billed to Ana Cruz · not for a specific pet", text)
+        self.assertIn("Not linked to a visit", text)
+        self.assertNotIn("From the visit", text)
+        self.assertNotIn(reverse("admin_pet_detail", args=[self.pet.pk]), header)
+
+    def test_header_dates_follow_the_views_today(self):
+        """A visit two days ago reads "Thu, Nov 5", not "Today"."""
+        old = Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=TODAY - datetime.timedelta(days=2),
+            time=datetime.time(14, 30),
+            status=Appointment.COMPLETED,
+        )
+        header = self._header(self._html(self._make(visit=old)))
+        self.assertIn("From the visit Thu, Nov 5 at 2:30 PM", page_text(header))
+
+    def test_badge_and_tile_per_status(self):
+        cases = [
+            (BillingReceipt.PENDING, "Unpaid", "bg-yellow-100 text-yellow-800"),
+            (BillingReceipt.PAID, "Paid", "bg-green-100 text-green-800"),
+            (BillingReceipt.CANCELLED, "Cancelled", "bg-red-100 text-red-800"),
+        ]
+        violet = "bg-violet-50 text-violet-600 ring-violet-200"
+        gray = "bg-gray-100 text-gray-600 ring-gray-300"
+        for status, label, classes in cases:
+            with self.subTest(status=status):
+                html = self._html(self._make(status))
+                self.assertIn(f'<span class="badge {classes}">{label}</span>', html)
+                tile = gray if status == BillingReceipt.CANCELLED else violet
+                other = violet if tile == gray else gray
+                self.assertIn(tile, html)
+                self.assertNotIn(other, html)
+
+    # ─── Banner ───────────────────────────────────────────────────────────────
+
+    def test_banner_per_state(self):
+        cases = [
+            (
+                self._make(),
+                "Not paid yet. Check the items, then press Mark as paid when "
+                "Ana Cruz pays in cash.",
+                "border-yellow-300 bg-yellow-50",
+            ),
+            (
+                self._make(items=False),
+                "Not paid yet. Add what Ana Cruz is paying for: services, "
+                "medicines or supplies.",
+                "border-yellow-300 bg-yellow-50",
+            ),
+            (
+                self._make(BillingReceipt.PAID),
+                "Paid in cash today, Saturday, November 7. This receipt is "
+                "locked and can't be changed.",
+                "border-green-300 bg-green-50",
+            ),
+            (
+                self._make(BillingReceipt.CANCELLED),
+                "This receipt was cancelled. It is locked and can't be changed. "
+                "Ana Cruz doesn't see it.",
+                "border-gray-300 bg-gray-100",
+            ),
+        ]
+        for receipt, wording, classes in cases:
+            with self.subTest(wording=wording[:25]):
+                html = self._html(receipt)
+                self.assertEqual(self._banner(html), wording)
+                self.assertIn(
+                    f'<div class="mb-6 flex items-start gap-3 rounded-xl border {classes}',
+                    html,
+                )
+
+    def test_paid_banner_names_another_day(self):
+        receipt = self._make(BillingReceipt.PAID)
+        BillingReceipt.objects.filter(pk=receipt.pk).update(
+            payment_date=datetime.date(2026, 11, 5)
+        )
+        self.assertIn(
+            "Paid in cash Thursday, November 5.", self._banner(self._html(receipt))
+        )
+
+    # ─── Items ────────────────────────────────────────────────────────────────
+
+    def test_item_rows_for_an_unpaid_receipt(self):
+        receipt = self._make()
+        html = self._html(receipt)
+        card = section(html, "items-title")
+        self.assertIn("Items (2)", page_text(card))
+        # The column names row, hidden from screen readers, with the Remove column
+        head = re.search(
+            r'(?s)<div class="hidden [^"]*" aria-hidden="true">.*?</div>', card
+        )
+        self.assertEqual(
+            page_text(head.group()).split(), ["Item", "Qty", "Unit", "price", "Amount"]
+        )
+        self.assertIn(
+            "md:grid-cols-[minmax(0,1fr)_4rem_8rem_8rem_7.5rem]", head.group()
+        )
+        rows = self._rows(card)
+        self.assertEqual(len(rows), 2)
+        consult, amox = (page_text(row) for row in rows)
+        self.assertIn("Consultation", consult)
+        self.assertIn("From the price list", consult)
+        self.assertIn("₱300.00", consult)
+        self.assertIn("1 × ₱300.00", consult)
+        self.assertIn("Amoxicillin 250 mg", amox)
+        self.assertNotIn("From the price list", amox)
+        self.assertIn("10 × ₱15.00", amox)
+        self.assertIn("₱150.00", amox)
+        self.assertEqual(card.count("From the price list"), 1)
+        # Remove: one per item, red outline, the item named for screen readers
+        for item, row in zip(receipt.billing_items.order_by("pk"), rows):
+            with self.subTest(item=item.description):
+                self.assertIn(f'data-dialog-open="remove-item-{item.pk}"', row)
+                self.assertIn(
+                    f'Remove<span class="sr-only"> {item.description}</span>', row
+                )
+                self.assertIn("border-red-300", row)
+        self.assertIn("Add item", button_labels(card))
+
+    def test_locked_receipts_have_no_remove_and_no_add_item(self):
+        for status in LOCKED_STATUSES:
+            with self.subTest(status=status):
+                card = section(self._html(self._make(status)), "items-title")
+                self.assertEqual(len(self._rows(card)), 2)
+                self.assertEqual(button_labels(card), [])
+                self.assertNotIn("Remove", card)
+                self.assertIn("md:grid-cols-[minmax(0,1fr)_4rem_8rem_8rem]", card)
+                self.assertNotIn("_7.5rem]", card)
+
+    def test_empty_receipt_shows_the_dashed_box(self):
+        html = self._html(self._make(items=False))
+        card = section(html, "items-title")
+        text = page_text(card)
+        self.assertIn("Items (0)", text)
+        self.assertIn("No items yet", text)
+        self.assertIn(
+            "Add each service, medicine or supply. The total adds up as you go.", text
+        )
+        self.assertIn("border-2 border-dashed border-gray-300", card)
+        self.assertEqual(button_labels(card), ["Add item", "Add item"])
+        self.assertNotIn("Subtotal", card)
+        self.assertNotIn("Total", text)
+        self.assertEqual(self._rows(card), [])
+
+    def test_an_empty_locked_receipt_has_no_add_button(self):
+        card = section(
+            self._html(self._make(BillingReceipt.CANCELLED, items=False)), "items-title"
+        )
+        self.assertIn("No items", page_text(card))
+        self.assertNotIn("No items yet", card)
+        self.assertEqual(button_labels(card), [])
+
+    # ─── Totals ───────────────────────────────────────────────────────────────
+
+    def test_totals_without_a_discount(self):
+        card = section(self._html(self._make()), "items-title")
+        text = page_text(card)
+        self.assertIn("Subtotal ₱450.00 No discount Total ₱450.00", text)
+        self.assertNotIn("−", text)
+        self.assertIn("border-t-2 border-gray-200 pt-3 text-xl font-bold", card)
+
+    def test_totals_with_a_percentage_discount_and_its_note(self):
+        receipt = self._make(
+            discount_type=BillingReceipt.PERCENTAGE,
+            discount_value=Decimal("10"),
+            discount_note="Loyal client",
+        )
+        text = page_text(section(self._html(receipt), "items-title"))
+        self.assertIn(
+            "Subtotal ₱450.00 Discount · 10% · Loyal client −₱45.00 Total ₱405.00",
+            text,
+        )
+        self.assertNotIn("No discount", text)
+
+    def test_totals_with_an_empty_label_have_no_dot(self):
+        """A peso discount with no note has an empty label: "Discount", not
+        "Discount · "."""
+        receipt = self._make(
+            discount_type=BillingReceipt.FIXED_DISCOUNT, discount_value=Decimal("50")
+        )
+        card = section(self._html(receipt), "items-title")
+        self.assertIn('<dt class="text-gray-700">Discount</dt><dd>−₱50.00</dd>', card)
+        self.assertIn("Total ₱400.00", page_text(card))
+
+    def test_totals_use_the_capped_discount(self):
+        """Removing items can shrink a peso discount: the page shows the
+        capped amount."""
+        receipt = self._make(
+            discount_type=BillingReceipt.FIXED_DISCOUNT, discount_value=Decimal("400")
+        )
+        BillingItem.objects.filter(
+            receipt=receipt, description__startswith="Amox"
+        ).delete()
+        receipt.calculate_totals()
+        text = page_text(section(self._html(receipt), "items-title"))
+        self.assertIn("Subtotal ₱300.00 Discount −₱300.00 Total ₱0.00", text)
+
+    # ─── Actions ──────────────────────────────────────────────────────────────
+
+    def test_exactly_one_violet_button_per_state(self):
+        cases = [
+            (self._make(), ["Mark as paid"]),
+            (self._make(items=False), ["Add item"]),
+            (self._make(BillingReceipt.PAID), ["Print receipt"]),
+            (self._make(BillingReceipt.CANCELLED), []),
+        ]
+        for receipt, expected in cases:
+            with self.subTest(status=receipt.payment_status, expected=expected):
+                self.assertEqual(primary_labels(self._html(receipt)), expected)
+
+    def test_actions_for_an_unpaid_receipt_with_items(self):
+        html = self._html(self._make())
+        card = section(html, "actions-title")
+        self.assertEqual(
+            button_labels(card),
+            ["Mark as paid", "Add item", "Add discount", "Print", "Cancel receipt"],
+        )
+        self.assertEqual(
+            re.findall(r'data-dialog-open="([^"]+)"', card),
+            ["mark-paid-dialog", "add-item-dialog", "discount-dialog", "cancel-dialog"],
+        )
+        self.assertEqual(card.count("data-print"), 1)
+        self.assertIn("<hr", card)
+        # Cancel receipt is the red outline, full width, under the line
+        self.assertRegex(
+            card,
+            r'(?s)<hr[^>]*>\s*<button type="button" class="btn min-h-12 w-full '
+            r'border border-red-300[^"]*"[^>]*>.*?Cancel receipt',
+        )
+        self.assertIn("card order-1", html)
+
+    def test_actions_say_change_discount_with_a_discount(self):
+        receipt = self._make(
+            discount_type=BillingReceipt.PERCENTAGE, discount_value=Decimal("10")
+        )
+        labels = button_labels(section(self._html(receipt), "actions-title"))
+        self.assertIn("Change discount", labels)
+        self.assertNotIn("Add discount", labels)
+
+    def test_actions_for_an_empty_unpaid_receipt(self):
+        card = section(self._html(self._make(items=False)), "actions-title")
+        self.assertEqual(button_labels(card), ["Add item", "Cancel receipt"])
+        self.assertIn(
+            "Mark as paid shows once the receipt has an item.", page_text(card)
+        )
+        self.assertNotIn("data-print", card)
+        self.assertNotIn("Add discount", card)
+
+    def test_actions_for_a_paid_receipt(self):
+        card = section(self._html(self._make(BillingReceipt.PAID)), "actions-title")
+        self.assertEqual(button_labels(card), ["Print receipt"])
+        self.assertIn(
+            "To save it as a PDF, pick “Save as PDF” in the print window.",
+            page_text(card),
+        )
+        self.assertEqual(card.count("data-print"), 1)
+        self.assertNotIn("Cancel receipt", card)
+
+    def test_actions_for_a_cancelled_receipt(self):
+        card = section(
+            self._html(self._make(BillingReceipt.CANCELLED)), "actions-title"
+        )
+        self.assertEqual(button_labels(card), ["Print receipt"])
+        self.assertIn("btn btn-outline", card)
+        self.assertNotIn("btn-primary", card)
+        self.assertIn("The printout says “Cancelled”.", page_text(card))
+        self.assertEqual(card.count("data-print"), 1)
+
+    def test_every_opener_has_its_dialog(self):
+        for receipt in (self._make(), self._make(items=False)):
+            with self.subTest(items=receipt.billing_items.count()):
+                html = self._html(receipt)
+                ids = dialogs_in(html)
+                for opener in re.findall(r'data-dialog-open="([^"]+)"', html):
+                    self.assertIn(opener, ids)
+
+    # ─── Billed to and info cards ─────────────────────────────────────────────
+
+    def test_billed_card_with_everything(self):
+        card = section(self._html(self._make()), "billed-title")
+        text = page_text(card)
+        self.assertIn("Billed to Ana Cruz", text)
+        self.assertIn("0917 555 0142", text)
+        self.assertIn("owner@example.com", text)
+        self.assertIn("Pet Bantay · Dog", text)
+        owner_url = reverse("admin_owner_detail", args=[self.owner.pk])
+        self.assertIn(f'<a href="{owner_url}" class="{LINK}">Ana Cruz</a>', card)
+        self.assertNotIn("No phone number", text)
+        self.assertNotIn("No email", text)
+
+    def test_billed_card_without_phone_email_or_pet(self):
+        PetOwner.objects.filter(pk=self.owner.pk).update(contact_number="")
+        User.objects.filter(pk=self.owner.user.pk).update(email="")
+        card = section(self._html(self._make(pet=False)), "billed-title")
+        text = page_text(card)
+        self.assertIn("No phone number", text)
+        self.assertIn("No email", text)
+        self.assertIn("Pet Not for a specific pet", text)
+
+    def test_billed_card_names_the_owner_in_every_status(self):
+        for status in (BillingReceipt.PENDING, *LOCKED_STATUSES):
+            with self.subTest(status=status):
+                card = section(self._html(self._make(status)), "billed-title")
+                self.assertIn("Ana Cruz", card)
+
+    def test_info_card_per_status(self):
+        cases = [
+            (
+                BillingReceipt.PENDING,
+                "Created Today, 12:30 AM Payment: cash "
+                "Ana Cruz sees it as Unpaid in their Billing page.",
+            ),
+            (
+                BillingReceipt.PAID,
+                "Created Today, 12:30 AM Paid Today · Cash "
+                "Ana Cruz sees it as Paid in their Billing page and can print it.",
+            ),
+            (
+                BillingReceipt.CANCELLED,
+                "Created Today, 12:30 AM Payment: cash Hidden from Ana Cruz.",
+            ),
+        ]
+        for status, wording in cases:
+            with self.subTest(status=status):
+                html = self._html(self._make(status))
+                card = re.search(
+                    r'(?s)<section class="order-4.*?</section>', html
+                ).group()
+                self.assertEqual(page_text(card), wording)
+
+    def test_created_and_paid_follow_the_views_today(self):
+        receipt = self._make(BillingReceipt.PAID)
+        BillingReceipt.objects.filter(pk=receipt.pk).update(
+            payment_date=datetime.date(2026, 11, 5)
+        )
+        self.now = self.now + datetime.timedelta(days=1)  # Sun, Nov 8, 00:30
+        card = re.search(
+            r'(?s)<section class="order-4.*?</section>', self._html(receipt)
+        ).group()
+        self.assertIn("Created Yesterday, 12:30 AM", page_text(card))
+        self.assertIn("Paid Thu, Nov 5 · Cash", page_text(card))
+
+    # ─── Dialogs ──────────────────────────────────────────────────────────────
+
+    def test_no_dialogs_on_paid_or_cancelled_receipts(self):
+        for status in LOCKED_STATUSES:
+            with self.subTest(status=status):
+                html = self._html(self._make(status))
+                self.assertNotIn("<dialog", html)
+                self.assertNotIn("data-dialog-open", html)
+
+    def test_dialogs_post_to_the_right_urls_with_csrf(self):
+        receipt = self._make()
+        first, second = receipt.billing_items.order_by("pk")
+        dialogs = dialogs_in(self._html(receipt))
+        expected = {
+            "add-item-dialog": reverse("admin_billing_item_add", args=[receipt.pk]),
+            "discount-dialog": reverse("admin_receipt_edit", args=[receipt.pk]),
+            f"remove-item-{first.pk}": reverse(
+                "admin_billing_item_delete", args=[first.pk]
+            ),
+            f"remove-item-{second.pk}": reverse(
+                "admin_billing_item_delete", args=[second.pk]
+            ),
+            "mark-paid-dialog": reverse("admin_receipt_mark_paid", args=[receipt.pk]),
+            "cancel-dialog": reverse("admin_receipt_mark_cancelled", args=[receipt.pk]),
+        }
+        self.assertEqual(set(dialogs), set(expected))
+        for dialog_id, url in expected.items():
+            with self.subTest(dialog=dialog_id):
+                block = dialogs[dialog_id]
+                self.assertIn(f'<form method="post" action="{url}"', block)
+                self.assertIn('name="csrfmiddlewaretoken"', block)
+                self.assertIn(
+                    f'aria-labelledby="{dialog_id.split("-dialog")[0]}', block
+                )
+                self.assertEqual(block.count("autofocus"), 1)
+                self.assertIn("m-auto", block)
+                self.assertIn("p-0", block)
+
+    def test_the_mark_paid_dialog_needs_items(self):
+        dialogs = dialogs_in(self._html(self._make(items=False)))
+        self.assertNotIn("mark-paid-dialog", dialogs)
+        self.assertEqual(
+            set(dialogs), {"add-item-dialog", "discount-dialog", "cancel-dialog"}
+        )
+
+    def test_the_mark_paid_dialog(self):
+        block = dialogs_in(self._html(self._make()))["mark-paid-dialog"]
+        text = page_text(block)
+        receipt = BillingReceipt.objects.get()
+        self.assertIn(f"Mark {receipt.receipt_number} as paid?", text)
+        self.assertIn("Ana Cruz paid ₱450.00 in cash today", text)
+        self.assertIn("text-3xl font-bold", block)
+        self.assertIn(
+            "After this the receipt is locked: no more items, discount changes or "
+            "cancelling.",
+            text,
+        )
+        self.assertIn(
+            "Ana Cruz gets a notification in the app, and an email if their "
+            "receipt emails are on, so they can view or print the receipt.",
+            text,
+        )
+        self.assertNotIn("no email on file", text)
+        self.assertIn("Go back", text)
+        self.assertIn("Yes, mark as paid", text)
+        self.assertIn("btn-primary", block)
+
+    def test_the_mark_paid_dialog_without_an_email(self):
+        User.objects.filter(pk=self.owner.user.pk).update(email="")
+        text = page_text(dialogs_in(self._html(self._make()))["mark-paid-dialog"])
+        self.assertIn(
+            "Ana Cruz gets a notification in the app (no email on file).", text
+        )
+        self.assertNotIn("an email if", text)
+
+    def test_the_cancel_dialog_with_a_visit(self):
+        block = dialogs_in(self._html(self._make(visit=self.visit)))["cancel-dialog"]
+        text = page_text(block)
+        receipt = BillingReceipt.objects.get()
+        self.assertIn(f"Cancel receipt {receipt.receipt_number}?", text)
+        self.assertIn(
+            "Use this for a receipt made by mistake, or when nothing will be charged.",
+            text,
+        )
+        self.assertIn(
+            "It can't be changed or paid after this, and it can't be undone.", text
+        )
+        self.assertIn(
+            "Ana Cruz won't see it. It stays on the Cancelled tab for the clinic.", text
+        )
+        self.assertIn("This visit can't get another receipt.", text)
+        self.assertIn("Yes, cancel receipt", text)
+        self.assertIn("btn-danger", block)
+        # "Keep it" is the go-back button and has the focus
+        self.assertRegex(block, r"data-dialog-close autofocus>Keep it</button>")
+        self.assertNotIn("Go back", text)
+
+    def test_the_cancel_dialog_without_a_visit(self):
+        text = page_text(dialogs_in(self._html(self._make()))["cancel-dialog"])
+        self.assertNotIn("This visit can't get another receipt.", text)
+        self.assertIn("Keep it", text)
+
+    def test_other_dialogs_keep_their_go_back_label(self):
+        """dialog_buttons.html still says "Go back" unless back_text is given."""
+        for dialog_id, block in dialogs_in(self._html(self._make())).items():
+            if dialog_id == "cancel-dialog":
+                continue
+            with self.subTest(dialog=dialog_id):
+                self.assertIn("data-dialog-close autofocus>Go back</button>", block)
+
+    def test_the_remove_dialog_says_the_new_total_with_a_percentage_discount(self):
+        """10% off ₱450.00 is ₱405.00. Without Amoxicillin (₱150.00): 10%
+        off ₱300.00 = ₱270.00. Without Consultation: 10% off ₱150.00 = ₱135.00."""
+        receipt = self._make(
+            discount_type=BillingReceipt.PERCENTAGE, discount_value=Decimal("10")
+        )
+        consult, amox = receipt.billing_items.order_by("pk")
+        dialogs = dialogs_in(self._html(receipt))
+        cases = [
+            (
+                amox,
+                "Remove Amoxicillin 250 mg? It comes off this receipt. The total goes from ₱405.00 to ₱270.00.",
+            ),
+            (
+                consult,
+                "Remove Consultation? It comes off this receipt. The total goes from ₱405.00 to ₱135.00.",
+            ),
+        ]
+        for item, wording in cases:
+            with self.subTest(item=item.description):
+                block = dialogs[f"remove-item-{item.pk}"]
+                self.assertIn(wording, page_text(block))
+                self.assertIn("Yes, remove it", page_text(block))
+                self.assertIn("btn-danger", block)
+
+    def test_the_remove_dialog_total_equals_the_total_after_the_real_delete(self):
+        receipt = self._make(
+            discount_type=BillingReceipt.PERCENTAGE, discount_value=Decimal("10")
+        )
+        amox = receipt.billing_items.order_by("pk").last()
+        self.assertIn(
+            "to ₱270.00.",
+            page_text(dialogs_in(self._html(receipt))[f"remove-item-{amox.pk}"]),
+        )
+        self._post("admin_billing_item_delete", amox.pk)
+        receipt.refresh_from_db()
+        self.assertEqual(receipt.total_amount, Decimal("270.00"))
+
+    # ─── Add item dialog ──────────────────────────────────────────────────────
+
+    def _add_dialog(self, markup):
+        return dialogs_in(markup)["add-item-dialog"]
+
+    def test_the_add_item_select_follows_the_forms_choices(self):
+        deworm = self._service("Deworming", "150.00")
+        grooming = self._range_service("Grooming", "300.00", "800.00")
+        self._service("Bath", status=Service.DRAFT)
+        receipt = self._make()
+        response = self.client.get(reverse("admin_receipt_detail", args=[receipt.pk]))
+        block = self._add_dialog(response.content.decode())
+        select = re.search(
+            r'(?s)<select name="service_choice".*?</select>', block
+        ).group()
+        values = re.findall(r'<option value="([^"]*)"', select)
+        choices = response.context["item_form"].fields["service_choice"].choices
+        self.assertEqual(values, [value for value, _label in choices])
+        self.assertEqual(values[0], "")
+        self.assertEqual(values[-1], "other")
+        self.assertEqual(
+            values[1:-1], [str(s.pk) for s in (self.consult, deworm, grooming)]
+        )
+        self.assertIn('<option value="">Choose one</option>', select)
+        self.assertIn('<option value="other">Other (type it)</option>', select)
+        self.assertIn(
+            f'<option value="{self.consult.pk}" data-name="Consultation" '
+            'data-price="300.00" data-pricing="fixed" '
+            'data-help="Price list: ₱300.00.">Consultation · ₱300.00</option>',
+            select,
+        )
+        self.assertIn(
+            f'<option value="{grooming.pk}" data-name="Grooming" data-price="" '
+            'data-pricing="range" data-help="Usual price ₱300.00 to ₱800.00. '
+            'You can bill outside it.">Grooming · ₱300.00 to ₱800.00</option>',
+            select,
+        )
+        self.assertNotIn("selected", select)
+
+    def test_the_add_item_dialog_wording(self):
+        receipt = self._make()
+        block = self._add_dialog(self._html(receipt))
+        text = page_text(block)
+        self.assertIn(f"Add an item to {receipt.receipt_number}", text)
+        self.assertIn(
+            "Pick it from the price list, or choose “Other (type it)” for a "
+            "medicine or supply.",
+            text,
+        )
+        self.assertIn("What is it?", text)
+        self.assertIn("Description", text)
+        self.assertIn("Printed on the receipt. You can change it.", text)
+        self.assertIn("Quantity", text)
+        self.assertIn("Unit price", text)
+        self.assertIn("Add item", text)
+        self.assertNotIn("Please fix", text)
+        # The ₱ sits inside the price box; the help line is filled by the script
+        self.assertRegex(
+            block,
+            r'(?s)<span[^>]*aria-hidden="true">₱</span>\s*<input type="text" '
+            r'inputmode="decimal" name="unit_price"',
+        )
+        self.assertIn("data-item-help>", block)
+        self.assertRegex(block, r'name="quantity"[^>]*value="1"')
+        self.assertIn("max-w-2xl", block)
+        self.assertIn("btn-primary", block)
+        self.assertNotIn("data-open-on-load", block)
+
+    def test_invalid_add_reopens_with_errors_and_the_typed_values(self):
+        grooming = self._range_service("Grooming", "300.00", "800.00")
+        receipt = self._make()
+        response = self._post(
+            "admin_billing_item_add",
+            receipt.pk,
+            {
+                "service_choice": str(grooming.pk),
+                "description": "Big dog groom",
+                "quantity": "0",
+                "unit_price": "",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        dialogs = dialogs_in(html)
+        block = dialogs["add-item-dialog"]
+        # Only this dialog opens
+        self.assertEqual(html.count("data-open-on-load"), 1)
+        self.assertRegex(block, r'^<dialog id="add-item-dialog"[^>]*data-open-on-load')
+        self.assertIn("Please fix the 2 items below.", page_text(block))
+        self.assertRegex(block, error_line("The quantity must be from 1 to 999."))
+        self.assertRegex(block, error_line("Type the price."))
+        # Typed values kept; the service still picked; the price help re-rendered
+        self.assertRegex(block, r'name="description" value="Big dog groom"')
+        self.assertRegex(block, r'name="quantity" value="0"')
+        self.assertRegex(block, r'name="unit_price" id="id_unit_price" value=""')
+        self.assertRegex(block, rf'<option value="{grooming.pk}"[^>]*selected>')
+        self.assertEqual(
+            re.search(r"(?s)data-item-help>(.*?)</p>", block).group(1),
+            "Usual price ₱300.00 to ₱800.00. You can bill outside it.",
+        )
+        self.assertEqual(self._messages(response), [])
+        self.assertEqual(receipt.billing_items.count(), 2)
+
+    def test_invalid_add_shows_the_pick_error_and_keeps_other(self):
+        receipt = self._make()
+        response = self._post(
+            "admin_billing_item_add",
+            receipt.pk,
+            {
+                "service_choice": "other",
+                "description": "",
+                "quantity": "2",
+                "unit_price": "12.50",
+            },
+        )
+        block = self._add_dialog(response.content.decode())
+        self.assertIn("Please fix the 1 item below.", page_text(block))
+        self.assertRegex(block, error_line("Type what it is."))
+        self.assertRegex(
+            block, r'<option value="other" selected>Other \(type it\)</option>'
+        )
+        self.assertRegex(block, r'name="unit_price" id="id_unit_price" value="12.50"')
+        self.assertEqual(re.search(r"(?s)data-item-help>(.*?)</p>", block).group(1), "")
+        response = self._post("admin_billing_item_add", receipt.pk, {"quantity": "1"})
+        block = self._add_dialog(response.content.decode())
+        self.assertRegex(block, error_line("Choose what it is, or Other (type it)."))
+
+    # ─── Discount dialog ──────────────────────────────────────────────────────
+
+    def test_the_discount_dialog(self):
+        receipt = self._make()
+        block = dialogs_in(self._html(receipt))["discount-dialog"]
+        text = page_text(block)
+        self.assertIn(f"Discount for {receipt.receipt_number}", text)
+        self.assertIn("Subtotal now: ₱450.00.", text)
+        self.assertIn("Choose “No discount” to remove it.", text)
+        self.assertIn("(% or ₱)", text)
+        self.assertIn("Note (optional)", text)
+        self.assertIn("Printed next to the discount.", text)
+        self.assertIn("Save discount", text)
+        self.assertNotIn("Please fix", text)
+        self.assertNotIn("data-open-on-load", block)
+        for label in ("No discount", "Percent off (%)", "Peso amount off (₱)"):
+            self.assertIn(label, text)
+        self.assertIn('name="discount_value" id="id_discount_value" value=""', block)
+        self.assertIn("data-discount-sign", block)
+
+    def test_the_discount_dialog_shows_the_saved_discount(self):
+        receipt = self._make(
+            discount_type=BillingReceipt.PERCENTAGE,
+            discount_value=Decimal("10"),
+            discount_note="Loyal client",
+        )
+        block = dialogs_in(self._html(receipt))["discount-dialog"]
+        self.assertIn(
+            'name="discount_value" id="id_discount_value" value="10.00"', block
+        )
+        self.assertRegex(block, r'<option value="percentage" selected>')
+        self.assertIn('value="Loyal client"', block)
+
+    def test_invalid_discount_reopens_with_the_error_and_the_typed_value(self):
+        receipt = self._make()
+        response = self._post(
+            "admin_receipt_edit",
+            receipt.pk,
+            {
+                "discount_type": BillingReceipt.PERCENTAGE,
+                "discount_value": "150",
+                "discount_note": "Too much",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        block = dialogs_in(html)["discount-dialog"]
+        self.assertEqual(html.count("data-open-on-load"), 1)
+        self.assertRegex(block, r'^<dialog id="discount-dialog"[^>]*data-open-on-load')
+        self.assertIn("Please fix the 1 item below.", page_text(block))
+        self.assertRegex(block, error_line("A discount can't be more than 100%."))
+        self.assertIn('name="discount_value" id="id_discount_value" value="150"', block)
+        self.assertRegex(block, r'<option value="percentage" selected>')
+        self.assertIn('value="Too much"', block)
+        # The page itself still shows the saved receipt
+        self.assertIn("No discount", page_text(section(html, "items-title")))
+        self.assertEqual(self._messages(response), [])
+
+    def test_a_peso_discount_over_the_subtotal_shows_its_error(self):
+        receipt = self._make()
+        response = self._post(
+            "admin_receipt_edit",
+            receipt.pk,
+            {"discount_type": BillingReceipt.FIXED_DISCOUNT, "discount_value": "500"},
+        )
+        block = dialogs_in(response.content.decode())["discount-dialog"]
+        self.assertRegex(
+            block, error_line("A discount can't be more than the subtotal (₱450.00).")
+        )
+
+    # ─── Peso filter ──────────────────────────────────────────────────────────
+
+    def test_peso_filter(self):
+        cases = [
+            (0, "₱0.00"),
+            (Decimal("0"), "₱0.00"),
+            (Decimal("1250.5"), "₱1,250.50"),
+            (1250.5, "₱1,250.50"),
+            (Decimal("999999.99"), "₱999,999.99"),
+            (Decimal("12"), "₱12.00"),
+            (Decimal("-5"), "₱-5.00"),
+            (None, ""),
+            ("", ""),
+            ("abc", ""),
+        ]
+        for value, expected in cases:
+            with self.subTest(value=value):
+                self.assertEqual(peso(value), expected)
+
+    def test_the_list_and_the_page_use_the_same_money_format(self):
+        receipt = self._make()
+        BillingItem.objects.filter(receipt=receipt).update(
+            unit_price=Decimal("1000.00")
+        )
+        for item in receipt.billing_items.all():
+            item.save()
+        receipt.calculate_totals()
+        self.assertIn("₱11,000.00", self._html(receipt))
+        listing = self.client.get(reverse("admin_receipt_list")).content.decode()
+        self.assertIn("₱11,000.00", listing)
+        self.assertNotIn(
+            "floatformat",
+            (BILLING_TEMPLATES / "receipt_list_parts" / "row.html").read_text(
+                encoding="utf-8"
+            ),
+        )
+
+    def test_owner_name_context_key(self):
+        response = self.client.get(
+            reverse("admin_receipt_detail", args=[self._make().pk])
+        )
+        self.assertEqual(response.context["owner_name"], "Ana Cruz")
+
+    # ─── Print partial ────────────────────────────────────────────────────────
+
+    def test_the_printout_for_a_paid_receipt(self):
+        ClinicSettings.objects.create(
+            clinic_name="Hapi Tutz Vet. Supplies",
+            address="Bognuyan, Gasan, Marinduque",
+            contact_number="0917 000 0000",
+            email="hapitutzvet@gmail.com",
+            opening_time=datetime.time(8, 0),
+            closing_time=datetime.time(17, 0),
+            same_day_cutoff_time=datetime.time(15, 0),
+        )
+        receipt = self._make(BillingReceipt.PAID)
+        printed = self._printout(self._html(receipt))
+        for expected in (
+            "Hapi Tutz Vet. Supplies Bognuyan, Gasan, Marinduque "
+            "0917 000 0000 · hapitutzvet@gmail.com",
+            f"RECEIPT Receipt no. {receipt.receipt_number} Date: November 7, 2026",
+            "PAID Cash · November 7, 2026",
+            "BILLED TO Ana Cruz · 0917 555 0142 Pet: Bantay",
+            "Qty Description Unit Amount",
+            "1 Consultation ₱300.00 ₱300.00",
+            "10 Amoxicillin 250 mg ₱15.00 ₱150.00",
+            "Subtotal ₱450.00 TOTAL ₱450.00",
+            "Thank you for trusting Hapi Tutz Vet. Supplies! "
+            "We care for your pets like our own.",
+        ):
+            with self.subTest(expected=expected[:30]):
+                self.assertIn(expected, printed)
+        self.assertNotIn("Discount (", printed)
+
+    def test_the_printout_stamp_per_status(self):
+        cases = [
+            (BillingReceipt.PENDING, "UNPAID", False),
+            (BillingReceipt.PAID, "PAID", True),
+            (BillingReceipt.CANCELLED, "CANCELLED", False),
+        ]
+        for status, stamp, has_cash in cases:
+            with self.subTest(status=status):
+                html = self._html(self._make(status))
+                self.assertIn(f'<p class="receipt-print-stamp">{stamp}</p>', html)
+                self.assertEqual("Cash · " in self._printout(html), has_cash)
+
+    def test_the_printout_discount_line_only_with_a_discount(self):
+        with_note = self._make(
+            discount_type=BillingReceipt.PERCENTAGE,
+            discount_value=Decimal("10"),
+            discount_note="Loyal client",
+        )
+        printed = self._printout(self._html(with_note))
+        self.assertIn(
+            "Subtotal ₱450.00 Discount (10% · Loyal client) −₱45.00 TOTAL ₱405.00",
+            printed,
+        )
+        plain = self._make(
+            discount_type=BillingReceipt.FIXED_DISCOUNT, discount_value=Decimal("50")
+        )
+        self.assertIn("Discount (Discount) −₱50.00", self._printout(self._html(plain)))
+        self.assertNotIn("Discount", self._printout(self._html(self._make())))
+
+    def test_the_printout_pet_line_only_with_a_pet(self):
+        self.assertIn("Pet: Bantay", self._printout(self._html(self._make())))
+        printed = self._printout(self._html(self._make(pet=False)))
+        self.assertNotIn("Pet:", printed)
+        self.assertIn("BILLED TO Ana Cruz · 0917 555 0142 Qty", printed)
+
+    def test_the_printout_money_has_commas(self):
+        receipt = self._make(items=False)
+        self._item(receipt, "1250.00", description="Surgery")
+        receipt.calculate_totals()
+        printed = self._printout(self._html(receipt))
+        self.assertIn("1 Surgery ₱1,250.00 ₱1,250.00", printed)
+        self.assertIn("TOTAL ₱1,250.00", printed)
+
+    def test_the_printout_is_black_on_white_and_self_contained(self):
+        source = (SHARED_BILLING / "_receipt_print.html").read_text(encoding="utf-8")
+        self.assertIn("<style>", source)
+        self.assertIn("color: #000;", source)
+        self.assertIn("background: #fff;", source)
+        for outside in ("cdn.", "tailwind", "app.css", "gray-", "text-sm", "flex "):
+            with self.subTest(outside=outside):
+                self.assertNotIn(outside, source.split("</style>")[1])
+
+    def test_the_printout_stays_after_the_page_in_extra_js_on_both_pages(self):
+        receipt = self._make(BillingReceipt.PAID)
+        admin_html = self._html(receipt)
+        self.client.force_login(self.owner.user)
+        owner_html = self.client.get(
+            reverse("owner_receipt_detail", args=[receipt.pk])
+        ).content.decode()
+        for name, html in (("admin", admin_html), ("owner", owner_html)):
+            with self.subTest(page=name):
+                self.assertEqual(html.count('id="printable-receipt"'), 1)
+                printout = html.index('id="printable-receipt"')
+                self.assertGreater(printout, html.index("</main>"))
+                self.assertLess(printout, html.index("</body>"))
+        # On the admin page the script comes first, then the printout
+        self.assertLess(
+            admin_html.index("js/admin/receipt_detail.js"),
+            admin_html.index('id="printable-receipt"'),
+        )
+
+    def test_the_owner_page_still_renders_and_prints_only_the_receipt(self):
+        pending = self._make(
+            discount_type=BillingReceipt.PERCENTAGE, discount_value=Decimal("10")
+        )
+        paid = self._make(BillingReceipt.PAID)
+        self.client.force_login(self.owner.user)
+        for receipt, stamp in ((pending, "UNPAID"), (paid, "PAID")):
+            with self.subTest(status=receipt.payment_status):
+                response = self.client.get(
+                    reverse("owner_receipt_detail", args=[receipt.pk])
+                )
+                self.assertEqual(response.status_code, 200)
+                html = response.content.decode()
+                self.assertIn(f'<p class="receipt-print-stamp">{stamp}</p>', html)
+                # The print rules hide everything but the receipt
+                self.assertIn("body * {", html)
+                self.assertIn(".receipt-print-wrapper,", html)
+                self.assertIn("body > *:not(.receipt-print-wrapper)", html)
+        printed = self._printout(
+            self.client.get(
+                reverse("owner_receipt_detail", args=[pending.pk])
+            ).content.decode()
+        )
+        self.assertIn("Discount (10%) −₱45.00 TOTAL ₱405.00", printed)
+
+    # ─── Queries and markup rules ─────────────────────────────────────────────
+
+    def _queries_for(self, item_count):
+        receipt = self._make(items=False, visit=None)
+        for number in range(item_count):
+            self._item(
+                receipt, "10.00", description=f"Item {number}", service=self.consult
+            )
+        receipt.calculate_totals()
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(
+                reverse("admin_receipt_detail", args=[receipt.pk])
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["items"]), item_count)
+        return len(queries)
+
+    def test_full_page_query_count_is_flat(self):
+        none, ten = self._queries_for(0), self._queries_for(10)
+        self.assertEqual(none, ten)
+        self.assertEqual(ten, DETAIL_QUERIES)
+
+    def test_every_link_is_on_one_line(self):
+        for path in RECEIPT_PAGE_SOURCES:
+            for link in re.findall(
+                r"(?s)<a\b.*?</a>", path.read_text(encoding="utf-8")
+            ):
+                with self.subTest(file=path.name, link=link[:50]):
+                    self.assertNotIn("\n", link)
+        self.assertTrue(
+            any("<a " in p.read_text(encoding="utf-8") for p in RECEIPT_PAGE_SOURCES)
+        )
+
+    def test_text_is_never_gray_400_or_lighter(self):
+        for path in RECEIPT_PAGE_SOURCES:
+            with self.subTest(file=path.name):
+                self.assertIsNone(
+                    re.search(
+                        r"text-(gray|slate|zinc|neutral)-(50|100|200|300|400)\b",
+                        path.read_text(encoding="utf-8"),
+                    )
+                )

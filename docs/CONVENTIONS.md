@@ -111,7 +111,7 @@ Never use per-app template folders.
 - `base_dashboard.html` is the base for logged-in owner pages (header,
   bell, sidebar, flash messages). No admin page uses it.
 - `layouts/admin.html` is the base for every admin page (see §10). Pages
-  not redesigned yet (e.g. `admin/billing/receipt_detail.html`) import their old
+  not redesigned yet (e.g. `admin/billing/services_list.html`) import their old
   `static/css/admin/` file in the `legacy_css` block, inside the `legacy`
   cascade layer.
 - `layouts/auth.html` is the base for the admin login: a standalone card
@@ -372,7 +372,21 @@ templates/
 │   │   │   └── empty.html            ← no match / Nothing unpaid (link to Paid) / no paid / no cancelled / no receipts yet
 │   │   ├── billing_parts/            ← Includes shared by the Billing pages (not HTMX partials, so no `_`; replaced `_billing_tabs.html`)
 │   │   │   └── tabs.html             ← Unpaid / Paid / Cancelled / All with counts + Services and prices; takes active_tab and the four counts; keeps q, drops page
-│   │   ├── receipt_detail.html       ← old template, context from receipt_detail_context + the dialog forms (6a-3); design 6b-2
+│   │   ├── receipt_detail.html       ← the receipt page on layouts/admin.html (6b-2): context from receipt_detail_context + item_form / discount_form / open_dialog; extra_js = receipt_detail.js + the print partial (direct child of <body>)
+│   │   ├── receipt_detail_parts/     ← Includes for receipt_detail.html (not HTMX partials, so no `_`; the medical record page's pattern)
+│   │   │   ├── header.html           ← back link, receipt tile (gray when cancelled), "Receipt {number}" + status badge, billed to / for, the visit link or "Not linked to a visit"
+│   │   │   ├── banner.html           ← one banner per status (Unpaid with or without items, Paid, Cancelled)
+│   │   │   ├── items_card.html       ← "Items (N)", the dashed empty box, the rows (md+ grid; stacked below md), includes totals.html
+│   │   │   ├── totals.html           ← Subtotal, Discount (only with one) or "No discount", Total
+│   │   │   ├── actions_card.html     ← the side column's first card: the one violet button per state, dialog openers, [data-print]
+│   │   │   ├── billed_card.html      ← owner, phone, email, pet
+│   │   │   ├── info_card.html        ← created, payment, what the owner sees
+│   │   │   ├── field_errors.html     ← errors under a dialog field (form_field style)
+│   │   │   ├── add_item_dialog.html  ← hand-written "What is it?" select from service_options (data-name / data-price / data-pricing / data-help); reopens with errors
+│   │   │   ├── discount_dialog.html  ← discount type, How much (% / ₱ sign by the script), note; reopens with errors
+│   │   │   ├── remove_item_dialog.html ← one per item; says the new total
+│   │   │   ├── mark_paid_dialog.html ← only with items (can_mark_paid)
+│   │   │   └── cancel_dialog.html    ← "Keep it" is the go-back button (dialog_buttons.html back_text)
 │   │   ├── receipt_form.html         ← no longer rendered (6a-3: the edit URL redirects to the receipt page); Krys deletes it
 │   │   ├── receipt_new.html          ← New receipt (admin_receipt_create): from a visit, or step 1 "Who is it for?" / step 2 "Which pet?"; structural (6a-2), design 6b-3
 │   │   ├── services_list.html
@@ -446,7 +460,7 @@ static/
 │   ├── owner/              ← Pet owner page styles
 │   └── shared/             ← Styles used by both roles (header, clinic info)
 ├── js/
-│   ├── admin/              ← Admin page scripts; dialogs.js and auto_submit.js are loaded by layouts/admin.html on every page; photo_input.js by admin/pets/owner_form.html, pet_form.html and admin/medical/record_detail.html (the Add file dialog), owner_form.js / pet_form.js / record_form.js / vaccination_form.js only by their form (extra_js)
+│   ├── admin/              ← Admin page scripts; dialogs.js and auto_submit.js are loaded by layouts/admin.html on every page; photo_input.js by admin/pets/owner_form.html, pet_form.html and admin/medical/record_detail.html (the Add file dialog), owner_form.js / pet_form.js / record_form.js / vaccination_form.js only by their form, receipt_detail.js (print buttons, Add item prefill, discount sign) only by the receipt page (extra_js)
 │   ├── owner/              ← Pet owner page scripts
 │   └── shared/             ← Scripts used by both roles
 ├── vendor/
@@ -504,8 +518,13 @@ static/
 > `js/admin/receipt_list.js` or `css/admin/receipt_list.css`, and nothing
 > includes `admin/billing/_billing_tabs.html` (the tabs are
 > `admin/billing/billing_parts/tabs.html` now); nothing loads or names any of
-> the three (Krys deletes them). `css/admin/receipt_detail.css` stays: the
-> receipt page loads it until 6b-2. No file added.
+> the three (Krys deletes them). `css/admin/receipt_detail.css` stayed until 6b-2.
+> Slice 6b-2: `admin/billing/receipt_detail.html` no longer loads
+> `css/admin/receipt_detail.css`; nothing loads or names it (Krys deletes the
+> file). Added: `js/admin/receipt_detail.js` (print buttons, Add item prefill,
+> discount sign; no fetch). The billing pages no longer use `openConfirmModal`
+> (`shared/modals.html` stays in the layout for the health articles page), and
+> the unused view `admin_get_service_details` and its URL are gone.
 
 ### Media files (user uploads)
 Upload paths come from the `upload_to` values in the models:
@@ -897,18 +916,20 @@ dropdown (`admin/appointments/list_parts/tabs.html`):
 ```
 
 ### Example admin page not redesigned yet
-From `admin/billing/receipt_detail.html`:
+The receipt pages are all redesigned (6b-2). The last admin pages in billing
+still on legacy CSS are the services pages (until 6b-4); from
+`admin/billing/services_list.html` (shortened):
 ```html
 {% extends "layouts/admin.html" %}
 
 {% load static %}
 {% block legacy_css %}
 <style>
-  @import url("{% static 'css/admin/receipt_detail.css' %}") layer(legacy);
+  @import url("{% static 'css/admin/service_list.css' %}") layer(legacy);
 </style>
 {% endblock %}
 
-{% block title %}{{ receipt.receipt_number }} — Hapi Vet Admin{% endblock %}
+{% block title %}Services — Hapi Vet Admin{% endblock %}
 
 {% block page_header %}{% endblock %}
 
@@ -1050,7 +1071,7 @@ The main admin user is an elderly vet. Every migrated admin page follows these:
 ### Components (`templates/components/`)
 | Component | Usage |
 |---|---|
-| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 55 icons (`calendar-check` added in dashboard v5, `archive` in Slice 4a-2, `map-pin`, `link`, `pencil`, `rotate-ccw`, `send` in Slice 4a-3, `upload` in Slice 4a-4, `pill` and `chevron-down` in Slice 5b-2). To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
+| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 58 icons (`printer`, `percent` and `ban` added in Slice 6b-2, `calendar-check` added in dashboard v5, `archive` in Slice 4a-2, `map-pin`, `link`, `pencil`, `rotate-ccw`, `send` in Slice 4a-3, `upload` in Slice 4a-4, `pill` and `chevron-down` in Slice 5b-2). To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
 | `pet_avatar.html` | `{% include "components/pet_avatar.html" with pet=appointment.pet size="lg" %}`. `lg` 64px (`size-16 rounded-2xl`), `sm` 40px (`size-10 rounded-xl`). The pet's photo, or a violet tile with the `species_icon` icon (dog, cat, rabbit, bird, paw-print) at stroke 1.5, labelled "No photo of {name} yet". Optional `muted=True`: gray tile (`bg-gray-100 text-gray-600 ring-gray-300`) for archived pets, or every pet of an archived owner (owner page); a photo is unchanged. |
 | `owner_avatar.html` | `{% include "components/owner_avatar.html" with owner=appointment.owner size="xs" %}`. Circle; `lg` 64px (`size-16`, `text-xl` initials; owner page header), `sm` 40px, `xs` 32px. The profile photo, or initials (one letter when the last name is blank). Optional `muted=True`: gray initials tile (`bg-gray-100 text-gray-700 ring-gray-300`) for archived owners (owners list Archived tab, owner page). |
 | `form_field.html` | `{% include "components/form_field.html" with field=form.email %}`. Label, control, help text, errors (red text with the `triangle-alert` icon). Optional `optional=True` adds a gray "(optional)" after the label; `required=True` adds the red * for a field only `clean()` requires (the pet form's "Type the species"). Needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple field uses it. |

@@ -14,6 +14,7 @@ from .utils import (
     add_item,
     create_receipt,
     create_visit_receipt,
+    discount_label,
     discount_saved_message,
     initial_pet_pick,
     lock_pending_receipt,
@@ -389,49 +390,7 @@ def owner_receipt_detail(request, pk):
         {
             "receipt": receipt,
             "items": items,
+            "discount_label": discount_label(receipt),
             "clinic_settings": ClinicSettings.objects.first(),
         },
     )
-
-
-@login_required
-def admin_get_service_details(request):
-    """
-    HTMX view — returns service name and pricing details for a selected service.
-    Used to pre-fill the billing item form when a service is selected.
-    Returns JSON consumed by inline JS in the template.
-    """
-    if request.user.role != "admin":
-        return redirect("owner_dashboard")
-
-    from django.http import JsonResponse
-
-    service_pk = request.GET.get("service", "")
-
-    if not service_pk:
-        return JsonResponse(
-            {"name": "", "price": "", "placeholder": "", "pricing_type": ""}
-        )
-
-    try:
-        service = Service.objects.get(pk=int(service_pk))
-    except (Service.DoesNotExist, ValueError):
-        return JsonResponse(
-            {"name": "", "price": "", "placeholder": "", "pricing_type": ""}
-        )
-
-    data = {
-        "name": service.service_name,
-        "pricing_type": service.pricing_type,
-        "price": "",
-        "placeholder": "",
-    }
-
-    if service.pricing_type == Service.FIXED:
-        data["price"] = str(service.base_price)
-        data["placeholder"] = ""
-    elif service.pricing_type == Service.RANGE:
-        data["price"] = ""
-        data["placeholder"] = f"₱{service.min_price:,.2f} – ₱{service.max_price:,.2f}"
-
-    return JsonResponse(data)

@@ -332,10 +332,11 @@ PENDING or CONFIRMED → CANCELLED
 | System auto-calculates total | `complete` |
 | Apply discount per receipt (percentage or fixed amount) | `complete` |
 | Discount note field (e.g. "Loyal client discount") | `complete` |
-| Set payment method (cash, etc.) | `complete` |
+| Payment is cash only: recorded as Cash, with today's date, by Mark as paid (no payment method field; GCash / bank transfer is a future expansion point) | `complete` |
 | Set payment status: Pending / Paid / Cancelled, shown as Unpaid / Paid / Cancelled (via Mark as Paid / Cancel Receipt actions only) | `complete` |
 | Cancelled receipts are hidden from the pet owner (list, receipt page, search) | `complete` |
-| Edit receipt while status is Pending | `complete` |
+| Change a receipt while it is Unpaid: add or remove items and set the discount on the receipt page (no separate edit page) | `complete` |
+| Print an Unpaid, Paid or Cancelled receipt from the receipt page (the printout carries a PAID / UNPAID / CANCELLED stamp) | `complete` |
 | Receipt locked once marked as Paid or Cancelled | `complete` |
 | View all billing transactions | `complete` |
 | View receipt detail | `complete` |
