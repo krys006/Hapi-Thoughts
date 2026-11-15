@@ -623,8 +623,7 @@ def services_list_context(params):
     title, text, services, count) and total_count; each service gets
     is_range. Old keys no template reads now but billing tests still do:
     services (filtered by ?status=), status_filter, counts and
-    status_choices. Also the four receipt counts (pending_count,
-    paid_count, cancelled_count, all_count) for the shared Billing tabs.
+    status_choices.
     """
     services = list(Service.objects.order_by(Lower("service_name"), "pk"))
     for service in services:
@@ -649,7 +648,6 @@ def services_list_context(params):
         )
     status_filter = params.get("status", "")
     return {
-        **_receipt_counts(),
         "groups": groups,
         "total_count": len(services),
         # The old services_list.html's keys (no template uses them now)

@@ -2,15 +2,13 @@
 
 {% block title %}Services and prices — Hapi Vet Admin{% endblock %}
 
-{% block page_title %}Billing{% endblock %}
-{% block page_subtitle %}Services and prices: the price list for receipts and for booking.{% endblock %}
+{% block page_title %}Services and prices{% endblock %}
+{% block page_subtitle %}The price list for receipts and for booking.{% endblock %}
 {% block page_actions %}
   <a href="{% url 'admin_service_create' %}" class="btn btn-primary font-semibold">{% include "components/icon.html" with name="plus" %}Add service</a>
 {% endblock %}
 
 {% block content %}
-  {% include "admin/billing/billing_parts/tabs.html" with active_tab="services" %}
-
   {% if total_count %}
     <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
       <h2 class="text-xl font-semibold text-gray-900">All services ({{ total_count }})</h2>

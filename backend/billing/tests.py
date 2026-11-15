@@ -3060,7 +3060,7 @@ class ReceiptDialogTests(FrozenBillingTestBase):
 
 OWNER_LIST_QUERIES = 5
 # 7 until 6b-1; the shared Billing tabs add the receipt counts (one aggregate)
-SERVICES_LIST_QUERIES = 8
+SERVICES_LIST_QUERIES = 7
 
 
 @PLAIN_STATIC
@@ -3930,23 +3930,24 @@ class ReceiptListPageTests(FrozenBillingTestBase):
         self.assertIn(f'href="{self.url}?status=paid" ', tabs)
         self.assertNotIn("q=", tabs)
 
-    def test_services_and_prices_link_after_a_divider(self):
-        tabs = self._tabs(self._html(q="ana"))
-        services = reverse("admin_service_list")
-        self.assertRegex(
-            tabs,
-            rf'(?s)<span class="mx-2 hidden h-8 w-px bg-gray-300 md:block" '
-            rf'aria-hidden="true"></span>\s*<a href="{services}" class="[^"]*">'
-            r'\s*<svg[^>]*aria-hidden="true"[^>]*>.*?</svg>\s*Services and prices</a>',
-        )
-        # The link does not carry the search
-        self.assertNotIn(f'href="{services}?', tabs)
+    def test_four_tabs_only_and_no_services_link(self):
+        for q in ("", "ana"):
+            with self.subTest(q=q):
+                tabs = self._tabs(self._html(q=q) if q else self._html())
+                self.assertEqual(tabs.count("<a "), 4)
+                for label in ("Unpaid", "Paid", "Cancelled", "All"):
+                    self.assertIn(f">{label}<span", tabs)
+                self.assertNotIn("Services and prices", tabs)
+                self.assertNotIn(reverse("admin_service_list"), tabs)
+                self.assertNotIn("w-px", tabs)
+                self.assertNotIn("<svg", tabs)
 
     def test_phone_tabs_are_a_two_by_two_grid(self):
         tabs = self._tabs(self._html())
         self.assertIn("grid grid-cols-2 gap-2", tabs)
         self.assertIn("md:flex md:flex-wrap md:items-center", tabs)
-        self.assertIn("col-span-2", tabs)
+        # Was assertIn: the Services link used col-span-2 under the grid
+        self.assertNotIn("col-span-2", tabs)
 
     # ─── Heads, note, results line ────────────────────────────────────────────
 
@@ -4319,39 +4320,20 @@ class ReceiptListPageTests(FrozenBillingTestBase):
         )
         self.assertIn("Unpaid receipts <span", html)
 
-    def test_the_services_page_uses_the_shared_tabs(self):
+    def test_the_services_page_has_no_billing_tabs(self):
         self._fixture()
         services = reverse("admin_service_list")
         response = self.client.get(services)
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "admin/billing/services_list.html")
-        self.assertTemplateUsed(response, "admin/billing/billing_parts/tabs.html")
+        self.assertTemplateNotUsed(response, "admin/billing/billing_parts/tabs.html")
         self.assertTemplateNotUsed(response, "admin/billing/_billing_tabs.html")
         html = response.content.decode()
-        # On the new layout since 6b-4: no legacy CSS (was assertIn until 6b-4)
         self.assertNotIn("layer(legacy)", html)
-        tabs = self._tabs(html)
-        self.assertEqual(tabs.count('aria-current="page"'), 1)
-        self.assertRegex(
-            tabs,
-            rf'(?s)<a href="{services}" class="[^"]*" aria-current="page">'
-            r"\s*<svg[^>]*>.*?</svg>\s*Services and prices</a>",
-        )
-        self.assertIn(
-            '">Unpaid<span class="'
-            + PILL.format("bg-yellow-200 text-yellow-900")
-            + '">2<span class="sr-only"> waiting</span></span></a>',
-            tabs,
-        )
-        self.assertIn(
-            '">All<span class="'
-            + PILL.format("bg-gray-100 text-gray-800")
-            + '">5</span></a>',
-            tabs,
-        )
-        self.assertNotIn("&amp;q=", tabs)
-        # Billing stays highlighted in the sidebar
-        self.assertIn(f'<a href="{self.url}" {ACTIVE_NAV}', html)
+        self.assertNotIn('aria-label="Billing sections"', html)
+        # Billing is not highlighted in the sidebar; Services and prices is
+        self.assertNotIn(f'<a href="{self.url}" {ACTIVE_NAV}', html)
+        self.assertIn(f'<a href="{services}" {ACTIVE_NAV}', html)
 
 
 # ── Slice 6b-2: the receipt page ──────────────────────────────────────────────
@@ -5551,7 +5533,7 @@ class ServicesListPageTests(FrozenBillingTestBase):
         response = self.client.get(self.url)
         self.assertTemplateUsed(response, "layouts/admin.html")
         self.assertTemplateUsed(response, "admin/billing/services_list.html")
-        self.assertTemplateUsed(response, "admin/billing/billing_parts/tabs.html")
+        self.assertTemplateNotUsed(response, "admin/billing/billing_parts/tabs.html")
         self.assertTemplateUsed(
             response, "admin/billing/services_list_parts/group.html"
         )
@@ -5570,12 +5552,10 @@ class ServicesListPageTests(FrozenBillingTestBase):
             response, "<title>Services and prices — Hapi Vet Admin</title>"
         )
         self.assertContains(
-            response, '<h1 class="text-2xl font-bold text-gray-900">Billing</h1>'
-        )
-        self.assertContains(
             response,
-            "Services and prices: the price list for receipts and for booking.",
+            '<h1 class="text-2xl font-bold text-gray-900">Services and prices</h1>',
         )
+        self.assertContains(response, "The price list for receipts and for booking.")
         source = (BILLING_TEMPLATES / "services_list.html").read_text(encoding="utf-8")
         for word in ("legacy_css", "extra_js", "messages"):
             with self.subTest(word=word):
@@ -5604,29 +5584,29 @@ class ServicesListPageTests(FrozenBillingTestBase):
                     r'aria-hidden="true"[^>]*>.*?</svg>\s*Add service</a>',
                 )
 
-    def test_sidebar_highlights_billing(self):
+    def test_sidebar_highlights_services_and_prices(self):
         html = self._html()
         self.assertEqual(html.count(ACTIVE_NAV), 1)
-        self.assertIn(f'<a href="{reverse("admin_receipt_list")}" {ACTIVE_NAV}', html)
+        self.assertIn(f'<a href="{self.url}" {ACTIVE_NAV}', html)
+        self.assertNotIn(
+            f'<a href="{reverse("admin_receipt_list")}" {ACTIVE_NAV}', html
+        )
 
-    def test_tabs_with_services_current(self):
+    def test_no_billing_tabs(self):
         self._empty_receipt()
         html = self._html()
-        tabs = re.search(
-            r'(?s)<nav [^>]*aria-label="Billing sections">.*?</nav>', html
-        ).group()
-        self.assertEqual(tabs.count('aria-current="page"'), 1)
-        self.assertRegex(
-            tabs,
-            rf'(?s)<a href="{self.url}" class="[^"]*" aria-current="page">'
-            r"\s*<svg[^>]*>.*?</svg>\s*Services and prices</a>",
-        )
+        self.assertNotIn('aria-label="Billing sections"', html)
+        self.assertNotIn(">Unpaid<", html)
+
+    def test_header_and_one_primary_button(self):
+        html = self._html()
         self.assertIn(
-            '">Unpaid<span class="'
-            + PILL.format("bg-yellow-200 text-yellow-900")
-            + '">1<span class="sr-only"> waiting</span></span></a>',
-            tabs,
+            '<h1 class="text-2xl font-bold text-gray-900">Services and prices</h1>',
+            html,
         )
+        self.assertIn("The price list for receipts and for booking.", html)
+        self.assertNotIn(">Billing</h1>", html)
+        self.assertEqual(html.count("btn-primary"), 1)
 
     # ─── Groups ───────────────────────────────────────────────────────────────
 
@@ -5790,7 +5770,8 @@ class ServicesListPageTests(FrozenBillingTestBase):
         self.assertNotIn("All services", text)
         self.assertNotIn("None.", text)
         self.assertEqual(group_sections(html), {})
-        self.assertIn('aria-label="Billing sections"', html)
+        # Was assertIn: the Billing tabs are not on this page any more
+        self.assertNotIn('aria-label="Billing sections"', html)
 
     def _queries(self, count):
         Service.objects.all().delete()
@@ -6474,13 +6455,13 @@ class ServiceFormPageTests(FrozenBillingTestBase):
 
     # ─── Sidebar, script, markup rules ────────────────────────────────────────
 
-    def test_sidebar_highlights_billing(self):
+    def test_sidebar_highlights_services_and_prices(self):
         for url in (self.add_url, self.edit_url):
             with self.subTest(url=url):
                 html = self._html(url)
                 self.assertEqual(html.count(ACTIVE_NAV), 1)
                 self.assertIn(
-                    f'<a href="{reverse("admin_receipt_list")}" {ACTIVE_NAV}', html
+                    f'<a href="{reverse("admin_service_list")}" {ACTIVE_NAV}', html
                 )
 
     def test_the_script_switches_the_sets_and_the_note(self):

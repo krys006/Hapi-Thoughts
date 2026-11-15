@@ -283,7 +283,7 @@ class ClinicInfoFrameTests(ShellTestBase):
 
 
 class SidebarTests(ShellTestBase):
-    """Nine sidebar links in three groups; tab-only pages light up their parent."""
+    """Ten sidebar links in three groups; tab-only pages light up their parent."""
 
     LABELS = (
         "Dashboard",
@@ -294,6 +294,7 @@ class SidebarTests(ShellTestBase):
         "Vaccinations",
         "Health library",
         "Billing",
+        "Services and prices",
         "Clinic settings",
     )
 
@@ -313,13 +314,13 @@ class SidebarTests(ShellTestBase):
         self.assertIsNotNone(match, f"No sidebar link to {url_name}")
         return match.group(0)
 
-    def test_nine_links_and_no_tab_pages(self):
+    def test_ten_links_and_no_tab_pages(self):
         nav = self._sidebar(self.client.get(reverse("admin_dashboard")))
         for label in self.LABELS:
             with self.subTest(label=label):
                 self.assertIn(f'<span class="flex-1">{label}</span>', nav)
-        self.assertEqual(nav.count("<a "), 9)
-        for name in ("admin_deletion_requests", "admin_service_list", "clinic_info"):
+        self.assertEqual(nav.count("<a "), 10)
+        for name in ("admin_deletion_requests", "clinic_info"):
             with self.subTest(name=name):
                 self.assertNotIn(f'href="{reverse(name)}"', nav)
 
@@ -327,9 +328,63 @@ class SidebarTests(ShellTestBase):
         nav = self._sidebar(self.client.get(reverse("admin_deletion_requests")))
         self.assertIn('aria-current="page"', self._link(nav, "admin_pet_list"))
 
-    def test_services_highlights_billing(self):
-        nav = self._sidebar(self.client.get(reverse("admin_service_list")))
-        self.assertIn('aria-current="page"', self._link(nav, "admin_receipt_list"))
+    def test_services_and_prices_link_has_label_and_tag_icon(self):
+        nav = self._sidebar(self.client.get(reverse("admin_dashboard")))
+        link = re.search(
+            rf'(?s)<a href="{re.escape(reverse("admin_service_list"))}"[^>]*>.*?</a>',
+            nav,
+        ).group(0)
+        self.assertIn('<span class="flex-1">Services and prices</span>', link)
+        # The tag icon's dot
+        self.assertIn('<circle cx="7.5" cy="7.5" r=".5"', link)
+        # Between Billing and Clinic settings
+        self.assertLess(
+            nav.index(reverse("admin_receipt_list")),
+            nav.index(reverse("admin_service_list")),
+        )
+        self.assertLess(
+            nav.index(reverse("admin_service_list")),
+            nav.index(reverse("admin_clinic_settings")),
+        )
+
+    def test_services_pages_highlight_only_services_and_prices(self):
+        service = Service.objects.create(service_name="Bath", base_price="150.00")
+        urls = (
+            reverse("admin_service_list"),
+            reverse("admin_service_create"),
+            reverse("admin_service_edit", args=[service.pk]),
+        )
+        for url in urls:
+            with self.subTest(url=url):
+                nav = self._sidebar(self.client.get(url))
+                self.assertEqual(nav.count('aria-current="page"'), 1)
+                self.assertIn(
+                    'aria-current="page"', self._link(nav, "admin_service_list")
+                )
+                self.assertNotIn(
+                    'aria-current="page"', self._link(nav, "admin_receipt_list")
+                )
+
+    def test_receipt_pages_highlight_billing_not_services(self):
+        receipt = BillingReceipt.objects.create(
+            receipt_number="HV-2026-0001",
+            owner=self.owner,
+            pet=self.pet,
+            payment_status=BillingReceipt.PENDING,
+        )
+        urls = (
+            reverse("admin_receipt_list"),
+            reverse("admin_receipt_detail", args=[receipt.pk]),
+        )
+        for url in urls:
+            with self.subTest(url=url):
+                nav = self._sidebar(self.client.get(url))
+                self.assertIn(
+                    'aria-current="page"', self._link(nav, "admin_receipt_list")
+                )
+                self.assertNotIn(
+                    'aria-current="page"', self._link(nav, "admin_service_list")
+                )
 
 
 class TopbarSearchTests(ShellTestBase):

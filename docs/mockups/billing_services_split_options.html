@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Billing: separating Services, options</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>body{font-family:"Segoe UI",system-ui,sans-serif}</style>
+</head>
+<body class="bg-gray-200 p-6 text-gray-900">
+<p class="mb-4 max-w-[1100px] rounded-xl border border-violet-200 bg-violet-50 p-4 text-base">Three ways to make <b>Services and prices</b> separate from the receipt tabs. Each panel shows the sidebar's Clinic group and the top of the page: first the receipts page, then the services page.</p>
+<div id="out" class="space-y-8"></div>
+<script>
+const ic = {
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  file:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="M2 12h3"/><path d="M19 12h3"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  arrow:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  back:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  tag:'<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>'
+};
+const i = (n, c = 'size-5 shrink-0') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ic[n]}</svg>`;
+const BTN = 'inline-flex min-h-11 items-center gap-2 rounded-lg px-4 py-2.5 text-base font-semibold';
+const PRIMARY = `${BTN} bg-violet-600 text-white`;
+const nav = (label, icon, on) => `<a class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base ${on ? 'bg-white font-semibold text-violet-800 shadow-sm ring-1 ring-violet-200' : 'text-gray-800'}">${i(icon)}${label}</a>`;
+const side = (items) => `<aside class="w-56 shrink-0 space-y-1 border-r border-violet-200 bg-violet-100 p-3"><p class="px-3 pb-1 text-sm font-semibold text-violet-800">Clinic</p>${items}</aside>`;
+const tab = (label, n, on, cls = 'bg-gray-100 text-gray-800') => `<a class="inline-flex min-h-12 items-center gap-2 rounded-lg px-4 text-base ${on ? 'bg-violet-50 font-semibold text-violet-800 ring-2 ring-violet-600' : 'text-gray-800'}">${label}${n !== '' ? `<span class="rounded-full px-2 text-sm font-semibold ${on ? 'bg-violet-100 text-violet-800' : cls}">${n}</span>` : ''}</a>`;
+const statusTabs = (extra = '') => `<nav class="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white p-2 shadow-sm">${tab('Unpaid', 2, true, 'bg-yellow-200 text-yellow-900')}${tab('Paid', 3, false)}${tab('Cancelled', 2, false)}${tab('All', 7, false)}${extra}</nav>`;
+const head = (h, sub, btn) => `<div class="mb-5 flex items-start justify-between gap-4"><div><h1 class="text-2xl font-bold">${h}</h1><p class="mt-1 text-base text-gray-700">${sub}</p></div><a class="${PRIMARY}">${i('plus')}${btn}</a></div>`;
+const listStub = t => `<p class="mt-5 text-xl font-semibold">${t}</p><div class="mt-3 h-16 rounded-xl border border-dashed border-gray-300 bg-white"></div>`;
+const screen = (sidebar, body, label) => `<div><p class="mb-1 text-sm font-semibold text-gray-700">${label}</p><div class="flex overflow-hidden rounded-xl border border-gray-300 bg-gray-50 shadow-sm">${sidebar}<main class="min-w-0 flex-1 p-6">${body}</main></div></div>`;
+const panel = (title, why, a, b) => `<section class="max-w-[1100px] rounded-2xl bg-white p-6 shadow"><h2 class="text-xl font-bold">${title}</h2><p class="mt-1 text-base text-gray-700">${why}</p><div class="mt-4 space-y-4">${a}${b}</div></section>`;
+
+const sideBilling = side(nav('Billing','receipt',true) + nav('Clinic settings','settings',false));
+const sideA1 = side(nav('Billing','receipt',true) + nav('Services and prices','tag',false) + nav('Clinic settings','settings',false));
+const sideA2 = side(nav('Billing','receipt',false) + nav('Services and prices','tag',true) + nav('Clinic settings','settings',false));
+
+const A = panel('Option A · Its own sidebar link',
+  'Services and prices becomes its own page in the sidebar (Clinic group: Billing, Services and prices, Clinic settings). The receipts page has only the four receipt tabs. The sidebar goes from 9 to 10 links. Most separate; one more item for Dr. Aga to read.',
+  screen(sideA1, head('Billing','Receipts for visits and supplies. Payment is cash.','New receipt') + statusTabs() + listStub('Unpaid receipts (2)'), 'Receipts page'),
+  screen(sideA2, head('Services and prices','The price list for receipts and for booking.','Add service') + listStub('All services (3)'), 'Services page'));
+
+const switcher = (onReceipts) => `<nav class="mb-4 inline-flex rounded-xl border border-gray-300 bg-white p-1 shadow-sm">
+  <a class="inline-flex min-h-12 items-center gap-2 rounded-lg px-5 text-lg ${onReceipts ? 'bg-violet-600 font-semibold text-white' : 'text-gray-800'}">${i('receipt')}Receipts</a>
+  <a class="inline-flex min-h-12 items-center gap-2 rounded-lg px-5 text-lg ${!onReceipts ? 'bg-violet-600 font-semibold text-white' : 'text-gray-800'}">${i('tag')}Services and prices</a></nav>`;
+const B = panel('Option B · Two levels inside Billing',
+  'Billing keeps one sidebar link. Under the header, a large two-part switch picks the section: Receipts or Services and prices. The receipt status tabs show only under Receipts. Separate, but still one place for money matters.',
+  screen(sideBilling, head('Billing','Receipts for visits and supplies. Payment is cash.','New receipt') + switcher(true) + statusTabs() + listStub('Unpaid receipts (2)'), 'Receipts page'),
+  screen(sideBilling, head('Billing','Services and prices: the price list for receipts and for booking.','Add service') + switcher(false) + listStub('All services (3)'), 'Services page'));
+
+const C = panel('Option C · A link to the right, outside the tabs',
+  'The tab box holds only the four receipt tabs. "Services and prices" moves out of it to an outline link on the right. On the services page the tabs are gone and a back link "Back to receipts" sits on top. Smallest change.',
+  screen(sideBilling, head('Billing','Receipts for visits and supplies. Payment is cash.','New receipt') + `<div class="flex flex-wrap items-center justify-between gap-3">${statusTabs()}<a class="${BTN} border border-gray-300 bg-white text-gray-800">${i('tag')}Services and prices${i('arrow')}</a></div>` + listStub('Unpaid receipts (2)'), 'Receipts page'),
+  screen(sideBilling, `<p class="mb-2"><a class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">${i('back')}Back to receipts</a></p>` + head('Services and prices','The price list for receipts and for booking.','Add service') + listStub('All services (3)'), 'Services page'));
+
+document.getElementById('out').innerHTML = A + B + C;
+</script>
+</body>
+</html>

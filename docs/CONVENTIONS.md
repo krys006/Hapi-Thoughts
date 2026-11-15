@@ -371,7 +371,7 @@ templates/
 │   │   │   ├── date_line.html        ← "Created … · From the visit … at …" / "Paid … · Over the counter" (one line, no trailing newline)
 │   │   │   └── empty.html            ← no match / Nothing unpaid (link to Paid) / no paid / no cancelled / no receipts yet
 │   │   ├── billing_parts/            ← Includes shared by the Billing pages (not HTMX partials, so no `_`; replaced `_billing_tabs.html`)
-│   │   │   └── tabs.html             ← Unpaid / Paid / Cancelled / All with counts + Services and prices; takes active_tab and the four counts; keeps q, drops page
+│   │   │   └── tabs.html             ← Unpaid / Paid / Cancelled / All with counts (receipt list only; Services and prices is its own sidebar page since 2026-11-16); takes active_tab and the four counts; keeps q, drops page
 │   │   ├── receipt_detail.html       ← the receipt page on layouts/admin.html (6b-2): context from receipt_detail_context + item_form / discount_form / open_dialog; extra_js = receipt_detail.js + the print partial (direct child of <body>)
 │   │   ├── receipt_detail_parts/     ← Includes for receipt_detail.html (not HTMX partials, so no `_`; the medical record page's pattern)
 │   │   │   ├── header.html           ← back link, receipt tile (gray when cancelled), "Receipt {number}" + status badge, billed to / for, the visit link or "Not linked to a visit"
@@ -397,7 +397,7 @@ templates/
 │   │   │   ├── owner_row.html        ← one owner: avatar, phone, active pets, light-violet Choose
 │   │   │   ├── pet_choices.html      ← mode pet: error summary, Billed to + Change owner, the radio cards (CSS-only checked state), no-pets line
 │   │   │   └── buttons.html          ← note + Cancel + the one btn-primary "Create receipt" (modes visit and pet)
-│   │   ├── services_list.html        ← Billing: services and prices on layouts/admin.html (6b-4): context from services_list_context (groups, total_count, receipt counts for the tabs); no legacy_css, no extra_js
+│   │   ├── services_list.html        ← Billing: services and prices on layouts/admin.html (6b-4): context from services_list_context (groups, total_count); no Billing tabs; no legacy_css, no extra_js
 │   │   ├── services_list_parts/      ← Includes for services_list.html (not HTMX partials, so no `_`)
 │   │   │   ├── group.html            ← one group: gray header (status pill + "N services" + the one-line text), the rows or "None."
 │   │   │   └── row.html              ← one service, one markup for every width: name + category pill, description or "No description", price + "One price" / "Price range", outline Edit (stacks below md)
@@ -1109,7 +1109,7 @@ The main admin user is an elderly vet. Every migrated admin page follows these:
 ### Components (`templates/components/`)
 | Component | Usage |
 |---|---|
-| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 58 icons (`printer`, `percent` and `ban` added in Slice 6b-2, `calendar-check` added in dashboard v5, `archive` in Slice 4a-2, `map-pin`, `link`, `pencil`, `rotate-ccw`, `send` in Slice 4a-3, `upload` in Slice 4a-4, `pill` and `chevron-down` in Slice 5b-2). To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
+| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 59 icons (`tag` added for the Services and prices sidebar link, 2026-11-16; `printer`, `percent` and `ban` added in Slice 6b-2, `calendar-check` added in dashboard v5, `archive` in Slice 4a-2, `map-pin`, `link`, `pencil`, `rotate-ccw`, `send` in Slice 4a-3, `upload` in Slice 4a-4, `pill` and `chevron-down` in Slice 5b-2). To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
 | `pet_avatar.html` | `{% include "components/pet_avatar.html" with pet=appointment.pet size="lg" %}`. `lg` 64px (`size-16 rounded-2xl`), `sm` 40px (`size-10 rounded-xl`). The pet's photo, or a violet tile with the `species_icon` icon (dog, cat, rabbit, bird, paw-print) at stroke 1.5, labelled "No photo of {name} yet". Optional `muted=True`: gray tile (`bg-gray-100 text-gray-600 ring-gray-300`) for archived pets, or every pet of an archived owner (owner page); a photo is unchanged. |
 | `owner_avatar.html` | `{% include "components/owner_avatar.html" with owner=appointment.owner size="xs" %}`. Circle; `lg` 64px (`size-16`, `text-xl` initials; owner page header), `sm` 40px, `xs` 32px. The profile photo, or initials (one letter when the last name is blank). Optional `muted=True`: gray initials tile (`bg-gray-100 text-gray-700 ring-gray-300`) for archived owners (owners list Archived tab, owner page). |
 | `form_field.html` | `{% include "components/form_field.html" with field=form.email %}`. Label, control, help text, errors (red text with the `triangle-alert` icon). Optional `optional=True` adds a gray "(optional)" after the label; `required=True` adds the red * for a field only `clean()` requires (the pet form's "Type the species"). Needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple field uses it. |
