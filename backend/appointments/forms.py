@@ -1,6 +1,7 @@
 import datetime
 from django import forms
 from django.utils import timezone
+from django.utils.dateformat import format as date_format
 
 from .models import ClinicSettings, BlockedDate, Appointment
 from .utils import is_slot_available, get_available_slots, get_clinic_settings
@@ -37,6 +38,16 @@ class ClinicSettingsForm(forms.ModelForm):
     slot_duration_minutes = forms.ChoiceField(
         choices=SLOT_DURATION_CHOICES,
         help_text="Duration of each appointment slot.",
+    )
+
+    booking_limit_days = forms.IntegerField(
+        min_value=1,
+        max_value=365,
+        help_text="Owners can book up to this many days ahead. Between 1 and 365.",
+        error_messages={
+            "min_value": "The booking limit must be at least 1 day.",
+            "max_value": "The booking limit can't be more than 365 days.",
+        },
     )
 
     class Meta:
@@ -110,6 +121,11 @@ class BlockedDateForm(forms.ModelForm):
         date = self.cleaned_data.get("date")
         if date and date < timezone.localdate():
             raise forms.ValidationError("Cannot block a date in the past.")
+        if date and BlockedDate.objects.filter(date=date).exists():
+            raise forms.ValidationError(
+                f"{date_format(date, 'D, M j')} is already blocked. "
+                "Pick another date."
+            )
         return date
 
 

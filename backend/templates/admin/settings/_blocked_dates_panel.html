@@ -1,0 +1,71 @@
+<!--
+  Blocked dates panel (add form + list). Every add / error / warning response
+  swaps this whole panel; success redirects to the full settings page instead.
+  busy_visits (with busy_date) is set when the day already has visits: the
+  warning replaces the Block button, and confirm_busy=1 goes with the form.
+-->
+<div id="blocked-dates-panel">
+
+  <form
+    hx-post="{% url 'admin_blocked_date_add' %}"
+    hx-target="#blocked-dates-panel"
+    hx-swap="outerHTML"
+    class="blocked-date-form"
+  >
+    {% csrf_token %}
+    {% if busy_visits %}<input type="hidden" name="confirm_busy" value="1">{% endif %}
+
+    <div class="form-group">
+      <label for="{{ blocked_form.date.id_for_label }}" class="form-label">
+        Date
+      </label>
+      {{ blocked_form.date }}
+      {% if blocked_form.date.errors %}
+        <p class="form-error">{{ blocked_form.date.errors.0 }}</p>
+      {% endif %}
+    </div>
+
+    <div class="form-group">
+      <label for="{{ blocked_form.reason.id_for_label }}" class="form-label">
+        Reason <span class="form-optional">(optional)</span>
+      </label>
+      {{ blocked_form.reason }}
+      {% if blocked_form.reason.errors %}
+        <p class="form-error">{{ blocked_form.reason.errors.0 }}</p>
+      {% endif %}
+    </div>
+
+    {% if busy_visits %}
+      <!-- Busy day: nothing is saved until "Block anyway" -->
+      <div role="alert" class="form-error-block">
+        <p class="form-error">
+          {{ busy_date|date:"D, M j" }} already has {{ busy_visits|length }} visit{{ busy_visits|length|pluralize }}.
+        </p>
+        <ul>
+          {% for visit in busy_visits %}
+            <li>{{ visit.time|time:"g:i A" }} · {{ visit.pet.name }} ({{ visit.owner.first_name }} {{ visit.owner.last_name }})</li>
+          {% endfor %}
+        </ul>
+        <p>They stay booked. Blocking the day only stops new bookings.</p>
+        <!-- Go back: GET the panel again with the typed values, no warning -->
+        <button
+          type="button"
+          class="btn-secondary"
+          hx-get="{% url 'admin_blocked_date_add' %}"
+          hx-include="closest form"
+          hx-target="#blocked-dates-panel"
+          hx-swap="outerHTML"
+        >Go back</button>
+        <button type="submit" class="btn-primary">Block anyway</button>
+      </div>
+    {% else %}
+      <button type="submit" class="btn-secondary">
+        Block This Date
+      </button>
+    {% endif %}
+  </form>
+
+  <!-- Blocked dates list -->
+  {% include 'admin/settings/_blocked_dates_list.html' %}
+
+</div>

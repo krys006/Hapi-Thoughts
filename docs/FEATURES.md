@@ -191,6 +191,8 @@ Phase 7 — Dashboards & Polish
 | Set same-day booking cutoff time | `complete` |
 | System auto-generates available slots based on configuration | `complete` |
 | Admin can block specific dates (holidays, rest days) | `complete` |
+| Blocking a day that already has CONFIRMED or PENDING visits: the first submit lists them (time, pet, owner) and saves nothing; "Block anyway" saves. Visits are never changed. Errors and the warning swap only the blocked-dates panel; success reloads the page with a flash | `complete` |
+| Booking limit (days ahead) is 1 to 365 | `complete` |
 
 ### 3.2 Booking (Pet Owner)
 | Feature | Status |
@@ -245,7 +247,7 @@ PENDING or CONFIRMED → CANCELLED
 ### 3.5 Appointment Rules
 | Rule | Detail |
 |---|---|
-| Booking limit | 30 days in advance |
+| Booking limit | Set by the admin, 1 to 365 days in advance (default 30) |
 | Same-day booking | Allowed before the configurable cutoff time (Manila time). Before the cutoff, today offers only slots that haven't started yet; from the cutoff on, no slots today. Applies to the owner booking and reschedule forms, and is re-checked on submit. |
 | Move rules (admin) | Same as owner booking, except today has no same-day cutoff: only slots whose start is after the current Manila time are offered (not the slot in progress). Re-checked on submit. |
 | Slots | One appointment per slot |

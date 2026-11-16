@@ -254,6 +254,8 @@ Dates blocked by Admin (holidays, rest days, etc.)
 | `reason` | CharField | max_length=100, blank=True | Optional note |
 | `created_at` | DateTimeField | auto_now_add=True | — |
 
+**Deletion:** a hard delete, a deliberate exception to core rule 8 (Slice 7, decision 3). A blocked date is a schedule setting; no visit or record depends on it. Removing one just opens the day again. Blocking a day never changes or cancels visits already booked on it.
+
 ---
 
 ### Appointment

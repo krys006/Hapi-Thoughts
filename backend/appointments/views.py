@@ -4,6 +4,8 @@ from django.contrib import messages
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.paginator import Paginator
 from django.db import transaction
+from django.http import HttpResponse
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.cache import patch_vary_headers
 from django.utils.dateformat import format as date_format
@@ -43,6 +45,7 @@ from .utils import (
     tab_counts,
     unfinished_visits,
     visit_receipt_state,
+    visits_on_date,
     walkin_initial,
     walkin_owner_list,
     walkin_slot_context,
@@ -99,56 +102,89 @@ def admin_clinic_settings(request):
     )
 
 
+def _blocked_tab_url():
+    """The clinic settings page with the Blocked dates tab open (?tab=blocked;
+    the other tabs are details, schedule and vet)."""
+    return f"{reverse('admin_clinic_settings')}?tab=blocked"
+
+
+def _blocked_panel(request, form=None, busy_visits=None):
+    """
+    Only the blocked-dates panel (add form + list), never the whole page.
+    With busy_visits the busy-day warning shows instead of the Block button,
+    and the date and reason are locked so "Block anyway" confirms exactly
+    the day that was checked.
+    """
+    if form is None:
+        form = BlockedDateForm(initial=request.GET.dict())
+    if busy_visits:
+        for field in ("date", "reason"):
+            form.fields[field].widget.attrs["readonly"] = True
+    return render(
+        request,
+        "admin/settings/_blocked_dates_panel.html",
+        {
+            "blocked_dates": BlockedDate.objects.all(),
+            "blocked_form": form,
+            "busy_visits": busy_visits,
+            "busy_date": form.cleaned_data["date"] if busy_visits else None,
+        },
+    )
+
+
+def _blocked_done(request, message):
+    """
+    Success: flash the message and show the full settings page, so the flash
+    appears there. HTMX gets an HX-Redirect header; other requests a redirect.
+    """
+    messages.success(request, message)
+    if request.headers.get("HX-Request"):
+        return HttpResponse(headers={"HX-Redirect": _blocked_tab_url()})
+    return redirect(_blocked_tab_url())
+
+
 @login_required
 def admin_blocked_date_add(request):
-    """Admin view — add a blocked date. Returns HTMX partial on success."""
+    """
+    Admin view — add a blocked date. A form error, or a day that already has
+    CONFIRMED / PENDING visits (until confirm_busy=1 is posted), returns only
+    the panel. The visits are never changed. GET returns the panel with
+    ?date= and ?reason= filled in (the warning's "Go back").
+    """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    if request.method == "POST":
-        form = BlockedDateForm(request.POST)
-        if form.is_valid():
-            form.save()
-            messages.success(request, "Date blocked successfully.")
-        else:
-            settings_obj = get_clinic_settings()
-            blocked_dates = BlockedDate.objects.all()
-            return render(
-                request,
-                "admin/settings/clinic_settings.html",
-                {
-                    "form": ClinicSettingsForm(instance=settings_obj),
-                    "blocked_dates": blocked_dates,
-                    "blocked_form": form,
-                    "settings_obj": settings_obj,
-                },
-            )
+    if request.method != "POST":
+        return _blocked_panel(request)
 
-    blocked_dates = BlockedDate.objects.all()
-    return render(
-        request,
-        "admin/settings/_blocked_dates_list.html",
-        {"blocked_dates": blocked_dates},
+    form = BlockedDateForm(request.POST)
+    if not form.is_valid():
+        return _blocked_panel(request, form)
+
+    visits = list(visits_on_date(form.cleaned_data["date"]))
+    if visits and request.POST.get("confirm_busy") != "1":
+        return _blocked_panel(request, form, busy_visits=visits)
+
+    blocked = form.save()
+    return _blocked_done(
+        request, f"{date_format(blocked.date, 'F j, Y')} is now blocked."
     )
 
 
 @login_required
 def admin_blocked_date_delete(request, pk):
-    """Admin view — delete a blocked date. Returns updated HTMX partial."""
+    """Admin view — remove a blocked date (a hard delete: it is a schedule
+    setting, not a record). POST only; anything else goes back to the tab."""
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
     blocked_date = get_object_or_404(BlockedDate, pk=pk)
+    if request.method != "POST":
+        return redirect(_blocked_tab_url())
 
-    if request.method == "POST":
-        blocked_date.delete()
-        messages.success(request, "Blocked date removed.")
-
-    blocked_dates = BlockedDate.objects.all()
-    return render(
-        request,
-        "admin/settings/_blocked_dates_list.html",
-        {"blocked_dates": blocked_dates},
+    blocked_date.delete()
+    return _blocked_done(
+        request, f"{date_format(blocked_date.date, 'F j, Y')} is open again."
     )
 
 

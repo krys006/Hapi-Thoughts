@@ -2834,6 +2834,240 @@ class ClinicSettingsHelperTests(AppointmentTestBase):
         self.assertContains(response, "Pk Five Clinic")
 
 
+class BlockedDateTests(AppointmentTestBase):
+    """Blocked dates tab (Slice 7a-4): busy-day warning, panel-only responses,
+    HX-Redirect with ?tab=blocked on success."""
+
+    HTMX = {"HTTP_HX_REQUEST": "true"}
+
+    def setUp(self):
+        super().setUp()
+        self.day = self.today + datetime.timedelta(days=3)
+        self.add_url = reverse("admin_blocked_date_add")
+        self.settings_url = reverse("admin_clinic_settings")
+        self.tab_url = f"{self.settings_url}?tab=blocked"
+
+    def _add(self, htmx=True, **extra):
+        data = {"date": self.day.isoformat(), "reason": "Training", **extra}
+        return self.client.post(self.add_url, data, **(self.HTMX if htmx else {}))
+
+    def _visit(self, status, hour=9, day=None, pet=None):
+        return Appointment.objects.create(
+            owner=self.owner,
+            pet=pet or self.pet,
+            date=day or self.day,
+            time=datetime.time(hour, 0),
+            status=status,
+        )
+
+    def _assert_panel_only(self, response):
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "admin/settings/_blocked_dates_panel.html")
+        self.assertTemplateNotUsed(response, "layouts/admin.html")
+        self.assertNotContains(response, "<html")
+
+    # ─── Busy-day warning ─────────────────────────────────────────────────────
+
+    def test_day_without_visits_saves_on_the_first_submit(self):
+        response = self._add()
+        self.assertTrue(BlockedDate.objects.filter(date=self.day).exists())
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("HX-Redirect", response.headers)
+
+    def test_confirmed_visit_warns_then_saves_on_confirm(self):
+        visit = self._visit(Appointment.CONFIRMED)
+        response = self._add()
+        self._assert_panel_only(response)
+        self.assertEqual(BlockedDate.objects.count(), 0)
+        day = date_format(self.day, "D, M j")
+        self.assertContains(response, f"{day} already has 1 visit.")
+        self.assertContains(response, "9:00 AM · Bantay (Ana Cruz)")
+        self.assertContains(
+            response, "They stay booked. Blocking the day only stops new bookings."
+        )
+        self.assertContains(response, "Go back")
+        self.assertContains(response, "Block anyway")
+        # The typed date and reason are kept; the confirm flag is in the form
+        self.assertContains(response, f'value="{self.day.isoformat()}"')
+        self.assertContains(response, 'value="Training"')
+        self.assertContains(response, 'name="confirm_busy" value="1"')
+
+        response = self._add(confirm_busy="1")
+        self.assertTrue(BlockedDate.objects.filter(date=self.day).exists())
+        self.assertEqual(response.headers["HX-Redirect"], self.tab_url)
+        before = (visit.status, visit.date, visit.time)
+        visit.refresh_from_db()
+        self.assertEqual((visit.status, visit.date, visit.time), before)
+        self.assertEqual(Appointment.objects.count(), 1)
+
+    def test_warning_lists_visits_by_time_with_pet_and_owner(self):
+        other_owner = PetOwner.objects.create(
+            user=User.objects.create_user(
+                username="owner2",
+                email="owner2@example.com",
+                password="unused-pass-123",
+                role=User.PET_OWNER,
+            ),
+            first_name="Liza",
+            last_name="Reyes",
+        )
+        brownie = Pet.objects.create(owner=other_owner, name="Brownie", species="Dog")
+        self._visit(Appointment.PENDING, hour=14)
+        Appointment.objects.create(
+            owner=other_owner,
+            pet=brownie,
+            date=self.day,
+            time=datetime.time(10, 0),
+            status=Appointment.CONFIRMED,
+        )
+        response = self._add()
+        self.assertContains(response, "already has 2 visits.")
+        html = response.content.decode()
+        first = html.index("10:00 AM · Brownie (Liza Reyes)")
+        second = html.index("2:00 PM · Bantay (Ana Cruz)")
+        self.assertLess(first, second)
+
+    def test_pending_visit_triggers_the_warning(self):
+        self._visit(Appointment.PENDING)
+        response = self._add()
+        self.assertContains(response, "Block anyway")
+        self.assertEqual(BlockedDate.objects.count(), 0)
+
+    def test_other_statuses_do_not_trigger_the_warning(self):
+        for hour, status in enumerate(
+            (Appointment.CANCELLED, Appointment.COMPLETED, Appointment.NO_SHOW), 9
+        ):
+            self._visit(status, hour=hour)
+        response = self._add()
+        self.assertIn("HX-Redirect", response.headers)
+        self.assertTrue(BlockedDate.objects.filter(date=self.day).exists())
+
+    def test_visit_on_another_day_does_not_trigger_the_warning(self):
+        self._visit(Appointment.CONFIRMED, day=self.day + datetime.timedelta(days=1))
+        response = self._add()
+        self.assertIn("HX-Redirect", response.headers)
+        self.assertTrue(BlockedDate.objects.filter(date=self.day).exists())
+
+    def test_go_back_returns_the_panel_without_the_warning(self):
+        self._visit(Appointment.CONFIRMED)
+        response = self.client.get(
+            self.add_url,
+            {"date": self.day.isoformat(), "reason": "Training", "confirm_busy": "1"},
+            **self.HTMX,
+        )
+        self._assert_panel_only(response)
+        self.assertNotContains(response, "Block anyway")
+        self.assertNotContains(response, "already has")
+        self.assertContains(response, 'value="Training"')
+        self.assertContains(response, f'value="{self.day.isoformat()}"')
+        self.assertEqual(BlockedDate.objects.count(), 0)
+
+    # ─── Panel-only errors ────────────────────────────────────────────────────
+
+    def test_duplicate_date_returns_the_panel_only_with_the_error(self):
+        BlockedDate.objects.create(date=self.day, reason="Fiesta")
+        response = self._add()
+        self._assert_panel_only(response)
+        self.assertContains(
+            response,
+            f"{date_format(self.day, 'D, M j')} is already blocked. "
+            "Pick another date.",
+        )
+        self.assertEqual(BlockedDate.objects.count(), 1)
+
+    def test_past_date_returns_the_panel_only(self):
+        response = self._add(date=(self.today - datetime.timedelta(days=1)).isoformat())
+        self._assert_panel_only(response)
+        self.assertContains(response, "Cannot block a date in the past.")
+        self.assertEqual(BlockedDate.objects.count(), 0)
+
+    # ─── Success: HX-Redirect and the flash ───────────────────────────────────
+
+    def test_htmx_add_redirects_to_the_blocked_tab_and_flashes(self):
+        response = self._add()
+        self.assertEqual(response.headers["HX-Redirect"], self.tab_url)
+        page = self.client.get(self.tab_url)
+        self.assertContains(page, f"{date_format(self.day, 'F j, Y')} is now blocked.")
+
+    def test_htmx_remove_redirects_to_the_blocked_tab_and_flashes(self):
+        blocked = BlockedDate.objects.create(date=self.day)
+        url = reverse("admin_blocked_date_delete", args=[blocked.pk])
+        response = self.client.post(url, **self.HTMX)
+        self.assertEqual(response.headers["HX-Redirect"], self.tab_url)
+        self.assertFalse(BlockedDate.objects.exists())  # hard delete
+        page = self.client.get(self.tab_url)
+        self.assertContains(page, f"{date_format(self.day, 'F j, Y')} is open again.")
+
+    def test_non_htmx_add_and_remove_use_a_normal_redirect(self):
+        response = self._add(htmx=False)
+        self.assertRedirects(response, self.tab_url, fetch_redirect_response=False)
+        self.assertNotIn("HX-Redirect", response.headers)
+        blocked = BlockedDate.objects.get(date=self.day)
+        url = reverse("admin_blocked_date_delete", args=[blocked.pk])
+        response = self.client.post(url)
+        self.assertRedirects(response, self.tab_url, fetch_redirect_response=False)
+        self.assertFalse(BlockedDate.objects.exists())
+
+    def test_settings_page_includes_the_panel(self):
+        BlockedDate.objects.create(date=self.day, reason="Fiesta")
+        response = self.client.get(self.settings_url)
+        self.assertContains(response, 'id="blocked-dates-panel"')
+        self.assertContains(response, "Fiesta")
+
+    # ─── Access ───────────────────────────────────────────────────────────────
+
+    def test_owner_and_logged_out_users_cannot_reach_the_views(self):
+        blocked = BlockedDate.objects.create(date=self.day)
+        delete_url = reverse("admin_blocked_date_delete", args=[blocked.pk])
+        self.client.force_login(self.owner.user)
+        for url in (self.add_url, delete_url):
+            with self.subTest(user="owner", url=url):
+                response = self.client.post(url, {"date": "2030-01-01"})
+                self.assertRedirects(
+                    response, reverse("owner_dashboard"), fetch_redirect_response=False
+                )
+        self.client.logout()
+        for url in (self.add_url, delete_url):
+            with self.subTest(user="logged out", url=url):
+                response = self.client.post(url, {"date": "2030-01-01"})
+                self.assertEqual(response.status_code, 302)
+                self.assertIn("login", response["Location"])
+        self.assertEqual(BlockedDate.objects.count(), 1)
+
+
+class BookingLimitFormTests(AppointmentTestBase):
+    """booking_limit_days is 1 to 365 (form only, no model change)."""
+
+    def _errors(self, value):
+        from appointments.forms import ClinicSettingsForm
+
+        form = ClinicSettingsForm(
+            {"booking_limit_days": value}, instance=get_clinic_settings()
+        )
+        return form.errors.get("booking_limit_days", [])
+
+    def test_below_one_is_refused(self):
+        self.assertEqual(self._errors(0), ["The booking limit must be at least 1 day."])
+
+    def test_one_and_365_are_accepted(self):
+        for value in (1, 365):
+            with self.subTest(value=value):
+                self.assertEqual(self._errors(value), [])
+
+    def test_above_365_is_refused(self):
+        self.assertEqual(
+            self._errors(366), ["The booking limit can't be more than 365 days."]
+        )
+
+    def test_help_text(self):
+        from appointments.forms import ClinicSettingsForm
+
+        self.assertEqual(
+            ClinicSettingsForm().fields["booking_limit_days"].help_text,
+            "Owners can book up to this many days ahead. Between 1 and 365.",
+        )
+
+
 class ResolvePeriodTests(SimpleTestCase):
 
     def _period(self, show, from_value="", today=PERIOD_TODAY):

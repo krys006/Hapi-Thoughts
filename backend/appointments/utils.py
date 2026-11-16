@@ -38,6 +38,21 @@ def get_clinic_settings(create=False):
     return settings_obj
 
 
+def visits_on_date(date):
+    """
+    The CONFIRMED and PENDING visits on date, by time, with the pet and owner
+    loaded. The busy-day warning on Blocked dates lists these; blocking a day
+    never changes them.
+    """
+    return (
+        Appointment.objects.filter(
+            date=date, status__in=[Appointment.CONFIRMED, Appointment.PENDING]
+        )
+        .select_related("pet", "owner")
+        .order_by("time", "pk")
+    )
+
+
 def get_available_slots(date, walk_in=False, move=False):
     """
     Returns a list of available time slots for a given date.

@@ -255,42 +255,8 @@
           No appointments can be booked on blocked dates.
         </p>
 
-        <!-- Add blocked date form -->
-        <form
-          hx-post="{% url 'admin_blocked_date_add' %}"
-          hx-target="#blocked-dates-list"
-          hx-swap="outerHTML"
-          class="blocked-date-form"
-        >
-          {% csrf_token %}
-
-          <div class="form-group">
-            <label for="{{ blocked_form.date.id_for_label }}" class="form-label">
-              Date
-            </label>
-            {{ blocked_form.date }}
-            {% if blocked_form.date.errors %}
-              <p class="form-error">{{ blocked_form.date.errors.0 }}</p>
-            {% endif %}
-          </div>
-
-          <div class="form-group">
-            <label for="{{ blocked_form.reason.id_for_label }}" class="form-label">
-              Reason <span class="form-optional">(optional)</span>
-            </label>
-            {{ blocked_form.reason }}
-            {% if blocked_form.reason.errors %}
-              <p class="form-error">{{ blocked_form.reason.errors.0 }}</p>
-            {% endif %}
-          </div>
-
-          <button type="submit" class="btn-secondary">
-            Block This Date
-          </button>
-        </form>
-
-        <!-- Blocked dates list — updated by HTMX -->
-        {% include 'admin/settings/_blocked_dates_list.html' %}
+        <!-- Add form + list: one panel, swapped by HTMX -->
+        {% include 'admin/settings/_blocked_dates_panel.html' %}
 
       </section>
     </div>
