@@ -1,15 +1,43 @@
 import uuid
+from functools import wraps
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
+from django.http import HttpResponse
+from django.shortcuts import redirect
 from django.template.loader import render_to_string
+from django.urls import reverse
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 
 from pets.models import ContactLink, Pet, PetOwner
 
 User = get_user_model()
+
+
+def owner_profile_required(view):
+    """
+    Use under @login_required on owner views. A pet owner with a PetOwner
+    row gets it as request.owner; one without a row is sent to onboarding
+    step 1 (an HTMX request gets HX-Redirect instead). Other roles reach
+    the view unchanged, so each view's own role check still runs.
+    """
+
+    @wraps(view)
+    def wrapper(request, *args, **kwargs):
+        if request.user.role != User.PET_OWNER:
+            return view(request, *args, **kwargs)
+        owner = PetOwner.objects.filter(user=request.user).first()
+        if owner is None:
+            if request.headers.get("HX-Request"):
+                url = reverse("owner_onboarding_step1")
+                return HttpResponse(headers={"HX-Redirect": url})
+            return redirect("owner_onboarding_step1")
+        request.owner = owner
+        return view(request, *args, **kwargs)
+
+    return wrapper
 
 
 def send_claim_email(request, user):

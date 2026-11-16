@@ -27,17 +27,25 @@ urlpatterns = [
     path("", include("medical.urls")),
     # billing (services, receipts, payment status)
     path("", include("billing.urls")),
+    # allauth's own login and signup pages go to ours (before the include)
+    path(
+        "accounts/login/",
+        account_views.allauth_login_redirect,
+        name="allauth_login_redirect",
+    ),
+    path(
+        "accounts/signup/",
+        account_views.allauth_signup_redirect,
+        name="allauth_signup_redirect",
+    ),
     # allauth (Google OAuth, email verification, etc.)
     path("accounts/", include("allauth.urls")),
-
-
     # ─── Password Reset (Django built-in views) ───────────────────────────
     path(
         "forgot-password/",
         account_views.HapiVetPasswordResetView.as_view(),
         name="forgot_password",
     ),
-
     path(
         "forgot-password/sent/",
         auth_views.PasswordResetDoneView.as_view(
@@ -60,11 +68,7 @@ urlpatterns = [
         ),
         name="password_reset_complete",
     ),
-
-
-    
 ]
-
 
 
 # Serve media files in development only

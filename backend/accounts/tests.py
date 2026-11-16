@@ -4,13 +4,19 @@ from unittest import mock
 
 from allauth.core.exceptions import ImmediateHttpResponse
 from allauth.socialaccount.models import SocialAccount, SocialLogin
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.db import connection
-from django.test import RequestFactory, TestCase, TransactionTestCase
+from django.test import (
+    RequestFactory,
+    TestCase,
+    TransactionTestCase,
+    override_settings,
+)
 from django.urls import reverse
 
 from accounts.adapters import (
@@ -543,3 +549,183 @@ class WalkInClaimEmailAfterCommitTests(TransactionTestCase):
             )
 
         self.assertEqual(seen, {"in_atomic_block": False, "saved": True})
+
+
+class OwnerProfileRequiredTests(TestCase):
+    """Slice 8a-1a: a pet owner with no PetOwner row goes to onboarding step 1
+    (no 500, no 404); an admin and an owner with a row are unaffected."""
+
+    def setUp(self):
+        self.step1 = reverse("owner_onboarding_step1")
+
+    def _user(self, role=User.PET_OWNER, is_onboarded=False):
+        user = User.objects.create_user(
+            username=f"{role}-{is_onboarded}",
+            email=f"{role}-{is_onboarded}@example.com",
+            password="pass-12345-x",
+            role=role,
+            is_onboarded=is_onboarded,
+        )
+        self.client.force_login(user)
+        return user
+
+    def _pages(self):
+        """One owner view from each app: appointments, billing, medical
+        history, owner search, pets list."""
+        return [
+            reverse("owner_appointments"),
+            reverse("owner_billing_list"),
+            reverse("owner_pet_medical_history", args=[1]),
+            reverse("owner_global_search") + "?q=max",
+            reverse("owner_pet_list"),
+        ]
+
+    def test_owner_without_a_row_is_sent_to_step_1_on_every_page(self):
+        self._user()
+        for url in self._pages():
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertRedirects(
+                    response, self.step1, fetch_redirect_response=False
+                )
+
+    def test_onboarded_flag_without_a_row_still_reaches_step_1(self):
+        """No redirect loop: step 1 shows its form for this user."""
+        self._user(is_onboarded=True)
+        response = self.client.get(reverse("owner_appointments"), follow=True)
+        self.assertEqual(response.redirect_chain[-1][0], self.step1)
+        self.assertEqual(response.status_code, 200)
+
+    def test_htmx_request_gets_hx_redirect(self):
+        self._user()
+        response = self.client.get(
+            reverse("owner_global_search") + "?q=max", HTTP_HX_REQUEST="true"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["HX-Redirect"], self.step1)
+
+    def test_admin_is_unaffected(self):
+        self._user(role=User.ADMIN)
+        response = self.client.get(reverse("owner_appointments"))
+        self.assertRedirects(
+            response, reverse("admin_dashboard"), fetch_redirect_response=False
+        )
+
+    def test_owner_with_a_row_gets_the_pages(self):
+        user = self._user(is_onboarded=True)
+        owner = PetOwner.objects.create(user=user, first_name="Ana", last_name="Cruz")
+        pet = Pet.objects.create(owner=owner, name="Max", species="Dog")
+        urls = [
+            reverse("owner_appointments"),
+            reverse("owner_billing_list"),
+            reverse("owner_pet_medical_history", args=[pet.pk]),
+            reverse("owner_global_search") + "?q=max",
+            reverse("owner_pet_list"),
+        ]
+        for url in urls:
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 200)
+
+
+class RegisterEmailFailureTests(TestCase):
+    """Slice 8a-1a: a failed verification email keeps the account, logs the
+    error and still goes to the check-your-email page."""
+
+    WARNING = (
+        "Your account was created, but we couldn't send the email just now. "
+        "Please contact the clinic so they can help."
+    )
+
+    def _post(self, **extra):
+        data = {
+            "email": "new.owner@example.com",
+            "password1": "Str0ng-pass-123",
+            "password2": "Str0ng-pass-123",
+        }
+        with mock.patch(
+            "accounts.views.send_mail", side_effect=Exception("boom secret detail")
+        ):
+            return self.client.post(reverse("owner_register"), data, **extra)
+
+    def test_account_kept_and_redirected_with_warning(self):
+        with self.assertLogs("accounts.views", level="ERROR"):
+            response = self._post()
+        self.assertRedirects(
+            response, reverse("owner_register_pending"), fetch_redirect_response=False
+        )
+        user = User.objects.get(email="new.owner@example.com")
+        self.assertFalse(user.is_active)
+        found = [(m.level_tag, str(m)) for m in get_messages(response.wsgi_request)]
+        self.assertEqual(found, [("warning", self.WARNING)])
+
+    def test_error_is_logged_and_never_shown(self):
+        with self.assertLogs("accounts.views", level="ERROR") as logs:
+            response = self._post(follow=True)
+        self.assertIn("boom secret detail", "\n".join(logs.output))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "boom secret detail")
+
+
+class AllauthRedirectTests(TestCase):
+    """Slice 8a-1a: allauth's login and signup pages go to our own pages."""
+
+    def test_login_redirects_to_owner_login(self):
+        response = self.client.get("/accounts/login/")
+        self.assertRedirects(
+            response, reverse("owner_login"), fetch_redirect_response=False
+        )
+
+    def test_signup_redirects_to_owner_register(self):
+        response = self.client.get("/accounts/signup/")
+        self.assertRedirects(
+            response, reverse("owner_register"), fetch_redirect_response=False
+        )
+
+    def test_next_is_kept(self):
+        for path, name in [
+            ("/accounts/login/", "owner_login"),
+            ("/accounts/signup/", "owner_register"),
+        ]:
+            with self.subTest(path=path):
+                response = self.client.get(path, {"next": "/owner/pets/"})
+                self.assertEqual(
+                    response["Location"], f"{reverse(name)}?next=%2Fowner%2Fpets%2F"
+                )
+
+    def test_an_outside_next_is_dropped(self):
+        response = self.client.get("/accounts/login/", {"next": "https://evil.test/"})
+        self.assertEqual(response["Location"], reverse("owner_login"))
+
+    def test_allauth_names_resolve_to_the_redirects(self):
+        self.assertEqual(reverse("account_login"), "/accounts/login/")
+        self.assertEqual(reverse("account_signup"), "/accounts/signup/")
+
+    def test_google_login_and_callback_still_resolve(self):
+        self.assertEqual(reverse("google_login"), "/accounts/google/login/")
+        self.assertEqual(reverse("google_callback"), "/accounts/google/login/callback/")
+        self.assertEqual(self.client.get(reverse("google_login")).status_code, 200)
+
+
+class TermsPrivacyLinkTests(TestCase):
+    """Slice 8a-1a: the Create account links come from the two settings."""
+
+    def test_register_page_uses_the_settings(self):
+        with override_settings(
+            TERMS_URL="https://example.test/terms",
+            PRIVACY_URL="https://example.test/privacy",
+        ):
+            response = self.client.get(reverse("owner_register"))
+        self.assertContains(response, 'href="https://example.test/terms"')
+        self.assertContains(response, 'href="https://example.test/privacy"')
+        self.assertEqual(response.context["terms_url"], "https://example.test/terms")
+        self.assertEqual(
+            response.context["privacy_url"], "https://example.test/privacy"
+        )
+
+    def test_default_values_are_todays_external_links(self):
+        self.assertEqual(
+            settings.PRIVACY_URL, "https://privacy.gov.ph/data-privacy-act/"
+        )
+        self.assertTrue(settings.TERMS_URL.startswith("https://paws.org.ph/"))
+        response = self.client.get(reverse("owner_register"))
+        self.assertContains(response, f'href="{settings.TERMS_URL}"')

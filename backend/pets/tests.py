@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from datetime import timezone as dt_timezone
 from decimal import Decimal
 from pathlib import Path
@@ -23,8 +23,13 @@ from billing.models import Service
 from dashboard.templatetags.friendly_dates import friendly_date
 from medical.models import MedicalRecord, Vaccination
 from notifications.models import Notification
-from pets.forms import AdminOwnerEmailForm, AdminPetForm, AdminPetOwnerForm
-from pets.models import Pet, PetDeletionRequest, PetOwner
+from pets.forms import (
+    AdminOwnerEmailForm,
+    AdminPetForm,
+    AdminPetOwnerForm,
+    OwnerPetEditForm,
+)
+from pets.models import ContactLink, Pet, PetDeletionRequest, PetOwner
 from pets.templatetags.pet_display import species_icon, weight_kg
 from pets.utils import (
     PET_BREEDS_BY_SPECIES,
@@ -5582,3 +5587,197 @@ class DeletionRequestCancelledChoiceTests(SimpleTestCase):
             PetDeletionRequest.STATUS_CHOICES[-1],
             (PetDeletionRequest.CANCELLED, "Taken back by the owner"),
         )
+
+
+def _login_owner(test, first="Ana", last="Cruz", email="ana@example.com"):
+    """An active owner with a PetOwner row, logged in."""
+    owner = _owner(first=first, last=last, email=email)
+    test.client.force_login(owner.user)
+    return owner
+
+
+def _links_post(*links):
+    """The contact-links formset POST data for (platform, url) pairs."""
+    data = {
+        "links-TOTAL_FORMS": str(len(links) + 1),
+        "links-INITIAL_FORMS": "0",
+        "links-MIN_NUM_FORMS": "0",
+        "links-MAX_NUM_FORMS": "10",
+    }
+    rows = list(links) + [("", "")]
+    for i, (platform, url) in enumerate(rows):
+        data[f"links-{i}-platform"] = platform
+        data[f"links-{i}-url_or_handle"] = url
+    return data
+
+
+class OnboardingStepOneReentryTests(TestCase):
+    """Slice 8a-1a: a second visit to step 1 works on the saved PetOwner."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="newbie",
+            email="newbie@example.com",
+            password="pass-12345-x",
+            role=User.PET_OWNER,
+        )
+        self.client.force_login(self.user)
+        self.url = reverse("owner_onboarding_step1")
+
+    def _post(self, first="Ana", links=()):
+        data = {"first_name": first, "last_name": "Cruz", **_links_post(*links)}
+        return self.client.post(self.url, data)
+
+    def test_second_post_updates_the_same_owner(self):
+        step2 = reverse("owner_onboarding_step2")
+        self.assertRedirects(self._post("Ana"), step2, fetch_redirect_response=False)
+        first_pk = PetOwner.objects.get().pk
+
+        response = self._post("Anna")  # Back, then submit again
+        self.assertRedirects(response, step2, fetch_redirect_response=False)
+        owner = PetOwner.objects.get()
+        self.assertEqual(owner.pk, first_pk)
+        self.assertEqual(owner.first_name, "Anna")
+        self.assertEqual(self.client.session["onboarding_owner_id"], first_pk)
+
+    def test_get_shows_the_saved_values_and_links(self):
+        self._post("Ana", links=[("Facebook", "fb.com/ana")])
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        form = response.context["profile_form"]
+        self.assertEqual(form.instance.pk, PetOwner.objects.get().pk)
+        self.assertEqual(form["first_name"].value(), "Ana")
+        self.assertEqual(
+            response.context["link_formset"].initial,
+            [{"platform": "Facebook", "url_or_handle": "fb.com/ana"}],
+        )
+
+    def test_links_are_replaced_on_a_second_post(self):
+        self._post("Ana", links=[("Facebook", "fb.com/ana")])
+        self._post("Ana", links=[("Instagram", "@ana")])
+        links = PetOwner.objects.get().contact_links.all()
+        self.assertEqual([link.platform for link in links], ["Instagram"])
+
+    def test_first_visit_still_works_without_a_row(self):
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+        self.assertFalse(PetOwner.objects.exists())
+
+
+class OwnerPetEditFormTests(TestCase):
+    """Slice 8a-1a: the owner edits name, breed, color, weight and photo only."""
+
+    def setUp(self):
+        self.owner = _login_owner(self)
+        self.pet = Pet.objects.create(
+            owner=self.owner,
+            name="Max",
+            species="Dog",
+            breed="Aspin",
+            color="Brown",
+            gender=Pet.MALE,
+            date_of_birth=date(2020, 1, 2),
+            weight=Decimal("5.00"),
+            registration_number="R-1",
+        )
+        self.url = reverse("owner_pet_edit", args=[self.pet.pk])
+
+    def test_allowed_fields_save(self):
+        response = self.client.post(
+            self.url,
+            {"name": " Rex ", "breed": " Poodle ", "color": "White", "weight": "7.5"},
+        )
+        self.assertRedirects(
+            response,
+            reverse("owner_pet_detail", args=[self.pet.pk]),
+            fetch_redirect_response=False,
+        )
+        self.pet.refresh_from_db()
+        self.assertEqual(self.pet.name, "Rex")
+        self.assertEqual(self.pet.breed, "Poodle")
+        self.assertEqual(self.pet.color, "White")
+        self.assertEqual(self.pet.weight, Decimal("7.50"))
+
+    def test_locked_fields_are_ignored(self):
+        self.client.post(
+            self.url,
+            {
+                "name": "Rex",
+                "species": "Cat",
+                "gender": "female",
+                "date_of_birth": "2019-05-05",
+                "registration_number": "HACKED",
+            },
+        )
+        self.pet.refresh_from_db()
+        self.assertEqual(self.pet.name, "Rex")
+        self.assertEqual(self.pet.species, "Dog")
+        self.assertEqual(self.pet.gender, Pet.MALE)
+        self.assertEqual(self.pet.date_of_birth, date(2020, 1, 2))
+        self.assertEqual(self.pet.registration_number, "R-1")
+
+    def test_form_has_only_the_allowed_fields(self):
+        self.assertEqual(
+            list(OwnerPetEditForm().fields),
+            ["name", "breed", "color", "weight", "photo"],
+        )
+
+    def test_weight_zero_is_refused(self):
+        response = self.client.post(self.url, {"name": "Max", "weight": "0"})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("weight", response.context["form"].errors)
+        self.pet.refresh_from_db()
+        self.assertEqual(self.pet.weight, Decimal("5.00"))
+
+    def test_name_is_required(self):
+        response = self.client.post(self.url, {"name": "   "})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("name", response.context["form"].errors)
+
+    def test_another_owners_pet_is_a_404(self):
+        other = _owner(first="Ben", last="Reyes", email="ben@example.com")
+        pet = Pet.objects.create(owner=other, name="Rex", species="Dog")
+        response = self.client.post(
+            reverse("owner_pet_edit", args=[pet.pk]), {"name": "Hacked"}
+        )
+        self.assertEqual(response.status_code, 404)
+        pet.refresh_from_db()
+        self.assertEqual(pet.name, "Rex")
+
+
+class ContactLinksAtomicTests(TestCase):
+    """Slice 8a-1a: replacing the contact links is all or nothing."""
+
+    def setUp(self):
+        self.owner = _login_owner(self)
+        self.owner.user.is_onboarded = True
+        self.owner.user.save()
+        ContactLink.objects.create(
+            owner=self.owner, platform="Facebook", url_or_handle="fb.com/ana"
+        )
+        ContactLink.objects.create(
+            owner=self.owner, platform="Viber", url_or_handle="0917"
+        )
+
+    def _edit(self, first="Changed"):
+        data = {"first_name": first, "last_name": "Cruz"}
+        data.update(_links_post(("Instagram", "@ana")))
+        return self.client.post(reverse("owner_profile_edit"), data)
+
+    def test_failed_re_add_keeps_the_old_links_and_profile(self):
+        with patch.object(ContactLink, "save", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                self._edit()
+        platforms = sorted(self.owner.contact_links.values_list("platform", flat=True))
+        self.assertEqual(platforms, ["Facebook", "Viber"])
+        self.owner.refresh_from_db()
+        self.assertEqual(self.owner.first_name, "Ana")
+
+    def test_successful_edit_replaces_the_links(self):
+        response = self._edit()
+        self.assertRedirects(
+            response, reverse("owner_profile"), fetch_redirect_response=False
+        )
+        platforms = list(self.owner.contact_links.values_list("platform", flat=True))
+        self.assertEqual(platforms, ["Instagram"])
+        self.owner.refresh_from_db()
+        self.assertEqual(self.owner.first_name, "Changed")

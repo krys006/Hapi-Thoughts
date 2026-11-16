@@ -59,6 +59,7 @@ from .utils import (
     walkin_values,
 )
 
+from accounts.utils import owner_profile_required
 from notifications.utils import notify
 from dashboard.templatetags.friendly_dates import friendly_date
 from django.contrib.auth import get_user_model
@@ -263,6 +264,7 @@ def clinic_info(request):
 
 
 @login_required
+@owner_profile_required
 def owner_appointment_list(request):
     """
     Pet Owner view — list all their appointments.
@@ -271,7 +273,7 @@ def owner_appointment_list(request):
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
-    owner = request.user.petowner
+    owner = request.owner
     today = timezone.localdate()
 
     upcoming = (
@@ -305,6 +307,7 @@ def owner_appointment_list(request):
 
 
 @login_required
+@owner_profile_required
 def owner_book_appointment(request):
     """
     Pet Owner view — book a new appointment.
@@ -314,7 +317,7 @@ def owner_book_appointment(request):
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
-    owner = request.user.petowner
+    owner = request.owner
 
     if request.method == "POST":
         form = AppointmentBookingForm(owner, request.POST)
@@ -381,6 +384,7 @@ def owner_book_appointment(request):
 
 
 @login_required
+@owner_profile_required
 def owner_appointment_detail(request, pk):
     """
     Pet Owner view — view a single appointment's details.
@@ -389,7 +393,7 @@ def owner_appointment_detail(request, pk):
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
-    owner = request.user.petowner
+    owner = request.owner
     appointment = get_object_or_404(Appointment, pk=pk, owner=owner)
 
     return render(
@@ -400,6 +404,7 @@ def owner_appointment_detail(request, pk):
 
 
 @login_required
+@owner_profile_required
 def owner_appointment_cancel(request, pk):
     """
     Pet Owner view — cancel an appointment.
@@ -410,7 +415,7 @@ def owner_appointment_cancel(request, pk):
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
-    owner = request.user.petowner
+    owner = request.owner
     appointment = get_object_or_404(Appointment, pk=pk, owner=owner)
 
     # Only pending or confirmed appointments can be cancelled
@@ -470,6 +475,7 @@ def owner_appointment_cancel(request, pk):
 
 
 @login_required
+@owner_profile_required
 def owner_appointment_reschedule(request, pk):
     """
     Pet Owner view — request a reschedule.
@@ -480,7 +486,7 @@ def owner_appointment_reschedule(request, pk):
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
-    owner = request.user.petowner
+    owner = request.owner
     appointment = get_object_or_404(Appointment, pk=pk, owner=owner)
 
     if appointment.status not in [Appointment.PENDING, Appointment.CONFIRMED]:

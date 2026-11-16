@@ -1,4 +1,5 @@
 import logging
+from urllib.parse import urlencode
 
 from django.conf import settings as django_settings
 from django.contrib import messages
@@ -19,6 +20,7 @@ from django.db import IntegrityError, transaction
 from django.shortcuts import redirect, render
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import (
+    url_has_allowed_host_and_scheme,
     urlsafe_base64_decode,
     urlsafe_base64_encode,
 )
@@ -36,6 +38,11 @@ from .forms import PetOwnerRegistrationForm
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+VERIFICATION_EMAIL_FAILED = (
+    "Your account was created, but we couldn't send the email just now. "
+    "Please contact the clinic so they can help."
+)
 
 # ─── Role-based redirect helper ───────────────────────────────────────────────
 
@@ -102,6 +109,30 @@ def owner_login(request):
     return render(request, "owner/login.html")
 
 
+# ─── allauth pages → our own pages ───────────────────────────────────────────
+
+
+def _redirect_keeping_next(request, url_name):
+    """Redirect to url_name, keeping a safe ?next= when present."""
+    url = reverse(url_name)
+    next_url = request.GET.get("next", "")
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}
+    ):
+        url = f"{url}?{urlencode({'next': next_url})}"
+    return redirect(url)
+
+
+def allauth_login_redirect(request):
+    """/accounts/login/ → the owner login page."""
+    return _redirect_keeping_next(request, "owner_login")
+
+
+def allauth_signup_redirect(request):
+    """/accounts/signup/ → the owner register page."""
+    return _redirect_keeping_next(request, "owner_register")
+
+
 # ─── Admin Login ──────────────────────────────────────────────────────────────
 
 
@@ -159,17 +190,24 @@ def owner_register(request):
     if request.user.is_authenticated:
         return redirect_by_role(request.user)
 
-    if request.method == "POST":
-        form = PetOwnerRegistrationForm(request.POST)
-        if form.is_valid():
-            user = form.save()
+    is_post = request.method == "POST"
+    form = PetOwnerRegistrationForm(request.POST if is_post else None)
+    if is_post and form.is_valid():
+        user = form.save()
+        try:
             _send_verification_email(request, user)
-            return redirect("owner_register_pending")
-        # Form invalid — re-render with errors
-        return render(request, "owner/register.html", {"form": form})
+        except Exception:
+            # The account stays; the error goes to the log, never the page
+            logger.exception("Verification email not sent to user %s", user.pk)
+            messages.warning(request, VERIFICATION_EMAIL_FAILED)
+        return redirect("owner_register_pending")
 
-    form = PetOwnerRegistrationForm()
-    return render(request, "owner/register.html", {"form": form})
+    context = {
+        "form": form,
+        "terms_url": django_settings.TERMS_URL,
+        "privacy_url": django_settings.PRIVACY_URL,
+    }
+    return render(request, "owner/register.html", context)
 
 
 def owner_register_pending(request):

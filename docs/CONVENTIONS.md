@@ -743,6 +743,9 @@ def admin_only_view(request):
     # rest of view
 ```
 
+Owner views use `@owner_profile_required` (from `accounts.utils`) after
+`@login_required` and read `request.owner`, never `request.user.petowner`.
+
 ---
 
 ## 8. Model Conventions

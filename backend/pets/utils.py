@@ -314,6 +314,35 @@ def create_owner(form):
     return owner
 
 
+def contact_link_initial(owner):
+    """Initial rows for the contact links formset (none without a row)."""
+    if owner is None:
+        return []
+    return [
+        {"platform": link.platform, "url_or_handle": link.url_or_handle}
+        for link in owner.contact_links.all()
+    ]
+
+
+def save_owner_profile(profile_form, link_formset, user):
+    """
+    Saves the owner's profile (onboarding step 1 and profile edit) and
+    replaces their contact links, all in one transaction: if re-adding a
+    link fails, the old links and the old profile stay. Returns the owner.
+    """
+    with transaction.atomic():
+        owner = profile_form.save(commit=False)
+        owner.user = user
+        owner.save()
+        owner.contact_links.all().delete()
+        for form in link_formset:
+            if form.is_valid() and not form.is_empty():
+                link = form.save(commit=False)
+                link.owner = owner
+                link.save()
+    return owner
+
+
 # ── Admin pets list ──────────────────────────────────────────────────────────
 
 # A pet is on the Archived tab when it is archived or its owner is

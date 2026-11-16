@@ -5,6 +5,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.cache import patch_vary_headers
 
+from accounts.utils import owner_profile_required
 from appointments.utils import get_clinic_settings, is_owner_results_swap
 
 from .models import Service, BillingItem
@@ -361,13 +362,14 @@ def admin_receipt_mark_cancelled(request, pk):
 
 
 @login_required
+@owner_profile_required
 def owner_billing_list(request):
     """Pet Owner view — their Unpaid and Paid receipts (never Cancelled)."""
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
     receipts = (
-        owner_receipts(request.user.petowner)
+        owner_receipts(request.owner)
         .select_related("pet")
         .order_by("-billing_date", "-created_at")
     )
@@ -380,6 +382,7 @@ def owner_billing_list(request):
 
 
 @login_required
+@owner_profile_required
 def owner_receipt_detail(request, pk):
     """
     Pet Owner view — view a single billing receipt.
@@ -389,7 +392,7 @@ def owner_receipt_detail(request, pk):
         return redirect("admin_dashboard")
 
     receipt = get_object_or_404(
-        owner_receipts(request.user.petowner).select_related("pet", "appointment"),
+        owner_receipts(request.owner).select_related("pet", "appointment"),
         pk=pk,
     )
     items = receipt_items(receipt)

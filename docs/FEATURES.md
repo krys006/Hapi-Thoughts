@@ -59,7 +59,7 @@ Phase 7 — Dashboards & Polish
 | Logout | `complete` |
 | Logout is a POST, through the log-out confirmation sheet (GET no longer logs out) | `planned` |
 | Resend the verification link ("Send the link again" on Check your email and on login for an unverified account; at most one send per 2 minutes per account) | `planned` |
-| `/accounts/signup/` and `/accounts/login/` redirect to the owner register and login pages (the Google provider and callback URLs keep working) | `planned` |
+| `/accounts/signup/` and `/accounts/login/` redirect to the owner register and login pages (the Google provider and callback URLs keep working) | `complete` |
 | Forgot password / reset password via email | `complete` |
 | Redirect to onboarding flow after first login | `complete` |
 
@@ -118,7 +118,7 @@ Phase 7 — Dashboards & Polish
 | Feature | Status |
 |---|---|
 | Add a new pet | `complete` |
-| Edit pet details: name, breed, color, weight, photo (species, sex, birthday and registration no. shown locked) | `planned` |
+| Edit pet details: name, breed, color, weight, photo (species, sex, birthday and registration no. shown locked) | `complete` |
 | Pet photo upload (optional) | `complete` |
 | Species icon on a light tile if no pet photo uploaded (no initials for pets) | `planned` |
 | Request pet removal with a predefined reason (owners see "remove a pet"; it reaches the Admin as a deletion request; new wording in Slice 8) | `complete` |

@@ -134,6 +134,11 @@ LOGIN_URL = "/login/"
 ACCOUNT_EMAIL_CONFIRMATION_ANONYMOUS_REDIRECT_URL = "/login/"
 ACCOUNT_EMAIL_CONFIRMATION_AUTHENTICATED_REDIRECT_URL = "/login/"
 ACCOUNT_SIGNUP_REDIRECT_URL = "/owner/onboarding/"
+# Terms and Privacy links on Create account. Placeholders until the clinic
+# has its own pages; point these two settings at them to replace the links.
+TERMS_URL = "https://paws.org.ph/downloads/awa_ao54-_code_of_standards_for_veterinary_clinics_and_hospitals_for_small_companion_animals.pdf"
+PRIVACY_URL = "https://privacy.gov.ph/data-privacy-act/"
+
 # Email verification and password reset token lifetime (3 days)
 PASSWORD_RESET_TIMEOUT = 60 * 60 * 24 * 3
 

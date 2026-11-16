@@ -41,6 +41,7 @@ from .utils import (
 
 from django.db.models import Prefetch
 
+from accounts.utils import owner_profile_required
 from pets.utils import archived_pet_refusal
 
 # ── Admin — Medical Records ───────────────────────────────────────────────────
@@ -511,6 +512,7 @@ def admin_trigger_followup_reminder(request, pk):
 
 
 @login_required
+@owner_profile_required
 def owner_pet_medical_history(request, pk):
     """
     Pet Owner view — view their pet's medical history.
@@ -522,7 +524,7 @@ def owner_pet_medical_history(request, pk):
 
     from pets.models import Pet
 
-    owner = request.user.petowner
+    owner = request.owner
     pet = get_object_or_404(Pet, pk=pk, owner=owner, is_archived=False)
 
     records = (
@@ -549,6 +551,7 @@ def owner_pet_medical_history(request, pk):
 
 
 @login_required
+@owner_profile_required
 def owner_vaccination_history(request, pk):
     """
     Pet Owner view — view their pet's vaccination history.
@@ -559,7 +562,7 @@ def owner_vaccination_history(request, pk):
 
     from pets.models import Pet
 
-    owner = request.user.petowner
+    owner = request.owner
     pet = get_object_or_404(Pet, pk=pk, owner=owner, is_archived=False)
 
     vaccinations = Vaccination.objects.filter(pet=pet).order_by("-date_administered")

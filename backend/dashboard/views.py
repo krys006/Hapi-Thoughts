@@ -6,6 +6,7 @@ from django.http import HttpResponseForbidden
 from django.shortcuts import redirect, render
 from django.utils import timezone
 
+from accounts.utils import owner_profile_required
 from appointments.models import Appointment
 from appointments.utils import get_clinic_settings
 from billing.models import BillingReceipt
@@ -137,7 +138,7 @@ def _get_owner_dashboard_context(request):
     Builds the widget context for the pet owner dashboard.
     Shared by the full-page view and the HTMX polling partial.
     """
-    owner = request.user.petowner
+    owner = request.owner
     today = timezone.localdate()
 
     upcoming_appointments = (
@@ -304,6 +305,7 @@ def admin_global_search(request):
 
 
 @login_required
+@owner_profile_required
 def owner_dashboard(request):
     """Owner dashboard — full page, widgets render server-side first."""
     if request.user.role != "pet_owner":
@@ -316,6 +318,7 @@ def owner_dashboard(request):
 
 
 @login_required
+@owner_profile_required
 def owner_dashboard_partial(request):
     """
     Returns the owner dashboard widgets block only.
@@ -331,6 +334,7 @@ def owner_dashboard_partial(request):
 
 
 @login_required
+@owner_profile_required
 def owner_global_search(request):
     """
     HTMX view — header scoped search for pet owners. Returns a grouped
@@ -340,7 +344,7 @@ def owner_global_search(request):
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
-    owner = request.user.petowner
+    owner = request.owner
     query = request.GET.get("q", "").strip()
 
     if len(query) < 2:

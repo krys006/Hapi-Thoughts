@@ -193,6 +193,53 @@ class PetForm(forms.ModelForm):
         return dob
 
 
+class OwnerPetEditForm(forms.ModelForm):
+    """
+    Owner pet edit: name, breed, color, weight and photo only. Species,
+    sex, birthday and registration no. are not fields here, so a hand-made
+    POST can't change them (only the clinic does).
+    """
+
+    class Meta:
+        model = Pet
+        fields = ["name", "breed", "color", "weight", "photo"]
+        widgets = {
+            "name": forms.TextInput(attrs={"placeholder": "Pet's name"}),
+            "breed": forms.TextInput(
+                attrs={"placeholder": "e.g. Aspin, Persian (optional)"}
+            ),
+            "color": forms.TextInput(
+                attrs={"placeholder": "e.g. Brown and white (optional)"}
+            ),
+            "weight": forms.NumberInput(
+                attrs={"placeholder": "Weight in kg (optional)", "step": "0.01"}
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name in ("breed", "color", "weight", "photo"):
+            self.fields[name].required = False
+
+    def clean_name(self):
+        value = self.cleaned_data.get("name", "").strip()
+        if not value:
+            raise forms.ValidationError("Pet name is required.")
+        return value
+
+    def clean_breed(self):
+        return self.cleaned_data.get("breed", "").strip()
+
+    def clean_color(self):
+        return self.cleaned_data.get("color", "").strip()
+
+    def clean_weight(self):
+        weight = self.cleaned_data.get("weight")
+        if weight is not None and weight <= 0:
+            raise forms.ValidationError("Weight must be greater than 0.")
+        return weight
+
+
 class PetDeletionRequestForm(forms.ModelForm):
     class Meta:
         model = PetDeletionRequest

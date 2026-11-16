@@ -21,6 +21,7 @@ from .forms import (
     AdminPetForm,
     AdminPetOwnerForm,
     ContactLinkFormSet,
+    OwnerPetEditForm,
     PetDeletionRequestForm,
     PetForm,
     PetOwnerProfileForm,
@@ -48,11 +49,14 @@ from .utils import (
     pet_archive_refusal,
     pet_list_context,
     pet_restore_refusal,
+    contact_link_initial,
+    save_owner_profile,
 )
 
 from accounts.utils import (
     WALKIN_NO_EMAIL_TAKEN,
     WALKIN_SAVE_FAILED,
+    owner_profile_required,
     send_claim_email,
 )
 
@@ -88,26 +92,22 @@ def onboarding_step1(request):
     if guard:
         return guard
 
-    # If already onboarded, skip the whole flow
-    if request.user.is_onboarded:
+    # A second visit (Back, a new browser session) works on the saved row
+    existing = PetOwner.objects.filter(user=request.user).first()
+
+    # If already onboarded, skip the whole flow. A user flagged onboarded
+    # but with no PetOwner row must still fill in step 1 (no redirect loop).
+    if request.user.is_onboarded and existing:
         return redirect("owner_dashboard")
 
     if request.method == "POST":
-        profile_form = PetOwnerProfileForm(request.POST, request.FILES)
+        profile_form = PetOwnerProfileForm(
+            request.POST, request.FILES, instance=existing
+        )
         link_formset = ContactLinkFormSet(request.POST, prefix="links")
 
         if profile_form.is_valid() and link_formset.is_valid():
-            # Save the PetOwner record linked to this user
-            pet_owner = profile_form.save(commit=False)
-            pet_owner.user = request.user
-            pet_owner.save()
-
-            # Save contact links — skip blank rows
-            for form in link_formset:
-                if form.is_valid() and not form.is_empty():
-                    link = form.save(commit=False)
-                    link.owner = pet_owner
-                    link.save()
+            pet_owner = save_owner_profile(profile_form, link_formset, request.user)
 
             # Store the new owner's PK in the session so Step 2 can find it
             # without a DB query on the user object.
@@ -117,8 +117,10 @@ def onboarding_step1(request):
             return redirect("owner_onboarding_step2")
 
     else:
-        profile_form = PetOwnerProfileForm()
-        link_formset = ContactLinkFormSet(prefix="links")
+        profile_form = PetOwnerProfileForm(instance=existing)
+        link_formset = ContactLinkFormSet(
+            prefix="links", initial=contact_link_initial(existing)
+        )
 
     return render(
         request,
@@ -218,21 +220,14 @@ def _complete_onboarding(request):
 
 
 @login_required
+@owner_profile_required
 def owner_profile(request):
     # Role check
     guard = _require_pet_owner(request)
     if guard:
         return guard
 
-    # Fetch the owner record — if missing, something went wrong in onboarding
-    try:
-        pet_owner = PetOwner.objects.get(user=request.user)
-    except PetOwner.DoesNotExist:
-        # Safety net — reset onboarding flag and send them back through
-        request.user.is_onboarded = False
-        request.user.save(update_fields=["is_onboarded"])
-        return redirect("owner_onboarding_step1")
-
+    pet_owner = request.owner
     contact_links = pet_owner.contact_links.all()
     preference = request.user.notification_preference
 
@@ -253,18 +248,14 @@ def owner_profile(request):
 
 
 @login_required
+@owner_profile_required
 def owner_profile_edit(request):
     # Role check
     guard = _require_pet_owner(request)
     if guard:
         return guard
 
-    try:
-        pet_owner = PetOwner.objects.get(user=request.user)
-    except PetOwner.DoesNotExist:
-        request.user.is_onboarded = False
-        request.user.save(update_fields=["is_onboarded"])
-        return redirect("owner_onboarding_step1")
+    pet_owner = request.owner
 
     if request.method == "POST":
         profile_form = PetOwnerProfileForm(
@@ -275,30 +266,18 @@ def owner_profile_edit(request):
         link_formset = ContactLinkFormSet(request.POST, prefix="links")
 
         if profile_form.is_valid() and link_formset.is_valid():
-            profile_form.save()
-
-            # Handle contact links:
-            # Delete all existing links and replace with new ones.
-            # Simpler and safer than trying to match and update individual rows.
-            pet_owner.contact_links.all().delete()
-            for form in link_formset:
-                if form.is_valid() and not form.is_empty():
-                    link = form.save(commit=False)
-                    link.owner = pet_owner
-                    link.save()
+            # Profile and links save together; links are replaced, not
+            # matched row by row (see save_owner_profile)
+            save_owner_profile(profile_form, link_formset, request.user)
 
             messages.success(request, "Profile updated successfully.")
             return redirect("owner_profile")
 
     else:
         profile_form = PetOwnerProfileForm(instance=pet_owner)
-        # Pre-populate formset with existing contact links
-        existing_links = pet_owner.contact_links.all()
-        initial_data = [
-            {"platform": link.platform, "url_or_handle": link.url_or_handle}
-            for link in existing_links
-        ]
-        link_formset = ContactLinkFormSet(prefix="links", initial=initial_data)
+        link_formset = ContactLinkFormSet(
+            prefix="links", initial=contact_link_initial(pet_owner)
+        )
 
     return render(
         request,
@@ -317,12 +296,13 @@ def owner_profile_edit(request):
 
 
 @login_required
+@owner_profile_required
 def owner_pet_list(request):
     guard = _require_pet_owner(request)
     if guard:
         return guard
 
-    pet_owner = get_object_or_404(PetOwner, user=request.user)
+    pet_owner = request.owner
 
     # Only show active (non-archived) pets
     pets = Pet.objects.filter(owner=pet_owner, is_archived=False)
@@ -352,12 +332,13 @@ def owner_pet_list(request):
 
 
 @login_required
+@owner_profile_required
 def owner_pet_detail(request, pk):
     guard = _require_pet_owner(request)
     if guard:
         return guard
 
-    pet_owner = get_object_or_404(PetOwner, user=request.user)
+    pet_owner = request.owner
     pet = get_object_or_404(Pet, pk=pk, owner=pet_owner, is_archived=False)
 
     pending_deletion = PetDeletionRequest.objects.filter(
@@ -392,12 +373,13 @@ def owner_pet_detail(request, pk):
 
 
 @login_required
+@owner_profile_required
 def owner_pet_add(request):
     guard = _require_pet_owner(request)
     if guard:
         return guard
 
-    pet_owner = get_object_or_404(PetOwner, user=request.user)
+    pet_owner = request.owner
 
     if request.method == "POST":
         form = PetForm(request.POST, request.FILES)
@@ -426,12 +408,13 @@ def owner_pet_add(request):
 
 
 @login_required
+@owner_profile_required
 def owner_pet_edit(request, pk):
     guard = _require_pet_owner(request)
     if guard:
         return guard
 
-    pet_owner = get_object_or_404(PetOwner, user=request.user)
+    pet_owner = request.owner
     pet = get_object_or_404(Pet, pk=pk, owner=pet_owner, is_archived=False)
 
     # Block editing if a deletion request is pending
@@ -447,14 +430,14 @@ def owner_pet_edit(request, pk):
         return redirect("owner_pet_detail", pk=pet.pk)
 
     if request.method == "POST":
-        form = PetForm(request.POST, request.FILES, instance=pet)
+        form = OwnerPetEditForm(request.POST, request.FILES, instance=pet)
         if form.is_valid():
             form.save()
             messages.success(request, f"{pet.name} has been updated.")
             return redirect("owner_pet_detail", pk=pet.pk)
 
     else:
-        form = PetForm(instance=pet)
+        form = OwnerPetEditForm(instance=pet)
 
     return render(
         request,
@@ -472,12 +455,13 @@ def owner_pet_edit(request, pk):
 
 
 @login_required
+@owner_profile_required
 def owner_pet_delete_request(request, pk):
     guard = _require_pet_owner(request)
     if guard:
         return guard
 
-    pet_owner = get_object_or_404(PetOwner, user=request.user)
+    pet_owner = request.owner
     pet = get_object_or_404(Pet, pk=pk, owner=pet_owner, is_archived=False)
 
     # Prevent duplicate pending requests
@@ -526,12 +510,13 @@ def owner_pet_delete_request(request, pk):
 
 
 @login_required
+@owner_profile_required
 def owner_pet_cancel_delete_request(request, pk):
     guard = _require_pet_owner(request)
     if guard:
         return guard
 
-    pet_owner = get_object_or_404(PetOwner, user=request.user)
+    pet_owner = request.owner
     pet = get_object_or_404(Pet, pk=pk, owner=pet_owner, is_archived=False)
 
     # Only allow cancelling PENDING requests
