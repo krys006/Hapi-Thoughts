@@ -1,5 +1,8 @@
 import datetime
+import io
 import re
+import shutil
+import tempfile
 from unittest import mock
 from zoneinfo import ZoneInfo
 
@@ -9,7 +12,8 @@ from django.core import mail
 from django.db import DatabaseError, connection
 from django.core.paginator import Paginator
 from django.templatetags.static import static
-from django.test import SimpleTestCase, TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -3067,6 +3071,165 @@ class BookingLimitFormTests(AppointmentTestBase):
             ClinicSettingsForm().fields["booking_limit_days"].help_text,
             "Owners can book up to this many days ahead. Between 1 and 365.",
         )
+
+
+LOGO_MB = 1024 * 1024
+TYPE_MESSAGE = "Only JPG, PNG or WebP files can be used."
+
+
+def _image_bytes(fmt):
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (4, 4), "teal").save(buffer, format=fmt)
+    return buffer.getvalue()
+
+
+class ClinicLogoTests(AppointmentTestBase):
+    """Logo: JPG, PNG or WebP (any case), up to 2 MB; type checked first."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("admin_clinic_settings")
+        self.media = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media, ignore_errors=True)
+        override = override_settings(MEDIA_ROOT=self.media)
+        override.enable()
+        self.addCleanup(override.disable)
+
+    def _data(self, **extra):
+        data = {
+            "tab": "details",
+            "clinic_name": "Test Clinic",
+            "address": "Gasan, Marinduque",
+            "contact_number": "",
+            "email": "",
+            "notification_email": "",
+        }
+        data.update(extra)
+        return data
+
+    def _form(self, name, content=b"x", size=None):
+        from appointments.forms import ClinicSettingsForm
+
+        upload = SimpleUploadedFile(name, content)
+        if size is not None:
+            upload.size = size
+        return ClinicSettingsForm(
+            self._data(),
+            {"logo": upload},
+            instance=get_clinic_settings(),
+            tab="details",
+        )
+
+    def _png(self, name="logo.png"):
+        return SimpleUploadedFile(name, _image_bytes("PNG"), "image/png")
+
+    # ─── Type ─────────────────────────────────────────────────────────────────
+
+    def test_png_jpg_jpeg_and_webp_are_accepted_in_any_case(self):
+        from PIL import features
+
+        cases = [("logo.png", "PNG"), ("logo.JPG", "JPEG"), ("logo.jpeg", "JPEG")]
+        if features.check("webp"):
+            cases.append(("logo.webp", "WEBP"))
+        for name, fmt in cases:
+            with self.subTest(name=name):
+                form = self._form(name, _image_bytes(fmt))
+                self.assertTrue(form.is_valid(), form.errors)
+
+    def test_svg_and_gif_are_refused_with_the_type_message(self):
+        for name in ("logo.svg", "logo.gif", "logo.GIF", "logo"):
+            with self.subTest(name=name):
+                form = self._form(name, b"<svg></svg>")
+                self.assertEqual(form.errors["logo"], [TYPE_MESSAGE])
+
+    # ─── Size ─────────────────────────────────────────────────────────────────
+
+    def test_exactly_2_mb_is_accepted_and_one_byte_more_is_refused(self):
+        from appointments.forms import check_logo_upload
+
+        for size, ok in ((2 * LOGO_MB, True), (2 * LOGO_MB + 1, False)):
+            with self.subTest(size=size):
+                upload = SimpleUploadedFile("logo.png", b"x")
+                upload.size = size
+                if ok:
+                    check_logo_upload(upload)
+                else:
+                    from django.forms import ValidationError
+
+                    with self.assertRaises(ValidationError) as caught:
+                        check_logo_upload(upload)
+                    self.assertEqual(
+                        caught.exception.messages,
+                        ["This file is 2.1 MB. Please choose one up to 2 MB."],
+                    )
+
+    def test_a_larger_file_shows_the_size_rounded_up(self):
+        form = self._form("logo.png", size=int(4.21 * LOGO_MB))
+        self.assertEqual(
+            form.errors["logo"],
+            ["This file is 4.3 MB. Please choose one up to 2 MB."],
+        )
+
+    def test_wrong_type_and_too_big_shows_only_the_type_message(self):
+        form = self._form("logo.svg", size=5 * LOGO_MB)
+        self.assertEqual(form.errors["logo"], [TYPE_MESSAGE])
+
+    def test_a_non_image_with_an_allowed_name_keeps_djangos_message(self):
+        form = self._form("logo.png", b"not an image")
+        self.assertEqual(
+            form.errors["logo"],
+            [
+                "Upload a valid image. The file you uploaded was either not an "
+                "image or a corrupted image."
+            ],
+        )
+
+    def test_help_text(self):
+        from appointments.forms import ClinicSettingsForm
+
+        self.assertEqual(
+            ClinicSettingsForm().fields["logo"].help_text,
+            "JPG, PNG or WebP, up to 2 MB. It shows on receipts and the clinic "
+            "page. Choosing a new file replaces the old one.",
+        )
+
+    # ─── Saving ───────────────────────────────────────────────────────────────
+
+    def test_a_valid_logo_saves_on_the_details_tab(self):
+        response = self.client.post(self.url, self._data(logo=self._png()))
+        self.assertRedirects(response, f"{self.url}?tab=details")
+        self.assertTrue(get_clinic_settings().logo.name.startswith("clinic/"))
+
+    def test_saving_details_with_no_new_file_keeps_the_logo(self):
+        self.client.post(self.url, self._data(logo=self._png()))
+        kept = get_clinic_settings().logo.name
+        response = self.client.post(self.url, self._data(clinic_name="Renamed"))
+        self.assertRedirects(response, f"{self.url}?tab=details")
+        saved = get_clinic_settings()
+        self.assertEqual(saved.clinic_name, "Renamed")
+        self.assertEqual(saved.logo.name, kept)
+
+    def test_the_clear_checkbox_still_removes_the_logo(self):
+        self.client.post(self.url, self._data(logo=self._png()))
+        self.client.post(self.url, self._data(**{"logo-clear": "on"}))
+        self.assertFalse(get_clinic_settings().logo)
+
+    def test_a_refused_logo_saves_nothing_and_reopens_details(self):
+        response = self.client.post(
+            self.url,
+            self._data(
+                clinic_name="Should Not Save",
+                logo=SimpleUploadedFile("logo.svg", b"<svg></svg>"),
+            ),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["active_tab"], "details")
+        self.assertEqual(response.context["tab_errors"]["details"], 1)
+        saved = get_clinic_settings()
+        self.assertEqual(saved.clinic_name, "Test Clinic")
+        self.assertFalse(saved.logo)
 
 
 class SettingsTabTests(AppointmentTestBase):

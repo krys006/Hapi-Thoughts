@@ -500,6 +500,7 @@ PENDING or CONFIRMED → CANCELLED
 |---|---|
 | Edit clinic name, address, contact number, email | `complete` |
 | Upload clinic logo | `complete` |
+| Logo rule: JPG, PNG or WebP (any letter case), up to 2 MB. SVG and GIF are refused ("Only JPG, PNG or WebP files can be used."); too big shows "This file is 4.3 MB. Please choose one up to 2 MB." (rounded up). The type is checked first. Saving without a new file keeps the logo; the clear checkbox removes it (backend 7a-6; the help text shows when 7b-2 renders it) | `complete` |
 | Edit operating hours and working days | `complete` |
 | Edit appointment slot duration | `complete` |
 | Set same-day booking cutoff time | `complete` |

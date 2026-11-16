@@ -1,4 +1,7 @@
 import datetime
+import math
+import os
+
 from django import forms
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
@@ -26,6 +29,39 @@ SLOT_DURATION_CHOICES = [
     (30, "30 minutes"),
     (60, "60 minutes"),
 ]
+
+
+LOGO_TYPES = (".jpg", ".jpeg", ".png", ".webp")
+LOGO_MAX_MB = 2
+MB = 1024 * 1024  # Same definition as the medical test-file check
+
+
+def check_logo_upload(upload):
+    """
+    Clinic logo rule: JPG, PNG or WebP (any letter case), up to 2 MB.
+    The type is checked first, then the size. Raises ValidationError.
+    """
+    if os.path.splitext(upload.name)[1].lower() not in LOGO_TYPES:
+        raise forms.ValidationError("Only JPG, PNG or WebP files can be used.")
+    if upload.size > LOGO_MAX_MB * MB:
+        # Rounded up, so a file just over the limit never reads "2.0 MB"
+        size = math.ceil(upload.size * 10 / MB) / 10
+        raise forms.ValidationError(
+            f"This file is {size:.1f} MB. Please choose one up to {LOGO_MAX_MB} MB."
+        )
+
+
+class LogoImageField(forms.ImageField):
+    """
+    ImageField that runs the logo rule before Django's own image check, so a
+    wrong type (for example an SVG) gets the type message, not "not an image".
+    Only a newly uploaded file reaches to_python; a kept or cleared logo doesn't.
+    """
+
+    def to_python(self, data):
+        if data is not None and hasattr(data, "size"):
+            check_logo_upload(data)
+        return super().to_python(data)
 
 
 class ClinicSettingsForm(forms.ModelForm):
@@ -79,6 +115,13 @@ class ClinicSettingsForm(forms.ModelForm):
             "booking_limit_days",
             "notification_email",
         ]
+        field_classes = {"logo": LogoImageField}
+        help_texts = {
+            "logo": (
+                "JPG, PNG or WebP, up to 2 MB. It shows on receipts and the "
+                "clinic page. Choosing a new file replaces the old one."
+            ),
+        }
         widgets = {
             "opening_time": forms.TimeInput(attrs={"type": "time"}),
             "closing_time": forms.TimeInput(attrs={"type": "time"}),
