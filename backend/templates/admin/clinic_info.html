@@ -1,0 +1,74 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}Clinic info — Hapi Vet Admin{% endblock %}
+
+{% block page_header %}{% endblock %}
+
+{% block content %}
+{% comment %}
+  Admin clinic info page (mockup state 10). Owners get shared/clinic_info.html
+  instead: the view picks the template by role. No JS: the map is the same
+  keyless embed the owner page uses, plus a plain link. No violet button.
+{% endcomment %}
+<a href="{% url 'admin_clinic_settings' %}" class="btn btn-outline mb-4">{% include "components/icon.html" with name="arrow-left" %}Back to clinic settings</a>
+
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-gray-900">Clinic info</h1>
+  <p class="mt-1 text-base text-gray-700">This is what pet owners see on the clinic page.</p>
+</div>
+
+<div class="grid gap-6 lg:grid-cols-3">
+  <section class="space-y-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm lg:col-span-2" aria-labelledby="clinic-info-name">
+    <div class="flex flex-wrap items-center gap-5">
+      {% if clinic.logo %}
+        <img src="{{ clinic.logo.url }}" alt="{{ clinic.clinic_name }} logo" class="size-20 shrink-0 rounded-xl border border-gray-200 bg-white object-contain p-1">
+      {% else %}
+        <span class="grid size-20 shrink-0 place-content-center rounded-xl bg-gradient-to-br from-amber-300 to-amber-700 text-white">{% include "components/icon.html" with name="image" class="size-10" %}</span>
+      {% endif %}
+      <div class="min-w-0">
+        <h2 id="clinic-info-name" class="text-2xl font-bold text-gray-900">{{ clinic.clinic_name }}</h2>
+        {% if clinic.address %}<p class="text-base text-gray-700">{{ clinic.address }}</p>{% endif %}
+      </div>
+    </div>
+
+    <div class="grid gap-4 sm:grid-cols-2">
+      <div class="rounded-lg bg-gray-50 p-4">
+        <p class="flex items-center gap-2 text-base font-semibold text-gray-700">{% include "components/icon.html" with name="phone" %}Phone</p>
+        <p class="text-lg text-gray-900">{% if clinic.contact_number %}{{ clinic.contact_number }}{% else %}Not set{% endif %}</p>
+      </div>
+      <div class="rounded-lg bg-gray-50 p-4">
+        <p class="flex items-center gap-2 text-base font-semibold text-gray-700">{% include "components/icon.html" with name="mail" %}Email</p>
+        <p class="break-words text-lg text-gray-900">{% if clinic.email %}{{ clinic.email }}{% else %}Not set{% endif %}</p>
+      </div>
+      <div class="rounded-lg bg-gray-50 p-4 sm:col-span-2">
+        <p class="flex items-center gap-2 text-base font-semibold text-gray-700">{% include "components/icon.html" with name="clock" %}Opening hours</p>
+        <p class="text-lg text-gray-900">{{ hours_line }}</p>
+      </div>
+    </div>
+
+    {% if maps_embed_url %}
+      <div class="space-y-3">
+        <iframe src="{{ maps_embed_url }}" title="Map of the clinic" class="h-64 w-full rounded-lg border border-gray-300" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+        <a href="https://www.google.com/maps?q={{ clinic.address|urlencode }}" target="_blank" rel="noopener" class="btn btn-outline">{% include "components/icon.html" with name="map-pin" %}Open in Google Maps<span class="sr-only"> (opens in a new tab)</span></a>
+      </div>
+    {% else %}
+      <p class="rounded-lg border border-gray-300 bg-gray-50 p-4 text-base text-gray-700">No address is set, so there is no map. Add the address in clinic settings.</p>
+    {% endif %}
+  </section>
+
+  <section class="space-y-3 rounded-xl border border-gray-200 bg-white p-6 shadow-sm" aria-labelledby="clinic-info-vet">
+    <h2 id="clinic-info-vet" class="text-base font-semibold text-gray-700">Veterinarian</h2>
+    {% if clinic.veterinarian_name %}
+      <p class="text-xl font-semibold text-gray-900">{{ clinic.veterinarian_name }}</p>
+      {% if clinic.veterinarian_license_number %}
+        <p class="text-base text-gray-700">License {{ clinic.veterinarian_license_number }}</p>
+      {% endif %}
+      {% if clinic.veterinarian_bio %}
+        <div class="space-y-3 text-base text-gray-900">{{ clinic.veterinarian_bio|linebreaks }}</div>
+      {% endif %}
+    {% else %}
+      <p class="text-base text-gray-700">No veterinarian profile is set. Add it on the Vet profile tab in clinic settings.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

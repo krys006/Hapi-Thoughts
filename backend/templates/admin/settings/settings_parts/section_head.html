@@ -1,0 +1,11 @@
+{% comment %}
+  Icon tile + title + one-line explanation that opens each tab's section.
+  Needs id, icon, tint (tile colours), title and text.
+{% endcomment %}
+<div class="mb-5 flex items-center gap-4">
+  <span class="grid size-12 shrink-0 place-content-center rounded-xl {{ tint }}">{% include "components/icon.html" with name=icon class="size-6" %}</span>
+  <div class="min-w-0">
+    <h2 id="{{ id }}" class="text-xl font-semibold text-gray-900">{{ title }}</h2>
+    <p class="text-base text-gray-700">{{ text }}</p>
+  </div>
+</div>

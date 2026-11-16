@@ -5,7 +5,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.cache import patch_vary_headers
 
-from appointments.utils import is_owner_results_swap
+from appointments.utils import get_clinic_settings, is_owner_results_swap
 
 from .models import Service, BillingItem
 from .forms import ServiceForm, BillingReceiptForm, BillingItemForm
@@ -45,8 +45,6 @@ from .utils import (
     visit_receipt_stop,
     visit_service,
 )
-
-from appointments.models import ClinicSettings
 
 # ── Admin — Services ──────────────────────────────────────────────────────────
 
@@ -403,6 +401,6 @@ def owner_receipt_detail(request, pk):
             "receipt": receipt,
             "items": items,
             "discount_label": discount_label(receipt),
-            "clinic_settings": ClinicSettings.objects.first(),
+            "clinic_settings": get_clinic_settings(),
         },
     )

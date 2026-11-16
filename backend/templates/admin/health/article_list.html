@@ -1,88 +1,70 @@
 {% extends "layouts/admin.html" %}
 
-{% load static %}
-{% block legacy_css %}
-<style>
-  @import url("{% static 'css/admin/article_form.css' %}") layer(legacy);
-  @import url("{% static 'css/admin/article_list.css' %}") layer(legacy);
-</style>
+{% block title %}Health library — Hapi Vet Admin{% endblock %}
+
+{# This page's own search replaces "Find a pet or owner" (md up; phones get the same form in the page body) #}
+{% block topbar_search %}
+  {% include "admin/health/article_list_parts/search_form.html" with id_prefix="topbar" form_class="hidden min-w-0 flex-1 items-center gap-3 md:flex" %}
 {% endblock %}
 
-{% block title %}Health Library — Hapi Vet{% endblock %}
-
-{% block page_header %}{% endblock %}
+{% block page_title %}Health library{% endblock %}
+{% block page_subtitle %}Articles that pet owners can read. Unpublish an article to hide it from them.{% endblock %}
+{% block page_actions %}
+  <a href="{% url 'admin_health_article_create' %}" class="btn btn-primary font-semibold">{% include "components/icon.html" with name="plus" %}New article</a>
+{% endblock %}
 
 {% block content %}
+  {% include "admin/health/article_list_parts/search_form.html" with id_prefix="page" form_class="mb-4 flex items-center gap-3 md:hidden" %}
 
-<div class="admin-page">
+  <p class="mb-4 flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-base text-gray-800">
+    {% include "components/icon.html" with name="info" class="mt-0.5 size-5 shrink-0" %}
+    <span>To take an article off the list, unpublish it. It stays here, and you can publish it again at any time.</span>
+  </p>
 
-  <div class="admin-page-header">
-    <h1 class="admin-page-title">Health Library</h1>
-    <a href="{% url 'admin_health_article_create' %}" class="btn-primary">New Article</a>
-  </div>
-
-  <!-- Search by condition name -->
-  <form method="get" class="health-search-form">
-    <input type="text" name="q" value="{{ query }}" placeholder="Search by condition name..." class="health-search-input" />
-    <button type="submit" class="btn-secondary">Search</button>
-  </form>
-
-  {% if articles %}
-  <table class="health-article-table">
-    <thead>
-      <tr>
-        <th class="widget-table-head">Title</th>
-        <th class="widget-table-head">Status</th>
-        <th class="widget-table-head">Last Updated</th>
-        <th class="widget-table-head">Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for article in articles %}
-      <tr class="widget-table-row">
-        <td class="widget-table-cell">{{ article.title }}</td>
-        <td class="widget-table-cell">
-          {% if article.is_published %}
-          <span class="status-badge status-badge-completed">Published</span>
-          {% else %}
-          <span class="status-badge status-badge-pending">Draft</span>
-          {% endif %}
-        </td>
-        <td class="widget-table-cell">{{ article.updated_at|date:"M j, Y" }}</td>
-        <td class="widget-table-cell health-article-actions">
-          <a href="{% url 'admin_health_article_edit' article.pk %}" class="widget-table-link">Edit</a>
-
-          <form method="post" action="{% url 'admin_health_article_toggle_publish' article.pk %}" class="health-inline-form">
-            {% csrf_token %}
-            <button type="submit" class="widget-table-link">{% if article.is_published %}Unpublish{% else %}Publish{% endif %}</button>
-          </form>
-          
-          <!-- Hard delete — irreversible, confirmed via shared modal -->
-          <button
-            type="button"
-            onclick="openConfirmModal('{% url 'admin_health_article_delete' article.pk %}', 'Delete Article', 'Are you sure you want to permanently delete \'{{ article.title }}\'? This cannot be undone.')"
-            class="widget-table-link health-delete-link">
-            Delete
-          </button>
-
-
-
-
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="widget-empty">
-    <p class="widget-empty-text">{% if query %}No articles match "{{ query }}".{% else %}No health articles yet.{% endif %}</p>
-  </div>
+  {% if total_count %}
+    <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+      <h2 class="text-xl font-semibold text-gray-900">
+        {% if is_searching %}
+          {{ articles|length }} article{{ articles|length|pluralize }} match “{{ query }}”
+        {% else %}
+          All articles ({{ total_count }})
+        {% endif %}
+      </h2>
+      <p class="text-sm text-gray-700">{{ published_count }} published · {{ draft_count }} draft{{ draft_count|pluralize }} · Newest change first</p>
+    </div>
   {% endif %}
 
-</div>
+  {% if articles %}
+    {# The table scrolls sideways inside this box at phone width instead of breaking the page #}
+    <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+      <table class="w-full min-w-[40rem] text-left">
+        <thead class="border-b border-gray-200 bg-gray-50 text-sm font-semibold text-gray-700">
+          <tr>
+            <th scope="col" class="px-5 py-2">Article</th>
+            <th scope="col" class="px-3 py-2">Status</th>
+            <th scope="col" class="px-3 py-2">Last changed</th>
+            <th scope="col" class="px-5 py-2 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for article in articles %}
+            {% include "admin/health/article_list_parts/row.html" %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
 
-{% endblock %}
-
-{% block extra_js %}
-  <script src="{% static 'js/admin/article_list.js' %}"></script>
+    {# One confirm dialog per article, written by the server so titles never sit inside JavaScript #}
+    {% for article in articles %}
+      {% include "admin/health/article_list_parts/toggle_dialog.html" %}
+    {% endfor %}
+  {% elif is_searching %}
+    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+      {% include "components/empty_state.html" with icon="search" title="No articles match your search" text="Check the spelling, or search for fewer words." live=True %}
+    </div>
+  {% else %}
+    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+      {% include "components/empty_state.html" with icon="book-open" title="No health articles yet" text="Add the first one with New article. It is saved as a draft until you publish it." %}
+    </div>
+  {% endif %}
 {% endblock %}

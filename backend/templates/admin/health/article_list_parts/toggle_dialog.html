@@ -1,0 +1,26 @@
+{% comment %}
+  Confirm dialog for one article (needs article). A published article gets
+  "Unpublish" (the safe "Keep it published" has the focus, the action is red);
+  a draft gets "Publish" (violet; inside a dialog it does not count as the
+  page's one primary). Both confirm buttons POST to the toggle URL. The title
+  is plain template text, so Django escapes it.
+{% endcomment %}
+{% if article.is_published %}
+<dialog id="unpublish-dialog-{{ article.pk }}" aria-labelledby="unpublish-title-{{ article.pk }}" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50">
+  <form method="post" action="{% url 'admin_health_article_toggle_publish' article.pk %}" class="p-6 sm:p-7">
+    {% csrf_token %}
+    <h2 id="unpublish-title-{{ article.pk }}" class="text-xl font-bold">Unpublish “{{ article.title }}”?</h2>
+    <p class="mt-2 text-base text-gray-700">Pet owners will no longer see this article. It stays in the list, and you can publish it again at any time.</p>
+    {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, unpublish" icon="eye" danger=True back_text="Keep it published" %}
+  </form>
+</dialog>
+{% else %}
+<dialog id="publish-dialog-{{ article.pk }}" aria-labelledby="publish-title-{{ article.pk }}" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50">
+  <form method="post" action="{% url 'admin_health_article_toggle_publish' article.pk %}" class="p-6 sm:p-7">
+    {% csrf_token %}
+    <h2 id="publish-title-{{ article.pk }}" class="text-xl font-bold">Publish “{{ article.title }}”?</h2>
+    <p class="mt-2 text-base text-gray-700">Pet owners will be able to read it.</p>
+    {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, publish" icon="check" danger=False %}
+  </form>
+</dialog>
+{% endif %}

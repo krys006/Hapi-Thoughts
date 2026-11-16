@@ -5,6 +5,7 @@ from urllib.parse import urlencode
 from django.db.models import Count, Exists, OuterRef, Prefetch, Q
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
+from django.utils.dateformat import time_format
 
 from dashboard.templatetags.friendly_dates import (
     MID_SENTENCE,
@@ -14,6 +15,195 @@ from dashboard.templatetags.friendly_dates import (
 from notifications.utils import notify
 from pets.models import Pet, PetOwner
 from .models import ClinicSettings, BlockedDate, Appointment
+
+# The row the clinic settings page creates when none exists yet
+CLINIC_SETTINGS_DEFAULTS = {
+    "clinic_name": "Hapi Tutz Vet. Supplies",
+    "address": "Bognuyan, Gasan, Marinduque",
+    "opening_time": datetime.time(8, 0),
+    "closing_time": datetime.time(17, 0),
+    "same_day_cutoff_time": datetime.time(15, 0),
+    "working_days": [0, 1, 2, 3, 4],
+}
+
+
+def get_clinic_settings(create=False):
+    """
+    The one place ClinicSettings is read: the row with the lowest pk, or
+    None when there is none. Only the settings page passes create=True,
+    which makes the row from CLINIC_SETTINGS_DEFAULTS when it is missing.
+    """
+    settings_obj = ClinicSettings.objects.order_by("pk").first()
+    if settings_obj is None and create:
+        settings_obj = ClinicSettings.objects.create(**CLINIC_SETTINGS_DEFAULTS)
+    return settings_obj
+
+
+# Settings page tabs (?tab=). "blocked" has its own forms; the three others
+# save through ClinicSettingsForm, which keeps only that tab's fields.
+SETTINGS_TABS = ("details", "schedule", "blocked", "vet")
+SETTINGS_TAB_FIELDS = {
+    "details": (
+        "clinic_name",
+        "address",
+        "contact_number",
+        "email",
+        "logo",
+        "notification_email",
+    ),
+    "schedule": (
+        "opening_time",
+        "closing_time",
+        "slot_duration_minutes",
+        "working_days",
+        "same_day_cutoff_time",
+        "booking_limit_days",
+    ),
+    "vet": (
+        "veterinarian_name",
+        "veterinarian_license_number",
+        "veterinarian_bio",
+    ),
+}
+
+# Changing any of these with visits booked shows the schedule warning
+# (booking_limit_days is not one of them).
+SCHEDULE_WARNING_FIELDS = (
+    "opening_time",
+    "closing_time",
+    "working_days",
+    "slot_duration_minutes",
+    "same_day_cutoff_time",
+)
+SCHEDULE_WARNING_PHRASES = {
+    "opening_time": "the opening hours",
+    "closing_time": "the opening hours",
+    "working_days": "the working days",
+    "same_day_cutoff_time": "the booking cutoff",
+}
+SCHEDULE_WARNING_LIMIT = 10
+DAY_ABBREVIATIONS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def settings_tab(value):
+    """The tab named by ?tab= (or the posted tab); anything else is details."""
+    return value if value in SETTINGS_TABS else "details"
+
+
+def problems_label(count):
+    """The pill wording: "1 problem", "2 problems"."""
+    return f"{count} problem{'' if count == 1 else 's'}"
+
+
+def settings_tab_errors(form):
+    """{tab: number of errors} for the settings form. A form error that
+    belongs to no field (closing before opening) is a schedule error."""
+    counts = {tab: 0 for tab in SETTINGS_TABS}
+    tab_of = {name: tab for tab, names in SETTINGS_TAB_FIELDS.items() for name in names}
+    for name, errors in form.errors.items():
+        counts[tab_of.get(name, "schedule")] += len(errors)
+    return counts
+
+
+def first_error_tab(tab_errors):
+    """The first tab, in tab order, that has an error (details when none)."""
+    for tab in SETTINGS_TABS:
+        if tab_errors[tab]:
+            return tab
+    return "details"
+
+
+def upcoming_visits():
+    """CONFIRMED and PENDING visits from today on, by date and time."""
+    return (
+        Appointment.objects.filter(
+            date__gte=timezone.localdate(),
+            status__in=[Appointment.CONFIRMED, Appointment.PENDING],
+        )
+        .select_related("pet", "owner")
+        .order_by("date", "time", "pk")
+    )
+
+
+def _visit_line(visit):
+    """ "Mon, Nov 23 at 9:00 AM · Bantay (Ana Cruz)"."""
+    when = f"{date_format(visit.date, 'D, M j')} at {time_format(visit.time, 'g:i A')}"
+    owner = f"{visit.owner.first_name} {visit.owner.last_name}"
+    return f"{when} · {visit.pet.name} ({owner})"
+
+
+def _schedule_change_phrase(form, changed):
+    """What the heading says changed: one thing by name, several as "the
+    schedule"."""
+    phrases = []
+    for name in changed:
+        if name == "slot_duration_minutes":
+            minutes = form.cleaned_data[name]
+            phrase = f"the slot length to {minutes} minutes"
+        else:
+            phrase = SCHEDULE_WARNING_PHRASES[name]
+        if phrase not in phrases:
+            phrases.append(phrase)
+    return phrases[0] if len(phrases) == 1 else "the schedule"
+
+
+def schedule_warning(form):
+    """
+    The warning for a valid settings form, or None. It shows when an hours,
+    working days, slot length or cutoff field changed and CONFIRMED or PENDING
+    visits exist from today on. Every such visit is listed (not only the ones
+    that no longer fit): the first 10 as lines, the rest as more_count.
+    """
+    changed = [n for n in SCHEDULE_WARNING_FIELDS if n in form.changed_data]
+    if not changed:
+        return None
+    visits = upcoming_visits()
+    total = visits.count()
+    if not total:
+        return None
+    what = _schedule_change_phrase(form, changed)
+    plural = "" if total == 1 else "s"
+    return {
+        "heading": (f"Changing {what} affects {total} visit{plural} already booked."),
+        "lines": [_visit_line(v) for v in visits[:SCHEDULE_WARNING_LIMIT]],
+        "more_count": max(total - SCHEDULE_WARNING_LIMIT, 0),
+        "count": total,
+    }
+
+
+def clinic_hours_line(settings_obj):
+    """The banner line: "Mon to Sat, 8:00 AM to 5:00 PM", "Mon, Wed and Fri,
+    8:00 AM to 5:00 PM", "Every day, ..." or "Closed" with no working days."""
+    days = sorted({d for d in settings_obj.working_days if 0 <= d <= 6})
+    if not days:
+        return "Closed"
+    names = [DAY_ABBREVIATIONS[d] for d in days]
+    if len(days) == 7:
+        label = "Every day"
+    elif len(days) >= 2 and days[-1] - days[0] == len(days) - 1:
+        label = f"{names[0]} to {names[-1]}"
+    elif len(names) == 1:
+        label = names[0]
+    else:
+        label = f"{', '.join(names[:-1])} and {names[-1]}"
+    opening = time_format(settings_obj.opening_time, "g:i A")
+    closing = time_format(settings_obj.closing_time, "g:i A")
+    return f"{label}, {opening} to {closing}"
+
+
+def visits_on_date(date):
+    """
+    The CONFIRMED and PENDING visits on date, by time, with the pet and owner
+    loaded. The busy-day warning on Blocked dates lists these; blocking a day
+    never changes them.
+    """
+    return (
+        Appointment.objects.filter(
+            date=date, status__in=[Appointment.CONFIRMED, Appointment.PENDING]
+        )
+        .select_related("pet", "owner")
+        .order_by("time", "pk")
+    )
 
 
 def get_available_slots(date, walk_in=False, move=False):
@@ -39,7 +229,7 @@ def get_available_slots(date, walk_in=False, move=False):
     Returns a list of datetime.time objects.
     Returns an empty list if the date is unavailable for any reason.
     """
-    clinic = ClinicSettings.objects.first()
+    clinic = get_clinic_settings()
 
     # No settings configured yet — no slots available
     if not clinic:
@@ -116,7 +306,7 @@ def slot_in_progress(date):
     this moment or there are no clinic settings. Walk-in step 2 labels
     that slot "Now"; the Move dialog never asks.
     """
-    clinic = ClinicSettings.objects.first()
+    clinic = get_clinic_settings()
     now = timezone.localtime()
     if not clinic or date != now.date():
         return None
@@ -153,7 +343,7 @@ def is_slot_available(date, time, exclude_appointment_pk=None, move=False):
     exclude_appointment_pk: pass the current appointment's pk when
     checking a reschedule so it doesn't conflict with itself.
     """
-    clinic = ClinicSettings.objects.first()
+    clinic = get_clinic_settings()
     if not clinic:
         return False
 
@@ -221,7 +411,7 @@ def get_admin_calendar_context(view, date_str):
     except ValueError:
         anchor_date = today
 
-    clinic = ClinicSettings.objects.first()
+    clinic = get_clinic_settings()
     working_days = clinic.working_days if clinic else []
 
     if view == "week":

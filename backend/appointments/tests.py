@@ -1,5 +1,8 @@
 import datetime
+import io
 import re
+import shutil
+import tempfile
 from unittest import mock
 from zoneinfo import ZoneInfo
 
@@ -9,7 +12,8 @@ from django.core import mail
 from django.db import DatabaseError, connection
 from django.core.paginator import Paginator
 from django.templatetags.static import static
-from django.test import SimpleTestCase, TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -17,7 +21,10 @@ from django.utils.dateformat import format as date_format
 
 from appointments.models import Appointment, BlockedDate, ClinicSettings
 from appointments.utils import (
+    CLINIC_SETTINGS_DEFAULTS,
+    clinic_hours_line,
     get_available_slots,
+    get_clinic_settings,
     is_slot_available,
     list_period,
     paging_links,
@@ -2772,6 +2779,1507 @@ class WalkInCenteredColumnTests(WalkInFlowTestBase):
 D = datetime.date
 # Monday, November 2, 2026: "today" in the period tests below.
 PERIOD_TODAY = D(2026, 11, 2)
+
+
+class ClinicSettingsHelperTests(AppointmentTestBase):
+    """get_clinic_settings(): lowest pk, never pk=1; only create=True creates."""
+
+    def setUp(self):
+        super().setUp()
+        # Start from no row; each test adds what it needs
+        ClinicSettings.objects.all().delete()
+
+    def _row(self, pk, name="Row"):
+        return ClinicSettings.objects.create(
+            pk=pk,
+            clinic_name=name,
+            address="Gasan",
+            opening_time=datetime.time(8, 0),
+            closing_time=datetime.time(17, 0),
+            same_day_cutoff_time=datetime.time(15, 0),
+            working_days=[0, 1],
+        )
+
+    def test_no_row_without_create_returns_none_and_makes_nothing(self):
+        self.assertIsNone(get_clinic_settings())
+        self.assertEqual(ClinicSettings.objects.count(), 0)
+
+    def test_no_row_with_create_makes_one_row_with_the_defaults(self):
+        row = get_clinic_settings(create=True)
+        self.assertEqual(ClinicSettings.objects.count(), 1)
+        self.assertEqual(row.clinic_name, CLINIC_SETTINGS_DEFAULTS["clinic_name"])
+        self.assertEqual(row.address, "Bognuyan, Gasan, Marinduque")
+        self.assertEqual(row.opening_time, datetime.time(8, 0))
+        self.assertEqual(row.closing_time, datetime.time(17, 0))
+        self.assertEqual(row.same_day_cutoff_time, datetime.time(15, 0))
+        self.assertEqual(row.working_days, [0, 1, 2, 3, 4])
+
+    def test_a_row_at_pk_5_is_returned_and_nothing_is_created(self):
+        self._row(5, "Five")
+        row = get_clinic_settings(create=True)
+        self.assertEqual(row.pk, 5)
+        self.assertEqual(ClinicSettings.objects.count(), 1)
+
+    def test_two_rows_return_the_lowest_pk(self):
+        self._row(7, "Seven")
+        self._row(3, "Three")
+        self.assertEqual(get_clinic_settings().pk, 3)
+        self.assertEqual(get_clinic_settings(create=True).pk, 3)
+
+    def test_settings_page_with_no_row_makes_exactly_one(self):
+        response = self.client.get(reverse("admin_clinic_settings"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ClinicSettings.objects.count(), 1)
+
+    def test_settings_page_shows_the_row_at_pk_5(self):
+        self._row(5, "Pk Five Clinic")
+        response = self.client.get(reverse("admin_clinic_settings"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ClinicSettings.objects.count(), 1)
+        self.assertContains(response, "Pk Five Clinic")
+
+
+class BlockedDateTests(AppointmentTestBase):
+    """Blocked dates tab (Slice 7a-4): busy-day warning, panel-only responses,
+    HX-Redirect with ?tab=blocked on success."""
+
+    HTMX = {"HTTP_HX_REQUEST": "true"}
+
+    def setUp(self):
+        super().setUp()
+        self.day = self.today + datetime.timedelta(days=3)
+        self.add_url = reverse("admin_blocked_date_add")
+        self.settings_url = reverse("admin_clinic_settings")
+        self.tab_url = f"{self.settings_url}?tab=blocked"
+
+    def _add(self, htmx=True, **extra):
+        data = {"date": self.day.isoformat(), "reason": "Training", **extra}
+        return self.client.post(self.add_url, data, **(self.HTMX if htmx else {}))
+
+    def _visit(self, status, hour=9, day=None, pet=None):
+        return Appointment.objects.create(
+            owner=self.owner,
+            pet=pet or self.pet,
+            date=day or self.day,
+            time=datetime.time(hour, 0),
+            status=status,
+        )
+
+    def _assert_panel_only(self, response):
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "admin/settings/_blocked_dates_panel.html")
+        self.assertTemplateNotUsed(response, "layouts/admin.html")
+        self.assertNotContains(response, "<html")
+
+    # ─── Busy-day warning ─────────────────────────────────────────────────────
+
+    def test_day_without_visits_saves_on_the_first_submit(self):
+        response = self._add()
+        self.assertTrue(BlockedDate.objects.filter(date=self.day).exists())
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("HX-Redirect", response.headers)
+
+    def test_confirmed_visit_warns_then_saves_on_confirm(self):
+        visit = self._visit(Appointment.CONFIRMED)
+        response = self._add()
+        self._assert_panel_only(response)
+        self.assertEqual(BlockedDate.objects.count(), 0)
+        day = date_format(self.day, "D, M j")
+        self.assertContains(response, f"{day} already has 1 visit.")
+        self.assertContains(response, "9:00 AM · Bantay (Ana Cruz)")
+        self.assertContains(
+            response, "They stay booked. Blocking the day only stops new bookings."
+        )
+        self.assertContains(response, "Go back")
+        self.assertContains(response, "Block anyway")
+        # The typed date and reason are kept; the confirm flag is in the form
+        self.assertContains(response, f'value="{self.day.isoformat()}"')
+        self.assertContains(response, 'value="Training"')
+        self.assertContains(response, 'name="confirm_busy" value="1"')
+
+        response = self._add(confirm_busy="1")
+        self.assertTrue(BlockedDate.objects.filter(date=self.day).exists())
+        self.assertEqual(response.headers["HX-Redirect"], self.tab_url)
+        before = (visit.status, visit.date, visit.time)
+        visit.refresh_from_db()
+        self.assertEqual((visit.status, visit.date, visit.time), before)
+        self.assertEqual(Appointment.objects.count(), 1)
+
+    def test_warning_lists_visits_by_time_with_pet_and_owner(self):
+        other_owner = PetOwner.objects.create(
+            user=User.objects.create_user(
+                username="owner2",
+                email="owner2@example.com",
+                password="unused-pass-123",
+                role=User.PET_OWNER,
+            ),
+            first_name="Liza",
+            last_name="Reyes",
+        )
+        brownie = Pet.objects.create(owner=other_owner, name="Brownie", species="Dog")
+        self._visit(Appointment.PENDING, hour=14)
+        Appointment.objects.create(
+            owner=other_owner,
+            pet=brownie,
+            date=self.day,
+            time=datetime.time(10, 0),
+            status=Appointment.CONFIRMED,
+        )
+        response = self._add()
+        self.assertContains(response, "already has 2 visits.")
+        html = response.content.decode()
+        first = html.index("10:00 AM · Brownie (Liza Reyes)")
+        second = html.index("2:00 PM · Bantay (Ana Cruz)")
+        self.assertLess(first, second)
+
+    def test_pending_visit_triggers_the_warning(self):
+        self._visit(Appointment.PENDING)
+        response = self._add()
+        self.assertContains(response, "Block anyway")
+        self.assertEqual(BlockedDate.objects.count(), 0)
+
+    def test_other_statuses_do_not_trigger_the_warning(self):
+        for hour, status in enumerate(
+            (Appointment.CANCELLED, Appointment.COMPLETED, Appointment.NO_SHOW), 9
+        ):
+            self._visit(status, hour=hour)
+        response = self._add()
+        self.assertIn("HX-Redirect", response.headers)
+        self.assertTrue(BlockedDate.objects.filter(date=self.day).exists())
+
+    def test_visit_on_another_day_does_not_trigger_the_warning(self):
+        self._visit(Appointment.CONFIRMED, day=self.day + datetime.timedelta(days=1))
+        response = self._add()
+        self.assertIn("HX-Redirect", response.headers)
+        self.assertTrue(BlockedDate.objects.filter(date=self.day).exists())
+
+    def test_go_back_returns_the_panel_without_the_warning(self):
+        self._visit(Appointment.CONFIRMED)
+        response = self.client.get(
+            self.add_url,
+            {"date": self.day.isoformat(), "reason": "Training", "confirm_busy": "1"},
+            **self.HTMX,
+        )
+        self._assert_panel_only(response)
+        self.assertNotContains(response, "Block anyway")
+        self.assertNotContains(response, "already has")
+        self.assertContains(response, 'value="Training"')
+        self.assertContains(response, f'value="{self.day.isoformat()}"')
+        self.assertEqual(BlockedDate.objects.count(), 0)
+
+    # ─── Panel-only errors ────────────────────────────────────────────────────
+
+    def test_duplicate_date_returns_the_panel_only_with_the_error(self):
+        BlockedDate.objects.create(date=self.day, reason="Fiesta")
+        response = self._add()
+        self._assert_panel_only(response)
+        self.assertContains(
+            response,
+            f"{date_format(self.day, 'D, M j')} is already blocked. "
+            "Pick another date.",
+        )
+        self.assertEqual(BlockedDate.objects.count(), 1)
+
+    def test_past_date_returns_the_panel_only(self):
+        response = self._add(date=(self.today - datetime.timedelta(days=1)).isoformat())
+        self._assert_panel_only(response)
+        self.assertContains(response, "Cannot block a date in the past.")
+        self.assertEqual(BlockedDate.objects.count(), 0)
+
+    # ─── Success: HX-Redirect and the flash ───────────────────────────────────
+
+    def test_htmx_add_redirects_to_the_blocked_tab_and_flashes(self):
+        response = self._add()
+        self.assertEqual(response.headers["HX-Redirect"], self.tab_url)
+        page = self.client.get(self.tab_url)
+        self.assertContains(
+            page, f"{date_format(self.day, 'D, M j, Y')} is now blocked."
+        )
+
+    def test_htmx_remove_redirects_to_the_blocked_tab_and_flashes(self):
+        blocked = BlockedDate.objects.create(date=self.day)
+        url = reverse("admin_blocked_date_delete", args=[blocked.pk])
+        response = self.client.post(url, **self.HTMX)
+        self.assertEqual(response.headers["HX-Redirect"], self.tab_url)
+        self.assertFalse(BlockedDate.objects.exists())  # hard delete
+        page = self.client.get(self.tab_url)
+        self.assertContains(
+            page, f"{date_format(self.day, 'D, M j, Y')} is open again."
+        )
+
+    def test_non_htmx_add_and_remove_use_a_normal_redirect(self):
+        response = self._add(htmx=False)
+        self.assertRedirects(response, self.tab_url, fetch_redirect_response=False)
+        self.assertNotIn("HX-Redirect", response.headers)
+        blocked = BlockedDate.objects.get(date=self.day)
+        url = reverse("admin_blocked_date_delete", args=[blocked.pk])
+        response = self.client.post(url)
+        self.assertRedirects(response, self.tab_url, fetch_redirect_response=False)
+        self.assertFalse(BlockedDate.objects.exists())
+
+    def test_settings_page_includes_the_panel(self):
+        BlockedDate.objects.create(date=self.day, reason="Fiesta")
+        response = self.client.get(self.tab_url)
+        self.assertContains(response, 'id="blocked-dates-panel"')
+        self.assertContains(response, "Fiesta")
+
+    # ─── Access ───────────────────────────────────────────────────────────────
+
+    def test_owner_and_logged_out_users_cannot_reach_the_views(self):
+        blocked = BlockedDate.objects.create(date=self.day)
+        delete_url = reverse("admin_blocked_date_delete", args=[blocked.pk])
+        self.client.force_login(self.owner.user)
+        for url in (self.add_url, delete_url):
+            with self.subTest(user="owner", url=url):
+                response = self.client.post(url, {"date": "2030-01-01"})
+                self.assertRedirects(
+                    response, reverse("owner_dashboard"), fetch_redirect_response=False
+                )
+        self.client.logout()
+        for url in (self.add_url, delete_url):
+            with self.subTest(user="logged out", url=url):
+                response = self.client.post(url, {"date": "2030-01-01"})
+                self.assertEqual(response.status_code, 302)
+                self.assertIn("login", response["Location"])
+        self.assertEqual(BlockedDate.objects.count(), 1)
+
+
+class BlockedPanelMarkupTests(AppointmentTestBase):
+    """Blocked dates tab on compiled Tailwind (Slice 7b-3): heading with the
+    count, one remove dialog per row, no old handlers or stylesheet."""
+
+    HTMX = {"HTTP_HX_REQUEST": "true"}
+
+    def setUp(self):
+        super().setUp()
+        self.day = self.today + datetime.timedelta(days=3)
+        self.add_url = reverse("admin_blocked_date_add")
+        self.tab_url = f"{reverse('admin_clinic_settings')}?tab=blocked"
+
+    def _panel(self, response):
+        """The panel's HTML, from its wrapper to the end of <main> (the admin
+        layout's own modal markup comes after <main>)."""
+        return (
+            response.content.decode()
+            .split('id="blocked-dates-panel"')[1]
+            .split("</main>")[0]
+        )
+
+    def _two_blocks(self):
+        first = BlockedDate.objects.create(date=self.day, reason="Fiesta")
+        second = BlockedDate.objects.create(
+            date=self.day + datetime.timedelta(days=5), reason="Training"
+        )
+        return first, second
+
+    def test_tab_shows_the_heading_with_the_count_and_each_row(self):
+        first, second = self._two_blocks()
+        response = self.client.get(self.tab_url)
+        self.assertContains(response, "Blocked dates (2)")
+        self.assertContains(
+            response, "The clinic is closed on these days. Owners can't book them."
+        )
+        for blocked in (first, second):
+            with self.subTest(date=blocked.date):
+                self.assertContains(response, date_format(blocked.date, "D, M j, Y"))
+                self.assertContains(response, blocked.reason)
+                self.assertContains(
+                    response, f'data-dialog-open="remove-blocked-dialog-{blocked.pk}"'
+                )
+
+    def test_empty_state_in_plain_words(self):
+        response = self.client.get(self.tab_url)
+        self.assertContains(response, "Blocked dates (0)")
+        self.assertContains(response, "No dates are blocked.")
+        self.assertNotContains(response, "<dialog")
+
+    def test_one_remove_dialog_per_row_with_the_right_url_and_wording(self):
+        blocks = self._two_blocks()
+        html = self.client.get(self.tab_url).content.decode()
+        self.assertEqual(html.count("<dialog"), 2)
+        for blocked in blocks:
+            with self.subTest(date=blocked.date):
+                dialog = html.split(f'id="remove-blocked-dialog-{blocked.pk}"')[
+                    1
+                ].split("</dialog>")[0]
+                label = date_format(blocked.date, "D, M j, Y")
+                url = reverse("admin_blocked_date_delete", args=[blocked.pk])
+                self.assertIn(f'action="{url}"', dialog)
+                self.assertIn('method="post"', dialog)
+                self.assertIn("csrfmiddlewaretoken", dialog)
+                self.assertIn(f"Remove the block on {label}?", dialog)
+                self.assertIn("Owners will be able to book this day again.", dialog)
+                self.assertIn("Keep it blocked", dialog)
+                self.assertIn("Yes, remove", dialog)
+                self.assertIn("data-dialog-close", dialog)
+                self.assertIn("autofocus", dialog)
+                # The row's button names the date for screen readers
+                self.assertIn(f'Remove<span class="sr-only"> {label}</span>', html)
+
+    def test_panel_has_no_hx_confirm_and_no_onclick(self):
+        self._two_blocks()
+        responses = [
+            self.client.get(self.tab_url),
+            self.client.post(self.add_url, {"date": self.day.isoformat()}, **self.HTMX),
+        ]
+        for response in responses:
+            panel = self._panel(response)
+            self.assertNotIn("hx-confirm", panel)
+            self.assertNotIn("onclick", panel)
+            self.assertNotIn("<!--", panel)
+
+    def test_duplicate_error_is_the_panel_only_with_the_mockup_wording(self):
+        BlockedDate.objects.create(date=self.day, reason="Fiesta")
+        response = self.client.post(
+            self.add_url, {"date": self.day.isoformat(), "reason": "Again"}, **self.HTMX
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "admin/settings/_blocked_dates_panel.html")
+        self.assertTemplateNotUsed(response, "layouts/admin.html")
+        self.assertNotContains(response, "<html")
+        self.assertContains(
+            response,
+            f"{date_format(self.day, 'D, M j')} is already blocked. Pick another date.",
+        )
+        self.assertContains(response, 'value="Again"')
+        self.assertContains(response, "Block this date")
+
+    def test_busy_day_warning_hides_block_this_date(self):
+        Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=self.day,
+            time=datetime.time(9, 0),
+            status=Appointment.CONFIRMED,
+        )
+        response = self.client.post(
+            self.add_url,
+            {"date": self.day.isoformat(), "reason": "Training"},
+            **self.HTMX,
+        )
+        self.assertNotContains(response, "Block this date")
+        self.assertContains(response, "Go back")
+        self.assertContains(response, "Block anyway")
+        self.assertContains(response, 'name="confirm_busy" value="1"')
+        self.assertContains(response, "readonly")
+        self.assertContains(response, 'hx-get="' + self.add_url + '"')
+        self.assertContains(response, 'hx-target="#blocked-dates-panel"')
+        self.assertContains(response, 'hx-swap="outerHTML"')
+
+    def test_normal_panel_shows_block_this_date_and_no_warning_buttons(self):
+        response = self.client.get(self.tab_url)
+        self.assertContains(response, "Block this date")
+        self.assertNotContains(response, "Block anyway")
+        self.assertNotContains(response, 'name="confirm_busy"')
+        self.assertContains(response, f'hx-post="{self.add_url}"')
+
+    def test_blocked_tab_no_longer_loads_the_old_stylesheet(self):
+        self._two_blocks()
+        response = self.client.get(self.tab_url)
+        self.assertNotContains(response, "css/admin/clinic_settings")
+        self.assertNotContains(response, "css/admin/")
+        self.assertNotContains(response, "layer(legacy)")
+
+    def test_plain_post_remove_redirects_to_the_tab_and_flashes(self):
+        blocked = BlockedDate.objects.create(date=self.day)
+        url = reverse("admin_blocked_date_delete", args=[blocked.pk])
+        response = self.client.post(url, follow=True)
+        self.assertRedirects(response, self.tab_url)
+        self.assertFalse(BlockedDate.objects.exists())
+        self.assertContains(
+            response, f"{date_format(self.day, 'D, M j, Y')} is open again."
+        )
+
+
+class BookingLimitFormTests(AppointmentTestBase):
+    """booking_limit_days is 1 to 365 (form only, no model change)."""
+
+    def _errors(self, value):
+        from appointments.forms import ClinicSettingsForm
+
+        form = ClinicSettingsForm(
+            {"booking_limit_days": value}, instance=get_clinic_settings()
+        )
+        return form.errors.get("booking_limit_days", [])
+
+    def test_below_one_is_refused(self):
+        self.assertEqual(self._errors(0), ["The booking limit must be at least 1 day."])
+
+    def test_one_and_365_are_accepted(self):
+        for value in (1, 365):
+            with self.subTest(value=value):
+                self.assertEqual(self._errors(value), [])
+
+    def test_above_365_is_refused(self):
+        self.assertEqual(
+            self._errors(366), ["The booking limit can't be more than 365 days."]
+        )
+
+    def test_help_text(self):
+        from appointments.forms import ClinicSettingsForm
+
+        self.assertEqual(
+            ClinicSettingsForm().fields["booking_limit_days"].help_text,
+            "Owners can book up to this many days ahead. Between 1 and 365.",
+        )
+
+
+LOGO_MB = 1024 * 1024
+TYPE_MESSAGE = "Only JPG, PNG or WebP files can be used."
+
+
+def _image_bytes(fmt):
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (4, 4), "teal").save(buffer, format=fmt)
+    return buffer.getvalue()
+
+
+class ClinicLogoTests(AppointmentTestBase):
+    """Logo: JPG, PNG or WebP (any case), up to 2 MB; type checked first."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("admin_clinic_settings")
+        self.media = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media, ignore_errors=True)
+        override = override_settings(MEDIA_ROOT=self.media)
+        override.enable()
+        self.addCleanup(override.disable)
+
+    def _data(self, **extra):
+        data = {
+            "tab": "details",
+            "clinic_name": "Test Clinic",
+            "address": "Gasan, Marinduque",
+            "contact_number": "",
+            "email": "",
+            "notification_email": "",
+        }
+        data.update(extra)
+        return data
+
+    def _form(self, name, content=b"x", size=None):
+        from appointments.forms import ClinicSettingsForm
+
+        upload = SimpleUploadedFile(name, content)
+        if size is not None:
+            upload.size = size
+        return ClinicSettingsForm(
+            self._data(),
+            {"logo": upload},
+            instance=get_clinic_settings(),
+            tab="details",
+        )
+
+    def _png(self, name="logo.png"):
+        return SimpleUploadedFile(name, _image_bytes("PNG"), "image/png")
+
+    # ─── Type ─────────────────────────────────────────────────────────────────
+
+    def test_png_jpg_jpeg_and_webp_are_accepted_in_any_case(self):
+        from PIL import features
+
+        cases = [("logo.png", "PNG"), ("logo.JPG", "JPEG"), ("logo.jpeg", "JPEG")]
+        if features.check("webp"):
+            cases.append(("logo.webp", "WEBP"))
+        for name, fmt in cases:
+            with self.subTest(name=name):
+                form = self._form(name, _image_bytes(fmt))
+                self.assertTrue(form.is_valid(), form.errors)
+
+    def test_svg_and_gif_are_refused_with_the_type_message(self):
+        for name in ("logo.svg", "logo.gif", "logo.GIF", "logo"):
+            with self.subTest(name=name):
+                form = self._form(name, b"<svg></svg>")
+                self.assertEqual(form.errors["logo"], [TYPE_MESSAGE])
+
+    # ─── Size ─────────────────────────────────────────────────────────────────
+
+    def test_exactly_2_mb_is_accepted_and_one_byte_more_is_refused(self):
+        from appointments.forms import check_logo_upload
+
+        for size, ok in ((2 * LOGO_MB, True), (2 * LOGO_MB + 1, False)):
+            with self.subTest(size=size):
+                upload = SimpleUploadedFile("logo.png", b"x")
+                upload.size = size
+                if ok:
+                    check_logo_upload(upload)
+                else:
+                    from django.forms import ValidationError
+
+                    with self.assertRaises(ValidationError) as caught:
+                        check_logo_upload(upload)
+                    self.assertEqual(
+                        caught.exception.messages,
+                        ["This file is 2.1 MB. Please choose one up to 2 MB."],
+                    )
+
+    def test_a_larger_file_shows_the_size_rounded_up(self):
+        form = self._form("logo.png", size=int(4.21 * LOGO_MB))
+        self.assertEqual(
+            form.errors["logo"],
+            ["This file is 4.3 MB. Please choose one up to 2 MB."],
+        )
+
+    def test_wrong_type_and_too_big_shows_only_the_type_message(self):
+        form = self._form("logo.svg", size=5 * LOGO_MB)
+        self.assertEqual(form.errors["logo"], [TYPE_MESSAGE])
+
+    def test_a_non_image_with_an_allowed_name_keeps_djangos_message(self):
+        form = self._form("logo.png", b"not an image")
+        self.assertEqual(
+            form.errors["logo"],
+            [
+                "Upload a valid image. The file you uploaded was either not an "
+                "image or a corrupted image."
+            ],
+        )
+
+    def test_help_text(self):
+        from appointments.forms import ClinicSettingsForm
+
+        self.assertEqual(
+            ClinicSettingsForm().fields["logo"].help_text,
+            "JPG, PNG or WebP, up to 2 MB. It shows on receipts and the clinic "
+            "page. Choosing a new file replaces the old one.",
+        )
+
+    # ─── Saving ───────────────────────────────────────────────────────────────
+
+    def test_a_valid_logo_saves_on_the_details_tab(self):
+        response = self.client.post(self.url, self._data(logo=self._png()))
+        self.assertRedirects(response, f"{self.url}?tab=details")
+        self.assertTrue(get_clinic_settings().logo.name.startswith("clinic/"))
+
+    def test_saving_details_with_no_new_file_keeps_the_logo(self):
+        self.client.post(self.url, self._data(logo=self._png()))
+        kept = get_clinic_settings().logo.name
+        response = self.client.post(self.url, self._data(clinic_name="Renamed"))
+        self.assertRedirects(response, f"{self.url}?tab=details")
+        saved = get_clinic_settings()
+        self.assertEqual(saved.clinic_name, "Renamed")
+        self.assertEqual(saved.logo.name, kept)
+
+    def test_the_clear_checkbox_still_removes_the_logo(self):
+        self.client.post(self.url, self._data(logo=self._png()))
+        self.client.post(self.url, self._data(**{"logo-clear": "on"}))
+        self.assertFalse(get_clinic_settings().logo)
+
+    def test_a_refused_logo_saves_nothing_and_reopens_details(self):
+        response = self.client.post(
+            self.url,
+            self._data(
+                clinic_name="Should Not Save",
+                logo=SimpleUploadedFile("logo.svg", b"<svg></svg>"),
+            ),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["active_tab"], "details")
+        self.assertEqual(response.context["tab_errors"]["details"], 1)
+        saved = get_clinic_settings()
+        self.assertEqual(saved.clinic_name, "Test Clinic")
+        self.assertFalse(saved.logo)
+
+
+class SettingsTabTests(AppointmentTestBase):
+    """?tab=, saving per tab, the tab errors and the saved_settings banner
+    data (Slice 7a-5)."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("admin_clinic_settings")
+
+    def _data(self, **extra):
+        data = {
+            "clinic_name": "Test Clinic",
+            "address": "Gasan, Marinduque",
+            "contact_number": "",
+            "email": "",
+            "notification_email": "",
+            "veterinarian_name": "",
+            "veterinarian_license_number": "",
+            "veterinarian_bio": "",
+            "opening_time": "08:00",
+            "closing_time": "17:00",
+            "slot_duration_minutes": "60",
+            "working_days": ["0", "1", "2", "3", "4", "5", "6"],
+            "same_day_cutoff_time": "15:00",
+            "booking_limit_days": "30",
+        }
+        data.update(extra)
+        return data
+
+    def _saved(self):
+        return get_clinic_settings()
+
+    # ─── GET ──────────────────────────────────────────────────────────────────
+
+    def test_get_each_tab_value_opens_that_tab(self):
+        for tab in ("details", "schedule", "blocked", "vet"):
+            with self.subTest(tab=tab):
+                response = self.client.get(self.url, {"tab": tab})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.context["active_tab"], tab)
+
+    def test_unknown_or_missing_tab_falls_back_to_details(self):
+        for query in ({"tab": "bogus"}, {"tab": ""}, {}):
+            with self.subTest(query=query):
+                response = self.client.get(self.url, query)
+                self.assertEqual(response.context["active_tab"], "details")
+
+    def test_get_has_no_tab_errors_and_the_banner_data(self):
+        response = self.client.get(self.url)
+        self.assertEqual(
+            response.context["tab_errors"],
+            {"details": 0, "schedule": 0, "blocked": 0, "vet": 0},
+        )
+        self.assertEqual(response.context["tab_problems"], {})
+        self.assertEqual(response.context["saved_settings"].pk, self._saved().pk)
+        self.assertEqual(
+            response.context["hours_line"], "Every day, 8:00 AM to 5:00 PM"
+        )
+        self.assertIsNone(response.context["schedule_warning"])
+
+    # ─── Saving per tab ───────────────────────────────────────────────────────
+
+    def test_vet_tab_saves_only_the_vet_fields(self):
+        response = self.client.post(
+            self.url,
+            self._data(
+                tab="vet",
+                veterinarian_name="Dr. Reyes",
+                veterinarian_license_number="PRC 123",
+                veterinarian_bio="Small animals.",
+                # Other tabs' values are ignored on a vet save
+                clinic_name="Ignored Name",
+                opening_time="09:30",
+                slot_duration_minutes="30",
+            ),
+        )
+        self.assertRedirects(response, f"{self.url}?tab=vet")
+        saved = self._saved()
+        self.assertEqual(saved.veterinarian_name, "Dr. Reyes")
+        self.assertEqual(saved.veterinarian_license_number, "PRC 123")
+        self.assertEqual(saved.veterinarian_bio, "Small animals.")
+        self.assertEqual(saved.clinic_name, "Test Clinic")
+        self.assertEqual(saved.opening_time, datetime.time(8, 0))
+        self.assertEqual(saved.slot_duration_minutes, 60)
+
+    def test_schedule_tab_saves_only_the_schedule_fields(self):
+        response = self.client.post(
+            self.url,
+            self._data(
+                tab="schedule",
+                booking_limit_days="60",
+                clinic_name="Ignored Name",
+                veterinarian_name="Ignored Vet",
+            ),
+        )
+        self.assertRedirects(response, f"{self.url}?tab=schedule")
+        saved = self._saved()
+        self.assertEqual(saved.booking_limit_days, 60)
+        self.assertEqual(saved.clinic_name, "Test Clinic")
+        self.assertEqual(saved.veterinarian_name, "")
+
+    def test_details_tab_saves_only_the_details_fields(self):
+        response = self.client.post(
+            self.url,
+            self._data(
+                tab="details",
+                clinic_name="New Name",
+                contact_number="0917",
+                booking_limit_days="60",
+            ),
+        )
+        self.assertRedirects(response, f"{self.url}?tab=details")
+        saved = self._saved()
+        self.assertEqual(saved.clinic_name, "New Name")
+        self.assertEqual(saved.contact_number, "0917")
+        self.assertEqual(saved.booking_limit_days, 30)
+
+    def test_post_without_tab_saves_every_field_and_opens_details(self):
+        response = self.client.post(
+            self.url,
+            self._data(
+                clinic_name="New Name",
+                veterinarian_name="Dr. Reyes",
+                booking_limit_days="60",
+            ),
+        )
+        self.assertRedirects(response, f"{self.url}?tab=details")
+        saved = self._saved()
+        self.assertEqual(saved.clinic_name, "New Name")
+        self.assertEqual(saved.veterinarian_name, "Dr. Reyes")
+        self.assertEqual(saved.booking_limit_days, 60)
+        self.assertIn("Clinic settings updated successfully.", self._messages(response))
+
+    def test_unknown_posted_tab_is_the_old_all_fields_save(self):
+        response = self.client.post(
+            self.url, self._data(tab="bogus", clinic_name="New Name")
+        )
+        self.assertRedirects(response, f"{self.url}?tab=details")
+        self.assertEqual(self._saved().clinic_name, "New Name")
+
+    # ─── Errors ───────────────────────────────────────────────────────────────
+
+    def test_details_error_reopens_details_with_tab_errors(self):
+        response = self.client.post(
+            self.url, self._data(tab="details", clinic_name="", booking_limit_days="0")
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["active_tab"], "details")
+        # The schedule field is not part of a details save, so only 1 error
+        self.assertEqual(
+            response.context["tab_errors"],
+            {"details": 1, "schedule": 0, "blocked": 0, "vet": 0},
+        )
+        self.assertEqual(response.context["tab_problems"], {"details": "1 problem"})
+        self.assertEqual(self._saved().clinic_name, "Test Clinic")
+
+    def test_post_without_tab_opens_the_tab_of_the_first_error(self):
+        response = self.client.post(self.url, self._data(booking_limit_days="0"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["active_tab"], "schedule")
+        self.assertEqual(response.context["tab_errors"]["schedule"], 1)
+        self.assertEqual(response.context["tab_problems"], {"schedule": "1 problem"})
+        self.assertEqual(self._saved().booking_limit_days, 30)
+
+    def test_first_error_tab_follows_tab_order_and_counts_problems(self):
+        response = self.client.post(
+            self.url,
+            self._data(
+                veterinarian_name="x" * 101,
+                booking_limit_days="0",
+                opening_time="",
+            ),
+        )
+        self.assertEqual(response.context["active_tab"], "schedule")
+        self.assertEqual(response.context["tab_errors"]["schedule"], 2)
+        self.assertEqual(response.context["tab_errors"]["vet"], 1)
+        self.assertEqual(
+            response.context["tab_problems"],
+            {"schedule": "2 problems", "vet": "1 problem"},
+        )
+        response = self.client.post(
+            self.url, self._data(clinic_name="", veterinarian_name="x" * 101)
+        )
+        self.assertEqual(response.context["active_tab"], "details")
+
+    def test_a_closing_time_error_counts_on_the_schedule_tab(self):
+        response = self.client.post(
+            self.url, self._data(opening_time="10:00", closing_time="09:00")
+        )
+        self.assertEqual(response.context["active_tab"], "schedule")
+        self.assertEqual(response.context["tab_errors"]["schedule"], 1)
+
+    def test_saved_settings_shows_the_saved_name_after_a_failed_post(self):
+        response = self.client.post(
+            self.url, self._data(clinic_name="Typed Name", booking_limit_days="0")
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["saved_settings"].clinic_name, "Test Clinic")
+        self.assertEqual(response.context["settings_obj"].clinic_name, "Test Clinic")
+        # The form keeps what was typed
+        self.assertEqual(response.context["form"]["clinic_name"].value(), "Typed Name")
+
+    def test_hours_line_comes_from_the_saved_settings_not_the_typed_ones(self):
+        response = self.client.post(
+            self.url,
+            self._data(
+                opening_time="09:00",
+                working_days=["0", "1"],
+                booking_limit_days="0",
+            ),
+        )
+        self.assertEqual(
+            response.context["hours_line"], "Every day, 8:00 AM to 5:00 PM"
+        )
+
+    # ─── Schedule warning ─────────────────────────────────────────────────────
+
+    def _schedule_post(self, **extra):
+        return self.client.post(self.url, self._data(tab="schedule", **extra))
+
+    def test_slot_change_with_a_confirmed_visit_warns_then_saves_on_confirm(self):
+        visit = self._appointment(Appointment.CONFIRMED)
+        before = (visit.status, visit.date, visit.time)
+        response = self._schedule_post(slot_duration_minutes="30")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._saved().slot_duration_minutes, 60)
+        self.assertEqual(response.context["active_tab"], "schedule")
+        day = date_format(visit.date, "D, M j")
+        self.assertContains(
+            response,
+            "Changing the slot length to 30 minutes affects 1 visit already booked.",
+        )
+        self.assertContains(response, f"{day} at 9:00 AM · Bantay (Ana Cruz)")
+        self.assertContains(
+            response,
+            "They stay booked. Nothing is cancelled or moved. Check that these "
+            "times still fit the new slots, then save again to confirm.",
+        )
+        self.assertContains(response, "Go back")
+        self.assertContains(response, "Yes, save the new schedule")
+        self.assertNotContains(response, "Save changes")
+        self.assertNotContains(response, "form-actions")
+        self.assertNotContains(response, "and 0 more")
+
+        response = self._schedule_post(slot_duration_minutes="30", confirm_schedule="1")
+        self.assertRedirects(response, f"{self.url}?tab=schedule")
+        self.assertEqual(self._saved().slot_duration_minutes, 30)
+        visit.refresh_from_db()
+        self.assertEqual((visit.status, visit.date, visit.time), before)
+
+    def test_confirm_is_still_validated(self):
+        self._appointment(Appointment.CONFIRMED)
+        response = self._schedule_post(
+            slot_duration_minutes="30", confirm_schedule="1", booking_limit_days="0"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._saved().slot_duration_minutes, 60)
+        self.assertEqual(response.context["tab_errors"]["schedule"], 1)
+
+    def test_warning_without_a_posted_tab_shows_on_the_old_page(self):
+        self._appointment(Appointment.CONFIRMED)
+        response = self.client.post(self.url, self._data(slot_duration_minutes="30"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["active_tab"], "schedule")
+        self.assertContains(response, "Yes, save the new schedule")
+        self.assertEqual(self._saved().slot_duration_minutes, 60)
+        response = self.client.post(
+            self.url, self._data(slot_duration_minutes="30", confirm_schedule="1")
+        )
+        self.assertRedirects(response, f"{self.url}?tab=details")
+        self.assertEqual(self._saved().slot_duration_minutes, 30)
+
+    def test_pending_visit_warns(self):
+        self._appointment(Appointment.PENDING)
+        response = self._schedule_post(slot_duration_minutes="30")
+        self.assertContains(response, "affects 1 visit already booked.")
+        self.assertEqual(self._saved().slot_duration_minutes, 60)
+
+    def test_a_visit_today_warns(self):
+        self._appointment(Appointment.CONFIRMED, days_from_today=0)
+        response = self._schedule_post(slot_duration_minutes="30")
+        self.assertContains(response, "affects 1 visit already booked.")
+
+    def test_past_and_finished_visits_do_not_warn(self):
+        self._appointment(Appointment.CONFIRMED, days_from_today=-2)
+        self._appointment(Appointment.PENDING, days_from_today=-1)
+        self._appointment(Appointment.CANCELLED, days_from_today=3)
+        self._appointment(Appointment.COMPLETED, days_from_today=4)
+        self._appointment(Appointment.NO_SHOW, days_from_today=5)
+        response = self._schedule_post(slot_duration_minutes="30")
+        self.assertRedirects(response, f"{self.url}?tab=schedule")
+        self.assertEqual(self._saved().slot_duration_minutes, 30)
+
+    def test_no_visits_saves_at_once(self):
+        response = self._schedule_post(slot_duration_minutes="30")
+        self.assertRedirects(response, f"{self.url}?tab=schedule")
+        self.assertEqual(self._saved().slot_duration_minutes, 30)
+
+    def test_an_unchanged_schedule_does_not_warn(self):
+        self._appointment(Appointment.CONFIRMED)
+        response = self._schedule_post(booking_limit_days="31")
+        self.assertRedirects(response, f"{self.url}?tab=schedule")
+
+    def test_booking_limit_change_alone_never_warns(self):
+        self._appointment(Appointment.CONFIRMED)
+        response = self._schedule_post(booking_limit_days="60")
+        self.assertRedirects(response, f"{self.url}?tab=schedule")
+        self.assertEqual(self._saved().booking_limit_days, 60)
+
+    def test_other_tabs_never_warn(self):
+        self._appointment(Appointment.CONFIRMED)
+        for tab, extra in (
+            ("details", {"clinic_name": "New Name"}),
+            ("vet", {"veterinarian_name": "Dr. Reyes"}),
+        ):
+            with self.subTest(tab=tab):
+                response = self.client.post(self.url, self._data(tab=tab, **extra))
+                self.assertRedirects(response, f"{self.url}?tab={tab}")
+
+    def test_go_back_saves_nothing_shows_no_warning_and_keeps_typed_values(self):
+        self._appointment(Appointment.CONFIRMED)
+        response = self._schedule_post(slot_duration_minutes="30", go_back="1")
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context["schedule_warning"])
+        self.assertNotContains(response, "already booked")
+        self.assertNotContains(response, "Yes, save the new schedule")
+        self.assertContains(response, "Save changes")
+        self.assertEqual(response.context["active_tab"], "schedule")
+        self.assertEqual(
+            response.context["form"]["slot_duration_minutes"].value(), "30"
+        )
+        self.assertEqual(self._saved().slot_duration_minutes, 60)
+        self.assertEqual(self._messages(response), [])
+
+    def test_heading_names_one_changed_field(self):
+        self._appointment(Appointment.CONFIRMED)
+        cases = (
+            ({"opening_time": "09:00"}, "the opening hours"),
+            ({"closing_time": "16:00"}, "the opening hours"),
+            (
+                {"opening_time": "09:00", "closing_time": "16:00"},
+                "the opening hours",
+            ),
+            (
+                {"working_days": ["0", "1", "2", "3", "4", "5"]},
+                "the working days",
+            ),
+            ({"same_day_cutoff_time": "14:00"}, "the booking cutoff"),
+            ({"slot_duration_minutes": "30"}, "the slot length to 30 minutes"),
+        )
+        for extra, phrase in cases:
+            with self.subTest(extra=extra):
+                response = self._schedule_post(**extra)
+                self.assertEqual(
+                    response.context["schedule_warning"]["heading"],
+                    f"Changing {phrase} affects 1 visit already booked.",
+                )
+
+    def test_heading_for_several_fields_says_the_schedule(self):
+        self._appointment(Appointment.CONFIRMED)
+        response = self._schedule_post(slot_duration_minutes="30", opening_time="09:00")
+        self.assertContains(
+            response, "Changing the schedule affects 1 visit already booked."
+        )
+
+    def test_heading_counts_visits(self):
+        for days in (3, 4, 5):
+            self._appointment(Appointment.CONFIRMED, days_from_today=days)
+        response = self._schedule_post(slot_duration_minutes="30")
+        self.assertContains(
+            response,
+            "Changing the slot length to 30 minutes affects 3 visits already booked.",
+        )
+
+    def test_visits_are_listed_by_date_and_time(self):
+        late = self._appointment(Appointment.CONFIRMED, days_from_today=5, hour=9)
+        afternoon = self._appointment(Appointment.PENDING, days_from_today=2, hour=14)
+        morning = self._appointment(Appointment.CONFIRMED, days_from_today=2, hour=9)
+        response = self._schedule_post(slot_duration_minutes="30")
+        expected = [
+            f"{date_format(v.date, 'D, M j')} at {t} · Bantay (Ana Cruz)"
+            for v, t in (
+                (morning, "9:00 AM"),
+                (afternoon, "2:00 PM"),
+                (late, "9:00 AM"),
+            )
+        ]
+        self.assertEqual(response.context["schedule_warning"]["lines"], expected)
+
+    def test_more_than_ten_visits_show_and_n_more(self):
+        for days in range(1, 13):
+            self._appointment(Appointment.CONFIRMED, days_from_today=days)
+        response = self._schedule_post(slot_duration_minutes="30")
+        warning = response.context["schedule_warning"]
+        self.assertEqual(len(warning["lines"]), 10)
+        self.assertEqual(warning["more_count"], 2)
+        self.assertContains(response, "affects 12 visits already booked.")
+        self.assertContains(response, "and 2 more")
+        exactly_ten = Appointment.objects.filter(
+            date__gt=self.today + datetime.timedelta(days=10)
+        )
+        exactly_ten.delete()
+        response = self._schedule_post(slot_duration_minutes="30")
+        self.assertEqual(response.context["schedule_warning"]["more_count"], 0)
+        self.assertNotContains(response, " more</li>")
+
+    # ─── Access ───────────────────────────────────────────────────────────────
+
+    def test_an_owner_cannot_reach_or_save_the_page(self):
+        self.client.force_login(self.owner.user)
+        response = self.client.get(self.url)
+        self.assertRedirects(
+            response, reverse("owner_dashboard"), fetch_redirect_response=False
+        )
+        response = self.client.post(self.url, self._data(clinic_name="Hacked"))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self._saved().clinic_name, "Test Clinic")
+
+    def test_a_logged_out_user_cannot_reach_or_save_the_page(self):
+        self.client.logout()
+        for method in (self.client.get, self.client.post):
+            with self.subTest(method=method.__name__):
+                response = method(self.url)
+                self.assertEqual(response.status_code, 302)
+                self.assertIn("login", response["Location"])
+        self.assertEqual(self._saved().clinic_name, "Test Clinic")
+
+
+class SettingsPageMarkupTests(AppointmentTestBase):
+    """The clinic settings page on the admin layout (Slice 7b-2): banner,
+    ?tab= links, one section and one form per tab."""
+
+    TABS = ("details", "schedule", "blocked", "vet")
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("admin_clinic_settings")
+
+    def _data(self, **extra):
+        data = {
+            "tab": "schedule",
+            "opening_time": "08:00",
+            "closing_time": "17:00",
+            "slot_duration_minutes": "60",
+            "working_days": ["0", "1", "2", "3", "4", "5", "6"],
+            "same_day_cutoff_time": "15:00",
+            "booking_limit_days": "30",
+        }
+        data.update(extra)
+        return data
+
+    def _get(self, tab):
+        return self.client.get(self.url, {"tab": tab})
+
+    def _banner(self, response):
+        html = response.content.decode()
+        return html.split('id="clinic-banner"')[1].split("</section>")[0]
+
+    def _tab_link(self, response, tab):
+        """The whole <a>...</a> of one tab link."""
+        match = re.search(
+            rf'<a href="[^"]*\?tab={tab}".*?</a>',
+            response.content.decode(),
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, f"no link for tab {tab}")
+        return match.group(0)
+
+    # ─── Tabs ─────────────────────────────────────────────────────────────────
+
+    def test_each_tab_shows_its_own_section_only(self):
+        for tab in self.TABS:
+            with self.subTest(tab=tab):
+                response = self._get(tab)
+                for other in self.TABS:
+                    marker = f'id="settings-{other}"'
+                    if other == tab:
+                        self.assertContains(response, marker)
+                    else:
+                        self.assertNotContains(response, marker)
+
+    def test_open_tab_has_aria_current_and_the_violet_ring(self):
+        for tab in self.TABS:
+            with self.subTest(tab=tab):
+                response = self._get(tab)
+                # The sidebar marks "Clinic settings" too, so count in the tab nav
+                nav = (
+                    response.content.decode()
+                    .split('aria-label="Clinic settings sections"')[1]
+                    .split("</nav>")[0]
+                )
+                self.assertEqual(nav.count('aria-current="page"'), 1)
+                for other in self.TABS:
+                    link = self._tab_link(response, other)
+                    opening = link.split(">")[0]
+                    if other == tab:
+                        self.assertIn('aria-current="page"', opening)
+                        self.assertIn("bg-violet-50", opening)
+                        self.assertIn("ring-2 ring-violet-600", opening)
+                    else:
+                        self.assertNotIn("aria-current", opening)
+                        self.assertNotIn("ring-violet-600", opening)
+
+    def test_tabs_are_in_order_with_their_labels(self):
+        html = self._get("details").content.decode()
+        nav = html.split('aria-label="Clinic settings sections"')[1].split("</nav>")[0]
+        positions = [
+            nav.index(label)
+            for label in ("Clinic details", "Schedule", "Blocked dates", "Vet profile")
+        ]
+        self.assertEqual(positions, sorted(positions))
+        self.assertContains(self._get("details"), "grid-cols-2")
+
+    def test_unknown_tab_opens_details(self):
+        response = self._get("bogus")
+        self.assertContains(response, 'id="settings-details"')
+
+    # ─── Forms ────────────────────────────────────────────────────────────────
+
+    def test_each_form_posts_a_hidden_tab(self):
+        for tab in ("details", "schedule", "vet"):
+            with self.subTest(tab=tab):
+                response = self._get(tab)
+                self.assertContains(
+                    response, f'<input type="hidden" name="tab" value="{tab}">', count=1
+                )
+                self.assertContains(response, 'method="post"')
+                self.assertContains(response, "csrfmiddlewaretoken")
+                self.assertContains(response, "Save changes", count=1)
+
+    def test_only_the_details_form_is_multipart(self):
+        self.assertContains(
+            self._get("details"), 'enctype="multipart/form-data"', count=1
+        )
+        for tab in ("schedule", "vet"):
+            with self.subTest(tab=tab):
+                self.assertNotContains(self._get(tab), "multipart/form-data")
+
+    def test_vet_tab_has_the_given_by_note(self):
+        self.assertContains(
+            self._get("vet"),
+            "The vet name and profile show on the clinic page and as the vet "
+            "on new vaccination records.",
+        )
+
+    def test_working_days_are_large_checkboxes_and_checked_when_open(self):
+        settings_obj = get_clinic_settings()
+        settings_obj.working_days = [0, 2]
+        settings_obj.save()
+        html = self._get("schedule").content.decode()
+        boxes = re.findall(r'<input type="checkbox" name="working_days"[^>]*>', html)
+        self.assertEqual(len(boxes), 7)
+        for box in boxes:
+            self.assertIn("size-6", box)
+            self.assertIn("accent-violet-600", box)
+        checked = [b for b in boxes if " checked" in b]
+        self.assertEqual(len(checked), 2)
+
+    # ─── Errors ───────────────────────────────────────────────────────────────
+
+    def test_schedule_error_shows_the_pill_and_the_summary(self):
+        response = self.client.post(self.url, self._data(booking_limit_days="0"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="settings-schedule"')
+        self.assertContains(response, "1 problem", count=1)
+        self.assertIn("1 problem", self._tab_link(response, "schedule"))
+        for other in ("details", "blocked", "vet"):
+            self.assertNotIn("problem", self._tab_link(response, other))
+        self.assertContains(response, 'role="alert"')
+        self.assertContains(response, "Please fix the 1 item below.")
+        self.assertContains(response, "Nothing was saved yet.")
+        self.assertContains(response, "The booking limit must be at least 1 day.")
+
+    def test_two_errors_say_items_and_problems(self):
+        response = self.client.post(
+            self.url, self._data(booking_limit_days="0", opening_time="")
+        )
+        self.assertContains(response, "Please fix the 2 items below.")
+        self.assertIn("2 problems", self._tab_link(response, "schedule"))
+
+    def test_closing_before_opening_is_listed_in_the_summary(self):
+        response = self.client.post(
+            self.url, self._data(opening_time="10:00", closing_time="09:00")
+        )
+        self.assertContains(response, "Closing time must be after opening time.")
+        self.assertContains(response, "Please fix the 1 item below.")
+
+    def test_a_tab_without_errors_has_no_summary(self):
+        self.assertNotContains(self._get("schedule"), "Please fix the")
+
+    def test_banner_keeps_the_saved_name_after_a_failed_post(self):
+        response = self.client.post(
+            self.url,
+            {
+                "tab": "details",
+                "clinic_name": "Typed Name",
+                "address": "Typed Address",
+                "email": "not-an-email",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        banner = self._banner(response)
+        self.assertIn("Test Clinic", banner)
+        self.assertIn("Gasan, Marinduque", banner)
+        self.assertNotIn("Typed Name", banner)
+        self.assertNotIn("Typed Address", banner)
+        # The typed values are still in the form below the banner
+        self.assertContains(response, 'value="Typed Name"')
+        self.assertIn("1 problem", self._tab_link(response, "details"))
+
+    # ─── Schedule warning ─────────────────────────────────────────────────────
+
+    def test_warning_shows_go_back_and_confirm_and_hides_save_changes(self):
+        self._appointment(Appointment.CONFIRMED)
+        response = self.client.post(self.url, self._data(slot_duration_minutes="30"))
+        self.assertContains(response, "Go back")
+        self.assertContains(response, "Yes, save the new schedule")
+        self.assertNotContains(response, "Save changes")
+        html = response.content.decode()
+        self.assertEqual(html.count("autofocus"), 1)
+        self.assertRegex(html, r'<button[^>]*name="go_back" value="1"[^>]*autofocus')
+        self.assertContains(response, 'name="confirm_schedule" value="1"')
+
+    def test_warning_buttons_post_every_schedule_field_and_the_tab(self):
+        self._appointment(Appointment.CONFIRMED)
+        response = self.client.post(self.url, self._data(slot_duration_minutes="30"))
+        forms = response.content.decode().split("<form")
+        form = next(chunk for chunk in forms if 'name="go_back"' in chunk)
+        form = form.split("</form>")[0]
+        self.assertIn('name="confirm_schedule"', form)
+        self.assertIn('<input type="hidden" name="tab" value="schedule">', form)
+        for name in (
+            "opening_time",
+            "closing_time",
+            "slot_duration_minutes",
+            "working_days",
+            "same_day_cutoff_time",
+            "booking_limit_days",
+        ):
+            with self.subTest(field=name):
+                self.assertIn(f'name="{name}"', form)
+
+    def test_schedule_tab_without_a_warning_shows_save_changes(self):
+        response = self._get("schedule")
+        self.assertContains(response, "Save changes")
+        self.assertNotContains(response, "Yes, save the new schedule")
+
+    # ─── Banner ───────────────────────────────────────────────────────────────
+
+    def test_banner_has_the_hours_line_and_the_public_page_link(self):
+        banner = self._banner(self._get("details"))
+        self.assertIn("Every day, 8:00 AM to 5:00 PM", banner)
+        self.assertIn("View public clinic page", banner)
+        self.assertIn(f'href="{reverse("clinic_info")}"', banner)
+        self.assertIn("bg-gradient-to-r from-violet-600 to-violet-500", banner)
+
+    def test_banner_shows_phone_only_when_there_is_one(self):
+        self.assertNotIn("0917 000 0000", self._banner(self._get("details")))
+        settings_obj = get_clinic_settings()
+        settings_obj.contact_number = "0917 000 0000"
+        settings_obj.save()
+        self.assertIn("0917 000 0000", self._banner(self._get("details")))
+
+    def test_banner_shows_the_logo_or_a_plain_tile(self):
+        self.assertNotIn("<img", self._banner(self._get("details")))
+        settings_obj = get_clinic_settings()
+        settings_obj.logo = "clinic/logo.png"
+        settings_obj.save()
+        banner = self._banner(self._get("details"))
+        self.assertIn("<img", banner)
+        self.assertIn("clinic/logo.png", banner)
+
+    # ─── Old files ────────────────────────────────────────────────────────────
+
+    def test_the_page_never_loads_the_old_script(self):
+        for tab in self.TABS:
+            with self.subTest(tab=tab):
+                self.assertNotContains(self._get(tab), "js/admin/clinic_settings")
+
+    def test_no_tab_loads_the_old_stylesheet(self):
+        for tab in self.TABS:
+            with self.subTest(tab=tab):
+                response = self._get(tab)
+                self.assertNotContains(response, "css/admin/clinic_settings")
+                self.assertNotContains(response, "layer(legacy)")
+
+    # ─── Logo ─────────────────────────────────────────────────────────────────
+
+    def test_logo_clear_checkbox_is_labelled_remove_the_logo(self):
+        settings_obj = get_clinic_settings()
+        settings_obj.logo = "clinic/logo.png"
+        settings_obj.save()
+        response = self._get("details")
+        self.assertContains(response, 'name="logo-clear"')
+        self.assertContains(response, '<label for="logo-clear_id"')
+        self.assertContains(response, "<span>Remove the logo</span>")
+        self.assertContains(response, "Current clinic logo")
+
+    def test_no_clear_checkbox_without_a_saved_logo(self):
+        response = self._get("details")
+        self.assertNotContains(response, "logo-clear")
+        self.assertNotContains(response, "Remove the logo")
+
+    def test_logo_input_is_labelled_and_shows_the_form_help(self):
+        response = self._get("details")
+        self.assertContains(response, '<label for="id_logo"')
+        self.assertContains(response, "Choose a new logo")
+        self.assertContains(
+            response,
+            "JPG, PNG or WebP, up to 2 MB. It shows on receipts and the clinic "
+            "page. Choosing a new file replaces the old one.",
+        )
+        self.assertContains(response, 'type="file" name="logo" id="id_logo"')
+
+    def test_a_refused_logo_shows_its_message_under_the_input(self):
+        response = self.client.post(
+            self.url,
+            {
+                "tab": "details",
+                "clinic_name": "Test Clinic",
+                "address": "Gasan, Marinduque",
+                "logo": SimpleUploadedFile("logo.svg", b"<svg></svg>"),
+            },
+        )
+        self.assertContains(response, "Only JPG, PNG or WebP files can be used.")
+        self.assertContains(response, "Please fix the 1 item below.")
+
+    # ─── Blocked tab and the form field override ──────────────────────────────
+
+    def test_only_the_blocked_tab_includes_the_blocked_panel(self):
+        for tab in self.TABS:
+            with self.subTest(tab=tab):
+                response = self._get(tab)
+                if tab == "blocked":
+                    self.assertContains(response, 'id="blocked-dates-panel"')
+                else:
+                    self.assertNotContains(response, 'id="blocked-dates-panel"')
+
+    def test_field_labels_use_plain_wording(self):
+        schedule = self._get("schedule")
+        for label in (
+            "Appointment slot length",
+            "Same-day booking cutoff",
+            "Booking limit (days ahead)",
+        ):
+            self.assertContains(schedule, label)
+        self.assertNotContains(schedule, "Slot duration minutes")
+        self.assertContains(
+            schedule,
+            "Owners can book up to this many days ahead. Between 1 and 365.",
+        )
+        details = self._get("details")
+        self.assertContains(details, "Admin notification email")
+        self.assertContains(details, "Blank means the admin account email.")
+
+    def test_page_has_no_inline_handlers_in_the_settings_content(self):
+        for tab in self.TABS:
+            with self.subTest(tab=tab):
+                main = self._get(tab).content.decode().split('id="main-content"')[1]
+                main = main.split("</main>")[0]
+                self.assertNotIn("onclick", main)
+                self.assertNotIn("<!--", main.split('id="blocked-dates-panel"')[0])
+
+
+class ClinicInfoPageTests(AppointmentTestBase):
+    """Clinic info page: admin frame (7b-4, mockup state 10) and owner frame."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("clinic_info")
+        row = get_clinic_settings()
+        row.contact_number = "0917 000 0000"
+        row.email = "clinic@example.com"
+        row.veterinarian_name = "Dr. Edgar Sadiwa"
+        row.veterinarian_license_number = "PRC-VET-0000"
+        row.veterinarian_bio = "Cares for pets of Gasan."
+        row.save()
+
+    def _owner_get(self):
+        self.client.force_login(self.owner.user)
+        return self.client.get(self.url)
+
+    def test_admin_gets_the_admin_page_with_its_content(self):
+        response = self.client.get(self.url)
+        self.assertTemplateUsed(response, "admin/clinic_info.html")
+        self.assertTemplateUsed(response, "layouts/admin.html")
+        self.assertTemplateNotUsed(response, "shared/clinic_info.html")
+        self.assertContains(response, "Every day, 8:00 AM to 5:00 PM")
+        self.assertContains(response, "Dr. Edgar Sadiwa")
+        self.assertContains(response, "PRC-VET-0000")
+        self.assertContains(response, "Cares for pets of Gasan.")
+        self.assertContains(response, "0917 000 0000")
+        self.assertContains(response, "clinic@example.com")
+        self.assertContains(response, "Test Clinic")
+
+    def test_admin_page_has_the_map_and_a_labelled_map_link(self):
+        response = self.client.get(self.url)
+        self.assertContains(
+            response, "https://www.google.com/maps?q=Gasan%2C%20Marinduque"
+        )
+        self.assertContains(response, "Open in Google Maps")
+        self.assertContains(response, 'title="Map of the clinic"')
+
+    def test_admin_page_has_the_back_link(self):
+        response = self.client.get(self.url)
+        self.assertContains(response, f'href="{reverse("admin_clinic_settings")}"')
+        self.assertContains(response, "Back to clinic settings")
+
+    def test_admin_page_loads_no_old_files(self):
+        response = self.client.get(self.url)
+        # Static URLs carry a hash (clinic_info.<hash>.css), so match the folder
+        self.assertNotContains(response, "css/shared/clinic_info")
+        self.assertNotContains(response, "js/shared/clinic_info")
+        self.assertNotContains(response, "layer(legacy)")
+        self.assertNotContains(response, "clinic-info-page")
+
+    def test_admin_page_has_no_violet_button_and_no_inline_js(self):
+        html = self.client.get(self.url).content.decode()
+        main = html.split('id="main-content"')[1].split("</main>")[0]
+        self.assertNotIn("bg-violet-600", main)
+        self.assertNotIn("onclick", main)
+        self.assertNotIn("<!--", main)
+
+    def test_admin_page_without_an_address_has_no_map(self):
+        row = get_clinic_settings()
+        row.address = ""
+        row.save()
+        response = self.client.get(self.url)
+        self.assertNotContains(response, "Open in Google Maps")
+        self.assertContains(response, "No address is set")
+
+    def test_owner_still_gets_the_owner_frame_and_old_files(self):
+        response = self._owner_get()
+        self.assertTemplateUsed(response, "shared/clinic_info.html")
+        self.assertTemplateUsed(response, "base_dashboard.html")
+        self.assertTemplateNotUsed(response, "admin/clinic_info.html")
+        self.assertContains(response, "css/shared/clinic_info.")
+        self.assertContains(response, "js/shared/clinic_info.")
+        self.assertContains(response, "clinic-info-page")
+        self.assertContains(response, "Dr. Edgar Sadiwa")
+        self.assertContains(response, "Book an Appointment")
+        self.assertNotContains(response, "Back to clinic settings")
+
+    def test_logged_out_goes_to_the_login_page(self):
+        self.client.logout()
+        response = self.client.get(self.url)
+        self.assertRedirects(
+            response, f"/login/?next={self.url}", fetch_redirect_response=False
+        )
+
+
+class ClinicHoursLineTests(SimpleTestCase):
+    """The banner's hours line (decision 12)."""
+
+    def _line(self, days, opening=(8, 0), closing=(17, 0)):
+        row = ClinicSettings(
+            working_days=days,
+            opening_time=datetime.time(*opening),
+            closing_time=datetime.time(*closing),
+        )
+        return clinic_hours_line(row)
+
+    def test_days_in_a_row(self):
+        self.assertEqual(
+            self._line([0, 1, 2, 3, 4, 5]), "Mon to Sat, 8:00 AM to 5:00 PM"
+        )
+        self.assertEqual(self._line([0, 1]), "Mon to Tue, 8:00 AM to 5:00 PM")
+        self.assertEqual(self._line([2, 3, 4, 5, 6]), "Wed to Sun, 8:00 AM to 5:00 PM")
+
+    def test_days_not_in_a_row(self):
+        self.assertEqual(self._line([0, 2, 4]), "Mon, Wed and Fri, 8:00 AM to 5:00 PM")
+        self.assertEqual(self._line([0, 2]), "Mon and Wed, 8:00 AM to 5:00 PM")
+        self.assertEqual(
+            self._line([0, 1, 2, 4]), "Mon, Tue, Wed and Fri, 8:00 AM to 5:00 PM"
+        )
+
+    def test_one_day(self):
+        self.assertEqual(self._line([3]), "Thu, 8:00 AM to 5:00 PM")
+
+    def test_every_day(self):
+        self.assertEqual(
+            self._line([0, 1, 2, 3, 4, 5, 6]), "Every day, 8:00 AM to 5:00 PM"
+        )
+
+    def test_no_days_is_closed(self):
+        self.assertEqual(self._line([]), "Closed")
+
+    def test_unsorted_days_and_minutes(self):
+        self.assertEqual(
+            self._line([5, 0, 3, 1, 2, 4], opening=(8, 30), closing=(17, 30)),
+            "Mon to Sat, 8:30 AM to 5:30 PM",
+        )
+
+    def test_noon_and_midnight_style_times(self):
+        self.assertEqual(
+            self._line([0], opening=(9, 0), closing=(12, 0)),
+            "Mon, 9:00 AM to 12:00 PM",
+        )
 
 
 class ResolvePeriodTests(SimpleTestCase):

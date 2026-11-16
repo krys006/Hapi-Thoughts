@@ -1,9 +1,18 @@
 import datetime
+import math
+import os
+
 from django import forms
 from django.utils import timezone
+from django.utils.dateformat import format as date_format
 
 from .models import ClinicSettings, BlockedDate, Appointment
-from .utils import is_slot_available, get_available_slots
+from .utils import (
+    SETTINGS_TAB_FIELDS,
+    is_slot_available,
+    get_available_slots,
+    get_clinic_settings,
+)
 
 # ── Weekday and slot duration choices ────────────────────────────────────────
 WEEKDAY_CHOICES = [
@@ -22,9 +31,44 @@ SLOT_DURATION_CHOICES = [
 ]
 
 
+LOGO_TYPES = (".jpg", ".jpeg", ".png", ".webp")
+LOGO_MAX_MB = 2
+MB = 1024 * 1024  # Same definition as the medical test-file check
+
+
+def check_logo_upload(upload):
+    """
+    Clinic logo rule: JPG, PNG or WebP (any letter case), up to 2 MB.
+    The type is checked first, then the size. Raises ValidationError.
+    """
+    if os.path.splitext(upload.name)[1].lower() not in LOGO_TYPES:
+        raise forms.ValidationError("Only JPG, PNG or WebP files can be used.")
+    if upload.size > LOGO_MAX_MB * MB:
+        # Rounded up, so a file just over the limit never reads "2.0 MB"
+        size = math.ceil(upload.size * 10 / MB) / 10
+        raise forms.ValidationError(
+            f"This file is {size:.1f} MB. Please choose one up to {LOGO_MAX_MB} MB."
+        )
+
+
+class LogoImageField(forms.ImageField):
+    """
+    ImageField that runs the logo rule before Django's own image check, so a
+    wrong type (for example an SVG) gets the type message, not "not an image".
+    Only a newly uploaded file reaches to_python; a kept or cleared logo doesn't.
+    """
+
+    def to_python(self, data):
+        if data is not None and hasattr(data, "size"):
+            check_logo_upload(data)
+        return super().to_python(data)
+
+
 class ClinicSettingsForm(forms.ModelForm):
     """
     Form for Admin to configure clinic schedule and contact details.
+    With tab=details, schedule or vet it keeps only that tab's fields
+    (SETTINGS_TAB_FIELDS), so saving never touches the other tabs' values.
     """
 
     working_days = forms.MultipleChoiceField(
@@ -34,9 +78,24 @@ class ClinicSettingsForm(forms.ModelForm):
         help_text="Select the days the clinic is open.",
     )
 
-    slot_duration_minutes = forms.ChoiceField(
+    # TypedChoiceField (coerce=int) so changed_data compares 60 with 60, not
+    # the saved 60 with the posted "60".
+    slot_duration_minutes = forms.TypedChoiceField(
+        label="Appointment slot length",
         choices=SLOT_DURATION_CHOICES,
-        help_text="Duration of each appointment slot.",
+        coerce=int,
+        help_text="Each booking takes one slot.",
+    )
+
+    booking_limit_days = forms.IntegerField(
+        label="Booking limit (days ahead)",
+        min_value=1,
+        max_value=365,
+        help_text="Owners can book up to this many days ahead. Between 1 and 365.",
+        error_messages={
+            "min_value": "The booking limit must be at least 1 day.",
+            "max_value": "The booking limit can't be more than 365 days.",
+        },
     )
 
     class Meta:
@@ -58,6 +117,25 @@ class ClinicSettingsForm(forms.ModelForm):
             "booking_limit_days",
             "notification_email",
         ]
+        field_classes = {"logo": LogoImageField}
+        labels = {
+            "notification_email": "Admin notification email",
+            "veterinarian_license_number": "License number",
+            "veterinarian_bio": "About the vet",
+            "same_day_cutoff_time": "Same-day booking cutoff",
+        }
+        help_texts = {
+            "notification_email": (
+                "New visit requests are sent here. "
+                "Blank means the admin account email."
+            ),
+            "veterinarian_bio": "A few sentences. Shown on the clinic page.",
+            "same_day_cutoff_time": "No bookings for today after this time.",
+            "logo": (
+                "JPG, PNG or WebP, up to 2 MB. It shows on receipts and the "
+                "clinic page. Choosing a new file replaces the old one."
+            ),
+        }
         widgets = {
             "opening_time": forms.TimeInput(attrs={"type": "time"}),
             "closing_time": forms.TimeInput(attrs={"type": "time"}),
@@ -65,6 +143,13 @@ class ClinicSettingsForm(forms.ModelForm):
             "address": forms.Textarea(attrs={"rows": 3}),
             "veterinarian_bio": forms.Textarea(attrs={"rows": 4}),
         }
+
+    def __init__(self, *args, tab=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if tab in SETTINGS_TAB_FIELDS:
+            for name in list(self.fields):
+                if name not in SETTINGS_TAB_FIELDS[tab]:
+                    del self.fields[name]
 
     def clean(self):
         cleaned_data = super().clean()
@@ -99,6 +184,7 @@ class BlockedDateForm(forms.ModelForm):
     class Meta:
         model = BlockedDate
         fields = ["date", "reason"]
+        help_texts = {"reason": "Only you see this."}
         widgets = {
             "date": forms.DateInput(attrs={"type": "date"}),
             "reason": forms.TextInput(
@@ -110,6 +196,11 @@ class BlockedDateForm(forms.ModelForm):
         date = self.cleaned_data.get("date")
         if date and date < timezone.localdate():
             raise forms.ValidationError("Cannot block a date in the past.")
+        if date and BlockedDate.objects.filter(date=date).exists():
+            raise forms.ValidationError(
+                f"{date_format(date, 'D, M j')} is already blocked. "
+                "Pick another date."
+            )
         return date
 
 
@@ -211,7 +302,7 @@ class AppointmentBookingForm(forms.Form):
         if not date:
             return date
 
-        clinic = ClinicSettings.objects.first()
+        clinic = get_clinic_settings()
         today = timezone.localdate()
 
         if date < today:
@@ -297,7 +388,7 @@ class AppointmentRescheduleForm(forms.Form):
         if not date:
             return date
 
-        clinic = ClinicSettings.objects.first()
+        clinic = get_clinic_settings()
         today = timezone.localdate()
 
         if date < today:
@@ -570,7 +661,7 @@ class AdminWalkInAppointmentForm(forms.Form):
         date = self.cleaned_data.get("date")
         if not date:
             return date
-        clinic = ClinicSettings.objects.first()
+        clinic = get_clinic_settings()
         today = timezone.localdate()
         if date < today:
             raise forms.ValidationError("Cannot create an appointment in the past.")

@@ -16,8 +16,8 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
-from appointments.models import Appointment, ClinicSettings
-from appointments.utils import paging_links
+from appointments.models import Appointment
+from appointments.utils import get_clinic_settings, paging_links
 from notifications.models import Notification
 from notifications.utils import EMAIL_NO_ADDRESS, EMAIL_OFF, EMAIL_SENT, notify
 from pets.models import Pet
@@ -796,7 +796,7 @@ def record_for_vaccination(value, pet):
 
 def clinic_vet_name():
     """ClinicSettings.veterinarian_name, or "" when there are no settings."""
-    clinic = ClinicSettings.objects.first()
+    clinic = get_clinic_settings()
     return clinic.veterinarian_name if clinic else ""
 
 

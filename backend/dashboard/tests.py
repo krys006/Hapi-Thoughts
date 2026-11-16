@@ -423,6 +423,38 @@ class TopbarSearchTests(ShellTestBase):
         )
 
 
+class LegacyLayerRetiredTests(ShellTestBase):
+    """Slice 7b-5: admin pages have no legacy CSS layer and no shared modal;
+    owner pages keep shared/modals.html."""
+
+    def test_admin_pages_have_no_legacy_layer_or_shared_modal(self):
+        self.client.force_login(self.admin)
+        for name in ("admin_dashboard", "clinic_info", "admin_health_article_list"):
+            with self.subTest(name=name):
+                response = self.client.get(reverse(name))
+                self.assertTemplateUsed(response, "layouts/admin.html")
+                self.assertTemplateNotUsed(response, "shared/modals.html")
+                html = response.content.decode()
+                self.assertNotIn("layer(legacy)", html)
+                self.assertNotIn("openConfirmModal", html)
+                self.assertNotIn("closeConfirmModal", html)
+                self.assertNotIn("confirm-modal", html)
+
+    def test_layout_source_has_no_legacy_block_or_modals_include(self):
+        source = engines["django"].get_template("layouts/admin.html").template.source
+        for word in ("legacy_css", "layer(legacy)", "shared/modals.html"):
+            with self.subTest(word=word):
+                self.assertNotIn(word, source)
+
+    def test_owner_page_still_includes_shared_modals(self):
+        self.client.force_login(self.owner.user)
+        response = self.client.get(reverse("clinic_info"))
+        self.assertTemplateUsed(response, "base_dashboard.html")
+        self.assertTemplateUsed(response, "shared/modals.html")
+        self.assertContains(response, 'id="confirm-modal-overlay"')
+        self.assertContains(response, "openConfirmModal")
+
+
 class OwnerSearchReceiptTests(ShellTestBase):
     """Slice 6a-4 (rule 23): the owner's header search never shows a
     cancelled receipt; the others show "Unpaid" / "Paid"."""

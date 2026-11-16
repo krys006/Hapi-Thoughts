@@ -1,39 +1,46 @@
-<!-- Blocked dates list partial — swapped by HTMX on add/delete -->
+{% comment %}
+  Blocked dates list (inside the panel). Needs blocked_dates. Each row has a
+  red outline Remove button that only opens that row's native <dialog>
+  (dialogs.js); the dialog's "Yes, remove" is a plain POST form to the remove
+  URL, which redirects back to ?tab=blocked with a flash. The date is plain
+  template text, so Django escapes it.
+{% endcomment %}
 <div id="blocked-dates-list">
+  <section class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm" aria-labelledby="blocked-dates-heading">
+    <div class="border-b border-gray-200 bg-gray-50 px-5 py-3">
+      <h2 id="blocked-dates-heading" class="text-xl font-semibold text-gray-900">Blocked dates ({{ blocked_dates|length }})</h2>
+      <p class="text-sm text-gray-700">The clinic is closed on these days. Owners can't book them.</p>
+    </div>
 
-  {% if blocked_dates %}
-    <ul class="blocked-dates-list">
-      {% for blocked in blocked_dates %}
-        <li class="blocked-date-item">
-
-          <div class="blocked-date-info">
-            <span class="blocked-date-date">
-              {{ blocked.date|date:"F j, Y" }}
-            </span>
-            {% if blocked.reason %}
-              <span class="blocked-date-reason">{{ blocked.reason }}</span>
-            {% endif %}
-          </div>
-
-          <!-- Delete button — HTMX POST, swaps this list on success -->
-          <form
-            hx-post="{% url 'admin_blocked_date_delete' blocked.pk %}"
-            hx-target="#blocked-dates-list"
-            hx-swap="outerHTML"
-            hx-confirm="Remove this blocked date?"
-          >
-            {% csrf_token %}
-            <button type="submit" class="btn-danger-sm">
-              Remove
+    {% if blocked_dates %}
+      <ul>
+        {% for blocked in blocked_dates %}
+          <li class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-5 py-4 last:border-b-0">
+            <div class="min-w-0">
+              <p class="text-lg font-semibold text-gray-900">{{ blocked.date|date:"D, M j, Y" }}</p>
+              {% if blocked.reason %}<p class="text-base text-gray-700">{{ blocked.reason }}</p>{% endif %}
+            </div>
+            <button type="button" class="btn border border-red-300 bg-white font-semibold text-red-700 hover:bg-red-50" data-dialog-open="remove-blocked-dialog-{{ blocked.pk }}">
+              {% include "components/icon.html" with name="trash-2" %}
+              Remove<span class="sr-only"> {{ blocked.date|date:"D, M j, Y" }}</span>
             </button>
-          </form>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="px-5 py-6 text-base text-gray-700">No dates are blocked. Owners can book any working day.</p>
+    {% endif %}
+  </section>
 
-        </li>
-      {% endfor %}
-    </ul>
-
-  {% else %}
-    <p class="empty-state-text">No dates are currently blocked.</p>
-  {% endif %}
-
+  {# One confirm dialog per row, after the list #}
+  {% for blocked in blocked_dates %}
+    <dialog id="remove-blocked-dialog-{{ blocked.pk }}" aria-labelledby="remove-blocked-title-{{ blocked.pk }}" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50">
+      <form method="post" action="{% url 'admin_blocked_date_delete' blocked.pk %}" class="p-6 sm:p-7">
+        {% csrf_token %}
+        <h2 id="remove-blocked-title-{{ blocked.pk }}" class="text-xl font-bold">Remove the block on {{ blocked.date|date:"D, M j, Y" }}?</h2>
+        <p class="mt-2 text-base text-gray-700">Owners will be able to book this day again.</p>
+        {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, remove" icon="trash-2" danger=True back_text="Keep it blocked" %}
+      </form>
+    </dialog>
+  {% endfor %}
 </div>

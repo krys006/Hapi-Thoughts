@@ -110,10 +110,10 @@ Never use per-app template folders.
 
 - `base_dashboard.html` is the base for logged-in owner pages (header,
   bell, sidebar, flash messages). No admin page uses it.
-- `layouts/admin.html` is the base for every admin page (see §10). Pages
-  not redesigned yet (e.g. `admin/health/article_list.html`; no billing page
-  is left, since 6b-4) import their old `static/css/admin/` file in the
-  `legacy_css` block, inside the `legacy` cascade layer.
+- `layouts/admin.html` is the base for every admin page (see §10). Every
+  admin page is redesigned: there is no `legacy_css` block, no `legacy`
+  cascade layer and no `static/css/admin/` stylesheet to import (removed in
+  Slice 7b-5).
 - `layouts/auth.html` is the base for the admin login: a standalone card
   with no sidebar (see §10).
 - `base.html` is the base for standalone auth pages (login, register,
@@ -844,9 +844,9 @@ class AppointmentBookingForm(forms.ModelForm):
 ### Four base templates
 | Base | Used by | What it provides |
 |---|---|---|
-| `layouts/admin.html` | Every admin page: redesigned ones (e.g. `admin/dashboard/index.html`) and ones not redesigned yet, which add their old CSS in `legacy_css` (e.g. `admin/health/article_list.html`) | Sidebar with count badges and logout, top bar with search ("Find a pet or owner"; the appointments, pet owners, pets, vaccinations and medical records lists and the deletion requests page put their own search there) and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/admin/dialogs.js`, `static/js/admin/auto_submit.js`, CSRF + `X-Admin-Layout` via `hx-headers`, confirm modal |
+| `layouts/admin.html` | Every admin page (e.g. `admin/dashboard/index.html`, `admin/health/article_list.html`). No admin page has a legacy layer | Sidebar with count badges and logout, top bar with search ("Find a pet or owner"; the appointments, pet owners, pets, vaccinations and medical records lists and the deletion requests page put their own search there) and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/admin/dialogs.js`, `static/js/admin/auto_submit.js`, CSRF + `X-Admin-Layout` via `hx-headers`. No confirm modal: confirmations are native `<dialog>`s (see Dialogs) |
 | `layouts/auth.html` | `admin/login.html` | Admin login: standalone card on a violet background, `app.css`, no HTMX |
-| `base_dashboard.html` | Logged-in owner pages (e.g. `owner/pets/list.html`; `shared/clinic_info.html` for owners, which gets its base from the view) | Header with search and bell, role-based sidebar, flash messages, Tailwind + HTMX, CSRF header for HTMX, confirm modal |
+| `base_dashboard.html` | Logged-in owner pages (e.g. `owner/pets/list.html`; `shared/clinic_info.html` for owners, which gets its base from the view) | Header with search and bell, owner sidebar, flash messages, Tailwind + HTMX, CSRF header for HTMX, confirm modal (`shared/modals.html`, owners only) |
 | `base.html` | Standalone auth pages (e.g. `owner/login.html`, `owner/register.html`, password reset, `owner/onboarding/step1.html`) | Bare page with Tailwind + HTMX, no header or sidebar |
 
 `layouts/admin.html` shell sizes: Sidebar 224 px (w-56). The sidebar's logo
@@ -855,16 +855,15 @@ under the top bar; keep them equal if either changes. The logo block has no
 bottom border. The clinic name may wrap to two lines
 (line-clamp-2).
 
-Migrated pages never loop over `messages` (the layout includes
-`components/flash_messages.html`) and load no `static/css/admin/` file.
+Admin pages never loop over `messages` (the layout includes
+`components/flash_messages.html`) and load no `static/css/admin/` file. The
+layout has no `legacy_css` block and `app.css` has no `legacy` layer: a page
+that needs styles uses Tailwind classes.
 
 ### Blocks each base defines
 ```html
 <!-- layouts/admin.html -->
 {% block title %}Hapi Vet Admin{% endblock %}
-{% block legacy_css %}{% endblock %}  ← TEMPORARY: old page CSS imported into
-                                         the "legacy" layer (pages not
-                                         redesigned yet; removed in Slice 7)
 {% block extra_head %}{% endblock %}  ← extra tags in <head>
 {% block topbar_search %}…{% endblock %} ← global search in the top bar; a page
                                          with its own search overrides it
@@ -940,45 +939,40 @@ dropdown (`admin/appointments/list_parts/tabs.html`):
 <noscript><button type="submit" class="btn btn-outline">Apply</button></noscript>
 ```
 
-### Example admin page not redesigned yet
-No billing page is on legacy CSS any more (the last two, the services pages,
-moved in 6b-4). Pages still on it are the health library and Clinic settings
-(Slice 7); from `admin/health/article_list.html` (head and tail, shortened
-with `…`):
+### Server-rendered tabs (`?tab=`)
+A page with tabs (Clinic settings, `admin/settings/clinic_settings.html`)
+renders them on the server, with no JavaScript:
+- The tabs are real links (`?tab=schedule`); the view reads the value and puts
+  `active_tab` in the context. Unknown or missing falls back to the first tab.
+- The open tab's link has `aria-current="page"` (and `bg-violet-50 ring-2 ring-violet-600`).
+  A tab with errors shows a red pill ("1 problem") from the view.
+- Only the open tab's section is rendered. Each editable tab is its own
+  `<form method="post">` with a hidden `tab` field, so one Save changes saves
+  only that tab and counts as the page's one violet button.
+- Split the page into partials (`admin/settings/settings_parts/`): one per tab,
+  plus the banner, the tab links and an error summary.
+
+### Example admin page
+Every admin page looks like this. There is no legacy layer: no `legacy_css`
+block, no old stylesheet, no `openConfirmModal`. From
+`admin/health/article_list.html` (head only, shortened with `…`):
 ```html
 {% extends "layouts/admin.html" %}
 
-{% load static %}
-{% block legacy_css %}
-<style>
-  @import url("{% static 'css/admin/article_form.css' %}") layer(legacy);
-  @import url("{% static 'css/admin/article_list.css' %}") layer(legacy);
-</style>
+{% block title %}Health library — Hapi Vet Admin{% endblock %}
+
+{% block page_title %}Health library{% endblock %}
+{% block page_subtitle %}Articles that pet owners can read. …{% endblock %}
+{% block page_actions %}
+  <a href="{% url 'admin_health_article_create' %}" class="btn btn-primary font-semibold">…New article</a>
 {% endblock %}
-
-{% block title %}Health Library — Hapi Vet{% endblock %}
-
-{% block page_header %}{% endblock %}
 
 {% block content %}
-
-<div class="admin-page">
-
-  <div class="admin-page-header">
-    <h1 class="admin-page-title">Health Library</h1>
-    <a href="{% url 'admin_health_article_create' %}" class="btn-primary">New Article</a>
-  </div>
   …
-</div>
-
-{% endblock %}
-
-{% block extra_js %}
-  <script src="{% static 'js/admin/article_list.js' %}"></script>
 {% endblock %}
 ```
-(That page also has an inline `onclick="openConfirmModal(…)"`: the old
-pattern, not to copy; new pages use `data-dialog-open`, see Dialogs above.)
+Confirmations open a native `<dialog>` with `data-dialog-open` (see Dialogs
+above); never an inline `onclick`.
 
 ### HTMX partial templates
 Partials are prefixed with underscore and never extend a base template.
@@ -1050,7 +1044,7 @@ Admin dates are in Manila time (`timezone.localdate()`).
 ### Two setups during the admin UI overhaul
 | Pages | Tailwind | Loaded by |
 |---|---|---|
-| Every admin page (since Slice 1.5; pages not redesigned yet add their old CSS in the `legacy` layer) and the admin login | Compiled `static/css/app.css` (Tailwind v4.3.3, standalone CLI) | `layouts/admin.html`, `layouts/auth.html` |
+| Every admin page (since Slice 1.5; no legacy layer since Slice 7b-5) and the admin login | Compiled `static/css/app.css` (Tailwind v4.3.3, standalone CLI) | `layouts/admin.html`, `layouts/auth.html` |
 | Everything else (owner pages, owner auth pages) | Play CDN `https://cdn.tailwindcss.com` | `base.html`, `base_dashboard.html` |
 
 - Never load the CDN script in the new layout, and never load `app.css` from the old bases.

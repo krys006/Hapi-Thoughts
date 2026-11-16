@@ -239,8 +239,8 @@ Only one instance exists — Admin edits it through clinic settings page.
 
 **Rules:**
 - Only one row ever exists
-- Retrieved via `ClinicSettings.objects.first()`
-- Created automatically during initial setup
+- Read through `get_clinic_settings()` (`appointments/utils.py`, lowest pk)
+- The row is created with defaults only when the admin opens Clinic settings
 
 ---
 
@@ -253,6 +253,8 @@ Dates blocked by Admin (holidays, rest days, etc.)
 | `date` | DateField | unique=True | Blocked date |
 | `reason` | CharField | max_length=100, blank=True | Optional note |
 | `created_at` | DateTimeField | auto_now_add=True | — |
+
+**Deletion:** a hard delete, a deliberate exception to core rule 8 (Slice 7, decision 3). A blocked date is a schedule setting; no visit or record depends on it. Removing one just opens the day again. Blocking a day never changes or cancels visits already booked on it.
 
 ---
 
@@ -702,6 +704,9 @@ Read-only for Pet Owners.
 - Only published articles visible to Pet Owners
 - Admin can see all articles including unpublished
 - Login required to view any article
+- No delete: nothing deletes a HealthArticle (view, URL and button removed in Slice 7a-3). Admin can only unpublish.
+- A new article always starts as a draft (`is_published=False`); the article form has no Published field
+- Publish / unpublish only from the admin list (POST only); editing never changes `is_published`
 
 ---
 

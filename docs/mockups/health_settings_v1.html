@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Health library and clinic settings v1</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif; }
+</style>
+</head>
+<body class="bg-gray-200 text-gray-900 antialiased">
+<header class="sticky top-0 z-30 border-b border-gray-300 bg-white/95 px-6 py-3 backdrop-blur">
+  <p class="mb-2 text-sm font-semibold text-gray-700">Slice 7 · Health library and clinic settings v1 · frame copied from Slice 6 (layouts/admin.html) · today is Mon, Nov 16, 2026 · pick a state</p>
+  <div id="switcher" class="flex flex-wrap gap-2"></div>
+</header>
+<div class="overflow-x-auto p-6">
+  <div id="caption" class="mb-4 max-w-[1280px] rounded-xl border border-violet-200 bg-violet-50 p-4 text-base text-gray-800"></div>
+  <div id="stage"></div>
+  <p class="mt-3 text-sm text-gray-600">Desktop frame is 1280 px wide: a 1920×1080 screen at 150% zoom. Phone widths are checked in the browser after the build.</p>
+</div>
+<script>
+// ---------- Icons (Lucide shapes copied from the Slice 6 mockup; only icons already in the set are used) ----------
+const P = {
+  house:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  fileText:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  syringe:'<path d="m18 2 4 4"/><path d="m17 7 3-3"/><path d="M19 9 8.7 19.3c-1 1-2.5 1-3.4 0l-.6-.6c-1-1-1-2.5 0-3.4L15 5"/><path d="m9 11 4 4"/><path d="m5 19-3 3"/><path d="m14 4 6 6"/>',
+  bookOpen:'<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="m4.9 4.9 2.1 2.1"/><path d="m17 17 2.1 2.1"/><path d="M2 12h3"/><path d="M19 12h3"/><path d="m4.9 19.1 2.1-2.1"/><path d="m17 7 2.1-2.1"/>',
+  logout:'<path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>',
+  search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  arrowRight:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  arrowLeft:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  circleCheck:'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  image:'<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  eye:'<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
+  clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  mapPin:'<path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>',
+  phone:'<path d="M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384"/>',
+  menu:'<path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/>',
+  ban:'<circle cx="12" cy="12" r="10"/><path d="M4.929 4.929 19.071 19.071"/>',
+  dog:'<path d="M11.25 16.25h1.5L12 17z"/><path d="M16 14v.5"/><path d="M4.42 11.247A13.152 13.152 0 0 0 4 14.556C4 18.728 7.582 21 12 21s8-2.272 8-6.444a11.702 11.702 0 0 0-.493-3.309"/><path d="M8 14v.5"/><path d="M8.5 8.5c-.384 1.05-1.083 2.028-2.344 2.5-1.931.722-3.576-.297-3.656-1-.113-.994 1.177-6.53 4-7 1.923-.321 3.651.845 3.651 2.235A7.497 7.497 0 0 1 14 5.277c0-1.39 1.844-2.598 3.767-2.277 2.823.47 4.113 6.006 4 7-.08.703-1.725 1.722-3.656 1-1.261-.472-1.855-1.45-2.239-2.5"/>'
+};
+const ic = (n, c = 'size-5 shrink-0', s = 2) =>
+  `<svg class="${c}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${s}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// ---------- Shared classes (assets/tailwind/input.css) ----------
+const BTN = 'inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-base font-medium whitespace-nowrap transition-colors';
+const BTN_PRIMARY = `${BTN} bg-violet-600 text-white hover:bg-violet-700`;
+const BTN_OUTLINE = `${BTN} border border-gray-300 bg-white text-gray-800 hover:bg-gray-50`;
+const BTN_DANGER = `${BTN} bg-red-600 text-white hover:bg-red-700`;
+const BTN_RED_OUTLINE = `${BTN} border border-red-300 bg-white font-semibold text-red-700 hover:bg-red-50`;
+const INPUT = 'block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-base text-gray-900 placeholder:text-gray-500';
+const INPUT_ERR = 'block min-h-11 w-full rounded-lg border-2 border-red-600 bg-white px-3 py-2.5 text-base text-gray-900';
+const AREA = 'block w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-base text-gray-900 placeholder:text-gray-500';
+const LABEL = 'mb-1 block text-base font-semibold text-gray-900';
+const HELP = 'mt-1 text-base text-gray-700';
+const ERR = 'mt-1 flex items-center gap-1.5 text-base font-medium text-red-700';
+const CARD = 'rounded-xl border border-gray-200 bg-white p-6 shadow-sm';
+
+// ---------- Frame (copied from Slice 6; active item is set per page) ----------
+const navLink = (icon, label, active = false, count = 0) =>
+  `<a class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base ${active ? 'bg-white font-semibold text-violet-800 shadow-sm ring-1 ring-violet-200' : 'text-gray-800 hover:bg-violet-200/70'}">${ic(icon)}<span class="flex-1">${label}</span>${count ? `<span class="rounded-full bg-violet-600 px-2 text-sm font-semibold text-white">${count}</span>` : ''}</a>`;
+const sidebar = (active) => `
+<aside class="flex w-56 shrink-0 flex-col border-r border-violet-200 bg-violet-100">
+  <div class="flex h-16 shrink-0 items-center gap-3 px-5">
+    <a class="-mx-2 flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-lg px-2"><span class="grid size-10 shrink-0 place-content-center rounded-lg bg-gradient-to-br from-amber-300 to-amber-700 text-white">${ic('image')}</span>
+      <p class="line-clamp-2 text-base font-semibold leading-5 text-gray-900">Hapi Tutz Vet. Supplies</p></a>
+  </div>
+  <nav class="flex-1 space-y-1 px-3 py-2">
+    <p class="px-3 pb-1 pt-1 text-sm font-semibold text-violet-800">Daily work</p>
+    ${navLink('house','Dashboard')}${navLink('calendar','Appointments',false,2)}${navLink('users','Pet owners')}${navLink('paw','Pets')}
+    <p class="px-3 pb-1 pt-5 text-sm font-semibold text-violet-800">Records</p>
+    ${navLink('fileText','Medical records')}${navLink('syringe','Vaccinations')}${navLink('bookOpen','Health library', active === 'health')}
+    <p class="px-3 pb-1 pt-5 text-sm font-semibold text-violet-800">Clinic</p>
+    ${navLink('receipt','Billing')}${navLink('fileText','Services and prices')}${navLink('settings','Clinic settings', active === 'settings')}
+  </nav>
+  <div class="border-t border-violet-200 px-3 py-3"><a class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base text-gray-800">${ic('logout')}Log out</a></div>
+</aside>`;
+const topSearch = (placeholder, label) => `
+<form role="search" class="flex w-full max-w-[36rem] items-center gap-2">
+  <label class="sr-only" for="top-q">${label}</label>
+  <div class="relative flex-1"><span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-600">${ic('search')}</span>
+  <input id="top-q" type="search" placeholder="${placeholder}" class="${INPUT} pl-10"></div>
+  <button type="submit" class="${BTN_OUTLINE} font-semibold">Search</button>
+</form>`;
+const frame = (body, { active = '', search = topSearch('Find a pet or owner', 'Find a pet or owner'), overlay = '' } = {}) => `
+<div class="relative flex min-h-[900px] w-[1280px] overflow-hidden rounded-xl border border-gray-300 bg-gray-50 shadow-sm">
+  ${sidebar(active)}
+  <div class="min-w-0 flex-1">
+    <header class="flex h-16 shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-8">
+      ${search}
+      <div class="ml-auto"><span class="${BTN_OUTLINE}">${ic('bell')}<span>Notifications</span><span class="rounded-full bg-red-600 px-2 text-sm font-semibold text-white">1 new</span></span></div>
+    </header>
+    <main class="px-8 py-6">${body}</main>
+  </div>
+  ${overlay}
+</div>`;
+const scrim = (dialog) => `<div class="absolute inset-0 grid place-items-center bg-gray-900/40 p-6">${dialog}</div>`;
+
+// ---------- Pieces ----------
+const pageHeader = (title, sub = '', actions = '') => `
+<div class="mb-6 flex flex-wrap items-start justify-between gap-4">
+  <div class="min-w-0"><h1 class="text-2xl font-bold text-gray-900">${title}</h1>${sub ? `<p class="mt-1 text-base text-gray-700">${sub}</p>` : ''}</div>
+  <div class="flex flex-wrap gap-3">${actions}</div>
+</div>`;
+const backLink = (text) => `<a class="${BTN_OUTLINE} mb-4">${ic('arrowLeft')}${text}</a>`;
+const pill = (cls, icon, text) => `<span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm font-medium ${cls}">${icon ? ic(icon, 'size-4 shrink-0') : ''}${text}</span>`;
+const note = (icon, html, cls = 'border-gray-200 bg-gray-50 text-gray-800') => `
+<p class="mb-4 flex items-start gap-2 rounded-lg border px-4 py-3 text-base ${cls}">${ic(icon, 'mt-0.5 size-5 shrink-0')}<span>${html}</span></p>`;
+const field = (label, control, { help = '', error = '', req = false, optional = false, id = '' } = {}) => `
+<div>
+  <label for="${id}" class="${LABEL}">${label}${req ? ' <span class="text-red-700" aria-hidden="true">*</span>' : ''}${optional ? ' <span class="font-normal text-gray-700">(optional)</span>' : ''}</label>
+  ${control}
+  ${error ? `<p class="${ERR}">${ic('alert', 'size-4 shrink-0')}${error}</p>` : (help ? `<p class="${HELP}">${help}</p>` : '')}
+</div>`;
+const input = (id, value, { type = 'text', err = false, placeholder = '' } = {}) =>
+  `<input id="${id}" type="${type}" value="${value}" placeholder="${placeholder}" class="${err ? INPUT_ERR : INPUT}" ${err ? 'aria-invalid="true"' : ''}>`;
+const area = (id, value, rows = 3) => `<textarea id="${id}" rows="${rows}" class="${AREA}">${value}</textarea>`;
+const buttonsRow = (main, extra = '') => `<div class="mt-8 flex flex-wrap items-center justify-end gap-3 border-t border-gray-200 pt-6">${extra}${main}</div>`;
+
+// ---------- Health library ----------
+const ARTICLES = [
+  { title: "Dog's cough", desc: 'Honking cough after kennel stays or contact with other dogs.', pub: true, when: 'Mon, Nov 2' },
+  { title: 'Ear infection in cats', desc: 'Head shaking, scratching the ears, and a bad smell from the ear.', pub: true, when: 'Fri, Oct 30' },
+  { title: 'Rabies basics', desc: 'What to do after a bite, and when the next dose is due.', pub: false, when: 'Wed, Nov 11' }
+];
+const articleRow = (a) => `
+<li class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-5 border-b border-gray-100 px-5 py-4 last:border-b-0">
+  <div class="min-w-0">
+    <p class="flex flex-wrap items-center gap-2 text-lg font-semibold text-gray-900">${a.title}${a.pub ? pill('bg-green-100 text-green-800', 'check', 'Published') : pill('bg-gray-100 text-gray-800', 'eye', 'Draft, not visible')}</p>
+    <p class="text-base text-gray-700">${a.desc}</p>
+    <p class="text-sm text-gray-700">Last changed ${a.when}</p>
+  </div>
+  <div class="flex flex-wrap justify-end gap-2">
+    <a class="${BTN_OUTLINE}">Edit<span class="sr-only"> ${a.title}</span></a>
+    ${a.pub
+      ? `<button type="button" class="${BTN_OUTLINE}">Unpublish<span class="sr-only"> ${a.title}</span></button>`
+      : `<button type="button" class="${BTN_OUTLINE}">Publish<span class="sr-only"> ${a.title}</span></button>`}
+  </div>
+</li>`;
+const healthPage = (dialog = '') => frame(`
+  ${pageHeader('Health library', 'Articles that pet owners can read. Unpublish an article to hide it from them.', `<a class="${BTN_PRIMARY} font-semibold">${ic('plus')}New article</a>`)}
+  ${note('info', 'To take an article off the list, unpublish it. It stays here, and you can publish it again at any time.')}
+  <section class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+    <div class="flex flex-wrap items-baseline justify-between gap-2 border-b border-gray-200 bg-gray-50 px-5 py-3">
+      <h2 class="text-xl font-semibold text-gray-900">All articles (3)</h2><p class="text-sm text-gray-700">Newest change first</p>
+    </div>
+    <ul>${ARTICLES.map(articleRow).join('')}</ul>
+  </section>`, {
+  active: 'health',
+  search: topSearch('Search articles by condition name', 'Search articles by condition name'),
+  overlay: dialog
+});
+const unpublishDialog = scrim(`
+<div role="dialog" aria-modal="true" aria-labelledby="unp-title" class="m-auto w-[520px] max-w-full rounded-xl bg-white p-6 shadow-xl">
+  <h2 id="unp-title" class="text-xl font-semibold text-gray-900">Unpublish “Dog's cough”?</h2>
+  <p class="mt-2 text-base text-gray-800">Pet owners will no longer see this article. It stays in the list, and you can publish it again at any time.</p>
+  <div class="mt-6 flex flex-wrap justify-end gap-3">
+    <button type="button" class="${BTN_OUTLINE}" autofocus>Keep it published</button>
+    <button type="button" class="${BTN_DANGER}">Yes, unpublish</button>
+  </div>
+</div>`);
+
+const articleForm = () => frame(`
+  ${backLink('Back to health library')}
+  ${pageHeader('Edit article', "Dog's cough", '')}
+  <form class="mx-auto max-w-3xl" novalidate>
+    <section class="${CARD} space-y-6">
+      ${field('Condition name', input('f-name', "Dog's cough"), { req: true, id: 'f-name', help: 'This is the title pet owners see.' })}
+      ${field('Description', area('f-desc', 'Honking cough after kennel stays or contact with other dogs.', 2), { id: 'f-desc', help: 'One or two sentences. Shown on the list.' })}
+      ${field('Causes', area('f-causes', 'Kennel cough is caused by several germs that spread through the air and on shared bowls and toys.', 3), { id: 'f-causes', optional: true })}
+      ${field('Symptoms', area('f-symptoms', 'A dry, honking cough, sometimes with gagging. Usually no fever.', 3), { id: 'f-symptoms', optional: true })}
+      ${field('General care', area('f-care', 'Rest, a humid room, and no walks near other dogs. Call the clinic if the cough lasts more than a week.', 4), { id: 'f-care', optional: true })}
+      ${note('eye', 'This article is <b>published</b>. Pet owners can read it. To hide it, use Unpublish on the health library list.')}
+    </section>
+    ${buttonsRow(`<button type="submit" class="${BTN_PRIMARY} font-semibold">${ic('check')}Save changes</button>`, `<a class="${BTN_OUTLINE}">Cancel</a>`)}
+  </form>`, { active: 'health', search: topSearch('Search articles by condition name', 'Search articles by condition name') });
+
+// ---------- Clinic settings ----------
+const errorSummary = (n) => `
+<div role="alert" class="mb-6 flex items-start gap-3 rounded-xl border-2 border-red-600 bg-red-50 p-4 text-base text-red-900">
+  ${ic('alert', 'mt-0.5 size-6 shrink-0')}<div><p class="font-semibold">Please fix the ${n} item below.</p><p>Nothing was saved yet.</p></div>
+</div>`;
+
+const clinicTab = () => `
+<section class="${CARD} space-y-6">
+  <div class="grid gap-6 md:grid-cols-2">
+    ${field('Clinic name', input('c-name', 'Hapi Tutz Vet. Supplies'), { req: true, id: 'c-name' })}
+    ${field('Contact number', input('c-phone', '0917 000 0000', { type: 'tel' }), { id: 'c-phone' })}
+    ${field('Email', input('c-email', 'hapitutzvet@gmail.com', { type: 'email' }), { id: 'c-email' })}
+    ${field('Admin notification email', input('c-notify', 'hapitutzvet@gmail.com', { type: 'email' }), { id: 'c-notify', help: 'New visit requests are sent here. Blank means the admin account email.' })}
+  </div>
+  ${field('Address', area('c-addr', 'Bognuyan, Gasan, Marinduque', 3), { id: 'c-addr', req: true })}
+  <div class="flex flex-col gap-4 rounded-xl border border-gray-200 bg-gray-50 p-5 sm:flex-row sm:items-center">
+    <span class="grid size-24 shrink-0 place-content-center rounded-xl bg-white ring-1 ring-gray-300 text-gray-700">${ic('image', 'size-10')}</span>
+    <div class="min-w-0 flex-1">
+      <p class="text-base font-semibold text-gray-900">Clinic logo</p>
+      <p class="${HELP}">JPG, PNG or WebP, up to 2 MB. It shows on receipts and the clinic page. Choosing a new file replaces the old one.</p>
+      <span class="${BTN_OUTLINE} mt-3">Choose a new logo</span>
+    </div>
+  </div>
+</section>
+${buttonsRow(`<button type="button" class="${BTN_PRIMARY} font-semibold">${ic('check')}Save changes</button>`)}`;
+
+const scheduleTab = ({ error = false, warning = false } = {}) => {
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const on = [0, 1, 2, 3, 4, 5];
+  const dayBoxes = days.map((d, i) => `<label class="flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 text-base"><input type="checkbox" ${on.includes(i) ? 'checked' : ''} class="size-6 accent-violet-600"> ${d}</label>`).join('');
+  const warn = warning ? `
+<div class="mb-6 rounded-xl border-2 border-yellow-400 bg-yellow-50 p-5 text-base text-yellow-950">
+  <p class="flex items-start gap-2 font-semibold">${ic('alert', 'mt-0.5 size-6 shrink-0')}Changing the slot length to 30 minutes affects 3 visits already booked.</p>
+  <ul class="mt-3 list-disc space-y-1 pl-12">
+    <li>Mon, Nov 23 at 9:00 AM · Bantay (Ana Cruz)</li>
+    <li>Mon, Nov 23 at 10:00 AM · Brownie (Liza Cruz)</li>
+    <li>Tue, Nov 24 at 1:00 PM · Max (Rosa Dela Cruz)</li>
+  </ul>
+  <p class="mt-3 pl-8">They stay booked. Nothing is cancelled or moved. Check that these times still fit the new slots, then save again to confirm.</p>
+  <div class="mt-4 flex flex-wrap justify-end gap-3">
+    <button type="button" class="${BTN_OUTLINE}" autofocus>Go back</button>
+    <button type="button" class="${BTN_PRIMARY} font-semibold">${ic('check')}Yes, save the new schedule</button>
+  </div>
+</div>` : '';
+  return `
+${error ? errorSummary(1) : ''}
+${warn}
+<section class="${CARD} space-y-6">
+  <div class="grid gap-6 md:grid-cols-2">
+    ${field('Opening time', input('s-open', '08:00', { type: 'time' }), { id: 's-open', req: true })}
+    ${field('Closing time', input('s-close', '17:00', { type: 'time' }), { id: 's-close', req: true })}
+    ${field('Appointment slot length', `<select id="s-slot" class="${INPUT}"><option>60 minutes</option><option ${warning ? 'selected' : ''}>30 minutes</option></select>`, { id: 's-slot', help: 'Each booking takes one slot.' })}
+    ${field('Same-day booking cutoff', input('s-cut', '15:00', { type: 'time' }), { id: 's-cut', help: 'No bookings for today after this time.' })}
+    ${field('Booking limit (days ahead)', input('s-limit', error ? '0' : '30', { type: 'number', err: error }), {
+      id: 's-limit', req: true,
+      error: error ? 'The booking limit must be at least 1 day.' : '',
+      help: error ? '' : 'Owners can book up to this many days ahead. Between 1 and 365.'
+    })}
+  </div>
+  <fieldset>
+    <legend class="${LABEL}">Working days <span class="text-red-700" aria-hidden="true">*</span></legend>
+    <p class="${HELP} mb-3">Select the days the clinic is open.</p>
+    <div class="flex flex-wrap gap-2">${dayBoxes}</div>
+  </fieldset>
+</section>
+${warning ? '' : buttonsRow(`<button type="button" class="${BTN_PRIMARY} font-semibold">${ic('check')}Save changes</button>`)}`;
+};
+
+const vetTab = () => `
+<section class="${CARD} space-y-6">
+  ${note('info', 'The vet name and profile show on the clinic page and as the vet on new vaccination records.')}
+  <div class="grid gap-6 md:grid-cols-2">
+    ${field('Veterinarian name', input('v-name', 'Dr. Edgar Sadiwa'), { id: 'v-name', req: true })}
+    ${field('License number', input('v-lic', 'PRC-VET-0000'), { id: 'v-lic', optional: true })}
+  </div>
+  ${field('About the vet', area('v-bio', 'Dr. Sadiwa has cared for the pets of Gasan and Bognuyan for over twenty years.', 4), { id: 'v-bio', optional: true, help: 'A few sentences. Shown on the clinic page.' })}
+</section>
+${buttonsRow(`<button type="button" class="${BTN_PRIMARY} font-semibold">${ic('check')}Save changes</button>`)}`;
+
+const BLOCKED = [
+  { d: 'Fri, Nov 27, 2026', r: 'Barangay fiesta' },
+  { d: 'Fri, Dec 25, 2026', r: 'Christmas Day' },
+  { d: 'Fri, Jan 1, 2027', r: 'New Year' }
+];
+const blockedList = () => `
+<section class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm" id="blocked-dates-list">
+  <div class="border-b border-gray-200 bg-gray-50 px-5 py-3"><h2 class="text-xl font-semibold text-gray-900">Blocked dates (3)</h2><p class="text-sm text-gray-700">The clinic is closed on these days. Owners can't book them.</p></div>
+  <ul>${BLOCKED.map(b => `
+    <li class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-5 py-4 last:border-b-0">
+      <div><p class="text-lg font-semibold text-gray-900">${b.d}</p><p class="text-base text-gray-700">${b.r}</p></div>
+      <button type="button" class="${BTN_RED_OUTLINE}">Remove<span class="sr-only"> ${b.d}</span></button>
+    </li>`).join('')}
+  </ul>
+</section>`;
+const blockForm = ({ date = '2026-11-23', reason = 'Clinic training', err = '', warning = '' } = {}) => `
+<section class="${CARD} space-y-5" id="block-form-panel">
+  <h2 class="text-xl font-semibold text-gray-900">Block a date</h2>
+  ${err ? `<div role="alert" class="rounded-lg border-2 border-red-600 bg-red-50 p-4 text-base text-red-900">${ic('alert', 'mb-1 size-5')}<p class="font-semibold">${err}</p></div>` : ''}
+  ${warning}
+  ${field('Date', input('b-date', date, { type: 'date', err: !!err }), { id: 'b-date', req: true })}
+  ${field('Reason', input('b-reason', reason), { id: 'b-reason', optional: true, help: 'Only you see this.' })}
+  ${warning ? '' : `<div class="flex justify-end"><button type="button" class="${BTN_PRIMARY} font-semibold">${ic('plus')}Block this date</button></div>`}
+</section>`;
+const blockedPage = (form) => `
+<div class="grid items-start gap-6 lg:grid-cols-2">
+  ${blockedList()}
+  ${form}
+</div>`;
+const blockedWarning = `
+<div class="rounded-xl border-2 border-yellow-400 bg-yellow-50 p-4 text-base text-yellow-950">
+  <p class="flex items-start gap-2 font-semibold">${ic('alert', 'mt-0.5 size-5 shrink-0')}Mon, Nov 23 already has 2 visits.</p>
+  <ul class="mt-2 list-disc space-y-1 pl-10">
+    <li>9:00 AM · Bantay (Ana Cruz)</li>
+    <li>10:00 AM · Brownie (Liza Cruz)</li>
+  </ul>
+  <p class="mt-2 pl-7">They stay booked. Blocking the day only stops new bookings.</p>
+  <div class="mt-4 flex flex-wrap justify-end gap-3">
+    <button type="button" class="${BTN_OUTLINE}">Go back</button>
+    <button type="button" class="${BTN_PRIMARY} font-semibold">Block anyway</button>
+  </div>
+</div>`;
+
+// Option B (approved 2026-11-16): clinic banner + icon tabs, then an icon-tile heading per section
+const SECT = {
+  clinic: ['house', 'bg-violet-100 text-violet-700', 'Clinic details', 'Name, address, phone, email and logo.'],
+  schedule: ['clock', 'bg-blue-100 text-blue-700', 'Schedule', 'Hours, working days and booking rules.'],
+  blocked: ['ban', 'bg-red-100 text-red-700', 'Blocked dates', "Days the clinic is closed. Owners can't book them."],
+  vet: ['users', 'bg-green-100 text-green-700', 'Vet profile', 'The vet shown on the clinic page.']
+};
+const banner = (tab, errorTab) => `
+<section class="mb-6 overflow-hidden rounded-xl border border-violet-200 bg-white shadow-sm">
+  <div class="flex flex-wrap items-center gap-6 bg-gradient-to-r from-violet-600 to-violet-500 px-8 py-6 text-white">
+    <span class="grid size-20 shrink-0 place-content-center rounded-2xl bg-white/95 text-amber-700 ring-4 ring-white/40">${ic('image', 'size-9')}</span>
+    <div class="min-w-0 flex-1">
+      <p class="text-base font-semibold text-violet-100">Clinic settings</p>
+      <h1 class="text-3xl font-bold">Hapi Tutz Vet. Supplies</h1>
+      <p class="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-base text-violet-50">
+        <span class="inline-flex items-center gap-1.5">${ic('mapPin')}Bognuyan, Gasan, Marinduque</span>
+        <span class="inline-flex items-center gap-1.5">${ic('clock')}Mon to Sat, 8:00 AM to 5:00 PM</span>
+        <span class="inline-flex items-center gap-1.5">${ic('phone')}0917 000 0000</span>
+      </p>
+    </div>
+    <a class="${BTN} border border-white/70 bg-white font-semibold text-violet-800 hover:bg-violet-50">${ic('eye')}View public clinic page</a>
+  </div>
+  <nav class="grid grid-cols-4 gap-2 p-2" aria-label="Clinic settings sections">
+    ${Object.entries(SECT).map(([k, s]) => `<a class="flex min-h-14 items-center justify-center gap-2 rounded-lg px-4 text-base ${tab === k ? 'bg-violet-50 font-semibold text-violet-800 ring-2 ring-violet-600' : 'text-gray-800 hover:bg-gray-100'}" ${tab === k ? 'aria-current="page"' : ''}>${ic(s[0])}${s[2]}${errorTab === k ? '<span class="rounded-full bg-red-100 px-2 text-sm font-semibold text-red-800">1 problem</span>' : ''}</a>`).join('')}
+  </nav>
+</section>`;
+const sectionHead = (tab) => { const s = SECT[tab]; return `
+<div class="mb-5 flex items-center gap-4">
+  <span class="grid size-12 shrink-0 place-content-center rounded-xl ${s[1]}">${ic(s[0], 'size-6')}</span>
+  <div><h2 class="text-xl font-semibold text-gray-900">${s[2]}</h2><p class="text-base text-gray-700">${s[3]}</p></div>
+</div>`; };
+const settingsPage = (tab, body, { error = '' } = {}) => frame(`
+  ${banner(tab, error)}
+  ${sectionHead(tab)}
+  ${body}`, { active: 'settings', search: topSearch('Find a pet or owner', 'Find a pet or owner') });
+
+// ---------- Clinic info (admin frame; owners get the same content on base_dashboard) ----------
+const clinicInfo = () => frame(`
+  ${backLink('Back to clinic settings')}
+  ${pageHeader('Clinic info', 'This is what pet owners see on the clinic page.', '')}
+  <div class="grid gap-6 lg:grid-cols-3">
+    <section class="${CARD} lg:col-span-2 space-y-6">
+      <div class="flex flex-wrap items-center gap-5">
+        <span class="grid size-20 shrink-0 place-content-center rounded-xl bg-gradient-to-br from-amber-300 to-amber-700 text-white">${ic('image', 'size-10')}</span>
+        <div><p class="text-2xl font-bold text-gray-900">Hapi Tutz Vet. Supplies</p><p class="text-base text-gray-700">Bognuyan, Gasan, Marinduque</p></div>
+      </div>
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div class="rounded-lg bg-gray-50 p-4"><p class="text-sm font-semibold text-gray-700">Phone</p><p class="text-lg text-gray-900">0917 000 0000</p></div>
+        <div class="rounded-lg bg-gray-50 p-4"><p class="text-sm font-semibold text-gray-700">Email</p><p class="text-lg text-gray-900">hapitutzvet@gmail.com</p></div>
+        <div class="rounded-lg bg-gray-50 p-4 sm:col-span-2"><p class="text-sm font-semibold text-gray-700">Opening hours</p>
+          <p class="text-lg text-gray-900">Monday to Saturday, 8:00 AM to 5:00 PM</p><p class="text-base text-gray-700">Closed on Sundays</p></div>
+      </div>
+      <div class="grid h-64 place-content-center rounded-lg border border-gray-300 bg-gray-100 text-center text-base text-gray-700" role="img" aria-label="Map of the clinic">Map of the clinic (Google Maps)</div>
+    </section>
+    <section class="${CARD} space-y-3">
+      <p class="text-sm font-semibold text-gray-700">Veterinarian</p>
+      <p class="text-xl font-semibold text-gray-900">Dr. Edgar Sadiwa</p>
+      <p class="text-base text-gray-700">License PRC-VET-0000</p>
+      <p class="text-base text-gray-900">Dr. Sadiwa has cared for the pets of Gasan and Bognuyan for over twenty years.</p>
+    </section>
+  </div>`, { active: 'settings', search: topSearch('Find a pet or owner', 'Find a pet or owner') });
+
+// ---------- States ----------
+const states = [
+  { id: 'health', label: '1 · Health library list',
+    html: healthPage(),
+    caption: `<b>Health library list.</b> Header “Health library” with <b>New article</b> the one violet button. The list shows each article as Published (green) or Draft, not visible (gray). The row buttons are <b>Edit</b> and <b>Unpublish</b> (or <b>Publish</b> for a draft); there is no delete. The note says unpublishing keeps the article. The search in the top bar matches condition names. The title “Dog's cough” is shown safely: the apostrophe is no longer inside a script string. A new article is saved as a draft, and the list shows “Saved as a draft. Publish it when it's ready.”` },
+  { id: 'unpublish', label: '2 · Unpublish confirm',
+    html: healthPage(unpublishDialog),
+    caption: `<b>Unpublish asks first.</b> Plain words, the title in the question, and what happens to owners. <b>Keep it published</b> has the focus, so Enter does nothing risky. Only <b>Yes, unpublish</b> changes anything. Publishing a draft asks first too, in the same kind of dialog (“Publish “Rabies basics”? Pet owners will be able to read it.”), because CONVENTIONS §11 confirms every status change.` },
+  { id: 'form', label: '3 · Article form',
+    html: articleForm(),
+    caption: `<b>Article form.</b> The condition name is the title pet owners see, and it is required. The description shows on the list. Causes, Symptoms and General care are optional. There is no Published checkbox: publishing and unpublishing happen only with the list's buttons, each with its confirm dialog (like a receipt's status). The form shows the status as a gray line. A new article is saved as a draft. One violet button, <b>Save changes</b>; Cancel goes back to the list. No delete on this page.` },
+  { id: 'clinic', label: '4 · Clinic details',
+    html: settingsPage('clinic', clinicTab()),
+    caption: `<b>Clinic settings (option B, approved): clinic banner + icon tabs. Tab 1 of 4: Clinic details.</b> The violet banner shows the logo, name, address, hours and phone from the <i>saved</i> settings (never the unsaved form), so the page reads as this clinic at once. Its button is white, so Save changes stays the one violet button. Each section opens with an icon tile and a one-line explanation. Tab order: Clinic details · Schedule · Blocked dates · Vet profile. Tabs are real links (<code>?tab=</code>), so they work without JavaScript and an error can reopen the right tab. <b>View public clinic page</b> opens the clinic info page in state 10. The logo block says the file type and size limit (JPG, PNG or WebP, up to 2 MB) and that a new file replaces the old one. Errors: “This file is 4.3 MB. Please choose one up to 2 MB.” / “Only JPG, PNG or WebP files can be used.” One violet button: <b>Save changes</b>.` },
+  { id: 'schedule-error', label: '5 · Schedule: error',
+    html: settingsPage('schedule', scheduleTab({ error: true }), { error: 'schedule' }),
+    caption: `<b>Schedule tab with an error.</b> The summary box at the top says what to fix, and the Schedule tab shows “1 problem”. The booking limit is marked with a red border, the text under it and an icon: “The booking limit must be at least 1 day.” (above 365: “The booking limit can't be more than 365 days.”) Opening the tab after a failed save shows this error and every value that was typed. Nothing is saved until the form passes.` },
+  { id: 'schedule-warn', label: '6 · Schedule: visits affected',
+    html: settingsPage('schedule', scheduleTab({ warning: true })),
+    caption: `<b>Changing the slot length with visits booked.</b> The first save lists the visits that the new slot length affects (pet, owner, date and time) and changes nothing. The yellow box has two choices: <b>Go back</b> (saves nothing, keeps what was typed; it has the focus) and the violet <b>Yes, save the new schedule</b>. The normal Save changes button is hidden while the warning shows, so there is still one violet button. The visits are never cancelled or moved by this page. Hours, working days and the cutoff use the same warning.` },
+  { id: 'vet', label: '7 · Vet profile',
+    html: settingsPage('vet', vetTab()),
+    caption: `<b>Vet profile.</b> The name, license and profile show on the clinic page, and the name is the default “Given by” on new vaccination records. The note says so. One violet button, <b>Save changes</b>.` },
+  { id: 'blocked', label: '8 · Blocked dates: busy day',
+    html: settingsPage('blocked', blockedPage(blockForm({ warning: blockedWarning }))),
+    caption: `<b>Blocked dates, with a busy day.</b> Adding a block on a day that already has visits does not refuse it. The first submit lists the visits on that day (time, pet and owner) and asks for a second click. Blocking only stops new bookings. The list on the left stays as it is; <b>Remove</b> is a red outline button with the date in its name (a removed block is simply deleted: it is a schedule setting, not a record).` },
+  { id: 'blocked-dup', label: '9 · Blocked dates: duplicate',
+    html: settingsPage('blocked', blockedPage(blockForm({ date: '2026-11-27', reason: 'Barangay fiesta', err: 'Fri, Nov 27 is already blocked. Pick another date.' }))),
+    caption: `<b>Duplicate date.</b> Only the form panel is replaced (the server sends the panel alone, so the whole page is never swapped into the list). The error is at the top of the panel in a red box with a warning icon, and the date field is marked. The typed reason is kept.` },
+  { id: 'clinic-info', label: '10 · Clinic info page',
+    html: clinicInfo(),
+    caption: `<b>Clinic info page</b>, opened from <b>View public clinic page</b>. The admin sees it in the admin frame; owners see the same content in the owner frame, so the layout choice stays with the view. The hours come from the schedule settings, the vet from the vet profile, and the map from the address. No violet button on this page.` }
+];
+
+const sw = document.getElementById('switcher');
+function show(id) {
+  const s = states.find(x => x.id === id);
+  document.getElementById('stage').innerHTML = s.html;
+  document.getElementById('caption').innerHTML = s.caption;
+  [...sw.children].forEach(b => {
+    const on = b.dataset.id === id;
+    b.className = 'min-h-11 rounded-lg px-4 text-base font-medium ' + (on ? 'bg-violet-600 text-white' : 'border border-gray-300 bg-white text-gray-800 hover:bg-gray-50');
+  });
+}
+states.forEach(s => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.dataset.id = s.id; b.textContent = s.label;
+  b.onclick = () => show(s.id);
+  sw.appendChild(b);
+});
+show('health');
+</script>
+</body>
+</html>

@@ -4,11 +4,13 @@ from django.contrib import messages
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.paginator import Paginator
 from django.db import transaction
+from django.http import HttpResponse
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.cache import patch_vary_headers
 from django.utils.dateformat import format as date_format
 
-from .models import ClinicSettings, BlockedDate, Appointment
+from .models import BlockedDate, Appointment
 from .forms import (
     ClinicSettingsForm,
     BlockedDateForm,
@@ -23,12 +25,16 @@ from .forms import (
 
 from .utils import (
     LIST_PAGE_SIZE,
+    SETTINGS_TAB_FIELDS,
     WALKIN_PAGE_SIZE,
     WALKIN_SEARCH_LIMIT,
+    clinic_hours_line,
     create_walkin_appointment,
     filter_appointments,
+    first_error_tab,
     get_admin_calendar_context,
     get_available_slots,
+    get_clinic_settings,
     get_walkin_owner,
     group_by_day,
     is_owner_results_swap,
@@ -36,12 +42,17 @@ from .utils import (
     list_period,
     list_tabs,
     paging_links,
+    problems_label,
     resolve_list_tab,
+    schedule_warning,
     search_walkin_owners,
+    settings_tab,
+    settings_tab_errors,
     slot_in_progress,
     tab_counts,
     unfinished_visits,
     visit_receipt_state,
+    visits_on_date,
     walkin_initial,
     walkin_owner_list,
     walkin_slot_context,
@@ -65,99 +76,152 @@ def admin_clinic_settings(request):
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    settings_obj, created = ClinicSettings.objects.get_or_create(
-        pk=1,
-        defaults={
-            "clinic_name": "Hapi Tutz Vet. Supplies",
-            "address": "Bognuyan, Gasan, Marinduque",
-            "opening_time": "08:00",
-            "closing_time": "17:00",
-            "same_day_cutoff_time": "15:00",
-            "working_days": [0, 1, 2, 3, 4],
-        },
-    )
+    settings_obj = get_clinic_settings(create=True)
+    warning = None
 
     if request.method == "POST":
-        form = ClinicSettingsForm(
-            request.POST,
-            request.FILES,
-            instance=settings_obj,
-        )
-        if form.is_valid():
-            form.save()
-            messages.success(request, "Clinic settings updated successfully.")
-            return redirect("admin_clinic_settings")
-        else:
-            messages.error(request, "Please correct the errors below.")
+        done, form, active_tab, warning = _save_settings(request, settings_obj)
+        if done:
+            return done
     else:
+        active_tab = settings_tab(request.GET.get("tab"))
         initial = {"working_days": settings_obj.working_days}
         form = ClinicSettingsForm(instance=settings_obj, initial=initial)
 
-    blocked_dates = BlockedDate.objects.all()
-    blocked_form = BlockedDateForm()
-
+    tab_errors = settings_tab_errors(form)
+    # A failed form changes form.instance; the banner shows what is saved
+    saved_settings = get_clinic_settings()
     return render(
         request,
         "admin/settings/clinic_settings.html",
         {
             "form": form,
-            "blocked_dates": blocked_dates,
-            "blocked_form": blocked_form,
-            "settings_obj": settings_obj,
+            "blocked_dates": BlockedDate.objects.all(),
+            "blocked_form": BlockedDateForm(),
+            "settings_obj": saved_settings,
+            "saved_settings": saved_settings,
+            "hours_line": clinic_hours_line(saved_settings),
+            "active_tab": active_tab,
+            "tab_errors": tab_errors,
+            "tab_problems": {
+                tab: problems_label(count) for tab, count in tab_errors.items() if count
+            },
+            "schedule_warning": warning,
         },
     )
 
 
+def _save_settings(request, settings_obj):
+    """
+    Handle a settings POST. A posted tab (details, schedule or vet) validates
+    and saves only that tab's fields; no tab means every field (the old page).
+    Returns (redirect or None, form, active tab, schedule warning or None).
+    A valid change to the hours, days, slot length or cutoff with visits
+    booked saves nothing until confirm_schedule=1; go_back=1 saves nothing.
+    """
+    posted = request.POST.get("tab")
+    tab = posted if posted in SETTINGS_TAB_FIELDS else None
+    form = ClinicSettingsForm(
+        request.POST, request.FILES, instance=settings_obj, tab=tab
+    )
+    if request.POST.get("go_back"):
+        return None, form, tab or "schedule", None
+    if not form.is_valid():
+        messages.error(request, "Please correct the errors below.")
+        return None, form, tab or first_error_tab(settings_tab_errors(form)), None
+    if not request.POST.get("confirm_schedule"):
+        warning = schedule_warning(form)
+        if warning:
+            return None, form, tab or "schedule", warning
+    form.save()
+    messages.success(request, "Clinic settings updated successfully.")
+    url = f"{reverse('admin_clinic_settings')}?tab={tab or 'details'}"
+    return redirect(url), form, tab, None
+
+
+def _blocked_tab_url():
+    """The clinic settings page with the Blocked dates tab open (?tab=blocked;
+    the other tabs are details, schedule and vet)."""
+    return f"{reverse('admin_clinic_settings')}?tab=blocked"
+
+
+def _blocked_panel(request, form=None, busy_visits=None):
+    """
+    Only the blocked-dates panel (add form + list), never the whole page.
+    With busy_visits the busy-day warning shows instead of the Block button,
+    and the date and reason are locked so "Block anyway" confirms exactly
+    the day that was checked.
+    """
+    if form is None:
+        form = BlockedDateForm(initial=request.GET.dict())
+    if busy_visits:
+        for field in ("date", "reason"):
+            form.fields[field].widget.attrs["readonly"] = True
+    return render(
+        request,
+        "admin/settings/_blocked_dates_panel.html",
+        {
+            "blocked_dates": BlockedDate.objects.all(),
+            "blocked_form": form,
+            "busy_visits": busy_visits,
+            "busy_date": form.cleaned_data["date"] if busy_visits else None,
+        },
+    )
+
+
+def _blocked_done(request, message):
+    """
+    Success: flash the message and show the full settings page, so the flash
+    appears there. HTMX gets an HX-Redirect header; other requests a redirect.
+    """
+    messages.success(request, message)
+    if request.headers.get("HX-Request"):
+        return HttpResponse(headers={"HX-Redirect": _blocked_tab_url()})
+    return redirect(_blocked_tab_url())
+
+
 @login_required
 def admin_blocked_date_add(request):
-    """Admin view — add a blocked date. Returns HTMX partial on success."""
+    """
+    Admin view — add a blocked date. A form error, or a day that already has
+    CONFIRMED / PENDING visits (until confirm_busy=1 is posted), returns only
+    the panel. The visits are never changed. GET returns the panel with
+    ?date= and ?reason= filled in (the warning's "Go back").
+    """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    if request.method == "POST":
-        form = BlockedDateForm(request.POST)
-        if form.is_valid():
-            form.save()
-            messages.success(request, "Date blocked successfully.")
-        else:
-            settings_obj = ClinicSettings.objects.first()
-            blocked_dates = BlockedDate.objects.all()
-            return render(
-                request,
-                "admin/settings/clinic_settings.html",
-                {
-                    "form": ClinicSettingsForm(instance=settings_obj),
-                    "blocked_dates": blocked_dates,
-                    "blocked_form": form,
-                    "settings_obj": settings_obj,
-                },
-            )
+    if request.method != "POST":
+        return _blocked_panel(request)
 
-    blocked_dates = BlockedDate.objects.all()
-    return render(
-        request,
-        "admin/settings/_blocked_dates_list.html",
-        {"blocked_dates": blocked_dates},
+    form = BlockedDateForm(request.POST)
+    if not form.is_valid():
+        return _blocked_panel(request, form)
+
+    visits = list(visits_on_date(form.cleaned_data["date"]))
+    if visits and request.POST.get("confirm_busy") != "1":
+        return _blocked_panel(request, form, busy_visits=visits)
+
+    blocked = form.save()
+    return _blocked_done(
+        request, f"{date_format(blocked.date, 'D, M j, Y')} is now blocked."
     )
 
 
 @login_required
 def admin_blocked_date_delete(request, pk):
-    """Admin view — delete a blocked date. Returns updated HTMX partial."""
+    """Admin view — remove a blocked date (a hard delete: it is a schedule
+    setting, not a record). POST only; anything else goes back to the tab."""
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
     blocked_date = get_object_or_404(BlockedDate, pk=pk)
+    if request.method != "POST":
+        return redirect(_blocked_tab_url())
 
-    if request.method == "POST":
-        blocked_date.delete()
-        messages.success(request, "Blocked date removed.")
-
-    blocked_dates = BlockedDate.objects.all()
-    return render(
-        request,
-        "admin/settings/_blocked_dates_list.html",
-        {"blocked_dates": blocked_dates},
+    blocked_date.delete()
+    return _blocked_done(
+        request, f"{date_format(blocked_date.date, 'D, M j, Y')} is open again."
     )
 
 
@@ -174,7 +238,7 @@ def clinic_info(request):
     """
     from urllib.parse import quote
 
-    clinic = ClinicSettings.objects.first()
+    clinic = get_clinic_settings()
 
     maps_embed_url = ""
     if clinic and clinic.address:
@@ -182,17 +246,17 @@ def clinic_info(request):
             f"https://www.google.com/maps?q={quote(clinic.address)}&output=embed"
         )
 
-    return render(
-        request,
-        "shared/clinic_info.html",
-        {
-            "clinic": clinic,
-            "maps_embed_url": maps_embed_url,
-            "base_template": (
-                "layouts/admin.html" if request.user.is_admin else "base_dashboard.html"
-            ),
-        },
-    )
+    context = {
+        "clinic": clinic,
+        "maps_embed_url": maps_embed_url,
+    }
+    if request.user.is_admin:
+        # Admins get their own page on the admin layout (Tailwind, no legacy CSS)
+        context["hours_line"] = clinic_hours_line(clinic) if clinic else ""
+        return render(request, "admin/clinic_info.html", context)
+
+    context["base_template"] = "base_dashboard.html"
+    return render(request, "shared/clinic_info.html", context)
 
 
 # ── Pet Owner — Appointments ──────────────────────────────────────────────────
@@ -268,7 +332,7 @@ def owner_book_appointment(request):
             # Notify admin of new appointment request
             User = get_user_model()
             admin_user = User.objects.filter(role="admin").first()
-            clinic = ClinicSettings.objects.first()
+            clinic = get_clinic_settings()
 
             if admin_user:
                 admin_notification_email = (
@@ -304,7 +368,7 @@ def owner_book_appointment(request):
     else:
         form = AppointmentBookingForm(owner)
 
-    clinic = ClinicSettings.objects.first()
+    clinic = get_clinic_settings()
 
     return render(
         request,
@@ -477,7 +541,7 @@ def owner_appointment_reschedule(request, pk):
     else:
         form = AppointmentRescheduleForm(appointment)
 
-    clinic = ClinicSettings.objects.first()
+    clinic = get_clinic_settings()
 
     return render(
         request,

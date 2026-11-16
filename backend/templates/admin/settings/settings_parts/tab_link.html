@@ -1,0 +1,9 @@
+{% comment %}
+  One tab link. Needs tab, label, icon and problems (the "1 problem" text, or
+  nothing). The open tab gets aria-current="page".
+{% endcomment %}
+<a href="{% url 'admin_clinic_settings' %}?tab={{ tab }}" class="flex min-h-14 flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-lg px-3 py-2 text-center text-base {% if active_tab == tab %}bg-violet-50 font-semibold text-violet-800 ring-2 ring-violet-600{% else %}text-gray-800 hover:bg-gray-100{% endif %}"{% if active_tab == tab %} aria-current="page"{% endif %}>
+  {% include "components/icon.html" with name=icon %}
+  <span>{{ label }}</span>
+  {% if problems %}<span class="rounded-full bg-red-100 px-2 text-sm font-semibold text-red-800">{{ problems }}</span>{% endif %}
+</a>

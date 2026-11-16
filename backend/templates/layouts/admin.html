@@ -6,13 +6,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Hapi Vet Admin{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
-  {% comment %}
-    TEMPORARY: CSS of admin pages not redesigned yet. Pages import their
-    old stylesheets into the "legacy" layer here, e.g.
-    <style>@import url("{% static 'css/admin/x.css' %}") layer(legacy);</style>
-    Remove this block when the last old page is redesigned (Slice 7).
-  {% endcomment %}
-  {% block legacy_css %}{% endblock %}
   <script src="{% static 'vendor/htmx-2.0.11.min.js' %}" defer></script>
   <script src="{% static 'js/admin/dialogs.js' %}" defer></script>
   <script src="{% static 'js/admin/auto_submit.js' %}" defer></script>
@@ -81,9 +74,6 @@
       </main>
     </div>
   </div>
-
-  {# Confirm dialog used by openConfirmModal(); some admin pages still need it #}
-  {% include "shared/modals.html" %}
 
   {# Page scripts. Also where the receipt print partial goes: it must stay a direct child of <body> #}
   {% block extra_js %}{% endblock %}

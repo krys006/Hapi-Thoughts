@@ -191,6 +191,8 @@ Phase 7 — Dashboards & Polish
 | Set same-day booking cutoff time | `complete` |
 | System auto-generates available slots based on configuration | `complete` |
 | Admin can block specific dates (holidays, rest days) | `complete` |
+| Blocking a day that already has CONFIRMED or PENDING visits: the first submit lists them (time, pet, owner) and saves nothing; "Block anyway" saves. Visits are never changed. Errors and the warning swap only the blocked-dates panel; success reloads the page with a flash | `complete` |
+| Booking limit (days ahead) is 1 to 365 | `complete` |
 
 ### 3.2 Booking (Pet Owner)
 | Feature | Status |
@@ -245,7 +247,7 @@ PENDING or CONFIRMED → CANCELLED
 ### 3.5 Appointment Rules
 | Rule | Detail |
 |---|---|
-| Booking limit | 30 days in advance |
+| Booking limit | Set by the admin, 1 to 365 days in advance (default 30) |
 | Same-day booking | Allowed before the configurable cutoff time (Manila time). Before the cutoff, today offers only slots that haven't started yet; from the cutoff on, no slots today. Applies to the owner booking and reschedule forms, and is re-checked on submit. |
 | Move rules (admin) | Same as owner booking, except today has no same-day cutoff: only slots whose start is after the current Manila time are offered (not the slot in progress). Re-checked on submit. |
 | Slots | One appointment per slot |
@@ -498,17 +500,22 @@ PENDING or CONFIRMED → CANCELLED
 |---|---|
 | Edit clinic name, address, contact number, email | `complete` |
 | Upload clinic logo | `complete` |
+| Logo rule: JPG, PNG or WebP (any letter case), up to 2 MB. SVG and GIF are refused ("Only JPG, PNG or WebP files can be used."); too big shows "This file is 4.3 MB. Please choose one up to 2 MB." (rounded up). The type is checked first. Saving without a new file keeps the logo; the clear checkbox removes it (backend 7a-6; the help text shows on the Clinic details tab) | `complete` |
 | Edit operating hours and working days | `complete` |
 | Edit appointment slot duration | `complete` |
 | Set same-day booking cutoff time | `complete` |
 | Set admin notification email | `complete` |
 | Edit veterinarian profile (Dr. Edgar's details and bio) | `complete` |
+| Settings open on a tab with `?tab=` (details, schedule, blocked, vet); a failed save reopens the tab with the error and shows a "1 problem" count (backend 7a-5; the tabs are server-rendered links since 7b-2) | `complete` |
+| Each tab saves only its own fields: a save that posts `tab` (details, schedule or vet) validates and saves only that tab's fields and returns to `?tab=<that tab>`; a save without `tab` (not sent by the page; kept for old clients) still saves every field | `complete` |
+| Schedule warning: changing the opening hours, working days, slot length or same-day cutoff while CONFIRMED or PENDING visits exist from today on saves nothing and lists them (date and time order, first 10 then "and N more"); "Yes, save the new schedule" saves, "Go back" saves nothing. Visits are never changed, cancelled or moved. Changing only the booking limit never warns | `complete` |
+| Banner hours line from the saved settings (e.g. "Mon to Sat, 8:00 AM to 5:00 PM") | `complete` |
 
 ### 7.5 Health Library
 | Feature | Status |
 |---|---|
 | Admin can create health articles | `complete` |
-| Admin can edit and delete health articles | `complete` |
+| Admin can edit, publish and unpublish health articles (no delete; a new article starts as a draft) | `complete` |
 | Each article: condition name, description, causes, symptoms, general care | `complete` |
 | Pet Owner can browse and read articles (read-only) | `complete` |
 | Search articles by condition name | `complete` |
