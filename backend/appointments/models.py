@@ -102,11 +102,13 @@ class Appointment(models.Model):
     PET_UNWELL = "pet_unwell"
     CANNOT_MAKE_TIME = "cannot_make_time"
     OTHER = "other"
+    DECLINED = "declined"
     CANCEL_CHOICES = [
         (CHANGE_OF_PLANS, "Change of Plans"),
         (PET_UNWELL, "Pet is Unwell"),
         (CANNOT_MAKE_TIME, "Cannot Make the Time"),
         (OTHER, "Other"),
+        (DECLINED, "Declined by the clinic"),
     ]
 
     # ── Relationships ────────────────────────────────────────────────────────

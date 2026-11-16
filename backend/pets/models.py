@@ -171,10 +171,12 @@ class PetDeletionRequest(models.Model):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
+    CANCELLED = "cancelled"
     STATUS_CHOICES = [
         (PENDING, "Pending"),
         (APPROVED, "Approved"),
         (REJECTED, "Rejected"),
+        (CANCELLED, "Taken back by the owner"),
     ]
 
     # --- Relationships ---

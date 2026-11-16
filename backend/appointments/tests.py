@@ -4945,3 +4945,44 @@ class ListPeriodViewTests(FrozenNowTestBase):
             self._html(self._get(status="pending")),
             r'aria-current="page">Needs approval<span class="[^"]*bg-yellow-200',
         )
+
+
+class DeclinedReasonChoiceTests(SimpleTestCase):
+    """Slice 8a-0: DECLINED, "Declined by the clinic", is a cancellation reason
+    the clinic's decline will set (8a-1); no cancel form offers it."""
+
+    def test_constant_value(self):
+        self.assertEqual(Appointment.DECLINED, "declined")
+
+    def test_label(self):
+        appointment = Appointment(cancellation_reason=Appointment.DECLINED)
+        self.assertEqual(
+            appointment.get_cancellation_reason_display(), "Declined by the clinic"
+        )
+
+    def test_it_is_the_last_choice(self):
+        self.assertEqual(
+            Appointment.CANCEL_CHOICES[-1],
+            (Appointment.DECLINED, "Declined by the clinic"),
+        )
+
+    def test_cancel_forms_do_not_offer_declined(self):
+        from appointments.forms import (
+            AdminAppointmentCancelForm,
+            AppointmentCancellationForm,
+        )
+
+        for form_class in (AppointmentCancellationForm, AdminAppointmentCancelForm):
+            with self.subTest(form=form_class.__name__):
+                field = form_class().fields["cancellation_reason"]
+                values = [value for value, _label in field.choices]
+                self.assertNotIn(Appointment.DECLINED, values)
+                self.assertEqual(
+                    values,
+                    [
+                        Appointment.CHANGE_OF_PLANS,
+                        Appointment.PET_UNWELL,
+                        Appointment.CANNOT_MAKE_TIME,
+                        Appointment.OTHER,
+                    ],
+                )

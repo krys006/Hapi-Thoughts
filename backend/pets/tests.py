@@ -5563,3 +5563,22 @@ class PetFormPageTests(TestCase):
         for html in pages:
             for tag in re.findall(r"<a\b[^>]*>", html):
                 self.assertNotIn("\n", tag)
+
+
+class DeletionRequestCancelledChoiceTests(SimpleTestCase):
+    """Slice 8a-0: CANCELLED, "Taken back by the owner", is a status choice."""
+
+    def test_constant_value(self):
+        self.assertEqual(PetDeletionRequest.CANCELLED, "cancelled")
+
+    def test_label(self):
+        deletion_request = PetDeletionRequest(status=PetDeletionRequest.CANCELLED)
+        self.assertEqual(
+            deletion_request.get_status_display(), "Taken back by the owner"
+        )
+
+    def test_it_is_the_last_choice(self):
+        self.assertEqual(
+            PetDeletionRequest.STATUS_CHOICES[-1],
+            (PetDeletionRequest.CANCELLED, "Taken back by the owner"),
+        )

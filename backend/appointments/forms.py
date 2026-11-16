@@ -403,6 +403,13 @@ class AppointmentRescheduleForm(forms.Form):
         return date
 
 
+# The reasons a person can pick when cancelling. "Declined" is set by the
+# clinic's decline action, never chosen on a form.
+CANCEL_FORM_CHOICES = [
+    choice for choice in Appointment.CANCEL_CHOICES if choice[0] != Appointment.DECLINED
+]
+
+
 class AppointmentCancellationForm(forms.Form):
     """
     Form for Pet Owner to cancel an appointment.
@@ -410,7 +417,7 @@ class AppointmentCancellationForm(forms.Form):
     """
 
     cancellation_reason = forms.ChoiceField(
-        choices=Appointment.CANCEL_CHOICES,
+        choices=CANCEL_FORM_CHOICES,
         help_text="Why are you cancelling?",
     )
     cancellation_detail = forms.CharField(
@@ -456,7 +463,7 @@ class AdminAppointmentCancelForm(forms.Form):
 
     cancellation_reason = forms.ChoiceField(
         label="Reason",
-        choices=Appointment.CANCEL_CHOICES,
+        choices=CANCEL_FORM_CHOICES,
     )
     cancellation_detail = forms.CharField(
         label="Details",
