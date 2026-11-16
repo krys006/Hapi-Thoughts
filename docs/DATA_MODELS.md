@@ -239,8 +239,8 @@ Only one instance exists — Admin edits it through clinic settings page.
 
 **Rules:**
 - Only one row ever exists
-- Retrieved via `ClinicSettings.objects.first()`
-- Created automatically during initial setup
+- Read through `get_clinic_settings()` (`appointments/utils.py`, lowest pk)
+- The row is created with defaults only when the admin opens Clinic settings
 
 ---
 

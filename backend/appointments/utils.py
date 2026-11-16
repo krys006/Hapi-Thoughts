@@ -15,6 +15,28 @@ from notifications.utils import notify
 from pets.models import Pet, PetOwner
 from .models import ClinicSettings, BlockedDate, Appointment
 
+# The row the clinic settings page creates when none exists yet
+CLINIC_SETTINGS_DEFAULTS = {
+    "clinic_name": "Hapi Tutz Vet. Supplies",
+    "address": "Bognuyan, Gasan, Marinduque",
+    "opening_time": datetime.time(8, 0),
+    "closing_time": datetime.time(17, 0),
+    "same_day_cutoff_time": datetime.time(15, 0),
+    "working_days": [0, 1, 2, 3, 4],
+}
+
+
+def get_clinic_settings(create=False):
+    """
+    The one place ClinicSettings is read: the row with the lowest pk, or
+    None when there is none. Only the settings page passes create=True,
+    which makes the row from CLINIC_SETTINGS_DEFAULTS when it is missing.
+    """
+    settings_obj = ClinicSettings.objects.order_by("pk").first()
+    if settings_obj is None and create:
+        settings_obj = ClinicSettings.objects.create(**CLINIC_SETTINGS_DEFAULTS)
+    return settings_obj
+
 
 def get_available_slots(date, walk_in=False, move=False):
     """

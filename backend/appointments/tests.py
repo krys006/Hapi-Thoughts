@@ -17,7 +17,9 @@ from django.utils.dateformat import format as date_format
 
 from appointments.models import Appointment, BlockedDate, ClinicSettings
 from appointments.utils import (
+    CLINIC_SETTINGS_DEFAULTS,
     get_available_slots,
+    get_clinic_settings,
     is_slot_available,
     list_period,
     paging_links,
@@ -2772,6 +2774,64 @@ class WalkInCenteredColumnTests(WalkInFlowTestBase):
 D = datetime.date
 # Monday, November 2, 2026: "today" in the period tests below.
 PERIOD_TODAY = D(2026, 11, 2)
+
+
+class ClinicSettingsHelperTests(AppointmentTestBase):
+    """get_clinic_settings(): lowest pk, never pk=1; only create=True creates."""
+
+    def setUp(self):
+        super().setUp()
+        # Start from no row; each test adds what it needs
+        ClinicSettings.objects.all().delete()
+
+    def _row(self, pk, name="Row"):
+        return ClinicSettings.objects.create(
+            pk=pk,
+            clinic_name=name,
+            address="Gasan",
+            opening_time=datetime.time(8, 0),
+            closing_time=datetime.time(17, 0),
+            same_day_cutoff_time=datetime.time(15, 0),
+            working_days=[0, 1],
+        )
+
+    def test_no_row_without_create_returns_none_and_makes_nothing(self):
+        self.assertIsNone(get_clinic_settings())
+        self.assertEqual(ClinicSettings.objects.count(), 0)
+
+    def test_no_row_with_create_makes_one_row_with_the_defaults(self):
+        row = get_clinic_settings(create=True)
+        self.assertEqual(ClinicSettings.objects.count(), 1)
+        self.assertEqual(row.clinic_name, CLINIC_SETTINGS_DEFAULTS["clinic_name"])
+        self.assertEqual(row.address, "Bognuyan, Gasan, Marinduque")
+        self.assertEqual(row.opening_time, datetime.time(8, 0))
+        self.assertEqual(row.closing_time, datetime.time(17, 0))
+        self.assertEqual(row.same_day_cutoff_time, datetime.time(15, 0))
+        self.assertEqual(row.working_days, [0, 1, 2, 3, 4])
+
+    def test_a_row_at_pk_5_is_returned_and_nothing_is_created(self):
+        self._row(5, "Five")
+        row = get_clinic_settings(create=True)
+        self.assertEqual(row.pk, 5)
+        self.assertEqual(ClinicSettings.objects.count(), 1)
+
+    def test_two_rows_return_the_lowest_pk(self):
+        self._row(7, "Seven")
+        self._row(3, "Three")
+        self.assertEqual(get_clinic_settings().pk, 3)
+        self.assertEqual(get_clinic_settings(create=True).pk, 3)
+
+    def test_settings_page_with_no_row_makes_exactly_one(self):
+        response = self.client.get(reverse("admin_clinic_settings"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ClinicSettings.objects.count(), 1)
+
+    def test_settings_page_shows_the_row_at_pk_5(self):
+        self._row(5, "Pk Five Clinic")
+        response = self.client.get(reverse("admin_clinic_settings"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ClinicSettings.objects.count(), 1)
+        self.assertContains(response, "Pk Five Clinic")
 
 
 class ResolvePeriodTests(SimpleTestCase):

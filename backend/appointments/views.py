@@ -29,6 +29,7 @@ from .utils import (
     filter_appointments,
     get_admin_calendar_context,
     get_available_slots,
+    get_clinic_settings,
     get_walkin_owner,
     group_by_day,
     is_owner_results_swap,
@@ -65,17 +66,7 @@ def admin_clinic_settings(request):
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    settings_obj, created = ClinicSettings.objects.get_or_create(
-        pk=1,
-        defaults={
-            "clinic_name": "Hapi Tutz Vet. Supplies",
-            "address": "Bognuyan, Gasan, Marinduque",
-            "opening_time": "08:00",
-            "closing_time": "17:00",
-            "same_day_cutoff_time": "15:00",
-            "working_days": [0, 1, 2, 3, 4],
-        },
-    )
+    settings_obj = get_clinic_settings(create=True)
 
     if request.method == "POST":
         form = ClinicSettingsForm(
