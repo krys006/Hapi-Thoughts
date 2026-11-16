@@ -10,10 +10,9 @@
 */
 
 /* source(none): don't auto-scan the whole repo (venv, staticfiles, media) */
-/* Layer order: old page CSS ("legacy", see layouts/admin.html) sits above
-   Tailwind's reset but below our components and utilities, so it can still
-   style old page content but can never restyle the new frame. */
-@layer theme, base, legacy, components, utilities;
+/* Layer order: Tailwind's own layers only. No admin page has old page CSS
+   any more (the "legacy" layer was removed in Slice 7b-5). */
+@layer theme, base, components, utilities;
 @import "tailwindcss" source(none);
 
 /* Paths are relative to this file */
@@ -98,24 +97,5 @@
   /* Status pill: colour comes from components/status_badge.html */
   .badge {
     @apply inline-flex items-center rounded-full px-2.5 py-1 text-sm font-medium whitespace-nowrap;
-  }
-}
-
-/* TEMPORARY (Slice 1.5): old pages wrap their content in .admin-page with
-   its own padding, but <main> already pads the content area. Drop the old
-   padding so content isn't double-padded. Same layer as the old page CSS;
-   the #main-content selector makes this rule win. clinic_info.html uses
-   .clinic-info-page; owners are unaffected because base_dashboard.html has no
-   #main-content. Remove after Slice 7. */
-@layer legacy {
-  #main-content > :is(.admin-page, .clinic-info-page) {
-    padding: 0;
-  }
-
-  /* The sticky top bar is about 69px tall. Old detail pages pin their
-     right-hand column (action buttons) at top: 24px, which would slide
-     under it; push it below the bar instead (about 69px + the old 24px). */
-  #main-content .detail-sidebar {
-    top: 5.75rem;
   }
 }

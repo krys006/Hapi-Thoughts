@@ -293,15 +293,11 @@ class AdminListTests(HealthTestBase):
         self.article("Draft one")
         full = self.client.get(self.url).content.decode()
         self.assertNotIn("/delete/", full)
-        # The layout still includes shared/modals.html (its own onclick,
-        # removed in 7b-5), so check the page's own content only: the
-        # <main> element.
-        start = full.index('<main id="main-content"')
-        html = full[start : full.index("</main>", start)]
-        self.assertNotIn("onclick", html)
-        self.assertNotIn("openConfirmModal", html)
+        # The whole page: the layout no longer includes shared/modals.html
+        self.assertNotIn("onclick", full)
+        self.assertNotIn("openConfirmModal", full)
         self.assertIn(
-            reverse("admin_health_article_toggle_publish", args=[article.pk]), html
+            reverse("admin_health_article_toggle_publish", args=[article.pk]), full
         )
 
 
@@ -314,7 +310,7 @@ class ListPageMarkupTests(HealthTestBase):
     url = "/admin/health/"
 
     def main_html(self, response):
-        """The page's own markup (the layout's shared modal has an onclick)."""
+        """The page's own <main> markup."""
         full = response.content.decode()
         start = full.index('<main id="main-content"')
         return full[start : full.index("</main>", start)]
@@ -371,7 +367,8 @@ class ListPageMarkupTests(HealthTestBase):
     def test_no_onclick_and_no_openconfirmmodal_in_the_page_content(self):
         self.article("Live one", published=True)
         self.article("Draft one")
-        html = self.main_html(self.client.get(self.url))
+        # The whole page, not just <main>: the layout has no shared modal now
+        html = self.client.get(self.url).content.decode()
         self.assertNotIn("onclick", html)
         self.assertNotIn("openConfirmModal", html)
 
