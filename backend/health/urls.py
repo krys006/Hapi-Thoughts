@@ -24,11 +24,6 @@ urlpatterns = [
         views.admin_health_article_toggle_publish,
         name="admin_health_article_toggle_publish",
     ),
-    path(
-        "admin/health/<int:pk>/delete/",
-        views.admin_health_article_delete,
-        name="admin_health_article_delete",
-    ),
     # ── Pet Owner — Health Library ───────────────────────────────────────────
     path(
         "owner/health/",

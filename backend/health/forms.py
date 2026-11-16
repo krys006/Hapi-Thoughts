@@ -17,8 +17,21 @@ class HealthArticleForm(forms.ModelForm):
             "causes",
             "symptoms",
             "general_care",
-            "is_published",
         ]
+        labels = {
+            "title": "Condition name",
+            "description": "Description",
+            "causes": "Causes",
+            "symptoms": "Symptoms",
+            "general_care": "General care",
+        }
+        help_texts = {
+            "title": "This is the title pet owners see.",
+            "description": "One or two sentences. Shown on the list.",
+        }
+        error_messages = {
+            "title": {"required": "Type the condition name."},
+        }
         widgets = {
             "description": forms.Textarea(attrs={"rows": 4}),
             "causes": forms.Textarea(attrs={"rows": 3}),

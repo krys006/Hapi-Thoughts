@@ -556,6 +556,13 @@ to needs-approval) and the appointments list.
     - Imports: `ClinicSettings` removed from `appointments/views.py`, `dashboard/views.py`, `dashboard/context_processors.py`, `accounts/views.py`, `billing/views.py`, `billing/utils.py`, `medical/utils.py` (unused now); kept in `appointments/forms.py` (the form's `Meta.model`) and `appointments/utils.py` (the helper). All imports of the helper are at the top of the file; no circular import, none moved inside a function.
     - After this batch the only `ClinicSettings.objects` outside tests and migrations is inside `get_clinic_settings()` (`appointments/utils.py`). `ClinicSettings` docstring in `appointments/models.py` now names the helper (docstring only).
     - Tests: no test patches or mocks `ClinicSettings.objects.first`; none changed, no assertion loosened, none deleted. Query-count tests pass unchanged. Ran `appointments` (274), `dashboard` (125), `accounts` (31), `billing` (353), `medical` (355): all OK.
+  - Slice 7a-3 health library backend, unpublish only (decisions 1 and 2). No model change, no migration.
+    - Removed: `admin_health_article_delete` and its URL; nothing deletes a HealthArticle now. `DATA_MODELS.md` (rules) and `FEATURES.md` 7.5 updated; the deletion table row (soft delete via `is_published`) already matched.
+    - Toggle: POST only; a GET redirects to the list and changes nothing. Flashes: "Published {title}. Pet owners can read it now." / "Unpublished {title}. Pet owners can't see it any more."
+    - Form: `is_published` is out of `HealthArticleForm`; labels / help from the mockup; empty title → "Type the condition name." Create always saves a draft with `created_by` = the admin, flash "Saved as a draft. Publish it when it's ready."; edit never changes `is_published`, flash "{title} saved."
+    - List context (for 7b-1): ordered `-updated_at, -pk`; `?q=` matches every word in the title; keys `articles`, `query` (kept), `q`, `is_searching`, `total_count`, `published_count`, `draft_count` (one aggregate, not changed by the search). The stale docstring is fixed; every view is under 50 lines.
+    - Templates (minimal, legacy styling kept): `article_list.html` lost the Delete button and its `onclick` (the publish toggle was already a POST form); `article_form.html` lost the Published checkbox. The full redesign is 7b-1.
+    - Tests (health, 23, none existed): roles, delete gone, toggle, create, edit, list, owner side (drafts never reach owners). The page "no onclick" test looks at the page content only, because the admin layout still includes `shared/modals.html` (its own `onclick`, removed in 7b-5). `app.css` needs no rebuild; no collectstatic. `static/js/admin/article_list.js`, `css/admin/article_list.css`, `css/admin/article_form.css` are still loaded (deleted in 7b-1).
 - Slice 8 admin mobile pass (incl. dashboard schedule rows keep a 3-column grid that is tight at phone width); then the owner side
 - Open: `form_field.html` needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple form is migrated.
 - Notes for later slices:
@@ -642,7 +649,7 @@ to needs-approval) and the appointments list.
 
 ### DECISIONS PENDING
 - PrescriptionItem delete path: allowed while editing a record, or immutable as the doc says? — Decided 2026-11-03 (`medical_v1_decisions.md`): removable only on the day the record was written (Manila date of `created_at`), with a confirm dialog; after that the list is kept as it is. Built in 5a-2.
-- HealthArticle hard delete: keep (update doc) or switch to unpublish?
+- HealthArticle hard delete: keep (update doc) or switch to unpublish? — Decided 2026-11-16 (`health_settings_v1_decisions.md`, decision 1): unpublish only; no delete. Built in 7a-3.
 - Double-booking approach (see above)
 - `frontend/hannah-user`: which parts (if any) are worth keeping, and whether to discard the rest (see B3)
 

@@ -508,7 +508,7 @@ PENDING or CONFIRMED → CANCELLED
 | Feature | Status |
 |---|---|
 | Admin can create health articles | `complete` |
-| Admin can edit and delete health articles | `complete` |
+| Admin can edit, publish and unpublish health articles (no delete; a new article starts as a draft) | `complete` |
 | Each article: condition name, description, causes, symptoms, general care | `complete` |
 | Pet Owner can browse and read articles (read-only) | `complete` |
 | Search articles by condition name | `complete` |

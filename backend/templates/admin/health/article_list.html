@@ -56,18 +56,6 @@
             {% csrf_token %}
             <button type="submit" class="widget-table-link">{% if article.is_published %}Unpublish{% else %}Publish{% endif %}</button>
           </form>
-          
-          <!-- Hard delete — irreversible, confirmed via shared modal -->
-          <button
-            type="button"
-            onclick="openConfirmModal('{% url 'admin_health_article_delete' article.pk %}', 'Delete Article', 'Are you sure you want to permanently delete \'{{ article.title }}\'? This cannot be undone.')"
-            class="widget-table-link health-delete-link">
-            Delete
-          </button>
-
-
-
-
         </td>
       </tr>
       {% endfor %}
