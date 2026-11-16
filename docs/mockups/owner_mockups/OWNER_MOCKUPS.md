@@ -9,6 +9,8 @@ The mockups are the reference for **look and layout**. The md files
 The JavaScript in the mockups is demo only (switching tabs, filters); don't
 copy it into templates.
 
+Decisions after the audit: owner_v1_decisions.md (wins over the mockups).
+
 ---
 
 ## Shared design rules (apply to every owner page)
@@ -72,7 +74,7 @@ copy it into templates.
 | `owner_visit_detail_v1.html` | One visit in every status; cancel sheet; change day or time | Coloured banner says what happens next. The late (< 24 h) warning appears **only** inside Cancel and Change time, never on the detail page. Owner reschedule goes back to Waiting for approval. |
 | `owner_book_visit_v1.html` | Booking: pet and reason → date and time → check and send → request sent; "time was just taken" | Mirrors admin walk-in steps. "Not sure yet" service option. Calendar shows open / full / closed days. Says clearly it's a request. |
 | `owner_book_no_pet_v1.html` | Booking when the owner has no pet | Sends them to the normal Add a pet form in booking mode, then back to step 1 with the new pet picked. |
-| `owner_bills_v1.html` | Bills list (search + period filter), all paid, no bills; receipt: unpaid / paid / cancelled | "To pay" box first; filter only affects History, never hides unpaid bills. Read-only receipts, Print on paid. |
+| `owner_bills_v1.html` | Bills list (search + period filter), all paid, no bills; receipt: unpaid / paid / cancelled (the cancelled receipt frame is dropped, decision 1) | "To pay" box first; filter only affects History, never hides unpaid bills. Read-only receipts, Print on paid. |
 | `owner_notifications_v1.html` | Notifications page from the bell | Card per notification with type icon, short title, key details, one link. Unread = light violet + dot. Mark all as read. |
 | `owner_account_v1.html` | Account hub, log out sheet, My details, Email notifications, Clinic info, Health library, article | One edit page for details (email changed via the clinic). Switches for email types; timing only shows when on. Big Call / Email on Clinic info. |
 | `owner_auth_v1.html` | Log in (+ logged out, wrong password, not confirmed), Create account, Check your email, Forgot password, New password, Done | Band + centred card; login fits one screen. Eye button inside password fields. "Keep me logged in". No staff link. Terms only on Create account. |
@@ -107,20 +109,18 @@ No item below needs a model change unless it says so.
 
 **Already in the HANDOFF schema backlog (needs a migration plan)**
 - "Take back my request" on a pet removal currently deletes the row; it should
-  become a CANCELLED status.
+  become a CANCELLED status. Planned for Slice 8a-0 (choices-only migration).
 - A distinct "declined" cancellation reason, so owners see "declined" vs
-  "cancelled by the clinic".
+  "cancelled by the clinic". Planned for Slice 8a-0 (choices-only migration).
 
 **Docs to update**
 - FEATURES 2.1: onboarding now asks for the address.
 - FEATURES pet profile fields: owner pages use the species icon (not initials)
   when there's no pet photo.
-- FEATURES / DATA_MODELS disagree on whether breed and date of birth are
-  required; the mockups follow FEATURES (required). Decide and align.
+- Breed and date of birth are optional (decision 2); the required stars in the mockups are wrong.
 
 **Check before building**
-- Do the Terms and Privacy Policy pages exist? If not, hide those links.
-- Use Google's official "Sign in with Google" button; the mockups show a
-  neutral stand-in. Keep it a POST form with CSRF.
+- Terms and Privacy: decision 4 (placeholder links from settings).
+- Google button: already a POST form with CSRF (2026-10-31); only the official button look is left.
 - Put the real Hapi logo in the sign-in band and the top bar, inside a white
   rounded tile.

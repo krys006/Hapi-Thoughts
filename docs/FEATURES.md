@@ -57,6 +57,9 @@ Phase 7 — Dashboards & Polish
 | Sign in with Google (skips email verification) | `complete` |
 | Login page with both options (email/password + Google) | `complete` |
 | Logout | `complete` |
+| Logout is a POST, through the log-out confirmation sheet (GET no longer logs out) | `planned` |
+| Resend the verification link ("Send the link again" on Check your email and on login for an unverified account; at most one send per 2 minutes per account) | `planned` |
+| `/accounts/signup/` and `/accounts/login/` redirect to the owner register and login pages (the Google provider and callback URLs keep working) | `planned` |
 | Forgot password / reset password via email | `complete` |
 | Redirect to onboarding flow after first login | `complete` |
 
@@ -89,6 +92,7 @@ Phase 7 — Dashboards & Polish
 |---|---|
 | Onboarding triggered after first login | `complete` |
 | Step 1 — Enter basic profile info (name, contact number) | `complete` |
+| Step 1 — Ask for the address: barangay, town and province required, street optional; Marinduque town list + Other | `planned` |
 | Step 1 — Optional profile photo upload | `complete` |
 | Step 1 — Optional contact links (Facebook, other socials) | `complete` |
 | Step 2 — Add first pet (name, species, breed, date of birth) | `complete` |
@@ -100,7 +104,8 @@ Phase 7 — Dashboards & Polish
 | Feature | Status |
 |---|---|
 | View own profile | `complete` |
-| Edit profile (name, address, contact number, email) | `complete` |
+| Edit profile (name, address, contact number) | `complete` |
+| Email is changed only by the clinic (My details shows it read-only: "To change your email, contact the clinic.") | `planned` |
 | Edit contact links (Facebook, other socials) | `complete` |
 | Profile photo upload (optional) | `complete` |
 | Auto-generated initials avatar if no photo uploaded | `complete` |
@@ -113,10 +118,11 @@ Phase 7 — Dashboards & Polish
 | Feature | Status |
 |---|---|
 | Add a new pet | `complete` |
-| Edit minor pet details directly (name, color, weight, breed) | `complete` |
+| Edit pet details: name, breed, color, weight, photo (species, sex, birthday and registration no. shown locked) | `planned` |
 | Pet photo upload (optional) | `complete` |
-| Auto-generated initials avatar if no pet photo uploaded | `complete` |
-| Request pet deletion with predefined reason | `complete` |
+| Species icon on a light tile if no pet photo uploaded (no initials for pets) | `planned` |
+| Request pet removal with a predefined reason (owners see "remove a pet"; it reaches the Admin as a deletion request; new wording in Slice 8) | `complete` |
+| Take back a removal request (kept as Cancelled) | `planned` |
 | Predefined deletion reasons (passed away, rehomed, duplicate, other) | `complete` |
 | Deletion request goes to Admin for approval | `complete` |
 | View pet profile | `complete` |
@@ -126,7 +132,7 @@ Phase 7 — Dashboards & Polish
 ### Pet Profile Fields
 | Field | Required | Notes |
 |---|---|---|
-| Photo | Optional | Placeholder when no photo: species icon (dog, cat, rabbit, bird, or a paw) on admin pages; initials avatar on owner pages |
+| Photo | Optional | Placeholder when no photo: the species icon (dog, cat, rabbit, bird, or a paw) on admin and owner pages; no initials for pets |
 | Registration number | Optional | Government-issued |
 | Name | Required | — |
 | Species | Required | Dropdown (Dog, Cat, Bird, Rabbit, Hamster) with "Other (type it)" for a typed species |
@@ -206,6 +212,8 @@ Phase 7 — Dashboards & Polish
 | Cancel appointment freely up to 24 hours before | `complete` |
 | Cancellation within 24 hours requires Admin approval (not built: owners can currently cancel at any time; late cancellations are only flagged on the owner page) | `planned` |
 | Predefined cancellation reasons (change of plans, pet unwell, cannot make time, other) | `complete` |
+| Owner reschedule note: the Change time sheet says the current visit is given up and the new time waits for the clinic to confirm ("Your {time} time is given up. The new time waits for the clinic to confirm.") | `planned` |
+| Owner sees "Declined by the clinic" (a clinic decline) vs "Cancelled by the clinic" (new `declined` cancellation reason; old rows not backfilled) | `planned` |
 | View appointment history and current status | `complete` |
 
 ### 3.3 Appointment Management (Admin)
@@ -567,3 +575,12 @@ These features will NOT be built in v1 under any circumstances:
 | Record GCash or bank transfer payments | Payments are cash only today; `payment_method` always saves "Cash" |
 | Auto-delete notifications | Can add scheduler when hosting plan allows |
 | Public health library | Remove login requirement to make articles publicly accessible |
+| Keep the original visit until an owner reschedule is approved | Today the current visit is cancelled and a new PENDING request is made in one transaction |
+| Limit open requests per owner | Not in v1 |
+| Owner email change | Today only the clinic changes an owner's email |
+| Late-cancellation approval | Also planned in 3.2 |
+| Owner calendar page | Admin calendar page is planned separately |
+| Split dashboard loading | Load dashboard parts separately (`owner_dashboard_loading_v1.html`) only if real users find the single page slow |
+| Print a medical record for owners | Owners can print receipts only today |
+| Prices on the booking page | Also planned in 3.2 |
+| Owner account deletion / data export | Not in v1 |

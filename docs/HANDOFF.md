@@ -622,7 +622,8 @@ to needs-approval) and the appointments list.
     - Tests: health `AdminListTests.test_page_has_no_delete_url_and_no_onclick` and `ListPageMarkupTests.test_no_onclick_and_no_openconfirmmodal_in_the_page_content` now check the whole page (were: the `<main>` element only); no assertion removed or loosened. New `dashboard.tests.LegacyLayerRetiredTests` (3): admin pages have no `layer(legacy)`, `openConfirmModal` or confirm-modal markup and don't use `shared/modals.html`; the layout source has no `legacy_css` / `shared/modals.html`; an owner page still includes `shared/modals.html`.
     - Rebuild `app.css` (`backend\bin\tailwindcss.exe -i backend\assets\tailwind\input.css -o backend\static\css\app.css --minify`); no new static file, so no collectstatic. Now unused and safe to delete: `templates/shared/sidebar_admin.html`.
   - **Slice 7 done.** Health library (unpublish only, no delete; list and form on the admin layout with publish dialogs), clinic settings (server-rendered `?tab=` tabs, per-tab saves, schedule warning, banner, blocked dates with busy-day warning, logo check, booking limit 1 to 365), `get_clinic_settings()` as the one reader of `ClinicSettings`, the admin clinic info page, and the legacy layer gone from the admin side. Admin pages are all on `layouts/admin.html` with compiled Tailwind and native dialogs. Files deleted over Slice 7 (by Krys): `static/js/admin/article_list.js`, `static/css/admin/article_list.css`, `article_form.css`, `static/js/admin/clinic_settings.js`, `static/css/admin/clinic_settings.css`; still to delete: `templates/shared/sidebar_admin.html`. Backlog: overlap check on booking (exact start time today; a slot-length change can allow overlaps); owner health pages (Slice 8); public S3 test-result URLs (before go-live); `create_admin.py` hardcoded password (use `getpass`); move the admin layout's inline script to a static file (needs collectstatic).
-- Slice 8 admin mobile pass (incl. dashboard schedule rows keep a 3-column grid that is tight at phone width); then the owner side
+- Slice 8 owner side (in progress; decisions in docs/mockups/owner_mockups/owner_v1_decisions.md; batches 8a-0 to 8b-10)
+- Slice 9 admin mobile pass (incl. dashboard schedule rows keep a 3-column grid that is tight at phone width), record detail tab order on phones, walk-in type-ahead live region, admin layout inline script → static JS file, `form_field.html` fieldset/legend branch
 - Open: `form_field.html` needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple form is migrated.
 - Notes for later slices:
   - Slice 6 (billing): done (see "Slice 6 complete"). The habits it settled (no `{% url %}` in handlers, `for=` on every label, typed values kept, no inline handlers) apply to the next admin slices too.
@@ -642,7 +643,7 @@ to needs-approval) and the appointments list.
 - Re-save requirements.txt as UTF-8 [backend] — verified: currently UTF-16 LE with CRLF
 - Logout always redirects to owner_login, even for admins [backend] — Done 2026-11-01
 - Admin sidebar has no logout link [frontend] → UI overhaul Slice 1 — Done 2026-11-01
-- Logout accepts GET; convert to POST form (low priority) [both]
+- Logout accepts GET; convert to POST form (low priority) [both] — Decided 2026-11-16: POST through the log-out sheet (Slice 8a-1)
 - Pricing on booking page: bring over commit 8b45d23 from backend-dev (no migration) [both]
 - UTC dates: every `timezone.now().date()` in `backend/` is now `timezone.localdate()` — `appointments/utils.py` (slots, `is_slot_available`), `appointments/views.py` (`owner_appointment_list`), `appointments/forms.py` (`BlockedDateForm`, owner booking and reschedule `clean_date`), `Appointment.is_upcoming`, `Pet.age`, `pets/forms.py` (date of birth), `dashboard/views.py` owner context, `billing/views.py` (receipt `billing_date` pre-fill, mark-paid `payment_date`), `medical/views.py` (record and vaccination date pre-fills), `send_reminders.py` (its `created_at__date=today` duplicate check already used Manila time, so it now agrees). Tests freeze 00:30 Manila (`SlotViewJustAfterMidnightTests` re-runs every `SlotViewTests` test then; `notifications/tests.py` `SendRemindersManilaDateTests`); `billing/tests.py` now expects the Manila date. CLAUDE.md's "before 8 AM" known-failure note removed — Done 2026-11-02 [backend]
   - `BillingReceipt.generate_receipt_number` uses `timezone.localdate().year` (was the UTC year, wrong from Jan 1 00:00 to 07:59 Manila); test at 00:30 on Jan 1 — Done 2026-11-02
@@ -674,10 +675,10 @@ to needs-approval) and the appointments list.
 
 ### SCHEMA CHANGES (each needs a written migration plan first; merging into rebuild migrates the live DB)
 - Double-booking: form-only check, no DB constraint or locking — decide constraint vs transaction/row lock [backend] — verified: no `UniqueConstraint`, `unique_together`, `select_for_update` or `atomic` in `appointments/`
-- PetDeletionRequest: cancelling deletes the row; should become a CANCELLED status (choices change = new migration) [backend] — verified: `owner_pet_cancel_delete_request`, `pets/views.py:514` before 4a-1, `:528` after it (imports and helpers added above it), `:525` after 4b-1. Still open: 4b-1's migration only added the PET_DELETION_ANSWERED notification type
+- PetDeletionRequest: cancelling deletes the row; should become a CANCELLED status (choices change = new migration) [backend] — verified: `owner_pet_cancel_delete_request`, `pets/views.py:514` before 4a-1, `:528` after it (imports and helpers added above it), `:525` after 4b-1. Still open: 4b-1's migration only added the PET_DELETION_ANSWERED notification type. Planned in Slice 8a-0 (choices-only)
 - Upload filename sanitization (Supabase rejects non-ASCII names); callable upload_to = new migration [backend] — verified: all `upload_to` values are plain strings
 - Walk-ins without email are saved with `email=""` (`accounts/utils.py` `create_walkin_owner`), which collides on the unique email constraint for the second one. Since 3c-1 the admin sees a plain message instead of an error. Decided: nullable `User.email`, as its own migration batch after 3c — write the migration plan first (existing `""` rows → NULL; every `email=` lookup and `if user.email` check) [backend]
-- Distinct "declined" cancellation reason: a clinic decline and a clinic cancel with reason Other are stored the same way (`cancellation_reason=other`, `cancelled_by`=admin), so the detail page can't tell them apart. Needs a new `CANCEL_CHOICES` value (choices change = new migration) [backend]
+- Distinct "declined" cancellation reason: a clinic decline and a clinic cancel with reason Other are stored the same way (`cancellation_reason=other`, `cancelled_by`=admin), so the detail page can't tell them apart. Needs a new `CANCEL_CHOICES` value (choices change = new migration) [backend]. Planned in Slice 8a-0 (choices-only)
 - Notes "last saved" timestamp: the detail page can't show when the internal notes were last saved (`updated_at` changes on every save). Needs a new field; low priority [backend]
 - Link a reminder Notification to its Vaccination / MedicalRecord (the 'last reminder' line is per pet and kind until then; 5a-5 `last_reminders`) [backend]
 - Record-created notification type: the medical record created notification is kept (Slice 5) but has no type of its own; a new `Notification` type is a choices change = new migration (from `medical_v1_decisions.md`) [backend]
@@ -688,7 +689,7 @@ to needs-approval) and the appointments list.
 - Bell & header: context processor + admin notification panel; the unused header CSS/JS files are deleted [both] → UI overhaul Slice 1 — Done 2026-11-01
 - Multi-line `<a>` tags [frontend] — 2026-10-31 audit: 53 in admin/shared templates across 20 files, plus 2 broken tags in `admin/pets/deletion_requests.html` (fixed 2026-11-03, Slice 4b-2). Fixed slice by slice as files are touched.
 - Views over 50 lines (admin_walkin_create: under 50 since 3c-2, save logic in `_save_walkin_owner`) [backend]
-- Mobile responsiveness [frontend] → UI overhaul Slice 8
+- Mobile responsiveness [frontend] → UI overhaul: owner side Slice 8, admin Slice 9
 - Walk-in step 1 type-ahead: the result count may not be announced by screen readers because the live region is swapped in; fix with a persistent status line outside #owner-results updated by an hx-swap-oob swap.
 - auto_submit.js (since list v5 used only by the appointments list's phone Status dropdown): in Chrome on Windows, arrow keys on a closed <select> fire change, so keyboard users submit on the first arrow press. Acceptable for now (mouse users); revisit if keyboard use matters.
 
@@ -701,6 +702,7 @@ to needs-approval) and the appointments list.
 - Hosting: Render free tier has uptime problems (cause unconfirmed). Candidates: Railway (Hobby, Asia region), Fly.io, VPS with Coolify/Appliku. On any host change update ALLOWED_HOSTS, CSRF_TRUSTED_ORIGINS, Google OAuth redirect URIs, the Django sites domain and all env vars.
 - Production DB: plan is a NEW Supabase project (Singapore) for the clinic handover, not wiping the current one; the current project becomes staging. At cutover: update DATABASE_URL, AWS_*, MEDIA_URL and AWS_S3_CUSTOM_DOMAIN on Render, migrate, and create the admin with the clinic's real email.
 - Test result files are public URLs (S3 `public-read`, no signed URLs); archived files keep their link. Decide before the clinic goes live (a storage change affects every upload) (from `medical_v1_decisions.md`)
+- Before go-live: real Terms and Privacy pages; replace settings.TERMS_URL / PRIVACY_URL (decision 4).
 - django-tailwind: no longer planned; replaced by the Tailwind standalone CLI (CONVENTIONS §11).
 - Project documentation report: needs screenshots, ERD (Mermaid ERD already generated) and source artifacts. Deadline: ___
 - Add .gitattributes (* text=auto) to stop LF/CRLF warnings — deferred until after B1 so line-ending churn doesn't mix with a deploy.
@@ -709,7 +711,7 @@ to needs-approval) and the appointments list.
 ### DECISIONS PENDING
 - PrescriptionItem delete path: allowed while editing a record, or immutable as the doc says? — Decided 2026-11-03 (`medical_v1_decisions.md`): removable only on the day the record was written (Manila date of `created_at`), with a confirm dialog; after that the list is kept as it is. Built in 5a-2.
 - HealthArticle hard delete: keep (update doc) or switch to unpublish? — Decided 2026-11-16 (`health_settings_v1_decisions.md`, decision 1): unpublish only; no delete. Built in 7a-3.
-- Double-booking approach (see above)
+- Double-booking approach (see above). Interim (Slice 8a-1): owner booking and reschedule lock the ClinicSettings row; a DB constraint is still open.
 - `frontend/hannah-user`: which parts (if any) are worth keeping, and whether to discard the rest (see B3)
 
 ---
