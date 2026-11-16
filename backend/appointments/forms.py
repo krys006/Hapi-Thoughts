@@ -3,7 +3,7 @@ from django import forms
 from django.utils import timezone
 
 from .models import ClinicSettings, BlockedDate, Appointment
-from .utils import is_slot_available, get_available_slots
+from .utils import is_slot_available, get_available_slots, get_clinic_settings
 
 # ── Weekday and slot duration choices ────────────────────────────────────────
 WEEKDAY_CHOICES = [
@@ -211,7 +211,7 @@ class AppointmentBookingForm(forms.Form):
         if not date:
             return date
 
-        clinic = ClinicSettings.objects.first()
+        clinic = get_clinic_settings()
         today = timezone.localdate()
 
         if date < today:
@@ -297,7 +297,7 @@ class AppointmentRescheduleForm(forms.Form):
         if not date:
             return date
 
-        clinic = ClinicSettings.objects.first()
+        clinic = get_clinic_settings()
         today = timezone.localdate()
 
         if date < today:
@@ -570,7 +570,7 @@ class AdminWalkInAppointmentForm(forms.Form):
         date = self.cleaned_data.get("date")
         if not date:
             return date
-        clinic = ClinicSettings.objects.first()
+        clinic = get_clinic_settings()
         today = timezone.localdate()
         if date < today:
             raise forms.ValidationError("Cannot create an appointment in the past.")

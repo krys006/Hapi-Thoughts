@@ -8,7 +8,7 @@ from django.utils import timezone
 from django.utils.cache import patch_vary_headers
 from django.utils.dateformat import format as date_format
 
-from .models import ClinicSettings, BlockedDate, Appointment
+from .models import BlockedDate, Appointment
 from .forms import (
     ClinicSettingsForm,
     BlockedDateForm,
@@ -111,7 +111,7 @@ def admin_blocked_date_add(request):
             form.save()
             messages.success(request, "Date blocked successfully.")
         else:
-            settings_obj = ClinicSettings.objects.first()
+            settings_obj = get_clinic_settings()
             blocked_dates = BlockedDate.objects.all()
             return render(
                 request,
@@ -165,7 +165,7 @@ def clinic_info(request):
     """
     from urllib.parse import quote
 
-    clinic = ClinicSettings.objects.first()
+    clinic = get_clinic_settings()
 
     maps_embed_url = ""
     if clinic and clinic.address:
@@ -259,7 +259,7 @@ def owner_book_appointment(request):
             # Notify admin of new appointment request
             User = get_user_model()
             admin_user = User.objects.filter(role="admin").first()
-            clinic = ClinicSettings.objects.first()
+            clinic = get_clinic_settings()
 
             if admin_user:
                 admin_notification_email = (
@@ -295,7 +295,7 @@ def owner_book_appointment(request):
     else:
         form = AppointmentBookingForm(owner)
 
-    clinic = ClinicSettings.objects.first()
+    clinic = get_clinic_settings()
 
     return render(
         request,
@@ -468,7 +468,7 @@ def owner_appointment_reschedule(request, pk):
     else:
         form = AppointmentRescheduleForm(appointment)
 
-    clinic = ClinicSettings.objects.first()
+    clinic = get_clinic_settings()
 
     return render(
         request,

@@ -30,7 +30,7 @@ from accounts.utils import (
     create_walkin_owner,
     send_claim_email,
 )
-from appointments.models import ClinicSettings
+from appointments.utils import get_clinic_settings
 
 from .forms import PetOwnerRegistrationForm
 
@@ -110,7 +110,7 @@ def admin_login(request):
     if request.user.is_authenticated:
         return redirect_by_role(request.user)
 
-    clinic = ClinicSettings.objects.first()
+    clinic = get_clinic_settings()
     email = ""
     login_failed = False
 

@@ -6,7 +6,8 @@ from django.http import HttpResponseForbidden
 from django.shortcuts import redirect, render
 from django.utils import timezone
 
-from appointments.models import Appointment, ClinicSettings
+from appointments.models import Appointment
+from appointments.utils import get_clinic_settings
 from billing.models import BillingReceipt
 from billing.utils import owner_receipts
 from dashboard.utils import (
@@ -219,7 +220,7 @@ def admin_dashboard(request):
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    clinic = ClinicSettings.objects.first()
+    clinic = get_clinic_settings()
     now = timezone.localtime()
     today = now.date()
     picked = picked_day(request.GET.get("day"), today, clinic)
@@ -259,7 +260,7 @@ def admin_dashboard_calendar(request):
         timezone.localdate(),
         month,
         request.GET.get("picked") or request.GET.get("day"),
-        ClinicSettings.objects.first(),
+        get_clinic_settings(),
     )
     return render(request, "admin/dashboard/_mini_calendar.html", context)
 
@@ -272,7 +273,7 @@ def admin_dashboard_day(request):
     if request.user.role != "admin":
         return HttpResponseForbidden()
 
-    clinic = ClinicSettings.objects.first()
+    clinic = get_clinic_settings()
     now = timezone.localtime()
     today = now.date()
     picked = picked_day(request.GET.get("date"), today, clinic)

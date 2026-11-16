@@ -2,7 +2,8 @@
 
 from functools import cached_property
 
-from appointments.models import Appointment, ClinicSettings
+from appointments.models import Appointment
+from appointments.utils import get_clinic_settings
 from notifications.models import Notification
 from pets.models import PetDeletionRequest
 
@@ -24,8 +25,8 @@ class Shell:
 
     @cached_property
     def clinic(self):
-        # .first() is the project rule for ClinicSettings; may be None on a fresh DB
-        return ClinicSettings.objects.first()
+        # May be None on a fresh DB
+        return get_clinic_settings()
 
     @cached_property
     def pending_appointments(self):

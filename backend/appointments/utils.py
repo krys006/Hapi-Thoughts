@@ -61,7 +61,7 @@ def get_available_slots(date, walk_in=False, move=False):
     Returns a list of datetime.time objects.
     Returns an empty list if the date is unavailable for any reason.
     """
-    clinic = ClinicSettings.objects.first()
+    clinic = get_clinic_settings()
 
     # No settings configured yet — no slots available
     if not clinic:
@@ -138,7 +138,7 @@ def slot_in_progress(date):
     this moment or there are no clinic settings. Walk-in step 2 labels
     that slot "Now"; the Move dialog never asks.
     """
-    clinic = ClinicSettings.objects.first()
+    clinic = get_clinic_settings()
     now = timezone.localtime()
     if not clinic or date != now.date():
         return None
@@ -175,7 +175,7 @@ def is_slot_available(date, time, exclude_appointment_pk=None, move=False):
     exclude_appointment_pk: pass the current appointment's pk when
     checking a reschedule so it doesn't conflict with itself.
     """
-    clinic = ClinicSettings.objects.first()
+    clinic = get_clinic_settings()
     if not clinic:
         return False
 
@@ -243,7 +243,7 @@ def get_admin_calendar_context(view, date_str):
     except ValueError:
         anchor_date = today
 
-    clinic = ClinicSettings.objects.first()
+    clinic = get_clinic_settings()
     working_days = clinic.working_days if clinic else []
 
     if view == "week":

@@ -4,7 +4,7 @@ from django.db import models
 class ClinicSettings(models.Model):
     """
     Single-row table storing all clinic configuration.
-    Always retrieved via ClinicSettings.objects.first().
+    Always read through get_clinic_settings() (appointments/utils.py).
     Never create more than one instance.
     """
 

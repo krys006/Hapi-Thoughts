@@ -18,6 +18,7 @@ from appointments.models import Appointment
 from appointments.utils import (
     WALKIN_PAGE_SIZE,
     WALKIN_SEARCH_LIMIT,
+    get_clinic_settings,
     paging_links,
     search_walkin_owners,
     walkin_owner_list,
@@ -25,8 +26,6 @@ from appointments.utils import (
 from medical.utils import short_date
 from notifications.utils import notify
 from pets.models import Pet, PetOwner
-
-from appointments.models import ClinicSettings
 
 from .forms import SERVICE_STATUS_CHOICES, billable_services, peso, service_options
 from .models import BillingItem, BillingReceipt, Service
@@ -585,7 +584,7 @@ def receipt_detail_context(receipt, today):
         "appointment": receipt.appointment,
         "created_at": receipt.created_at,
         "payment_date": receipt.payment_date,
-        "clinic_settings": ClinicSettings.objects.first(),
+        "clinic_settings": get_clinic_settings(),
         "service_options": service_options(billable_services()),
         "today": today,
     }
