@@ -1,82 +1,46 @@
 {% extends "layouts/admin.html" %}
 
-{% load static %}
-{% block legacy_css %}
-<style>
-  @import url("{% static 'css/admin/receipt_detail.css' %}") layer(legacy);
-  @import url("{% static 'css/admin/receipt_list.css' %}") layer(legacy);
-</style>
-{% endblock %}
-
 {% block title %}Billing — Hapi Vet Admin{% endblock %}
 
-{% block page_header %}{% endblock %}
-
-{% block content %}
-
-<div class="admin-page">
-
-  <div class="admin-page-header">
-    <h1 class="admin-page-title">Billing</h1>
-    <a href="{% url 'admin_receipt_create' %}" class="btn-primary">
-      + New Receipt
-    </a>
-  </div>
-
-  {% include "admin/billing/_billing_tabs.html" with active="receipts" %}
-
-  <!-- Status filter tabs -->
-  <div class="filter-tabs">
-    <a href="{% url 'admin_receipt_list' %}" class="filter-tab {% if not status_filter %}filter-tab--active{% endif %}">All <span class="filter-count">{{ counts.all }}</span></a>
-    <a href="{% url 'admin_receipt_list' %}?status=pending" class="filter-tab {% if status_filter == 'pending' %}filter-tab--active{% endif %}">Pending <span class="filter-count">{{ counts.pending }}</span></a>
-    <a href="{% url 'admin_receipt_list' %}?status=paid" class="filter-tab {% if status_filter == 'paid' %}filter-tab--active{% endif %}">Paid <span class="filter-count">{{ counts.paid }}</span></a>
-    <a href="{% url 'admin_receipt_list' %}?status=cancelled" class="filter-tab {% if status_filter == 'cancelled' %}filter-tab--active{% endif %}">Cancelled <span class="filter-count">{{ counts.cancelled }}</span></a>
-  </div>
-
-  {% if receipts %}
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>Receipt No.</th>
-          <th>Owner</th>
-          <th>Pet</th>
-          <th>Date</th>
-          <th>Total</th>
-          <th>Status</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for receipt in receipts %}
-          <tr>
-            <td>{{ receipt.receipt_number }}</td>
-            <td>{{ receipt.owner.full_name|default:"—" }}</td>
-            <td>{{ receipt.pet.name|default:"—" }}</td>
-            <td>{{ receipt.billing_date|date:"M j, Y" }}</td>
-            <td>₱{{ receipt.total_amount|floatformat:2 }}</td>
-            <td>
-              <span class="status-badge status-{{ receipt.payment_status }}">
-                {{ receipt.get_payment_status_display }}
-              </span>
-            </td>
-            <td>
-              <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="btn-link">View</a>
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <p class="empty-state-text">No billing receipts found.</p>
-  {% endif %}
-
-</div>
-
+{# This page's own search replaces "Find a pet or owner" (md up; phones get the same form in the page body) #}
+{% block topbar_search %}
+  {% include "admin/billing/receipt_list_parts/search_form.html" with id_prefix="topbar" form_class="hidden min-w-0 flex-1 items-center gap-3 md:flex" %}
 {% endblock %}
 
-{% block extra_js %}
-<script>
-  const SERVICE_DETAILS_URL = "{% url 'admin_get_service_details' %}";
-</script>
-<script src="{% static 'js/admin/receipt_list.js' %}"></script>
+{% block page_title %}Billing{% endblock %}
+{% block page_subtitle %}Receipts for visits and supplies. Payment is cash.{% endblock %}
+{% block page_actions %}
+  <a href="{% url 'admin_receipt_create' %}" class="btn btn-primary">{% include "components/icon.html" with name="plus" %}New receipt</a>
+{% endblock %}
+
+{% block content %}
+  {% include "admin/billing/receipt_list_parts/search_form.html" with id_prefix="page" form_class="mb-4 flex items-center gap-3 md:hidden" %}
+  {% include "admin/billing/billing_parts/tabs.html" %}
+
+  {# A search shows what matched; otherwise the tab's heading, when it has rows #}
+  {% if is_searching %}
+    {% include "admin/billing/receipt_list_parts/results_line.html" %}
+  {% elif receipts %}
+    {% include "admin/billing/receipt_list_parts/list_head.html" %}
+  {% endif %}
+  {% if receipts and active_tab == "cancelled" %}
+    {% include "admin/billing/receipt_list_parts/cancelled_note.html" %}
+  {% endif %}
+
+  {% if receipts %}
+    <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      {# Column names (md up; the row grid must match receipt_list_parts/row.html) #}
+      <div class="hidden gap-5 border-b border-gray-200 bg-gray-50 px-5 py-2 text-sm font-semibold text-gray-700 md:grid md:grid-cols-[minmax(0,1.1fr)_1px_minmax(0,1fr)_9rem_7.5rem]" aria-hidden="true">
+        <span>Receipt</span><span></span><span>Billed to</span><span class="text-right">Total</span><span></span>
+      </div>
+      <ul>
+        {% for receipt in receipts %}
+          {% include "admin/billing/receipt_list_parts/row.html" %}
+        {% endfor %}
+      </ul>
+      {% include "admin/appointments/list_parts/pager.html" %}
+    </div>
+  {% else %}
+    {% include "admin/billing/receipt_list_parts/empty.html" %}
+  {% endif %}
 {% endblock %}

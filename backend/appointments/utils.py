@@ -646,6 +646,21 @@ def paging_links(page_obj, page_query):
     }
 
 
+# ── Admin detail: the visit's receipt (Slice 6a-4, rule 26) ──────────────────
+
+# BillingReceipt.payment_status → what the appointment page says about it
+# (plain strings: billing.utils imports this module)
+VISIT_RECEIPT_STATES = {"pending": "unpaid", "paid": "paid", "cancelled": "cancelled"}
+
+
+def visit_receipt_state(receipt):
+    """None (no receipt yet), "unpaid", "paid" or "cancelled". The banner
+    says "All done for this visit" only for "paid"."""
+    if receipt is None:
+        return None
+    return VISIT_RECEIPT_STATES.get(receipt.payment_status)
+
+
 # ── Admin walk-in ────────────────────────────────────────────────────────────
 
 WALKIN_SEARCH_LIMIT = 20
@@ -658,6 +673,19 @@ def _walkin_owner_rows(owners):
     active_pets = Pet.objects.filter(is_archived=False).order_by("name")
     return owners.order_by("first_name", "last_name", "pk").prefetch_related(
         Prefetch("pets", queryset=active_pets, to_attr="active_pets")
+    )
+
+
+def is_owner_results_swap(request):
+    """True for the filter-as-you-type request from an owner step's search
+    box (walk-in step 1, New receipt step 1), which only needs the results
+    (target #owner-results). A history restore (or a request without HTMX)
+    gets the full page."""
+    headers = request.headers
+    return (
+        bool(headers.get("HX-Request"))
+        and headers.get("HX-Target") == "owner-results"
+        and not headers.get("HX-History-Restore-Request")
     )
 
 

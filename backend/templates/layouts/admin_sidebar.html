@@ -22,7 +22,8 @@
   {% include "layouts/admin_nav_link.html" with url_name="admin_health_article_list" label="Health library" icon="book-open" match="admin_health" %}
 
   <p class="px-3 pb-1 pt-5 text-sm font-semibold text-violet-800">Clinic</p>
-  {% include "layouts/admin_nav_link.html" with url_name="admin_receipt_list" label="Billing" icon="receipt" match="admin_receipt" also="admin_service" %}
+  {% include "layouts/admin_nav_link.html" with url_name="admin_receipt_list" label="Billing" icon="receipt" match="admin_receipt" %}
+  {% include "layouts/admin_nav_link.html" with url_name="admin_service_list" label="Services and prices" icon="tag" match="admin_service" %}
   {% include "layouts/admin_nav_link.html" with url_name="admin_clinic_settings" label="Clinic settings" icon="settings" match="admin_clinic_settings" also="clinic_info" %}
 </nav>
 

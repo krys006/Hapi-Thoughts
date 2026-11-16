@@ -36,15 +36,22 @@
   <div class="mb-6 flex items-start gap-3 rounded-xl border border-green-200 bg-green-50 px-5 py-4 text-green-900">
     {% include "components/icon.html" with name="circle-check" class="mt-0.5 size-6 shrink-0" %}
     <div>
-      {% if medical_record and receipt %}
+      {# "All done" only once the receipt is paid (rule 26); an unpaid or cancelled receipt gets its own line and a link #}
+      {% if medical_record and receipt_state == "paid" %}
         <p class="text-lg font-semibold">All done for this visit</p>
-        <p class="mt-0.5 text-base">The medical record and the receipt are both added.</p>
+        <p class="mt-0.5 text-base">The medical record is added and the receipt is paid.</p>
       {% else %}
         <p class="text-lg font-semibold">Visit completed</p>
-        {% if medical_record %}
+        {% if receipt_state == "unpaid" or receipt_state == "cancelled" %}
+          <p class="mt-0.5 text-base">{% if medical_record %}The medical record is added.{% else %}Next, add the medical record.{% endif %}</p>
+          <p class="mt-0.5 text-base">
+            {% if receipt_state == "unpaid" %}Receipt not paid yet.{% else %}The receipt for this visit was cancelled.{% endif %}
+            <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="font-medium underline underline-offset-2">Open receipt {{ receipt.receipt_number }}</a>
+          </p>
+        {% elif medical_record %}
           <p class="mt-0.5 text-base">The medical record is added. One thing left: create the receipt.</p>
-        {% elif receipt %}
-          <p class="mt-0.5 text-base">The receipt is created. One thing left: add the medical record.</p>
+        {% elif receipt_state == "paid" %}
+          <p class="mt-0.5 text-base">The receipt is paid. One thing left: add the medical record.</p>
         {% else %}
           <p class="mt-0.5 text-base">Next, add the medical record and create the receipt.</p>
         {% endif %}

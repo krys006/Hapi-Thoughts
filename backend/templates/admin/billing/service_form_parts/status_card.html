@@ -1,0 +1,21 @@
+{% comment %}
+  Card "Who sees it": the four status radio cards in the form's order (a new
+  service starts on Hidden (draft)). On edit, the gray [data-closed-note]
+  shows while the saved or posted status is No longer offered; service_form.js
+  shows and hides it when the radios change. It names the saved name.
+{% endcomment %}
+<section class="card" aria-labelledby="status-title">
+  <h2 id="status-title" class="mb-4 flex items-center gap-2 text-xl font-semibold text-gray-900">{% include "components/icon.html" with name="eye" class="size-5 shrink-0 text-gray-600" %}Who sees it</h2>
+  <fieldset>
+    <legend class="sr-only">Who sees it</legend>
+    <div class="space-y-3">
+      {% for card in form.status_cards %}
+        {% include "admin/billing/service_form_parts/radio_card.html" with name="status" %}
+      {% endfor %}
+    </div>
+    {% for error in form.status.errors %}<p class="mt-2 flex items-start gap-1 text-sm font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-4 shrink-0" %}{{ error }}</p>{% endfor %}
+  </fieldset>
+  {% if is_edit %}
+    <p class="mt-3 items-start gap-2 rounded-lg bg-gray-50 px-3 py-2 text-base text-gray-800 {% if form.is_closed %}flex{% else %}hidden{% endif %}" data-closed-note>{% include "components/icon.html" with name="info" class="mt-0.5 size-5 shrink-0" %}<span>Upcoming visits booked with {{ saved_name }} keep it. Owners can't pick it for new bookings.</span></p>
+  {% endif %}
+</section>

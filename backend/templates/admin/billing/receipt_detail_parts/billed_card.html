@@ -1,0 +1,18 @@
+{% comment %}
+  "Billed to": the owner (link), phone and email (gray when missing), and the
+  pet with its species and breed, or "Not for a specific pet".
+{% endcomment %}
+<section class="card order-3" aria-labelledby="billed-title">
+  <h2 id="billed-title" class="text-xl font-semibold text-gray-900">Billed to</h2>
+  {% if owner %}
+    <p class="mt-3 text-base"><a href="{% url 'admin_owner_detail' owner.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ owner.full_name }}</a></p>
+    <p class="mt-2 flex items-center gap-2 text-base {% if owner_phone %}text-gray-900{% else %}text-gray-700{% endif %}">{% include "components/icon.html" with name="phone" class="size-5 shrink-0 text-gray-600" %}{{ owner_phone|default:"No phone number" }}</p>
+    <p class="mt-2 flex items-center gap-2 text-base {% if owner_has_email %}text-gray-900{% else %}text-gray-700{% endif %}">{% include "components/icon.html" with name="mail" class="size-5 shrink-0 text-gray-600" %}{% if owner_has_email %}<span class="min-w-0 break-words">{{ owner.user.email }}</span>{% else %}No email{% endif %}</p>
+  {% else %}
+    <p class="mt-3 text-base text-gray-700">No owner on file</p>
+  {% endif %}
+  <p class="mt-3 border-t border-gray-100 pt-3 text-sm font-semibold text-gray-700">Pet</p>
+  <p class="mt-1 text-base">
+    {% if pet %}<a href="{% url 'admin_pet_detail' pet.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ pet.name }}</a> · {{ pet.species|capfirst }}{% if pet.breed %} · {{ pet.breed }}{% endif %}{% else %}<span class="text-gray-700">Not for a specific pet</span>{% endif %}
+  </p>
+</section>

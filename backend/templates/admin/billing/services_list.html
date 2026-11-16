@@ -1,78 +1,27 @@
 {% extends "layouts/admin.html" %}
 
-{% load static %}
-{% block legacy_css %}
-<style>
-  @import url("{% static 'css/admin/service_form.css' %}") layer(legacy);
-  @import url("{% static 'css/admin/service_list.css' %}") layer(legacy);
-</style>
+{% block title %}Services and prices — Hapi Vet Admin{% endblock %}
+
+{% block page_title %}Services and prices{% endblock %}
+{% block page_subtitle %}The price list for receipts and for booking.{% endblock %}
+{% block page_actions %}
+  <a href="{% url 'admin_service_create' %}" class="btn btn-primary font-semibold">{% include "components/icon.html" with name="plus" %}Add service</a>
 {% endblock %}
-
-{% block title %}Services — Hapi Vet Admin{% endblock %}
-
-{% block page_header %}{% endblock %}
 
 {% block content %}
-
-<div class="admin-page">
-
-  <div class="admin-page-header">
-    <h1 class="admin-page-title">Service Catalog</h1>
-    <a href="{% url 'admin_service_create' %}" class="btn-primary">
-      + Add Service
-    </a>
-  </div>
-
-  {% include "admin/billing/_billing_tabs.html" with active="services" %}
-
-  <!-- Status filter tabs -->
-  <div class="filter-tabs">
-    <a href="{% url 'admin_service_list' %}" class="filter-tab {% if not status_filter %}filter-tab--active{% endif %}">All <span class="filter-count">{{ counts.all }}</span></a>
-    <a href="{% url 'admin_service_list' %}?status=active" class="filter-tab {% if status_filter == 'active' %}filter-tab--active{% endif %}">Active <span class="filter-count">{{ counts.active }}</span></a>
-    <a href="{% url 'admin_service_list' %}?status=draft" class="filter-tab {% if status_filter == 'draft' %}filter-tab--active{% endif %}">Draft <span class="filter-count">{{ counts.draft }}</span></a>
-    <a href="{% url 'admin_service_list' %}?status=unlisted" class="filter-tab {% if status_filter == 'unlisted' %}filter-tab--active{% endif %}">Unlisted <span class="filter-count">{{ counts.unlisted }}</span></a>
-    <a href="{% url 'admin_service_list' %}?status=closed" class="filter-tab {% if status_filter == 'closed' %}filter-tab--active{% endif %}">Closed <span class="filter-count">{{ counts.closed }}</span></a>
-  </div>
-
-  {% if services %}
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>Service Name</th>
-          <th>Category</th>
-          <th>Pricing</th>
-          <th>Price</th>
-          <th>Status</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for service in services %}
-          <tr>
-            <td>{{ service.service_name }}</td>
-            <td>{{ service.category|default:"—" }}</td>
-            <td>{{ service.get_pricing_type_display }}</td>
-            <td>{{ service.display_price }}</td>
-            <td>
-              <span class="status-badge status-{{ service.status }}">
-                {{ service.get_status_display }}
-              </span>
-            </td>
-            <td>
-              <a href="{% url 'admin_service_edit' service.pk %}" class="btn-link">Edit</a>
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  {% if total_count %}
+    <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+      <h2 class="text-xl font-semibold text-gray-900">All services ({{ total_count }})</h2>
+      <p class="text-sm text-gray-700">Grouped by who sees them · A to Z</p>
+    </div>
+    <div class="space-y-6">
+      {% for group in groups %}
+        {% include "admin/billing/services_list_parts/group.html" %}
+      {% endfor %}
+    </div>
   {% else %}
-    <p class="empty-state-text">No services found.</p>
+    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+      {% include "components/empty_state.html" with icon="receipt" title="No services yet" text="Add the first one with Add service." %}
+    </div>
   {% endif %}
-
-</div>
-
-{% endblock %}
-
-{% block extra_js %}
-  <script src="{% static 'js/admin/service_list.js' %}"></script>
 {% endblock %}

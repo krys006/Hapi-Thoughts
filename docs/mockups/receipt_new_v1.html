@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>New receipt v1</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif; }
+</style>
+</head>
+<body class="bg-gray-200 text-gray-900 antialiased">
+<header class="sticky top-0 z-30 border-b border-gray-300 bg-white/95 px-6 py-3 backdrop-blur">
+  <p class="mb-2 text-sm font-semibold text-gray-700">Slice 6 · New receipt v1 · frame copied from layouts/admin.html · today is Fri, Nov 6, 2026 · pick a state</p>
+  <div id="switcher" class="flex flex-wrap gap-2"></div>
+</header>
+<div class="overflow-x-auto p-6">
+  <div id="caption" class="mb-4 max-w-[1280px] rounded-xl border border-violet-200 bg-violet-50 p-4 text-base text-gray-800"></div>
+  <div id="stage"></div>
+  <p class="mt-3 text-sm text-gray-600">Desktop frame is 1280 px wide: a 1920×1080 screen at 150% zoom.</p>
+</div>
+<script>
+// ---------- Icons (Lucide shapes; when built, copy new ones from lucide-static@1.66.0: printer, percent, ban) ----------
+const P = {
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  house:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  fileText:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  syringe:'<path d="m18 2 4 4"/><path d="m17 7 3-3"/><path d="M19 9 8.7 19.3c-1 1-2.5 1-3.4 0l-.6-.6c-1-1-1-2.5 0-3.4L15 5"/><path d="m9 11 4 4"/><path d="m5 19-3 3"/><path d="m14 4 6 6"/>',
+  bookOpen:'<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="m4.9 4.9 2.1 2.1"/><path d="m17 17 2.1 2.1"/><path d="M2 12h3"/><path d="M19 12h3"/><path d="m4.9 19.1 2.1-2.1"/><path d="m17 7 2.1-2.1"/>',
+  logout:'<path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>',
+  search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  arrowRight:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  arrowLeft:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  mail:'<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
+  phone:'<path d="M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384"/>',
+  clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  eye:'<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
+  pill:'<path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"/><path d="m8.5 8.5 7 7"/>',
+  menu:'<path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/>',
+  x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  circleCheck:'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  image:'<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+  printer:'<path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/>',
+  percent:'<line x1="19" x2="5" y1="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
+  ban:'<circle cx="12" cy="12" r="10"/><path d="M4.929 4.929 19.07 19.071"/>',
+  dog:'<path d="M11.25 16.25h1.5L12 17z"/><path d="M16 14v.5"/><path d="M4.42 11.247A13.152 13.152 0 0 0 4 14.556C4 18.728 7.582 21 12 21s8-2.272 8-6.444a11.702 11.702 0 0 0-.493-3.309"/><path d="M8 14v.5"/><path d="M8.5 8.5c-.384 1.05-1.083 2.028-2.344 2.5-1.931.722-3.576-.297-3.656-1-.113-.994 1.177-6.53 4-7 1.923-.321 3.651.845 3.651 2.235A7.497 7.497 0 0 1 14 5.277c0-1.39 1.844-2.598 3.767-2.277 2.823.47 4.113 6.006 4 7-.08.703-1.725 1.722-3.656 1-1.261-.472-1.855-1.45-2.239-2.5"/>'
+};
+const ic = (n, c = 'size-5 shrink-0', s = 2) =>
+  `<svg class="${c}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${s}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// ---------- Shared classes (assets/tailwind/input.css) ----------
+const BTN = 'inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-base font-medium whitespace-nowrap transition-colors';
+const BTN_PRIMARY = `${BTN} bg-violet-600 text-white hover:bg-violet-700`;
+const BTN_OUTLINE = `${BTN} border border-gray-300 bg-white text-gray-800 hover:bg-gray-50`;
+const BTN_DANGER = `${BTN} bg-red-600 text-white hover:bg-red-700`;
+const BTN_RED_OUTLINE = `${BTN} border border-red-300 bg-white font-semibold text-red-700 hover:bg-red-50`;
+const INPUT = 'block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-base text-gray-900 placeholder:text-gray-500';
+const CARD = 'rounded-xl border border-gray-200 bg-white p-6 shadow-sm';
+
+// ---------- Frame ----------
+const navLink = (icon, label, active = false, count = 0) =>
+  `<a class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base ${active ? 'bg-white font-semibold text-violet-800 shadow-sm ring-1 ring-violet-200' : 'text-gray-800 hover:bg-violet-200/70'}">${ic(icon)}<span class="flex-1">${label}</span>${count ? `<span class="rounded-full bg-violet-600 px-2 text-sm font-semibold text-white">${count}</span>` : ''}</a>`;
+const sidebar = () => `
+<aside class="flex w-56 shrink-0 flex-col border-r border-violet-200 bg-violet-100">
+  <div class="flex h-16 shrink-0 items-center gap-3 px-5">
+    <a class="-mx-2 flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-lg px-2"><span class="grid size-10 shrink-0 place-content-center rounded-lg bg-gradient-to-br from-amber-300 to-amber-700 text-white">${ic('image')}</span>
+      <p class="line-clamp-2 text-base font-semibold leading-5 text-gray-900">Hapi Tutz Vet. Supplies</p></a>
+  </div>
+  <nav class="flex-1 space-y-1 px-3 py-2">
+    <p class="px-3 pb-1 pt-1 text-sm font-semibold text-violet-800">Daily work</p>
+    ${navLink('house','Dashboard')}${navLink('calendar','Appointments',false,2)}${navLink('users','Pet owners')}${navLink('paw','Pets')}
+    <p class="px-3 pb-1 pt-5 text-sm font-semibold text-violet-800">Records</p>
+    ${navLink('fileText','Medical records')}${navLink('syringe','Vaccinations')}${navLink('bookOpen','Health library')}
+    <p class="px-3 pb-1 pt-5 text-sm font-semibold text-violet-800">Clinic</p>
+    ${navLink('receipt','Billing',true)}${navLink('settings','Clinic settings')}
+  </nav>
+  <div class="border-t border-violet-200 px-3 py-3"><a class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base text-gray-800">${ic('logout')}Log out</a></div>
+</aside>`;
+const frame = (body, overlay = '', search = '') => `
+<div class="relative flex min-h-[900px] w-[1280px] overflow-hidden rounded-xl border border-gray-300 bg-gray-50 shadow-sm">
+  ${sidebar()}
+  <div class="min-w-0 flex-1">
+    <header class="flex h-16 shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-8">
+      ${search}
+      <div class="ml-auto"><span class="${BTN_OUTLINE}">${ic('bell')}<span>Notifications</span><span class="rounded-full bg-red-600 px-2 text-sm font-semibold text-white">1 new</span></span></div>
+    </header>
+    <main class="px-8 py-6">${body}</main>
+  </div>
+  ${overlay}
+</div>`;
+
+// ---------- Pieces ----------
+const peso = n => '₱' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const link = (t, i = '', cls = '') => `<a class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2 ${cls}">${i ? ic(i) : ''}${t}</a>`;
+const aLink = t => `<a class="font-medium text-blue-600 underline underline-offset-2">${t}</a>`;
+const pill = (cls, icon, text) => `<span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm font-medium ${cls}">${icon ? ic(icon,'size-4 shrink-0') : ''}${text}</span>`;
+const initials = n => n.split(' ').map(w => w[0]).slice(0, 2).join('');
+const avatar = n => `<span class="grid size-10 shrink-0 place-content-center rounded-full bg-violet-100 text-base font-semibold text-violet-800 ring-1 ring-violet-200" aria-hidden="true">${initials(n)}</span>`;
+const petTile = () => `<span class="grid size-10 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-600 ring-1 ring-violet-200">${ic('dog','size-6 shrink-0',1.5)}</span>`;
+const errLine = e => e ? `<p class="mt-2 flex items-center gap-1.5 text-base text-red-700">${ic('alert','size-4 shrink-0')}${e}</p>` : '';
+const DEFAULT_SEARCH = `<div class="relative w-full max-w-[30rem]"><span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-600">${ic('search')}</span><input type="search" placeholder="Find a pet or owner" class="${INPUT} pl-10"></div>`;
+
+const header = (back, title, sub) => `
+<p class="mb-2">${link(back,'arrowLeft')}</p>
+<div class="mb-6"><h1 class="text-2xl font-bold text-gray-900">${title}</h1><p class="mt-1 text-base text-gray-700">${sub}</p></div>`;
+
+const buttons = (note = 'The receipt opens empty. You add the items on the next page.') => `
+<div class="mt-6 flex flex-wrap items-center justify-end gap-3">
+  <p class="mr-auto flex items-start gap-2 text-sm text-gray-700">${ic('info','mt-0.5 size-4 shrink-0')}${note}</p>
+  <a class="${BTN_OUTLINE} min-h-12 font-semibold">Cancel</a>
+  <button type="submit" class="${BTN_PRIMARY} min-h-12 font-semibold">${ic('receipt')}Create receipt</button>
+</div>`;
+
+const summaryRow = (label, html) => `<div class="grid grid-cols-[9rem_1fr] gap-4 border-t border-gray-100 py-3 first:border-t-0 first:pt-0"><dt class="text-base font-semibold text-gray-700">${label}</dt><dd class="text-base text-gray-900">${html}</dd></div>`;
+
+// ---------- 1. From a visit ----------
+const fromVisit = (withService = true) => `
+${header('Back to the visit','New receipt','For the visit below. Check it, then create the receipt.')}
+<div class="mx-auto max-w-3xl">
+<section class="${CARD}">
+  <h2 class="mb-4 flex items-center gap-2 text-xl font-semibold">${ic('calendar','size-5 shrink-0 text-gray-600')}From the visit</h2>
+  <dl>
+    ${summaryRow('Visit', `Today, Friday, November 6 at 9:00 AM ${pill('bg-green-100 text-green-800','check','Completed')}`)}
+    ${summaryRow('Billed to', `<span class="flex items-center gap-3">${avatar('Ana Cruz')}${aLink('Ana Cruz')} · 0917 555 0142</span>`)}
+    ${summaryRow('Pet', `<span class="flex items-center gap-3">${petTile()}${aLink('Bantay')} · Dog · Aspin</span>`)}
+    ${summaryRow('Service', withService ? 'Consultation' : '<span class="text-gray-600">No service picked</span>')}
+  </dl>
+  ${withService ? `
+  <label class="mt-4 flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border border-violet-200 bg-violet-50 p-4">
+    <input type="checkbox" checked class="mt-0.5 size-6 shrink-0 accent-violet-600">
+    <span><span class="block text-base font-semibold text-gray-900">Add Consultation (₱300.00) as the first item</span>
+    <span class="block text-sm text-gray-700">You can change its price or remove it on the next page.</span></span>
+  </label>` : ''}
+</section>
+${buttons(withService ? 'You add the other items on the next page.' : undefined)}
+</div>`;
+
+// ---------- 2. Pick the owner ----------
+const OWNERS = [
+  ['Ana Cruz','0917 555 0142',['Bantay','Choco']],
+  ['Carmen Villanueva','0998 112 0045',['Mingming']],
+  ['Jun Reyes','0999 210 3344',[]],
+  ['Liza Cruz','0917 123 4567',['Brownie']],
+  ['Marites Lopez','0920 778 1145',['Bella']]
+];
+const ownerCard = ([n, ph, pets]) => `
+<li class="flex flex-wrap items-center gap-4 border-b border-gray-100 px-5 py-4 last:border-b-0 hover:bg-gray-50">
+  ${avatar(n)}
+  <div class="min-w-0 flex-1"><p class="text-lg font-semibold text-gray-900">${n}</p>
+    <p class="text-sm text-gray-700">${ph}</p>
+    <p class="mt-1 flex flex-wrap gap-x-4 text-base text-gray-800">${pets.length ? pets.map(p => `<span class="inline-flex items-center gap-1.5">${ic('dog','size-5 shrink-0 text-gray-600',1.5)}${p}</span>`).join('') : '<span class="text-gray-600">No pets yet</span>'}</p></div>
+  <a class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-violet-300 bg-violet-50 px-5 text-base font-semibold text-violet-800 hover:bg-violet-100">Choose<span class="sr-only"> ${n}</span>${ic('arrowRight')}</a>
+</li>`;
+const steps = (n) => `
+<ol class="mb-6 flex flex-wrap items-center gap-3 text-base">
+  <li class="flex items-center gap-2 ${n === 1 ? 'font-semibold text-violet-800' : 'text-gray-700'}"><span class="grid size-8 place-content-center rounded-full ${n === 1 ? 'bg-violet-600 text-white' : 'bg-green-100 text-green-800'}">${n === 1 ? '1' : ic('check','size-4')}</span>Who is it for?</li>
+  <li class="h-px w-10 bg-gray-300" aria-hidden="true"></li>
+  <li class="flex items-center gap-2 ${n === 2 ? 'font-semibold text-violet-800' : 'text-gray-700'}"><span class="grid size-8 place-content-center rounded-full ${n === 2 ? 'bg-violet-600 text-white' : 'bg-gray-200 text-gray-700'}">2</span>Which pet?</li>
+</ol>`;
+const pickOwner = (q = '') => `
+${header('Back to receipts','New receipt','Not from a visit, for example supplies bought over the counter.')}
+${steps(1)}
+<div class="mx-auto max-w-3xl">
+<label class="block text-base font-semibold text-gray-900">Find the owner</label>
+<div class="relative mt-1"><span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-600">${ic('search')}</span>
+  <input type="search" value="${q}" placeholder="Owner name, phone or pet name" class="${INPUT} pl-10"></div>
+${q ? `<p class="mt-1">${link('Clear search','x')}</p>` : ''}
+<div class="mt-4 flex flex-wrap items-baseline justify-between gap-2">
+  <h2 class="text-xl font-semibold" aria-live="polite">${q ? `2 owners match “${q}”` : 'All pet owners (48)'}</h2>${q ? '' : '<p class="text-sm text-gray-700">A to Z by first name</p>'}</div>
+<section class="mt-3 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+  <ul>${(q ? OWNERS.filter(o => o[0].includes('Cruz')) : OWNERS).map(ownerCard).join('')}</ul>
+  ${q ? '' : `<div class="flex items-center justify-between gap-3 border-t border-gray-200 bg-gray-50 px-5 py-3"><span class="${BTN_OUTLINE} cursor-not-allowed text-gray-500">${ic('arrowLeft')}Previous</span><p class="text-base text-gray-700">Page 1 of 2</p><a class="${BTN_OUTLINE} font-semibold">Next${ic('arrowRight')}</a></div>`}
+</section>
+<p class="mt-4 text-sm text-gray-700">Someone new? Add them first with ${aLink('Add owner')} on the Pet owners page.</p>
+</div>`;
+
+// ---------- 3. Pick the pet ----------
+const petOption = (name, line, checked = false, err = false) => `
+<label class="flex min-h-11 cursor-pointer items-center gap-4 rounded-lg border-2 p-4 ${checked ? 'border-violet-600 bg-violet-50' : err ? 'border-red-300 bg-white' : 'border-gray-200 bg-white hover:border-violet-300'}">
+  <input type="radio" name="pet" ${checked ? 'checked' : ''} class="size-6 shrink-0 accent-violet-600">
+  ${name ? petTile() : `<span class="grid size-10 shrink-0 place-content-center rounded-xl bg-gray-100 text-gray-700">${ic('receipt')}</span>`}
+  <span><span class="block text-lg font-semibold text-gray-900">${name || 'Not for a specific pet'}</span><span class="block text-sm text-gray-700">${line}</span></span>
+</label>`;
+const pickPet = ({ err = false, pets = true, checked = 'Bantay' } = {}) => `
+${header('Back to receipts','New receipt','Not from a visit, for example supplies bought over the counter.')}
+${steps(2)}
+<div class="mx-auto max-w-3xl">
+${err ? `<div class="mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-base text-red-900">${ic('alert','mr-1 inline size-5 -translate-y-px')}Please fix the 1 item below.</div>` : ''}
+<section class="${CARD}">
+  <div class="mb-4 flex flex-wrap items-center gap-3 border-b border-gray-100 pb-4">
+    ${avatar(pets ? 'Ana Cruz' : 'Jun Reyes')}
+    <div class="flex-1"><p class="text-sm font-semibold text-gray-700">Billed to</p><p class="text-lg font-semibold">${pets ? 'Ana Cruz' : 'Jun Reyes'}</p></div>
+    ${link('Change owner')}
+  </div>
+  <fieldset>
+    <legend class="text-base font-semibold text-gray-900">Which pet is it for? <span class="text-red-700">*</span></legend>
+    <div class="mt-3 space-y-3 ${err ? 'rounded-lg ring-2 ring-red-300 ring-offset-4' : ''}">
+      ${pets ? petOption('Bantay','Dog · Aspin · 3 yrs', checked === 'Bantay') + petOption('Choco','Dog · Shih Tzu · 1 yr') : ''}
+      ${petOption('', 'Supplies or items not for one pet', checked === 'none')}
+    </div>
+    ${errLine(err ? 'Choose a pet, or “Not for a specific pet”.' : '')}
+    ${pets ? '' : `<p class="mt-3 text-sm text-gray-700">Jun Reyes has no pets yet. To bill for a pet, add it on ${aLink('Jun Reyes\'s page')} first.</p>`}
+  </fieldset>
+</section>
+${buttons()}
+</div>`;
+
+// ---------- Phone ----------
+const phoneView = () => `
+<div class="w-[390px] overflow-hidden rounded-[2rem] border-8 border-gray-800 bg-gray-50 shadow-lg">
+  <header class="flex h-16 items-center gap-3 border-b border-gray-200 bg-white px-4">
+    <span class="${BTN_OUTLINE}">${ic('menu')}Menu</span>
+    <div class="ml-auto"><span class="${BTN_OUTLINE}">${ic('bell')}<span class="rounded-full bg-red-600 px-2 text-sm font-semibold text-white">1 new</span></span></div>
+  </header>
+  <main class="px-4 py-6">
+    ${pickPet().replace('mt-6 flex flex-wrap items-center justify-end gap-3','mt-6 flex flex-col-reverse gap-3').replace(/mr-auto flex/,'flex')}
+  </main>
+</div>`;
+
+const page = (body, search = DEFAULT_SEARCH) => frame(body, '', search);
+
+// ---------- States ----------
+const states = [
+  { id:'visit', label:'1 · From a visit', html: page(fromVisit()),
+    caption:`<b>From a visit</b> (the appointment page's “Create receipt”, <code>?appointment=</code>). One card shows the visit, who it's billed to and the pet; nothing to pick. <b>New:</b> when the visit has a service with a <b>fixed price</b>, a ticked box adds it as the first item (“Add Consultation (₱300.00) as the first item”). Untick it to start empty. A range-price service or no service: no box. <b>Create receipt</b> is the one violet button; Cancel goes back to the visit. After saving: the receipt page. Refusals (no page, back to the visit with a message): the visit is Pending, Cancelled or No show, or dated after today; the owner or pet is archived. A visit that already has a receipt opens that receipt (“A receipt already exists for this visit.”).` },
+  { id:'visitnoservice', label:'2 · From a visit, no service', html: page(fromVisit(false)),
+    caption:`<b>A visit with no service picked</b> (or a range-price one): no checkbox, the receipt starts empty.` },
+  { id:'owner', label:'3 · Not from a visit: owner', html: page(pickOwner(), ''),
+    caption:`<b>New receipt from the Billing list</b>, step 1 “Who is it for?”. Same pattern as walk-in step 1: every active owner A to Z by first name, 25 per page, a search box that filters as you type (owner name, phone, or a pet's name), the top-bar search emptied on this step. Each owner row shows the phone and pets; <b>Choose</b> goes to step 2 (<code>?owner=</code>). No violet button on this step. Archived owners aren't listed. A line points to Add owner for someone new.` },
+  { id:'search', label:'4 · Owner search', html: page(pickOwner('cruz'), ''),
+    caption:`<b>Search results</b>: “2 owners match “cruz””, no pager, Clear search. No match: “No owner matches “…”” + “Check the spelling, or add them with Add owner.”` },
+  { id:'pet', label:'5 · Which pet?', html: page(pickPet()),
+    caption:`<b>Step 2 “Which pet?”</b>: the chosen owner with <b>Change owner</b> (back to step 1), then large radio cards: each active pet of that owner (picture, species, breed, age) and <b>Not for a specific pet</b> last. An owner with one pet has it picked already; with two or more nothing is picked (shown here after Bantay was clicked). Then Cancel + <b>Create receipt</b>. An archived pet isn't offered. Uses a fieldset + legend (the open <code>form_field.html</code> radio item in HANDOFF: this page writes its own markup instead).` },
+  { id:'peterr', label:'6 · Which pet? (error)', html: page(pickPet({ err: true, checked: '' })),
+    caption:`<b>Nothing picked</b>: the summary box and “Choose a pet, or “Not for a specific pet”.” under the choices. A hand-made POST with another owner's pet or an archived pet gets the same kind of message (“Choose one of Ana Cruz's pets.”), never a 500.` },
+  { id:'nopets', label:'7 · Owner with no pets', html: page(pickPet({ pets: false, checked: 'none' })),
+    caption:`<b>An owner with no pets</b>: only “Not for a specific pet”, already picked, and a line to add a pet on their page first.` },
+  { id:'phone', label:'8 · Phone', html: phoneView(),
+    caption:`<b>Phone width</b> (step 2): the cards fill the width, Create receipt full width on top of Cancel, the note under them.` }
+];
+
+const sw = document.getElementById('switcher');
+function show(id) {
+  const s = states.find(x => x.id === id);
+  document.getElementById('stage').innerHTML = s.html;
+  document.getElementById('caption').innerHTML = s.caption;
+  [...sw.children].forEach(b => {
+    const on = b.dataset.id === id;
+    b.className = 'min-h-11 rounded-lg px-4 text-base font-medium ' + (on ? 'bg-violet-600 text-white' : 'border border-gray-300 bg-white text-gray-800 hover:bg-gray-50');
+  });
+}
+states.forEach(s => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.dataset.id = s.id; b.textContent = s.label;
+  b.onclick = () => show(s.id);
+  sw.appendChild(b);
+});
+show('visit');
+</script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+{% extends "layouts/admin.html" %}
+{% comment %}
+  New receipt (admin_receipt_create), approved mockup
+  docs/mockups/receipt_new_v1.html. The pieces are in receipt_new_parts/;
+  step 1's results are _receipt_owner_results.html (also returned alone
+  for the filter-as-you-type request).
+  Every mode: mode ("visit" / "owner" / "pet"), back_url, back_label.
+  visit: appointment (owner, pet, service), visit_service (the fixed-price
+    service the checkbox adds, or None), today. Posts add_service.
+  owner: q, is_searching, owners (each with active_pets), owner_count,
+    is_cut, search_limit, empty_topbar_search; not searching also page_obj,
+    prev_page_query, next_page_query (the shared pager).
+  pet: owner, pets (active, each with detail_line), picked ("<pk>", "none"
+    or ""), no_pet ("none"), pet_error, error_summary, change_owner_url.
+    Posts pet.
+{% endcomment %}
+
+{% block title %}New receipt — Hapi Vet Admin{% endblock %}
+
+{# Step 1 has its own search, so the top-bar search is emptied there (as walk-in step 1) #}
+{% block topbar_search %}{% if not empty_topbar_search %}{{ block.super }}{% endif %}{% endblock %}
+
+{# The header and steps are drawn inside the content column below, so they line up with the cards #}
+{% block page_header %}{% endblock %}
+
+{% block content %}
+<div id="page-column" class="mx-auto max-w-3xl">
+{% include "admin/billing/receipt_new_parts/header.html" %}
+{% if mode == "owner" %}
+  {% include "admin/billing/receipt_new_parts/steps.html" with active=1 %}
+  {# Step 1: no primary button; the list filters as you type, and the Search button still works without JS #}
+  <div>
+    {% include "admin/billing/receipt_new_parts/owner_search.html" %}
+
+    <div id="owner-results">
+      {% include "admin/billing/_receipt_owner_results.html" %}
+    </div>
+
+    <p class="mt-4 text-sm text-gray-700">Someone new? Add them first with <a href="{% url 'admin_owner_create' %}" class="font-medium text-blue-600 underline underline-offset-2">Add owner</a> on the Pet owners page.</p>
+  </div>
+
+{% else %}
+  {% if mode == "pet" %}{% include "admin/billing/receipt_new_parts/steps.html" with active=2 %}{% endif %}
+  {# Modes visit and pet: one POST form, posted back to the same mode #}
+  <form method="post" action="{% url 'admin_receipt_create' %}{% if mode == 'visit' %}?appointment={{ appointment.pk }}{% else %}?owner={{ owner.pk }}{% endif %}" class="grid gap-6">
+    {% csrf_token %}
+    {% if mode == "visit" %}
+      {% include "admin/billing/receipt_new_parts/visit_card.html" %}
+    {% else %}
+      {% include "admin/billing/receipt_new_parts/pet_choices.html" %}
+    {% endif %}
+    {% include "admin/billing/receipt_new_parts/buttons.html" %}
+  </form>
+{% endif %}
+</div>
+{% endblock %}

@@ -1,12 +1,62 @@
+from decimal import Decimal
+
 from django import forms
+from django.db.models import Sum
+from django.db.models.functions import Lower, Trim
+
+from medical.forms import ErrorCountMixin
 
 from .models import Service, BillingReceipt
 
+# Service labels live here, not in the model's choices (that would be a
+# migration). Status order is the order the pages show the groups in.
+SERVICE_PRICING_CHOICES = [
+    (Service.FIXED, "One price"),
+    (Service.RANGE, "A price range"),
+]
+SERVICE_STATUS_CHOICES = [
+    (Service.ACTIVE, "Offered"),
+    (Service.UNLISTED, "Clinic use only"),
+    (Service.DRAFT, "Hidden (draft)"),
+    (Service.CLOSED, "No longer offered"),
+]
+PRICE_FIELDS = ("base_price", "min_price", "max_price")
+NEGATIVE_PRICE = "Prices can't be negative."
 
-class ServiceForm(forms.ModelForm):
+# The one line under each radio card on the service form (services_v1.html)
+SERVICE_PRICING_TEXT = {
+    Service.FIXED: "The same price every time.",
+    Service.RANGE: (
+        "For example ₱300.00 to ₱800.00. You set the real price on each receipt."
+    ),
+}
+SERVICE_STATUS_TEXT = {
+    Service.ACTIVE: "Pet owners see it when they book. You can put it on receipts.",
+    Service.UNLISTED: (
+        "Hidden from pet owners. You can put it on receipts and pick it for walk-ins."
+    ),
+    Service.DRAFT: "Not shown anywhere yet.",
+    Service.CLOSED: "Not shown anywhere. Old visits and receipts keep it.",
+}
+RANGE_PREVIEW_EMPTY = "Pet owners see the range when they book."
+
+
+class ServiceForm(ErrorCountMixin, forms.ModelForm):
     """
-    Admin form — create or edit a service in the catalog.
+    Admin form — create or edit a service in the catalog (rules 29–31).
+    The name is unique ignoring letter case and outer spaces. Saving clears
+    the other pricing type: One price keeps base_price only; a range keeps
+    min / max and sets base_price to the lowest (the column has no blank).
+    pricing_cards / status_cards / range_preview / is_closed feed the page's
+    hand-written radio cards and notes (service_form.html).
     """
+
+    pricing_type = forms.ChoiceField(
+        label="How is it priced?", choices=SERVICE_PRICING_CHOICES
+    )
+    status = forms.ChoiceField(
+        label="Who sees it", choices=SERVICE_STATUS_CHOICES, initial=Service.DRAFT
+    )
 
     class Meta:
         model = Service
@@ -20,109 +70,421 @@ class ServiceForm(forms.ModelForm):
             "max_price",
             "status",
         ]
-        widgets = {
-            "description": forms.Textarea(attrs={"rows": 3}),
+        labels = {
+            "service_name": "Name",
+            "category": "Category",
+            "description": "Description",
+            "base_price": "Price",
+            "min_price": "Lowest price",
+            "max_price": "Highest price",
         }
+        help_texts = {
+            "category": "Groups similar services. Type any word.",
+            "description": "Pet owners see this when they book.",
+        }
+        error_messages = {"service_name": {"required": "Type the service name."}}
+        widgets = {
+            "service_name": forms.TextInput(
+                attrs={"placeholder": "For example: Consultation"}
+            ),
+            "category": forms.TextInput(attrs={"placeholder": "For example: Vaccines"}),
+            "description": forms.Textarea(
+                attrs={"rows": 3, "placeholder": "What it includes, in a sentence"}
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Checked per pricing type in clean(), not at field level
+        for name in PRICE_FIELDS:
+            self.fields[name].required = False
+        # A new service's Price box starts empty, not at the model's 0
+        if not self.instance.pk:
+            self.initial["base_price"] = None
+
+    def _cards(self, name, texts, current):
+        """One dict per choice of a radio field: value, label, text, the
+        input's id and whether it is the checked one."""
+        return [
+            {
+                "value": value,
+                "label": label,
+                "text": texts[value],
+                "id": f"id_{name}_{index}",
+                "checked": value == current,
+            }
+            for index, (value, label) in enumerate(self.fields[name].choices)
+        ]
+
+    @property
+    def pricing_cards(self):
+        """The two pricing cards; One price is checked when nothing valid
+        was picked."""
+        current = self["pricing_type"].value()
+        if current not in SERVICE_PRICING_TEXT:
+            current = Service.FIXED
+        return self._cards("pricing_type", SERVICE_PRICING_TEXT, current)
+
+    @property
+    def pricing_shown(self):
+        """The pricing type whose price boxes show (the checked card)."""
+        return next(card["value"] for card in self.pricing_cards if card["checked"])
+
+    @property
+    def status_cards(self):
+        """The four status cards, checked as posted, else as saved."""
+        return self._cards("status", SERVICE_STATUS_TEXT, self["status"].value())
+
+    @property
+    def is_closed(self):
+        """The status as posted, else as saved, is No longer offered."""
+        return self["status"].value() == Service.CLOSED
+
+    def _typed_price(self, name):
+        """A price box's posted or saved value as a Decimal, None when empty
+        or not a number."""
+        value = self[name].value()
+        if value in (None, ""):
+            return None
+        try:
+            amount = Decimal(str(value).replace(",", "").strip())
+        except ArithmeticError:
+            return None
+        return amount if amount.is_finite() else None
+
+    @property
+    def range_preview(self):
+        """What owners will see for the typed range, or the plain sentence
+        while either price is empty or not a number."""
+        low, high = self._typed_price("min_price"), self._typed_price("max_price")
+        if low is None or high is None:
+            return RANGE_PREVIEW_EMPTY
+        return f"Pet owners see “{peso(low)} to {peso(high)}” when they book."
+
+    def clean_service_name(self):
+        name = self.cleaned_data["service_name"].strip()
+        if not name:
+            raise forms.ValidationError("Type the service name.")
+        taken = (
+            Service.objects.annotate(plain_name=Lower(Trim("service_name")))
+            .filter(plain_name=name.lower())
+            .exclude(pk=self.instance.pk)
+            .first()
+        )
+        if taken:
+            raise forms.ValidationError(
+                f"There is already a service called “{taken.service_name.strip()}”."
+            )
+        return name
 
     def clean(self):
         cleaned_data = super().clean()
         pricing_type = cleaned_data.get("pricing_type")
-        base_price = cleaned_data.get("base_price")
-        min_price = cleaned_data.get("min_price")
-        max_price = cleaned_data.get("max_price")
-
         if pricing_type == Service.FIXED:
-            if base_price is None or base_price < 0:
-                raise forms.ValidationError(
-                    "Please provide a valid base price for fixed pricing."
-                )
-
-        if pricing_type == Service.RANGE:
-            if min_price is None or max_price is None:
-                raise forms.ValidationError(
-                    "Please provide both min and max price for range pricing."
-                )
-            if min_price < 0 or max_price < 0:
-                raise forms.ValidationError("Prices cannot be negative.")
-            if min_price > max_price:
-                raise forms.ValidationError(
-                    "Minimum price cannot be greater than maximum price."
-                )
-
+            self._clean_one_price(cleaned_data)
+        elif pricing_type == Service.RANGE:
+            self._clean_price_range(cleaned_data)
         return cleaned_data
 
+    def _negative(self, cleaned_data, names):
+        """Adds "Prices can't be negative." to each of these fields that is;
+        True if any was."""
+        found = False
+        for name in names:
+            value = cleaned_data.get(name)
+            if value is not None and value < 0:
+                self.add_error(name, NEGATIVE_PRICE)
+                found = True
+        return found
 
-class BillingReceiptForm(forms.ModelForm):
+    def _clean_one_price(self, cleaned_data):
+        if "base_price" in self.errors or self._negative(cleaned_data, ["base_price"]):
+            return
+        if cleaned_data.get("base_price") is None:
+            self.add_error("base_price", "Type the price.")
+            return
+        cleaned_data["min_price"] = None
+        cleaned_data["max_price"] = None
+
+    def _clean_price_range(self, cleaned_data):
+        names = ["min_price", "max_price"]
+        if any(name in self.errors for name in names):
+            return
+        if self._negative(cleaned_data, names):
+            return
+        low, high = cleaned_data.get("min_price"), cleaned_data.get("max_price")
+        if low is None or high is None:
+            missing = "min_price" if low is None else "max_price"
+            self.add_error(missing, "Type the lowest and the highest price.")
+        elif high <= low:
+            self.add_error(
+                "max_price", "The highest price must be more than the lowest."
+            )
+        else:
+            cleaned_data["base_price"] = low
+
+    def save(self, commit=True):
+        # Set from cleaned_data even when a price field wasn't posted at all
+        # (the model form would keep the old value or the default then)
+        service = super().save(commit=False)
+        for name in PRICE_FIELDS:
+            setattr(service, name, self.cleaned_data[name])
+        if commit:
+            service.save()
+        return service
+
+
+# Discount labels live here, not in the model's choices (that would be a
+# migration). "" is "No discount".
+DISCOUNT_FORM_CHOICES = [
+    ("", "No discount"),
+    (BillingReceipt.PERCENTAGE, "Percent off (%)"),
+    (BillingReceipt.FIXED_DISCOUNT, "Peso amount off (₱)"),
+]
+
+
+def peso(amount):
+    """₱1,234.50"""
+    return f"₱{amount:,.2f}"
+
+
+class BillingReceiptForm(ErrorCountMixin, forms.ModelForm):
     """
-    Admin form — create or edit a billing receipt header.
-    Items are added separately via BillingItemForm.
-    Payment status/date are not here: they change only via the
-    mark-paid / mark-cancelled actions.
+    Admin form — the receipt's discount. Items are added separately via
+    BillingItemForm. Billing date (today on create) and payment method
+    (always Cash) are set by the system; payment status/date change only
+    via the mark-paid / mark-cancelled actions.
     """
+
+    discount_type = forms.ChoiceField(
+        label="Discount", choices=DISCOUNT_FORM_CHOICES, required=False
+    )
+    discount_value = forms.DecimalField(
+        label="How much", required=False, max_digits=10, decimal_places=2
+    )
 
     class Meta:
         model = BillingReceipt
-        fields = [
-            "billing_date",
-            "discount_type",
-            "discount_value",
-            "discount_note",
-            "payment_method",
-        ]
+        fields = ["discount_type", "discount_value", "discount_note"]
+        labels = {"discount_note": "Note"}
+        help_texts = {"discount_note": "Printed next to the discount."}
         widgets = {
-            "billing_date": forms.DateInput(attrs={"type": "date"}),
+            "discount_note": forms.TextInput(
+                attrs={"placeholder": "For example: Loyal client"}
+            ),
         }
 
+    def items_subtotal(self):
+        """The receipt's current subtotal: the sum of its items."""
+        if not self.instance.pk:
+            return Decimal("0.00")
+        total = self.instance.billing_items.aggregate(total=Sum("subtotal"))["total"]
+        return total or Decimal("0.00")
+
     def clean(self):
         cleaned_data = super().clean()
-        discount_type = cleaned_data.get("discount_type")
-        discount_value = cleaned_data.get("discount_value")
-
-        # Discount value required when discount type is set
-        if discount_type and (discount_value is None or discount_value <= 0):
-            raise forms.ValidationError(
-                "Please provide a discount value when a discount type is selected."
-            )
-
+        if "discount_value" in self.errors:
+            return cleaned_data
+        kind = cleaned_data.get("discount_type") or ""
+        value = cleaned_data.get("discount_value")
+        value = Decimal("0") if value is None else value
+        error = self._discount_error(kind, value)
+        if error:
+            self.add_error("discount_value", error)
+        elif not kind:
+            # "No discount" clears the amount and the note
+            cleaned_data["discount_value"] = Decimal("0")
+            cleaned_data["discount_note"] = ""
+        else:
+            cleaned_data["discount_value"] = value
         return cleaned_data
 
+    def _discount_error(self, kind, value):
+        if value < 0:
+            return "The amount can't be negative."
+        if kind and value == 0:
+            return "Type how much."
+        if not kind and value > 0:
+            return "Choose the kind of discount, or clear the amount."
+        if kind == BillingReceipt.PERCENTAGE and value > 100:
+            return "A discount can't be more than 100%."
+        if kind == BillingReceipt.FIXED_DISCOUNT:
+            subtotal = self.items_subtotal()
+            if value > subtotal:
+                return f"A discount can't be more than the subtotal ({peso(subtotal)})."
+        return None
 
-class BillingItemForm(forms.Form):
+
+# The "What is it?" value for an item that isn't on the price list
+OTHER_ITEM = "other"
+PICK_ITEM_MESSAGE = "Choose what it is, or Other (type it)."
+QUANTITY_MESSAGE = "The quantity must be from 1 to 999."
+ITEM_AMOUNT_LIMIT = Decimal("999999.99")
+
+
+def billable_services():
+    """Services that can go on a receipt: Offered (active) and Clinic use
+    only (unlisted), A to Z."""
+    return Service.objects.filter(
+        status__in=[Service.ACTIVE, Service.UNLISTED]
+    ).order_by(Lower("service_name"), "pk")
+
+
+def _has_range(service):
+    """A Range service with both prices set (otherwise its base price is
+    shown, as before)."""
+    return (
+        service.pricing_type == Service.RANGE
+        and service.min_price is not None
+        and service.max_price is not None
+    )
+
+
+def service_choice_label(service):
+    """ "Consultation · ₱300.00" or "Grooming · ₱300.00 to ₱800.00"."""
+    if _has_range(service):
+        price = f"{peso(service.min_price)} to {peso(service.max_price)}"
+    else:
+        price = peso(service.base_price)
+    return f"{service.service_name} · {price}"
+
+
+def service_options(services):
+    """
+    One dict per service for "What is it?": the form's choices and the
+    receipt page's Add item options (data-* in 6b-2) both come from here.
+    pricing "range" (with min_price / max_price, price None) or "fixed"
+    (with price, min / max None); help = the price_help text.
+    """
+    options = []
+    for service in services:
+        is_range = _has_range(service)
+        options.append(
+            {
+                "value": str(service.pk),
+                "label": service_choice_label(service),
+                "name": service.service_name,
+                "pricing": Service.RANGE if is_range else Service.FIXED,
+                "price": None if is_range else service.base_price,
+                "min_price": service.min_price if is_range else None,
+                "max_price": service.max_price if is_range else None,
+                # Same text as BillingItemForm.price_help, worked out here
+                # so the page's script only copies it
+                "help": price_help(service),
+            }
+        )
+    return options
+
+
+def price_help(service):
+    """Rule 11: the Unit price help for the picked service ("" for none
+    or Other)."""
+    if service is None:
+        return ""
+    if _has_range(service):
+        return (
+            f"Usual price {peso(service.min_price)} to {peso(service.max_price)}. "
+            "You can bill outside it."
+        )
+    return f"Price list: {peso(service.base_price)}."
+
+
+class BillingItemForm(ErrorCountMixin, forms.Form):
     """
     Admin form — add a billing line item to a receipt.
-    Supports both catalog services and manual items.
+    "What is it?" lists the billable services and Other (type it). A picked
+    service fills a blank description, and a blank price for a Fixed
+    service, on the server (works without JS).
     """
 
-    # Optional — if set, description auto-fills from service name
-    service = forms.ModelChoiceField(
-        queryset=Service.objects.filter(status__in=[Service.ACTIVE, Service.UNLISTED]),
-        required=False,
-        empty_label="Manual item (no service)",
+    service_choice = forms.ChoiceField(
+        label="What is it?",
+        error_messages={
+            "required": PICK_ITEM_MESSAGE,
+            "invalid_choice": PICK_ITEM_MESSAGE,
+        },
     )
     description = forms.CharField(
+        label="Description",
         max_length=200,
-        help_text="Required for manual items. Auto-filled when service is selected.",
+        required=False,
+        help_text="Printed on the receipt. You can change it.",
     )
-    quantity = forms.IntegerField(min_value=1, initial=1)
+    quantity = forms.IntegerField(
+        label="Quantity",
+        initial=1,
+        required=False,
+        error_messages={"invalid": QUANTITY_MESSAGE},
+    )
     unit_price = forms.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        min_value=0,
+        label="Unit price", required=False, max_digits=10, decimal_places=2
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Built per form, so a service hidden or closed since is refused
+        self.services = {str(s.pk): s for s in billable_services()}
+        options = service_options(self.services.values())
+        self.fields["service_choice"].choices = [
+            ("", "Choose one"),
+            *[(option["value"], option["label"]) for option in options],
+            (OTHER_ITEM, "Other (type it)"),
+        ]
+        # Rule 11: the help under Unit price for the posted choice ("" when
+        # unbound, nothing picked, Other or not a billable service)
+        picked = (
+            self.data.get(self.add_prefix("service_choice")) if self.is_bound else ""
+        )
+        self.price_help = price_help(self.services.get(str(picked or "")))
+
+    def clean_quantity(self):
+        quantity = self.cleaned_data.get("quantity")
+        if quantity is None or not 1 <= quantity <= 999:
+            raise forms.ValidationError(QUANTITY_MESSAGE)
+        return quantity
+
+    def clean_unit_price(self):
+        price = self.cleaned_data.get("unit_price")
+        if price is not None and price < 0:
+            raise forms.ValidationError("The price can't be negative.")
+        return price
 
     def clean(self):
         cleaned_data = super().clean()
-        service = cleaned_data.get("service")
-        description = cleaned_data.get("description", "").strip()
-
-        # If no service selected, description is required
-        if not service and not description:
-            raise forms.ValidationError(
-                "Please provide a description for manual items."
-            )
-
-        # Auto-fill description from service name if not provided
-        if service and not description:
-            cleaned_data["description"] = service.service_name
-
+        if "service_choice" not in cleaned_data:
+            return cleaned_data
+        service = self.services.get(cleaned_data["service_choice"])
+        cleaned_data["service"] = service
+        self._fill_description(cleaned_data, service)
+        if "unit_price" not in self.errors:
+            self._fill_price(cleaned_data, service)
+        self._check_amount(cleaned_data)
         return cleaned_data
+
+    def _fill_description(self, cleaned_data, service):
+        description = (cleaned_data.get("description") or "").strip()
+        if not description and service:
+            description = service.service_name
+        elif not description and "description" not in self.errors:
+            self.add_error("description", "Type what it is.")
+        cleaned_data["description"] = description
+
+    def _fill_price(self, cleaned_data, service):
+        if cleaned_data.get("unit_price") is not None:
+            return
+        if service and service.pricing_type == Service.FIXED:
+            cleaned_data["unit_price"] = service.base_price
+        else:
+            self.add_error("unit_price", "Type the price.")
+
+    def _check_amount(self, cleaned_data):
+        quantity = cleaned_data.get("quantity")
+        price = cleaned_data.get("unit_price")
+        if quantity is None or price is None:
+            return
+        if quantity * price > ITEM_AMOUNT_LIMIT:
+            self.add_error(
+                "unit_price",
+                "This item comes to more than ₱999,999.99. "
+                "Check the quantity and the price.",
+            )

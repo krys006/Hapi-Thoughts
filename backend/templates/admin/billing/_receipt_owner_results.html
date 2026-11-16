@@ -1,0 +1,52 @@
+{% comment %}
+  New receipt step 1 results, under the search box. Included by
+  receipt_new.html, and returned alone by admin_receipt_create for the
+  filter-as-you-type HTMX request (target #owner-results).
+  Context: q, owners (each with active_pets), is_cut, search_limit, owner_count;
+  with no q also page_obj, prev_page_query, next_page_query (the pager).
+  The heading, the results line and the empty-state title are the polite
+  live regions (the screen reader says what the typing found).
+{% endcomment %}
+{% if q %}
+  <div class="mb-3 flex justify-end">
+    <a href="{% url 'admin_receipt_create' %}" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="x" %}Clear search</a>
+  </div>
+{% endif %}
+
+<section aria-labelledby="results-title">
+  {% if q %}
+    {% if owners %}
+      <h2 id="results-title" class="mb-2 text-base text-gray-700" aria-live="polite">{% if is_cut %}More than {{ search_limit }} owners match “{{ q }}”. Showing the first {{ search_limit }}.{% else %}{{ owner_count }} owner{{ owner_count|pluralize:" matches,s match" }} “{{ q }}”{% endif %}</h2>
+    {% else %}
+      <h2 id="results-title" class="sr-only">Search results</h2>
+    {% endif %}
+  {% else %}
+    <div class="mb-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+      <h2 id="results-title" class="text-lg font-semibold text-gray-900" aria-live="polite">All pet owners ({{ owner_count }})</h2>
+      <p class="text-sm text-gray-700">A to Z by first name</p>
+    </div>
+  {% endif %}
+
+  {% if owners %}
+    <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      <ul>
+        {% for owner in owners %}
+          {% include "admin/billing/receipt_new_parts/owner_row.html" %}
+        {% endfor %}
+      </ul>
+      {% if page_obj %}
+        {% include "admin/appointments/list_parts/pager.html" %}
+      {% endif %}
+    </div>
+  {% elif q %}
+    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+      {% with title="No owner matches “"|add:q|add:"”" %}
+        {% include "components/empty_state.html" with icon="search" title=title text="Check the spelling, or add them with Add owner." live=True %}
+      {% endwith %}
+    </div>
+  {% else %}
+    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+      {% include "components/empty_state.html" with icon="users" title="No pet owners yet" text="Add the first one with Add owner on the Pet owners page." %}
+    </div>
+  {% endif %}
+</section>

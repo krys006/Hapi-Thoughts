@@ -111,9 +111,9 @@ Never use per-app template folders.
 - `base_dashboard.html` is the base for logged-in owner pages (header,
   bell, sidebar, flash messages). No admin page uses it.
 - `layouts/admin.html` is the base for every admin page (see §10). Pages
-  not redesigned yet (e.g. `admin/billing/receipt_detail.html`) import their old
-  `static/css/admin/` file in the `legacy_css` block, inside the `legacy`
-  cascade layer.
+  not redesigned yet (e.g. `admin/health/article_list.html`; no billing page
+  is left, since 6b-4) import their old `static/css/admin/` file in the
+  `legacy_css` block, inside the `legacy` cascade layer.
 - `layouts/auth.html` is the base for the admin login: a standalone card
   with no sidebar (see §10).
 - `base.html` is the base for standalone auth pages (login, register,
@@ -211,7 +211,7 @@ templates/
 │   │   │   └── step.html
 │   │   ├── _calendar_grid.html
 │   │   ├── _calendar_day_panel.html
-│   │   ├── _pet_options.html
+│   │   ├── _pet_options.html         ← unused since 6a-3 (view and URL removed); Krys deletes it
 │   │   ├── _slot_buttons.html
 │   │   ├── _slot_options.html
 │   │   └── _walkin_owner_results.html ← step 1 owner list / search results (filter as you type)
@@ -360,11 +360,56 @@ templates/
 │   │   │   └── correction_card.html  ← edit only: Reason for a correction, the red state with "You changed: …", Corrected before
 │   │   └── vaccination_history.html  ← the pet's vaccinations (header + tabs, dose cards, ?highlight=<pk>); no extra_js
 │   ├── billing/
-│   │   ├── receipt_list.html
-│   │   ├── receipt_detail.html
-│   │   ├── receipt_form.html
-│   │   ├── services_list.html
-│   │   └── service_form.html
+│   │   ├── receipt_list.html         ← Billing: receipts on layouts/admin.html, context from receipt_list_context (6b-1)
+│   │   ├── receipt_list_parts/       ← Includes for receipt_list.html (not HTMX partials, so no `_`; the pager is appointments' list_parts/pager.html)
+│   │   │   ├── search_form.html      ← search (q + the open tab as status); top bar md+, page body on phones
+│   │   │   ├── list_head.html        ← "Unpaid / Paid / Cancelled / All receipts (N)" + the sort order
+│   │   │   ├── results_line.html     ← "N receipts match “q” in …" + Clear search (keeps the tab)
+│   │   │   ├── cancelled_note.html   ← gray note on the Cancelled tab (when it has rows)
+│   │   │   ├── row.html              ← md+: 5-column grid (receipt | divider | owner + pet | total | Open); includes phone_card.html
+│   │   │   ├── phone_card.html       ← below md: number + total, date line, owner in a gray box, Open full width (stretched ::after link, owner is plain text)
+│   │   │   ├── date_line.html        ← "Created … · From the visit … at …" / "Paid … · Over the counter" (one line, no trailing newline)
+│   │   │   └── empty.html            ← no match / Nothing unpaid (link to Paid) / no paid / no cancelled / no receipts yet
+│   │   ├── billing_parts/            ← Includes shared by the Billing pages (not HTMX partials, so no `_`; replaced `_billing_tabs.html`)
+│   │   │   └── tabs.html             ← Unpaid / Paid / Cancelled / All with counts (receipt list only; Services and prices is its own sidebar page since 2026-11-16); takes active_tab and the four counts; keeps q, drops page
+│   │   ├── receipt_detail.html       ← the receipt page on layouts/admin.html (6b-2): context from receipt_detail_context + item_form / discount_form / open_dialog; extra_js = receipt_detail.js + the print partial (direct child of <body>)
+│   │   ├── receipt_detail_parts/     ← Includes for receipt_detail.html (not HTMX partials, so no `_`; the medical record page's pattern)
+│   │   │   ├── header.html           ← back link, receipt tile (gray when cancelled), "Receipt {number}" + status badge, billed to / for, the visit link or "Not linked to a visit"
+│   │   │   ├── banner.html           ← one banner per status (Unpaid with or without items, Paid, Cancelled)
+│   │   │   ├── items_card.html       ← "Items (N)", the dashed empty box, the rows (md+ grid; stacked below md), includes totals.html
+│   │   │   ├── totals.html           ← Subtotal, Discount (only with one) or "No discount", Total
+│   │   │   ├── actions_card.html     ← the side column's first card: the one violet button per state, dialog openers, [data-print]
+│   │   │   ├── billed_card.html      ← owner, phone, email, pet
+│   │   │   ├── info_card.html        ← created, payment, what the owner sees
+│   │   │   ├── field_errors.html     ← errors under a dialog field (form_field style)
+│   │   │   ├── add_item_dialog.html  ← hand-written "What is it?" select from service_options (data-name / data-price / data-pricing / data-help); reopens with errors
+│   │   │   ├── discount_dialog.html  ← discount type, How much (% / ₱ sign by the script), note; reopens with errors
+│   │   │   ├── remove_item_dialog.html ← one per item; says the new total
+│   │   │   ├── mark_paid_dialog.html ← only with items (can_mark_paid)
+│   │   │   └── cancel_dialog.html    ← "Keep it" is the go-back button (dialog_buttons.html back_text)
+│   │   ├── receipt_new.html          ← New receipt (admin_receipt_create) on layouts/admin.html (6b-3): from a visit, or step 1 "Who is it for?" / step 2 "Which pet?"; no legacy_css
+│   │   ├── _receipt_owner_results.html ← step 1 results (Clear search, heading / match line, owner rows, pager, empty states); included by receipt_new.html and returned alone for the filter-as-you-type HTMX request (target #owner-results; Vary: HX-Request)
+│   │   ├── receipt_new_parts/        ← Includes for receipt_new.html (not HTMX partials, so no `_`)
+│   │   │   ├── header.html           ← back link, "New receipt", subtitle per mode
+│   │   │   ├── steps.html            ← modes owner / pet: current violet, done green with a check (takes active=1 or 2)
+│   │   │   ├── visit_card.html       ← mode visit: "From the visit" dl + the fixed-price service checkbox
+│   │   │   ├── owner_search.html     ← step 1 search form (hx-get into #owner-results, 500 ms, hx-replace-url)
+│   │   │   ├── owner_row.html        ← one owner: avatar, phone, active pets, light-violet Choose
+│   │   │   ├── pet_choices.html      ← mode pet: error summary, Billed to + Change owner, the radio cards (CSS-only checked state), no-pets line
+│   │   │   └── buttons.html          ← note + Cancel + the one btn-primary "Create receipt" (modes visit and pet)
+│   │   ├── services_list.html        ← Billing: services and prices on layouts/admin.html (6b-4): context from services_list_context (groups, total_count); no Billing tabs; no legacy_css, no extra_js
+│   │   ├── services_list_parts/      ← Includes for services_list.html (not HTMX partials, so no `_`)
+│   │   │   ├── group.html            ← one group: gray header (status pill + "N services" + the one-line text), the rows or "None."
+│   │   │   └── row.html              ← one service, one markup for every width: name + category pill, description or "No description", price + "One price" / "Price range", outline Edit (stacks below md)
+│   │   ├── service_form.html         ← add + edit on layouts/admin.html (6b-4): `mx-auto max-w-3xl`, novalidate, the error summary (numbered), extra_js = service_form.js, a <noscript> style showing both price sets
+│   │   └── service_form_parts/       ← Includes for service_form.html (not HTMX partials, so no `_`)
+│   │       ├── header.html           ← back link, "Add service" / "Edit service · {saved_name}", subtitle
+│   │       ├── service_card.html     ← Name, Category (optional), Description (optional) through components/form_field.html
+│   │       ├── price_card.html       ← "How is it priced?" radio cards (ServiceForm.pricing_cards), then [data-price-one] / [data-price-range] indented
+│   │       ├── price_field.html      ← one price box with the ₱ sign inside (pl-8 utility beats the .form-field padding)
+│   │       ├── radio_card.html       ← one radio card (CSS-only checked state and focus ring); used by the price and status cards
+│   │       ├── status_card.html      ← "Who sees it": four radio cards (ServiceForm.status_cards) + the closed note on edit ([data-closed-note])
+│   │       └── buttons.html          ← Cancel + the one btn-primary "Add service" / "Save changes"
 │   ├── health/
 │   │   ├── article_list.html
 │   │   └── article_form.html
@@ -434,7 +479,7 @@ static/
 │   ├── owner/              ← Pet owner page styles
 │   └── shared/             ← Styles used by both roles (header, clinic info)
 ├── js/
-│   ├── admin/              ← Admin page scripts; dialogs.js and auto_submit.js are loaded by layouts/admin.html on every page; photo_input.js by admin/pets/owner_form.html, pet_form.html and admin/medical/record_detail.html (the Add file dialog), owner_form.js / pet_form.js / record_form.js / vaccination_form.js only by their form (extra_js)
+│   ├── admin/              ← Admin page scripts; dialogs.js and auto_submit.js are loaded by layouts/admin.html on every page; photo_input.js by admin/pets/owner_form.html, pet_form.html and admin/medical/record_detail.html (the Add file dialog), owner_form.js / pet_form.js / record_form.js / vaccination_form.js only by their form, receipt_detail.js (print buttons, Add item prefill, discount sign) only by the receipt page and service_form.js (price sets, closed note) only by the service form (extra_js)
 │   ├── owner/              ← Pet owner page scripts
 │   └── shared/             ← Scripts used by both roles
 ├── vendor/
@@ -459,8 +504,11 @@ static/
 > shared by the owner and pet forms, and `js/admin/pet_form.js`), `js/admin/record_list.js`,
 > `js/admin/vaccination_list.js`, `css/admin/record_list.css` and
 > `css/admin/vaccination_list.css` (Slice 5b-1: no page loads them and no comment
-> names them any more; Krys deletes the files). Other old files still
+> names them any more; Krys deletes the files), `css/admin/receipt_form.css`
+> (Slice 6a-3: the receipt edit page is gone). Other old files still
 > mention them in comments; those comments go when their own pages migrate.
+> Template gone with them: `admin/appointments/_pet_options.html` (Slice 6a-3;
+> Krys deletes it).
 > Slice 5b-2: `admin/medical/record_detail.html` no longer loads
 > `css/admin/record_detail.css` (the old `admin/medical/pet_history.html`
 > kept importing it until 5b-5). There is no record-detail JS file. The old inline vaccination form on the record page
@@ -484,6 +532,24 @@ static/
 > each other (Krys deletes all four). There was no vaccination-history JS.
 > Every template under `templates/admin/medical/` is now on the new layout:
 > no `legacy_css` block and no Tailwind CDN. No file added.
+> Slice 6b-1: `admin/billing/receipt_list.html` no longer loads
+> `js/admin/receipt_list.js` or `css/admin/receipt_list.css`, and nothing
+> includes `admin/billing/_billing_tabs.html` (the tabs are
+> `admin/billing/billing_parts/tabs.html` now); nothing loads or names any of
+> the three (Krys deletes them). `css/admin/receipt_detail.css` stayed until 6b-2.
+> Slice 6b-2: `admin/billing/receipt_detail.html` no longer loads
+> `css/admin/receipt_detail.css`; nothing loads or names it (Krys deletes the
+> file). Added: `js/admin/receipt_detail.js` (print buttons, Add item prefill,
+> discount sign; no fetch). The billing pages no longer use `openConfirmModal`
+> (`shared/modals.html` stays in the layout for the health articles page), and
+> the unused view `admin_get_service_details` and its URL are gone.
+> Slice 6b-4: `admin/billing/services_list.html` and `service_form.html` no
+> longer load `css/admin/service_form.css`, `css/admin/service_list.css` or
+> `js/admin/service_list.js` (the split pane + Add Service modal); nothing loads
+> them (Krys deletes the three; `service_list.js` and `service_form.css` only
+> name each other in comments). Added: `js/admin/service_form.js` (shows one
+> set of price boxes and the closed note; no fetch). No billing template uses
+> `legacy_css` any more.
 
 ### Media files (user uploads)
 Upload paths come from the `upload_to` values in the models:
@@ -778,7 +844,7 @@ class AppointmentBookingForm(forms.ModelForm):
 ### Four base templates
 | Base | Used by | What it provides |
 |---|---|---|
-| `layouts/admin.html` | Every admin page: redesigned ones (e.g. `admin/dashboard/index.html`) and ones not redesigned yet, which add their old CSS in `legacy_css` (e.g. `admin/billing/receipt_detail.html`) | Sidebar with count badges and logout, top bar with search ("Find a pet or owner"; the appointments, pet owners, pets, vaccinations and medical records lists and the deletion requests page put their own search there) and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/admin/dialogs.js`, `static/js/admin/auto_submit.js`, CSRF + `X-Admin-Layout` via `hx-headers`, confirm modal |
+| `layouts/admin.html` | Every admin page: redesigned ones (e.g. `admin/dashboard/index.html`) and ones not redesigned yet, which add their old CSS in `legacy_css` (e.g. `admin/health/article_list.html`) | Sidebar with count badges and logout, top bar with search ("Find a pet or owner"; the appointments, pet owners, pets, vaccinations and medical records lists and the deletion requests page put their own search there) and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/admin/dialogs.js`, `static/js/admin/auto_submit.js`, CSRF + `X-Admin-Layout` via `hx-headers`, confirm modal |
 | `layouts/auth.html` | `admin/login.html` | Admin login: standalone card on a violet background, `app.css`, no HTMX |
 | `base_dashboard.html` | Logged-in owner pages (e.g. `owner/pets/list.html`; `shared/clinic_info.html` for owners, which gets its base from the view) | Header with search and bell, role-based sidebar, flash messages, Tailwind + HTMX, CSRF header for HTMX, confirm modal |
 | `base.html` | Standalone auth pages (e.g. `owner/login.html`, `owner/register.html`, password reset, `owner/onboarding/step1.html`) | Bare page with Tailwind + HTMX, no header or sidebar |
@@ -824,7 +890,10 @@ Migrated pages never loop over `messages` (the layout includes
 {% block title %}Hapi Vet{% endblock %}
 {% block extra_css %}{% endblock %}   ← page CSS link, in <head>
 {% block content %}{% endblock %}     ← page body, inside <main>
-{% block extra_js %}{% endblock %}    ← page JS, end of <body>
+{% block extra_js %}{% endblock %}    ← page JS, end of <body>; the owner
+                                         receipt page puts the print partial
+                                         here too, so it is a direct child of
+                                         <body> (since 6a-4)
 
 <!-- base.html -->
 {% block title %}Hapi Vet{% endblock %}
@@ -872,29 +941,44 @@ dropdown (`admin/appointments/list_parts/tabs.html`):
 ```
 
 ### Example admin page not redesigned yet
-From `admin/billing/receipt_detail.html`:
+No billing page is on legacy CSS any more (the last two, the services pages,
+moved in 6b-4). Pages still on it are the health library and Clinic settings
+(Slice 7); from `admin/health/article_list.html` (head and tail, shortened
+with `…`):
 ```html
 {% extends "layouts/admin.html" %}
 
 {% load static %}
 {% block legacy_css %}
 <style>
-  @import url("{% static 'css/admin/receipt_detail.css' %}") layer(legacy);
+  @import url("{% static 'css/admin/article_form.css' %}") layer(legacy);
+  @import url("{% static 'css/admin/article_list.css' %}") layer(legacy);
 </style>
 {% endblock %}
 
-{% block title %}{{ receipt.receipt_number }} — Hapi Vet Admin{% endblock %}
+{% block title %}Health Library — Hapi Vet{% endblock %}
 
 {% block page_header %}{% endblock %}
 
 {% block content %}
-  <!-- page content here -->
-{% endblock content %}
+
+<div class="admin-page">
+
+  <div class="admin-page-header">
+    <h1 class="admin-page-title">Health Library</h1>
+    <a href="{% url 'admin_health_article_create' %}" class="btn-primary">New Article</a>
+  </div>
+  …
+</div>
+
+{% endblock %}
 
 {% block extra_js %}
-  <!-- page scripts here -->
-{% endblock extra_js %}
+  <script src="{% static 'js/admin/article_list.js' %}"></script>
+{% endblock %}
 ```
+(That page also has an inline `onclick="openConfirmModal(…)"`: the old
+pattern, not to copy; new pages use `data-dialog-open`, see Dialogs above.)
 
 ### HTMX partial templates
 Partials are prefixed with underscore and never extend a base template.
@@ -1025,7 +1109,7 @@ The main admin user is an elderly vet. Every migrated admin page follows these:
 ### Components (`templates/components/`)
 | Component | Usage |
 |---|---|
-| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 55 icons (`calendar-check` added in dashboard v5, `archive` in Slice 4a-2, `map-pin`, `link`, `pencil`, `rotate-ccw`, `send` in Slice 4a-3, `upload` in Slice 4a-4, `pill` and `chevron-down` in Slice 5b-2). To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
+| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 59 icons (`tag` added for the Services and prices sidebar link, 2026-11-16; `printer`, `percent` and `ban` added in Slice 6b-2, `calendar-check` added in dashboard v5, `archive` in Slice 4a-2, `map-pin`, `link`, `pencil`, `rotate-ccw`, `send` in Slice 4a-3, `upload` in Slice 4a-4, `pill` and `chevron-down` in Slice 5b-2). To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
 | `pet_avatar.html` | `{% include "components/pet_avatar.html" with pet=appointment.pet size="lg" %}`. `lg` 64px (`size-16 rounded-2xl`), `sm` 40px (`size-10 rounded-xl`). The pet's photo, or a violet tile with the `species_icon` icon (dog, cat, rabbit, bird, paw-print) at stroke 1.5, labelled "No photo of {name} yet". Optional `muted=True`: gray tile (`bg-gray-100 text-gray-600 ring-gray-300`) for archived pets, or every pet of an archived owner (owner page); a photo is unchanged. |
 | `owner_avatar.html` | `{% include "components/owner_avatar.html" with owner=appointment.owner size="xs" %}`. Circle; `lg` 64px (`size-16`, `text-xl` initials; owner page header), `sm` 40px, `xs` 32px. The profile photo, or initials (one letter when the last name is blank). Optional `muted=True`: gray initials tile (`bg-gray-100 text-gray-700 ring-gray-300`) for archived owners (owners list Archived tab, owner page). |
 | `form_field.html` | `{% include "components/form_field.html" with field=form.email %}`. Label, control, help text, errors (red text with the `triangle-alert` icon). Optional `optional=True` adds a gray "(optional)" after the label; `required=True` adds the red * for a field only `clean()` requires (the pet form's "Type the species"). Needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple field uses it. |

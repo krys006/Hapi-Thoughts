@@ -7,12 +7,13 @@
 
 {% block title %}New owner — Hapi Vet Admin{% endblock %}
 
-{% block page_header %}
-  {% include "admin/appointments/walkin_parts/header.html" with title="New owner" subtitle="Add the owner and the pet that came in. You book the visit next." active=1 %}
-{% endblock %}
+{# The header is drawn inside the content column below, so the title and steps line up with the cards #}
+{% block page_header %}{% endblock %}
 
 {% block content %}
-<form method="post" action="{% url 'admin_walkin_create' %}" class="grid max-w-4xl gap-6">
+<div id="page-column" class="mx-auto max-w-4xl">
+{% include "admin/appointments/walkin_parts/header.html" with title="New owner" subtitle="Add the owner and the pet that came in. You book the visit next." active=1 %}
+<form method="post" action="{% url 'admin_walkin_create' %}" class="grid gap-6">
   {% csrf_token %}
 
   <section class="card p-6" aria-labelledby="owner-title">
@@ -45,4 +46,5 @@
     <button type="submit" class="btn btn-primary">Save and continue{% include "components/icon.html" with name="arrow-right" %}</button>
   </div>
 </form>
+</div>
 {% endblock %}

@@ -492,7 +492,9 @@ class DetailPageTests(AppointmentTestBase):
         self.assertEqual(response.status_code, 200)
         return response
 
-    def _completed_with(self, record=False, receipt=False):
+    def _completed_with(self, record=False, receipt=None):
+        """A completed visit today; receipt is None (no receipt) or the
+        receipt's payment_status (6a-4: was True for a PENDING receipt)."""
         appointment = self._appointment(Appointment.COMPLETED, days_from_today=0)
         if record:
             MedicalRecord.objects.create(
@@ -503,7 +505,8 @@ class DetailPageTests(AppointmentTestBase):
                 appointment=appointment,
                 owner=self.owner,
                 pet=self.pet,
-                receipt_number="R-0001",
+                receipt_number=f"R-{appointment.pk:04d}",
+                payment_status=receipt,
             )
         return appointment
 
@@ -566,7 +569,9 @@ class DetailPageTests(AppointmentTestBase):
         self.assertNotContains(response, "All done for this visit")
 
     def test_completed_with_both_is_all_done(self):
-        appointment = self._completed_with(record=True, receipt=True)
+        """6a-4 (rule 26): "All done" needs a PAID receipt, so this now makes
+        a paid one (was a PENDING receipt). Assertions unchanged."""
+        appointment = self._completed_with(record=True, receipt=BillingReceipt.PAID)
         response = self._get(appointment)
         self.assertContains(response, "All done for this visit")
         record = appointment.medical_record
@@ -584,6 +589,102 @@ class DetailPageTests(AppointmentTestBase):
         self.assertNotContains(response, "Create receipt")
         # Both buttons are outlines: no primary button left
         self.assertNotContains(response, "btn btn-primary")
+
+    # ── 6a-4 (rule 26): the visit's receipt on the page ──────────────────────
+
+    def _receipt_link(self, appointment):
+        """The banner's one-line link to the visit's receipt."""
+        receipt = appointment.billing_receipt
+        url = reverse("admin_receipt_detail", args=[receipt.pk])
+        return (
+            f'<a href="{url}" class="font-medium underline underline-offset-2">'
+            f"Open receipt {receipt.receipt_number}</a>"
+        )
+
+    def test_receipt_state_in_the_context(self):
+        cases = [
+            (None, None),
+            (BillingReceipt.PENDING, "unpaid"),
+            (BillingReceipt.PAID, "paid"),
+            (BillingReceipt.CANCELLED, "cancelled"),
+        ]
+        for status, state in cases:
+            with self.subTest(status=status):
+                response = self._get(self._completed_with(record=True, receipt=status))
+                self.assertEqual(response.context["receipt_state"], state)
+
+    def test_unpaid_receipt_is_not_all_done(self):
+        for record in (True, False):
+            with self.subTest(record=record):
+                appointment = self._completed_with(
+                    record=record, receipt=BillingReceipt.PENDING
+                )
+                response = self._get(appointment)
+                number = appointment.billing_receipt.receipt_number
+                self.assertNotContains(response, "All done for this visit")
+                self.assertContains(response, "Visit completed")
+                self.assertContains(response, "Receipt not paid yet.")
+                self.assertContains(response, self._receipt_link(appointment))
+                record_line = (
+                    "The medical record is added."
+                    if record
+                    else "Next, add the medical record."
+                )
+                self.assertContains(response, record_line)
+                # Details row: number + status label
+                self.assertContains(response, f"· {number} · Unpaid")
+                # Actions: open it, never create another
+                self.assertContains(response, "Open receipt</a>")
+                self.assertNotContains(response, "Create receipt")
+
+    def test_paid_receipt_without_a_record(self):
+        appointment = self._completed_with(receipt=BillingReceipt.PAID)
+        response = self._get(appointment)
+        number = appointment.billing_receipt.receipt_number
+        self.assertNotContains(response, "All done for this visit")
+        self.assertContains(
+            response, "The receipt is paid. One thing left: add the medical record."
+        )
+        self.assertNotContains(response, "Receipt not paid yet.")
+        self.assertContains(response, f"· {number} · Paid")
+        self.assertContains(response, "Add medical record")
+        self.assertNotContains(response, "Create receipt")
+
+    def test_paid_receipt_with_a_record_is_all_done(self):
+        appointment = self._completed_with(record=True, receipt=BillingReceipt.PAID)
+        response = self._get(appointment)
+        self.assertContains(response, "All done for this visit")
+        self.assertContains(
+            response, "The medical record is added and the receipt is paid."
+        )
+        self.assertNotContains(response, self._receipt_link(appointment))
+
+    def test_cancelled_receipt(self):
+        appointment = self._completed_with(
+            record=True, receipt=BillingReceipt.CANCELLED
+        )
+        response = self._get(appointment)
+        number = appointment.billing_receipt.receipt_number
+        self.assertNotContains(response, "All done for this visit")
+        self.assertContains(response, "The receipt for this visit was cancelled.")
+        self.assertContains(response, self._receipt_link(appointment))
+        self.assertContains(response, f"· {number} · Cancelled")
+        # One receipt per visit: no Create receipt, no link to the create page
+        self.assertNotContains(response, "Create receipt")
+        self.assertNotContains(response, reverse("admin_receipt_create"))
+        self.assertContains(response, "Open receipt</a>")
+
+    def test_no_receipt_offers_create_only(self):
+        appointment = self._completed_with(record=True)
+        response = self._get(appointment)
+        self.assertIsNone(response.context["receipt_state"])
+        self.assertContains(
+            response,
+            f'href="{reverse("admin_receipt_create")}?appointment={appointment.pk}"',
+        )
+        self.assertContains(response, "Create receipt")
+        self.assertNotContains(response, "Open receipt")
+        self.assertNotContains(response, "Receipt not paid yet.")
 
     def test_moved_original_links_to_the_new_appointment(self):
         original = self._appointment(Appointment.CANCELLED)
@@ -2629,6 +2730,41 @@ class WalkInStepOneHtmxTests(WalkInFlowTestBase):
         )
         self.assertNotContains(response, "hx-push-url")
         self.assertContains(response, '<div id="owner-results">')
+
+    def test_results_sit_inside_the_centered_column(self):
+        """The partial has no width of its own: after a swap the list is
+        still inside the page's centered column."""
+        html = self._get().content.decode()
+        self.assertLess(
+            html.index('id="page-column"'), html.index('id="owner-results"')
+        )
+        partial = self._get(**self.SWAP).content.decode()
+        self.assertNotRegex(partial, r"mx-auto|max-w-(?:xl|2xl|3xl|4xl|5xl|6xl|7xl)")
+
+
+class WalkInCenteredColumnTests(WalkInFlowTestBase):
+    """Walk-in steps 1 to 3: the whole page (back link, h1, steps, cards) is
+    one centered column (mx-auto + the page's max width)."""
+
+    def _assert_column(self, response, width):
+        html = response.content.decode()
+        match = re.search(r'<div id="page-column" class="([^"]*)">', html)
+        self.assertIsNotNone(match)
+        classes = match.group(1).split()
+        self.assertIn("mx-auto", classes)
+        self.assertIn(width, classes)
+        self.assertGreater(html.index("<h1"), match.end())
+        self.assertEqual(html.count("<h1"), 1)
+
+    def test_step_1(self):
+        self._assert_column(self.client.get(reverse(self.STEP_1)), "max-w-3xl")
+
+    def test_step_2(self):
+        response = self._visit(owner=self.owner.pk)
+        self._assert_column(response, "max-w-4xl")
+
+    def test_step_3(self):
+        self._assert_column(self._post_visit(), "max-w-3xl")
 
 
 # ─── Appointments list v4: period, top-bar search, day cards ─────────────────

@@ -1,67 +1,79 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.db import transaction
 from django.utils import timezone
+from django.utils.cache import patch_vary_headers
 
-from .models import Service, BillingReceipt, BillingItem
+from appointments.utils import is_owner_results_swap
+
+from .models import Service, BillingItem
 from .forms import ServiceForm, BillingReceiptForm, BillingItemForm
-
-from notifications.utils import notify
+from .utils import (
+    LOCKED_MESSAGE,  # noqa: F401 (tests import it from here)
+    NO_ITEMS_MESSAGE,
+    RECEIPT_EXISTS,
+    RECEIPT_NEW_TEMPLATE,
+    RECEIPT_OWNER_RESULTS_TEMPLATE,
+    add_item,
+    create_receipt,
+    create_visit_receipt,
+    discount_label,
+    discount_saved_message,
+    initial_pet_pick,
+    lock_pending_receipt,
+    mark_receipt_cancelled,
+    mark_receipt_paid,
+    notify_receipt_paid,
+    owner_for_receipt,
+    owner_receipts,
+    receipt_detail_context,
+    receipt_for_page,
+    receipt_items,
+    receipt_list_context,
+    receipt_owner_context,
+    receipt_pet_choice,
+    receipt_pet_context,
+    receipt_pets,
+    refuse_locked,
+    restore_message,
+    save_discount,
+    service_saved_message,
+    services_list_context,
+    visit_for_receipt,
+    visit_receipt_context,
+    visit_receipt_stop,
+    visit_service,
+)
 
 from appointments.models import ClinicSettings
-
-# Shown whenever a write is refused because receipt.is_locked
-LOCKED_MESSAGE = "This receipt is locked and can't be changed."
 
 # ── Admin — Services ──────────────────────────────────────────────────────────
 
 
 @login_required
 def admin_service_list(request):
-    """Admin view — list all services in the catalog."""
+    """Admin view — the services, grouped by who sees them
+    (services_list_context)."""
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    status_filter = request.GET.get("status", "")
-    services = Service.objects.all()
-
-    if status_filter:
-        services = services.filter(status=status_filter)
-
-    counts = {
-        "all": Service.objects.count(),
-        "draft": Service.objects.filter(status=Service.DRAFT).count(),
-        "active": Service.objects.filter(status=Service.ACTIVE).count(),
-        "unlisted": Service.objects.filter(status=Service.UNLISTED).count(),
-        "closed": Service.objects.filter(status=Service.CLOSED).count(),
-    }
-
-    return render(
-        request,
-        "admin/billing/services_list.html",
-        {
-            "services": services,
-            "status_filter": status_filter,
-            "counts": counts,
-            "status_choices": Service.STATUS_CHOICES,
-        },
-    )
+    context = services_list_context(request.GET)
+    return render(request, "admin/billing/services_list.html", context)
 
 
 @login_required
 def admin_service_create(request):
-    """Admin view — create a new service."""
+    """Admin view — create a new service (starts as Hidden (draft))."""
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
     if request.method == "POST":
         form = ServiceForm(request.POST)
         if form.is_valid():
-            form.save()
-            messages.success(request, "Service created.")
+            service = form.save()
+            messages.success(request, service_saved_message(service, created=True))
             return redirect("admin_service_list")
-        else:
-            messages.error(request, "Please correct the errors below.")
     else:
         form = ServiceForm()
 
@@ -79,22 +91,23 @@ def admin_service_edit(request, pk):
         return redirect("owner_dashboard")
 
     service = get_object_or_404(Service, pk=pk)
+    # The form changes the instance while it validates; the page's title and
+    # note must keep the saved name after a failed save
+    saved_name = service.service_name
 
     if request.method == "POST":
         form = ServiceForm(request.POST, instance=service)
         if form.is_valid():
             form.save()
-            messages.success(request, "Service updated.")
+            messages.success(request, service_saved_message(service, created=False))
             return redirect("admin_service_list")
-        else:
-            messages.error(request, "Please correct the errors below.")
     else:
         form = ServiceForm(instance=service)
 
     return render(
         request,
         "admin/billing/service_form.html",
-        {"form": form, "service": service, "is_edit": True},
+        {"form": form, "saved_name": saved_name, "is_edit": True},
     )
 
 
@@ -103,229 +116,174 @@ def admin_service_edit(request, pk):
 
 @login_required
 def admin_receipt_list(request):
-    """Admin view — list all billing receipts."""
+    """
+    Admin view — the receipt list: tabs (?status=, Unpaid by default),
+    search (?q=) and pages (receipt_list_context).
+    """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    status_filter = request.GET.get("status", "")
-    receipts = BillingReceipt.objects.select_related("owner", "pet", "appointment")
-
-    if status_filter:
-        receipts = receipts.filter(payment_status=status_filter)
-
-    counts = {
-        "all": BillingReceipt.objects.count(),
-        "pending": BillingReceipt.objects.filter(
-            payment_status=BillingReceipt.PENDING
-        ).count(),
-        "paid": BillingReceipt.objects.filter(
-            payment_status=BillingReceipt.PAID
-        ).count(),
-        "cancelled": BillingReceipt.objects.filter(
-            payment_status=BillingReceipt.CANCELLED
-        ).count(),
-    }
-
-    return render(
-        request,
-        "admin/billing/receipt_list.html",
-        {
-            "receipts": receipts,
-            "status_filter": status_filter,
-            "counts": counts,
-        },
-    )
+    context = receipt_list_context(request.GET, timezone.localdate())
+    return render(request, "admin/billing/receipt_list.html", context)
 
 
 @login_required
 def admin_receipt_create(request):
     """
-    Admin view — create a new billing receipt.
-    Can be linked to an appointment via ?appointment=<pk>.
-    Owner and pet are derived from the appointment if linked.
+    Admin view — New receipt (admin/billing/receipt_new.html), three modes:
+    ?appointment=<pk> from a visit; ?owner=<pk> "Which pet?" (step 2);
+    neither: "Who is it for?" (step 1, the owner list and search).
+    Every new receipt is saved empty (from a visit, optionally with the
+    visit's fixed-price service as the first item) and opens its page.
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    from appointments.models import Appointment
-    from pets.models import PetOwner, Pet
-
-    # Check if linking to an appointment
-    appointment = None
-    owner = None
-    pet = None
-
-    appointment_pk = request.GET.get("appointment")
-    if appointment_pk:
-        appointment = get_object_or_404(Appointment, pk=appointment_pk)
-        owner = appointment.owner
-        pet = appointment.pet
-
-        # Check if receipt already exists for this appointment
-        if hasattr(appointment, "billing_receipt"):
-            messages.error(
-                request,
-                "A billing receipt already exists for this appointment.",
-            )
-            return redirect(
-                "admin_receipt_detail",
-                pk=appointment.billing_receipt.pk,
-            )
-
-    if request.method == "POST":
-        form = BillingReceiptForm(request.POST)
-
-        # Get owner and pet from POST if not from appointment
-        if not appointment:
-            owner_pk = request.POST.get("owner")
-            pet_pk = request.POST.get("pet")
-            if owner_pk:
-                owner = get_object_or_404(PetOwner, pk=owner_pk)
-            if pet_pk:
-                pet = get_object_or_404(Pet, pk=pet_pk)
-
-        if form.is_valid():
-            receipt = form.save(commit=False)
-            receipt.receipt_number = BillingReceipt.generate_receipt_number()
-            receipt.appointment = appointment
-            receipt.owner = owner
-            receipt.pet = pet
-            receipt.save()
-
-            messages.success(
-                request,
-                f"Receipt {receipt.receipt_number} created.",
-            )
-            return redirect("admin_receipt_detail", pk=receipt.pk)
-        else:
-            messages.error(request, "Please correct the errors below.")
-    else:
-        initial = {"billing_date": timezone.localdate()}
-        form = BillingReceiptForm(initial=initial)
-
-    # For non-appointment receipts, load owners for manual selection
-    owners = PetOwner.objects.filter(is_archived=False).order_by(
-        "last_name", "first_name"
+    if request.GET.get("appointment"):
+        appointment = visit_for_receipt(request.GET["appointment"])
+        return _new_receipt_from_visit(request, appointment)
+    if request.GET.get("owner"):
+        owner = owner_for_receipt(request.GET["owner"])
+        return _new_receipt_for_owner(request, owner)
+    # Step 1: the search box filters as you type (HTMX gets only the results)
+    template = (
+        RECEIPT_OWNER_RESULTS_TEMPLATE
+        if is_owner_results_swap(request)
+        else RECEIPT_NEW_TEMPLATE
     )
+    response = render(request, template, receipt_owner_context(request.GET))
+    # The same URL answers with the partial or the full page
+    patch_vary_headers(response, ["HX-Request"])
+    return response
 
+
+def _receipt_created(request, receipt):
+    messages.success(request, f"Receipt {receipt.receipt_number} created.")
+    return redirect("admin_receipt_detail", pk=receipt.pk)
+
+
+def _new_receipt_from_visit(request, appointment):
+    """Mode "visit". GET and POST both check the visit first."""
+    stop = visit_receipt_stop(appointment, timezone.localdate())
+    if stop:
+        level, message, url_name, pk = stop
+        messages.add_message(request, level, message)
+        return redirect(url_name, pk=pk)
+
+    service = visit_service(appointment)
+    if request.method == "POST":
+        first = service if request.POST.get("add_service") == "on" else None
+        receipt, created = create_visit_receipt(appointment, first)
+        if not created:
+            messages.info(request, RECEIPT_EXISTS)
+            return redirect("admin_receipt_detail", pk=receipt.pk)
+        return _receipt_created(request, receipt)
+    context = visit_receipt_context(appointment, service, timezone.localdate())
+    return render(request, RECEIPT_NEW_TEMPLATE, context)
+
+
+def _new_receipt_for_owner(request, owner):
+    """Mode "pet". An archived owner goes back to step 1."""
+    if owner.is_archived:
+        messages.error(request, restore_message(owner.full_name))
+        return redirect("admin_receipt_create")
+
+    pets = receipt_pets(owner)
+    picked, pet_error = initial_pet_pick(pets), ""
+    if request.method == "POST":
+        pet, pet_error = receipt_pet_choice(owner, pets, request.POST.get("pet"))
+        if not pet_error:
+            return _receipt_created(request, create_receipt(owner, pet))
+        picked = ""
+    context = receipt_pet_context(owner, pets, picked, pet_error)
+    return render(request, RECEIPT_NEW_TEMPLATE, context)
+
+
+def _render_receipt_detail(
+    request, receipt, item_form=None, discount_form=None, open_dialog=None
+):
+    """
+    The receipt page. Shared by admin_receipt_detail and the item add /
+    discount views, which pass their bound form and the dialog to reopen
+    ("add-item" / "discount") when it has errors. receipt comes from
+    receipt_for_page (the saved values, not a failed form's).
+    """
     return render(
         request,
-        "admin/billing/receipt_form.html",
+        "admin/billing/receipt_detail.html",
         {
-            "form": form,
-            "appointment": appointment,
-            "owner": owner,
-            "pet": pet,
-            "owners": owners,
-            "is_edit": False,
+            **receipt_detail_context(receipt, timezone.localdate()),
+            "item_form": item_form or BillingItemForm(),
+            "discount_form": discount_form or BillingReceiptForm(instance=receipt),
+            "open_dialog": open_dialog,
         },
     )
 
 
 @login_required
 def admin_receipt_detail(request, pk):
-    """
-    Admin view — view a billing receipt with all line items.
-    Also handles adding billing items.
-    """
+    """Admin view — the receipt page (receipt_detail_context)."""
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    receipt = get_object_or_404(
-        BillingReceipt.objects.select_related("owner", "pet", "appointment"),
-        pk=pk,
-    )
-    items = receipt.billing_items.select_related("service").all()
-    item_form = BillingItemForm()
-
-    return render(
-        request,
-        "admin/billing/receipt_detail.html",
-        {
-            "receipt": receipt,
-            "items": items,
-            "item_form": item_form,
-            "clinic_settings": ClinicSettings.objects.first(),
-        },
-    )
+    return _render_receipt_detail(request, receipt_for_page(pk))
 
 
 @login_required
 def admin_receipt_edit(request, pk):
     """
-    Admin view — edit a billing receipt header.
-    Locked if payment status is PAID or CANCELLED.
+    Admin view — the Discount dialog's endpoint (POST; the old edit page is
+    gone, so a GET opens the receipt page). Refused once PAID or CANCELLED;
+    errors re-render the receipt page with the Discount dialog open.
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    receipt = get_object_or_404(BillingReceipt, pk=pk)
-
-    if receipt.is_locked:
-        messages.error(request, LOCKED_MESSAGE)
+    if request.method != "POST":
         return redirect("admin_receipt_detail", pk=pk)
 
-    if request.method == "POST":
+    # Row-locked: the discount is checked against the items as they are
+    with transaction.atomic():
+        receipt = lock_pending_receipt(pk)
+        if receipt is None:
+            return refuse_locked(request, pk)
         form = BillingReceiptForm(request.POST, instance=receipt)
         if form.is_valid():
-            receipt = form.save()
-            # Recalculate totals in case discount changed
-            receipt.calculate_totals()
-            messages.success(request, "Receipt updated.")
+            save_discount(form)
+            messages.success(request, discount_saved_message(form))
             return redirect("admin_receipt_detail", pk=pk)
-        else:
-            messages.error(request, "Please correct the errors below.")
-    else:
-        form = BillingReceiptForm(instance=receipt)
 
-    items = receipt.billing_items.select_related("service").all()
-    item_form = BillingItemForm()
-
-    return render(
-        request,
-        "admin/billing/receipt_form.html",
-        {
-            "form": form,
-            "receipt": receipt,
-            "items": items,
-            "item_form": item_form,
-            "is_edit": True,
-        },
+    return _render_receipt_detail(
+        request, receipt_for_page(pk), discount_form=form, open_dialog="discount"
     )
 
 
 @login_required
 def admin_billing_item_add(request, receipt_pk):
     """
-    Admin view — add a billing line item to a receipt.
-    Recalculates receipt totals after adding.
+    Admin view — add a billing line item to a receipt (POST) and
+    recalculate the totals. Errors re-render the receipt page with the
+    Add item dialog open (nothing saved, no flash).
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    receipt = get_object_or_404(BillingReceipt, pk=receipt_pk)
-
-    if receipt.is_locked:
-        messages.error(request, LOCKED_MESSAGE)
+    if request.method != "POST":
         return redirect("admin_receipt_detail", pk=receipt_pk)
 
-    if request.method == "POST":
+    with transaction.atomic():
+        receipt = lock_pending_receipt(receipt_pk)
+        if receipt is None:
+            return refuse_locked(request, receipt_pk)
         form = BillingItemForm(request.POST)
         if form.is_valid():
-            BillingItem.objects.create(
-                receipt=receipt,
-                service=form.cleaned_data.get("service"),
-                description=form.cleaned_data["description"],
-                quantity=form.cleaned_data["quantity"],
-                unit_price=form.cleaned_data["unit_price"],
-                subtotal=0,  # Overwritten by BillingItem.save()
-            )
-            receipt.calculate_totals()
+            add_item(receipt, form.cleaned_data)
             messages.success(request, "Item added.")
-        else:
-            messages.error(request, "Please correct the errors.")
+            return redirect("admin_receipt_detail", pk=receipt_pk)
 
-    return redirect("admin_receipt_detail", pk=receipt_pk)
+    return _render_receipt_detail(
+        request, receipt_for_page(receipt_pk), item_form=form, open_dialog="add-item"
+    )
 
 
 @login_required
@@ -337,58 +295,48 @@ def admin_billing_item_delete(request, pk):
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    item = get_object_or_404(BillingItem, pk=pk)
-    receipt = item.receipt
+    receipt_pk = get_object_or_404(
+        BillingItem.objects.values_list("receipt_id", flat=True), pk=pk
+    )
+    if request.method != "POST":
+        return redirect("admin_receipt_detail", pk=receipt_pk)
 
-    if receipt.is_locked:
-        messages.error(request, LOCKED_MESSAGE)
-        return redirect("admin_receipt_detail", pk=receipt.pk)
-
-    if request.method == "POST":
-        item.delete()
+    with transaction.atomic():
+        receipt = lock_pending_receipt(receipt_pk)
+        if receipt is None:
+            return refuse_locked(request, receipt_pk)
+        # Only an item of the receipt that is locked (404 if it is gone)
+        get_object_or_404(receipt.billing_items, pk=pk).delete()
         receipt.calculate_totals()
         messages.success(request, "Item removed.")
 
-    return redirect("admin_receipt_detail", pk=receipt.pk)
+    return redirect("admin_receipt_detail", pk=receipt_pk)
 
 
 @login_required
 def admin_receipt_mark_paid(request, pk):
-    """Admin action — mark a receipt as PAID."""
+    """Admin action — mark a receipt as PAID, in cash, today."""
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    receipt = get_object_or_404(BillingReceipt, pk=pk)
+    if request.method != "POST":
+        return redirect("admin_receipt_detail", pk=pk)
 
-    if request.method == "POST":
-        if receipt.is_locked:
-            messages.error(request, LOCKED_MESSAGE)
-        else:
-            receipt.payment_status = BillingReceipt.PAID
-            receipt.payment_date = timezone.localdate()
-            receipt.save()
+    with transaction.atomic():
+        receipt = lock_pending_receipt(pk)
+        if receipt is None:
+            return refuse_locked(request, pk)
+        if not receipt.billing_items.exists():
+            messages.error(request, NO_ITEMS_MESSAGE)
+            return redirect("admin_receipt_detail", pk=pk)
+        mark_receipt_paid(receipt)
 
-            # Notify pet owner that their receipt has been marked as paid
-            if receipt.owner and receipt.owner.user:
-                notify(
-                    recipient=receipt.owner.user,
-                    notification_type="billing_generated",
-                    title="Payment Confirmed",
-                    message=(
-                        f"Your payment for receipt {receipt.receipt_number} "
-                        f"(₱{receipt.total_amount:,.2f}) has been confirmed. "
-                        f"Thank you!"
-                    ),
-                    related_billing=receipt,
-                    related_pet=receipt.pet,
-                    email_subject=f"Payment Confirmed — {receipt.receipt_number}",
-                )
-
-            messages.success(
-                request,
-                f"Receipt {receipt.receipt_number} marked as paid.",
-            )
-
+    # After the commit, so the row lock isn't held while the email sends
+    notify_receipt_paid(receipt)
+    messages.success(
+        request,
+        f"Receipt {receipt.receipt_number} marked as paid.",
+    )
     return redirect("admin_receipt_detail", pk=pk)
 
 
@@ -398,15 +346,15 @@ def admin_receipt_mark_cancelled(request, pk):
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    receipt = get_object_or_404(BillingReceipt, pk=pk)
+    if request.method != "POST":
+        return redirect("admin_receipt_detail", pk=pk)
 
-    if request.method == "POST":
-        if receipt.is_locked:
-            messages.error(request, LOCKED_MESSAGE)
-        else:
-            receipt.payment_status = BillingReceipt.CANCELLED
-            receipt.save()
-            messages.success(request, "Receipt cancelled.")
+    with transaction.atomic():
+        receipt = lock_pending_receipt(pk)
+        if receipt is None:
+            return refuse_locked(request, pk)
+        mark_receipt_cancelled(receipt)
+        messages.success(request, "Receipt cancelled.")
 
     return redirect("admin_receipt_detail", pk=pk)
 
@@ -416,12 +364,15 @@ def admin_receipt_mark_cancelled(request, pk):
 
 @login_required
 def owner_billing_list(request):
-    """Pet Owner view — list all their billing receipts."""
+    """Pet Owner view — their Unpaid and Paid receipts (never Cancelled)."""
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
-    owner = request.user.petowner
-    receipts = BillingReceipt.objects.filter(owner=owner).order_by("-billing_date")
+    receipts = (
+        owner_receipts(request.user.petowner)
+        .select_related("pet")
+        .order_by("-billing_date", "-created_at")
+    )
 
     return render(
         request,
@@ -434,18 +385,16 @@ def owner_billing_list(request):
 def owner_receipt_detail(request, pk):
     """
     Pet Owner view — view a single billing receipt.
-    Owners can only view their own receipts.
+    Owners can only view their own receipts; a cancelled one is a 404.
     """
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
-    owner = request.user.petowner
     receipt = get_object_or_404(
-        BillingReceipt.objects.select_related("pet", "appointment"),
+        owner_receipts(request.user.petowner).select_related("pet", "appointment"),
         pk=pk,
-        owner=owner,
     )
-    items = receipt.billing_items.select_related("service").all()
+    items = receipt_items(receipt)
 
     return render(
         request,
@@ -453,49 +402,7 @@ def owner_receipt_detail(request, pk):
         {
             "receipt": receipt,
             "items": items,
+            "discount_label": discount_label(receipt),
             "clinic_settings": ClinicSettings.objects.first(),
         },
     )
-
-
-@login_required
-def admin_get_service_details(request):
-    """
-    HTMX view — returns service name and pricing details for a selected service.
-    Used to pre-fill the billing item form when a service is selected.
-    Returns JSON consumed by inline JS in the template.
-    """
-    if request.user.role != "admin":
-        return redirect("owner_dashboard")
-
-    from django.http import JsonResponse
-
-    service_pk = request.GET.get("service", "")
-
-    if not service_pk:
-        return JsonResponse(
-            {"name": "", "price": "", "placeholder": "", "pricing_type": ""}
-        )
-
-    try:
-        service = Service.objects.get(pk=int(service_pk))
-    except (Service.DoesNotExist, ValueError):
-        return JsonResponse(
-            {"name": "", "price": "", "placeholder": "", "pricing_type": ""}
-        )
-
-    data = {
-        "name": service.service_name,
-        "pricing_type": service.pricing_type,
-        "price": "",
-        "placeholder": "",
-    }
-
-    if service.pricing_type == Service.FIXED:
-        data["price"] = str(service.base_price)
-        data["placeholder"] = ""
-    elif service.pricing_type == Service.RANGE:
-        data["price"] = ""
-        data["placeholder"] = f"₱{service.min_price:,.2f} – ₱{service.max_price:,.2f}"
-
-    return JsonResponse(data)

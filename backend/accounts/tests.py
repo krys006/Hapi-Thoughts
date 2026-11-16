@@ -343,6 +343,17 @@ class WalkInOwnerCreateTests(TestCase):
     def _messages(self, response):
         return [(m.level_tag, str(m)) for m in get_messages(response.wsgi_request)]
 
+    def test_page_is_one_centered_column(self):
+        """Back link, h1, steps and cards share one mx-auto max-w-4xl column."""
+        html = self.client.get(self.url).content.decode()
+        match = re.search(r'<div id="page-column" class="([^"]*)">', html)
+        self.assertIsNotNone(match)
+        classes = match.group(1).split()
+        self.assertIn("mx-auto", classes)
+        self.assertIn("max-w-4xl", classes)
+        self.assertGreater(html.index("<h1"), match.end())
+        self.assertEqual(html.count("<h1"), 1)
+
     def _assert_goes_to_visit_step(self, response):
         owner = PetOwner.objects.get()
         visit_url = reverse("admin_walkin_appointment_visit")

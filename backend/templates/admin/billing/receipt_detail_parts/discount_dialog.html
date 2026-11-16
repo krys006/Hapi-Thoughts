@@ -1,0 +1,35 @@
+{% load billing_extras %}
+{% comment %}
+  Discount (BillingReceiptForm), posting to admin_receipt_edit. receipt_detail.js
+  puts "%" or "₱" inside the "How much" box to match the chosen kind; without
+  JS the label shows both ("% or ₱"). A POST with errors re-renders the page
+  with open_dialog "discount" (typed values kept).
+{% endcomment %}
+<dialog id="discount-dialog" aria-labelledby="discount-title" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50"{% if open_dialog == "discount" %} data-open-on-load{% endif %}>
+  <form method="post" action="{% url 'admin_receipt_edit' receipt.pk %}" class="p-6 sm:p-7" novalidate>
+    {% csrf_token %}
+    <h2 id="discount-title" class="text-xl font-bold">Discount for {{ receipt.receipt_number }}</h2>
+    <p class="mt-1 text-base text-gray-700">Subtotal now: <b>{{ subtotal|peso }}</b>.</p>
+    {% if discount_form.errors %}
+      <div class="mt-4">{% include "admin/pets/owner_form_parts/error_summary.html" with form=discount_form numbered=True %}</div>
+    {% endif %}
+    <div class="mt-5 space-y-4">
+      <div class="form-field space-y-1.5{% if discount_form.discount_type.errors %} has-error{% endif %}">
+        <label for="id_discount_type" class="block text-base font-medium text-gray-800">Discount</label>
+        {{ discount_form.discount_type }}
+        <p class="text-sm text-gray-700">Choose “No discount” to remove it.</p>
+        {% include "admin/billing/receipt_detail_parts/field_errors.html" with field=discount_form.discount_type %}
+      </div>
+      <div class="form-field space-y-1.5{% if discount_form.discount_value.errors %} has-error{% endif %}">
+        <label for="id_discount_value" class="block text-base font-medium text-gray-800">How much <span class="font-normal text-gray-700" data-discount-both>(% or ₱)</span></label>
+        <div class="relative">
+          <span class="pointer-events-none absolute inset-y-0 left-3 hidden items-center text-base text-gray-700" aria-hidden="true" data-discount-sign></span>
+          <input type="text" inputmode="decimal" name="discount_value" id="id_discount_value" value="{% if discount_form.is_bound %}{{ discount_form.discount_value.value|default_if_none:'' }}{% elif has_discount %}{{ discount_form.discount_value.value }}{% endif %}" class="pl-8">
+        </div>
+        {% include "admin/billing/receipt_detail_parts/field_errors.html" with field=discount_form.discount_value %}
+      </div>
+      {% include "components/form_field.html" with field=discount_form.discount_note optional=True %}
+    </div>
+    {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Save discount" icon="check" %}
+  </form>
+</dialog>

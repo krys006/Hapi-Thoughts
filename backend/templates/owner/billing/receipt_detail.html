@@ -280,7 +280,7 @@
                 <span class="detail-value">
 
                     <span class="status-badge status-{{ receipt.payment_status }}">
-                        {{ receipt.get_payment_status_display }}
+                        {{ receipt.status_label }}
                     </span>
 
                 </span>
@@ -388,6 +388,10 @@
 
 </div>
 
-{% include "shared/billing/_receipt_print.html" %}
+{% endblock %}
 
+{# extra_js renders straight inside <body>, so the printout is a direct #}
+{# child of <body> (its print styles hide every other child of <body>) #}
+{% block extra_js %}
+{% include "shared/billing/_receipt_print.html" %}
 {% endblock %}

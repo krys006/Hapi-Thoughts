@@ -309,8 +309,11 @@ PENDING or CONFIRMED → CANCELLED
 | Fixed pricing — single base price | `complete` |
 | Range pricing — min price and max price shown to pet owners | `complete` |
 | Actual billed amount set by Admin at billing time | `complete` |
-| Set service status: Draft / Active / Unlisted / Closed | `complete` |
+| Set service status: Draft / Active / Unlisted / Closed (shown as Hidden (draft) / Offered / Clinic use only / No longer offered); a new service starts as Hidden (draft); no delete, No longer offered retires one | `complete` |
+| Service names are unique, ignoring letter case and outer spaces | `complete` |
+| Saving clears the other pricing type (One price clears the range; a range sets the base price to its lowest price) | `complete` |
 | Optional service category (Admin-defined freely) | `complete` |
+| Services page: one list grouped by who sees each service (Offered, Clinic use only, Hidden (draft), No longer offered), A to Z, with the price and "One price" / "Price range"; add and edit on one form (the price boxes follow the chosen pricing type) | `complete` |
 
 ### Service Status Behavior
 | Status | Visible to Pet Owner | Bookable |
@@ -318,7 +321,7 @@ PENDING or CONFIRMED → CANCELLED
 | **Draft** | No | No |
 | **Active** | Yes | Yes |
 | **Unlisted** | No | Admin use only |
-| **Closed** | Yes (shown as unavailable) | No |
+| **Closed** | No (hidden; old visits and receipts keep it) | No |
 
 ### 5.2 Billing (Admin)
 | Feature | Status |
@@ -330,9 +333,11 @@ PENDING or CONFIRMED → CANCELLED
 | System auto-calculates total | `complete` |
 | Apply discount per receipt (percentage or fixed amount) | `complete` |
 | Discount note field (e.g. "Loyal client discount") | `complete` |
-| Set payment method (cash, etc.) | `complete` |
-| Set payment status: Pending / Paid / Cancelled (via Mark as Paid / Cancel Receipt actions only) | `complete` |
-| Edit receipt while status is Pending | `complete` |
+| Payment is cash only: recorded as Cash, with today's date, by Mark as paid (no payment method field; GCash / bank transfer is a future expansion point) | `complete` |
+| Set payment status: Pending / Paid / Cancelled, shown as Unpaid / Paid / Cancelled (via Mark as Paid / Cancel Receipt actions only) | `complete` |
+| Cancelled receipts are hidden from the pet owner (list, receipt page, search) | `complete` |
+| Change a receipt while it is Unpaid: add or remove items and set the discount on the receipt page (no separate edit page) | `complete` |
+| Print an Unpaid, Paid or Cancelled receipt from the receipt page (the printout carries a PAID / UNPAID / CANCELLED stamp) | `complete` |
 | Receipt locked once marked as Paid or Cancelled | `complete` |
 | View all billing transactions | `complete` |
 | View receipt detail | `complete` |
@@ -341,10 +346,10 @@ PENDING or CONFIRMED → CANCELLED
 | Feature | Status |
 |---|---|
 | View billing receipt for completed appointments | `complete` |
-| View full billing history | `complete` |
-| Download receipt as PDF | `complete` |
+| View full billing history: Unpaid and Paid receipts only (cancelled ones are never shown) | `complete` |
+| Save as PDF from the print window | `complete` |
 | Print receipt | `complete` |
-| Receive notification when billing is generated | `complete` |
+| Receive a notification when a receipt is paid | `complete` |
 
 ### Receipt Format
 ```
@@ -405,7 +410,7 @@ PENDING or CONFIRMED → CANCELLED
 | Email sent on appointment approved (to Pet Owner) | `complete` |
 | Email sent on appointment rejected (to Pet Owner) | `complete` |
 | Email sent on appointment reminder (to Pet Owner) | `complete` |
-| Email sent on billing generated (to Pet Owner) | `complete` |
+| Email sent when a receipt is paid (to Pet Owner) | `complete` |
 | Email sent on vaccination reminder (to Pet Owner) | `complete` |
 | Email sent on follow-up reminder (to Pet Owner) | `complete` |
 | Admin configurable notification email in clinic settings | `complete` |
@@ -418,7 +423,7 @@ PENDING or CONFIRMED → CANCELLED
 |---|---|
 | Pet Owner per-type email toggle (appointment reminders on/off) | `complete` |
 | Pet Owner per-type email toggle (appointment status updates on/off) | `complete` |
-| Pet Owner per-type email toggle (billing notifications on/off) | `complete` |
+| Pet Owner per-type email toggle ("Email when a receipt is paid." on/off) | `complete` |
 | Pet Owner per-type email toggle (vaccination reminders on/off) | `complete` |
 | Pet Owner per-type email toggle (follow-up reminders on/off) | `complete` |
 | Pet Owner appointment reminder timing preference (days before) | `complete` |
@@ -446,7 +451,7 @@ PENDING or CONFIRMED → CANCELLED
 | Appointment approved | Pet Owner |
 | Appointment rejected | Pet Owner |
 | Appointment reminder (configurable + day-of) | Pet Owner |
-| Billing generated | Pet Owner |
+| Receipt paid (one notification, type `billing_generated`; nothing when a receipt is created) | Pet Owner |
 | Vaccination due (configurable + day-of) | Pet Owner |
 | Follow-up due (3 days before + day-of) | Pet Owner |
 | Pet deletion request answered (PET_DELETION_ANSWERED) | Pet Owner |
@@ -552,5 +557,6 @@ These features will NOT be built in v1 under any circumstances:
 | SMS notifications | Add SMS provider config to notification system |
 | Reporting module | Billing and appointment data already structured for this |
 | Online payments | Billing system designed to accommodate payment status updates |
+| Record GCash or bank transfer payments | Payments are cash only today; `payment_method` always saves "Cash" |
 | Auto-delete notifications | Can add scheduler when hosting plan allows |
 | Public health library | Remove login requirement to make articles publicly accessible |

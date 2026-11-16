@@ -31,6 +31,7 @@ from .utils import (
     get_available_slots,
     get_walkin_owner,
     group_by_day,
+    is_owner_results_swap,
     list_links,
     list_period,
     list_tabs,
@@ -40,6 +41,7 @@ from .utils import (
     slot_in_progress,
     tab_counts,
     unfinished_visits,
+    visit_receipt_state,
     walkin_initial,
     walkin_owner_list,
     walkin_slot_context,
@@ -614,6 +616,7 @@ def _admin_detail_context(
 
     today = timezone.localdate()
     cancelled_by = appointment.cancelled_by
+    receipt = _related_or_none(appointment, "billing_receipt")
     context = {
         "appointment": appointment,
         "notes_form": notes_form,
@@ -628,7 +631,9 @@ def _admin_detail_context(
         # At most one: a moved appointment is cancelled, so it can't move again
         "moved_to": appointment.rescheduled_to.first(),
         "medical_record": _related_or_none(appointment, "medical_record"),
-        "receipt": _related_or_none(appointment, "billing_receipt"),
+        "receipt": receipt,
+        # None / "unpaid" / "paid" / "cancelled" (banner and details row)
+        "receipt_state": visit_receipt_state(receipt),
         "open_dialog": _open_dialog(cancel_form, reschedule_form),
     }
     context.update(_reschedule_slot_context(reschedule_form))
@@ -1015,18 +1020,6 @@ def _walk_in_booked_message(appointment):
     return f"Walk-in booked for {appointment.pet.name} {on}{_when(appointment)}."
 
 
-def _is_owner_results_swap(request):
-    """True for the filter-as-you-type request from step 1's search box,
-    which only needs the results. A history restore (or a request without
-    HTMX) gets the full page."""
-    headers = request.headers
-    return (
-        bool(headers.get("HX-Request"))
-        and headers.get("HX-Target") == "owner-results"
-        and not headers.get("HX-History-Restore-Request")
-    )
-
-
 @login_required
 def admin_walkin_appointment_create(request):
     """
@@ -1055,7 +1048,7 @@ def admin_walkin_appointment_create(request):
 
     template = (
         "admin/appointments/_walkin_owner_results.html"
-        if _is_owner_results_swap(request)
+        if is_owner_results_swap(request)
         else "admin/appointments/walkin_find.html"
     )
     response = render(request, template, context)
@@ -1147,36 +1140,6 @@ def admin_walkin_appointment_visit(request):
     appointment = create_walkin_appointment(owner, form.cleaned_data)
     messages.success(request, _walk_in_booked_message(appointment))
     return redirect("admin_appointment_detail", pk=appointment.pk)
-
-
-@login_required
-def admin_get_pets_for_owner(request):
-    """
-    HTMX view — returns pet <option> elements for a selected owner.
-    Used in the walk-in appointment form to filter pets by owner.
-    """
-    if request.user.role != "admin":
-        return redirect("owner_dashboard")
-
-    from pets.models import Pet
-
-    owner_id = request.GET.get("owner", "")
-    pets = Pet.objects.none()
-
-    if owner_id:
-        try:
-            pets = Pet.objects.filter(
-                owner_id=int(owner_id),
-                is_archived=False,
-            ).order_by("name")
-        except (ValueError, TypeError):
-            pass
-
-    return render(
-        request,
-        "admin/appointments/_pet_options.html",
-        {"pets": pets},
-    )
 
 
 @login_required

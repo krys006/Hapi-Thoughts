@@ -1,0 +1,37 @@
+{% load friendly_dates %}
+{% comment %}
+  Mode visit: the "From the visit" card, and the service checkbox when the
+  visit's service has a fixed price. Lives inside the page's POST form.
+  Needs: appointment (owner, pet, service), visit_service, today.
+{% endcomment %}
+<section class="card p-6" aria-labelledby="visit-title">
+  <h2 id="visit-title" class="mb-4 flex items-center gap-2 text-xl font-semibold text-gray-900">{% include "components/icon.html" with name="calendar" class="size-5 shrink-0 text-gray-600" %}From the visit</h2>
+  <dl>
+    <div class="border-t border-gray-100 py-3 first:border-t-0 first:pt-0 sm:grid sm:grid-cols-[9rem_1fr] sm:gap-4">
+      <dt class="text-base font-semibold text-gray-700">Visit</dt>
+      <dd class="flex flex-wrap items-center gap-x-3 gap-y-1 text-base text-gray-900">{% long_date_on appointment.date today as visit_day %}<span>{{ visit_day }} at {{ appointment.time|time:"g:i A" }}</span> {% include "components/status_badge.html" with status=appointment.status label=appointment.get_status_display %}</dd>
+    </div>
+    <div class="border-t border-gray-100 py-3 sm:grid sm:grid-cols-[9rem_1fr] sm:gap-4">
+      <dt class="text-base font-semibold text-gray-700">Billed to</dt>
+      <dd class="flex flex-wrap items-center gap-3 text-base text-gray-900">{% include "components/owner_avatar.html" with owner=appointment.owner size="sm" %}<span><a href="{% url 'admin_owner_detail' appointment.owner.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ appointment.owner.full_name }}</a> · {{ appointment.owner.contact_number|default:"No phone number" }}</span></dd>
+    </div>
+    <div class="border-t border-gray-100 py-3 sm:grid sm:grid-cols-[9rem_1fr] sm:gap-4">
+      <dt class="text-base font-semibold text-gray-700">Pet</dt>
+      <dd class="flex flex-wrap items-center gap-3 text-base text-gray-900">{% include "components/pet_avatar.html" with pet=appointment.pet size="sm" %}<span><a href="{% url 'admin_pet_detail' appointment.pet.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ appointment.pet.name }}</a>{% if appointment.pet.species %} · {{ appointment.pet.species|capfirst }}{% if appointment.pet.breed %} · {{ appointment.pet.breed }}{% endif %}{% endif %}</span></dd>
+    </div>
+    <div class="border-t border-gray-100 py-3 sm:grid sm:grid-cols-[9rem_1fr] sm:gap-4">
+      <dt class="text-base font-semibold text-gray-700">Service</dt>
+      <dd class="text-base text-gray-900">{% if appointment.service %}{{ appointment.service.service_name }}{% else %}<span class="text-gray-600">No service picked</span>{% endif %}</dd>
+    </div>
+  </dl>
+  {# Only for a fixed-price service that can be billed (Offered or Clinic use only) #}
+  {% if visit_service %}
+    <label for="add-service" class="mt-4 flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border border-violet-200 bg-violet-50 p-4">
+      <input type="checkbox" id="add-service" name="add_service" value="on" class="mt-0.5 size-6 shrink-0 accent-violet-600" checked>
+      <span>
+        <span class="block text-base font-semibold text-gray-900">Add {{ visit_service.service_name }} ({{ visit_service.display_price }}) as the first item</span>
+        <span class="block text-sm text-gray-700">You can change its price or remove it on the next page.</span>
+      </span>
+    </label>
+  {% endif %}
+</section>
