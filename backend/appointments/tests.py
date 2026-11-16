@@ -4146,6 +4146,93 @@ class SettingsPageMarkupTests(AppointmentTestBase):
                 self.assertNotIn("<!--", main.split('id="blocked-dates-panel"')[0])
 
 
+class ClinicInfoPageTests(AppointmentTestBase):
+    """Clinic info page: admin frame (7b-4, mockup state 10) and owner frame."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("clinic_info")
+        row = get_clinic_settings()
+        row.contact_number = "0917 000 0000"
+        row.email = "clinic@example.com"
+        row.veterinarian_name = "Dr. Edgar Sadiwa"
+        row.veterinarian_license_number = "PRC-VET-0000"
+        row.veterinarian_bio = "Cares for pets of Gasan."
+        row.save()
+
+    def _owner_get(self):
+        self.client.force_login(self.owner.user)
+        return self.client.get(self.url)
+
+    def test_admin_gets_the_admin_page_with_its_content(self):
+        response = self.client.get(self.url)
+        self.assertTemplateUsed(response, "admin/clinic_info.html")
+        self.assertTemplateUsed(response, "layouts/admin.html")
+        self.assertTemplateNotUsed(response, "shared/clinic_info.html")
+        self.assertContains(response, "Every day, 8:00 AM to 5:00 PM")
+        self.assertContains(response, "Dr. Edgar Sadiwa")
+        self.assertContains(response, "PRC-VET-0000")
+        self.assertContains(response, "Cares for pets of Gasan.")
+        self.assertContains(response, "0917 000 0000")
+        self.assertContains(response, "clinic@example.com")
+        self.assertContains(response, "Test Clinic")
+
+    def test_admin_page_has_the_map_and_a_labelled_map_link(self):
+        response = self.client.get(self.url)
+        self.assertContains(
+            response, "https://www.google.com/maps?q=Gasan%2C%20Marinduque"
+        )
+        self.assertContains(response, "Open in Google Maps")
+        self.assertContains(response, 'title="Map of the clinic"')
+
+    def test_admin_page_has_the_back_link(self):
+        response = self.client.get(self.url)
+        self.assertContains(response, f'href="{reverse("admin_clinic_settings")}"')
+        self.assertContains(response, "Back to clinic settings")
+
+    def test_admin_page_loads_no_old_files(self):
+        response = self.client.get(self.url)
+        # Static URLs carry a hash (clinic_info.<hash>.css), so match the folder
+        self.assertNotContains(response, "css/shared/clinic_info")
+        self.assertNotContains(response, "js/shared/clinic_info")
+        self.assertNotContains(response, "layer(legacy)")
+        self.assertNotContains(response, "clinic-info-page")
+
+    def test_admin_page_has_no_violet_button_and_no_inline_js(self):
+        html = self.client.get(self.url).content.decode()
+        main = html.split('id="main-content"')[1].split("</main>")[0]
+        self.assertNotIn("bg-violet-600", main)
+        self.assertNotIn("onclick", main)
+        self.assertNotIn("<!--", main)
+
+    def test_admin_page_without_an_address_has_no_map(self):
+        row = get_clinic_settings()
+        row.address = ""
+        row.save()
+        response = self.client.get(self.url)
+        self.assertNotContains(response, "Open in Google Maps")
+        self.assertContains(response, "No address is set")
+
+    def test_owner_still_gets_the_owner_frame_and_old_files(self):
+        response = self._owner_get()
+        self.assertTemplateUsed(response, "shared/clinic_info.html")
+        self.assertTemplateUsed(response, "base_dashboard.html")
+        self.assertTemplateNotUsed(response, "admin/clinic_info.html")
+        self.assertContains(response, "css/shared/clinic_info.")
+        self.assertContains(response, "js/shared/clinic_info.")
+        self.assertContains(response, "clinic-info-page")
+        self.assertContains(response, "Dr. Edgar Sadiwa")
+        self.assertContains(response, "Book an Appointment")
+        self.assertNotContains(response, "Back to clinic settings")
+
+    def test_logged_out_goes_to_the_login_page(self):
+        self.client.logout()
+        response = self.client.get(self.url)
+        self.assertRedirects(
+            response, f"/login/?next={self.url}", fetch_redirect_response=False
+        )
+
+
 class ClinicHoursLineTests(SimpleTestCase):
     """The banner's hours line (decision 12)."""
 

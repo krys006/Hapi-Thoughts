@@ -246,17 +246,17 @@ def clinic_info(request):
             f"https://www.google.com/maps?q={quote(clinic.address)}&output=embed"
         )
 
-    return render(
-        request,
-        "shared/clinic_info.html",
-        {
-            "clinic": clinic,
-            "maps_embed_url": maps_embed_url,
-            "base_template": (
-                "layouts/admin.html" if request.user.is_admin else "base_dashboard.html"
-            ),
-        },
-    )
+    context = {
+        "clinic": clinic,
+        "maps_embed_url": maps_embed_url,
+    }
+    if request.user.is_admin:
+        # Admins get their own page on the admin layout (Tailwind, no legacy CSS)
+        context["hours_line"] = clinic_hours_line(clinic) if clinic else ""
+        return render(request, "admin/clinic_info.html", context)
+
+    context["base_template"] = "base_dashboard.html"
+    return render(request, "shared/clinic_info.html", context)
 
 
 # ── Pet Owner — Appointments ──────────────────────────────────────────────────
