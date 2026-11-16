@@ -204,7 +204,7 @@ def admin_blocked_date_add(request):
 
     blocked = form.save()
     return _blocked_done(
-        request, f"{date_format(blocked.date, 'F j, Y')} is now blocked."
+        request, f"{date_format(blocked.date, 'D, M j, Y')} is now blocked."
     )
 
 
@@ -221,7 +221,7 @@ def admin_blocked_date_delete(request, pk):
 
     blocked_date.delete()
     return _blocked_done(
-        request, f"{date_format(blocked_date.date, 'F j, Y')} is open again."
+        request, f"{date_format(blocked_date.date, 'D, M j, Y')} is open again."
     )
 
 

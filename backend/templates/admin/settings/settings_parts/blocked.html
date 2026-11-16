@@ -1,13 +1,10 @@
 {% comment %}
-  Blocked dates tab. The HTMX panel is included unchanged (7b-3 restyles it);
-  it is not inside a <form>, because the panel has its own add and remove
-  forms. It still uses old class names, so clinic_settings.css loads on this
-  tab (see clinic_settings.html).
+  Blocked dates tab. The HTMX panel (list + add form) is not inside a <form>:
+  it has its own add form, and each Remove opens a dialog with its own POST
+  form. No old CSS loads on this tab.
 {% endcomment %}
 <section id="settings-blocked" aria-labelledby="settings-blocked-title">
   {% include "admin/settings/settings_parts/section_head.html" with id="settings-blocked-title" icon="ban" tint="bg-red-100 text-red-700" title="Blocked dates" text="Days the clinic is closed. Owners can't book them." %}
 
-  <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-    {% include 'admin/settings/_blocked_dates_panel.html' %}
-  </div>
+  {% include 'admin/settings/_blocked_dates_panel.html' %}
 </section>

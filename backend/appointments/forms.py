@@ -184,6 +184,7 @@ class BlockedDateForm(forms.ModelForm):
     class Meta:
         model = BlockedDate
         fields = ["date", "reason"]
+        help_texts = {"reason": "Only you see this."}
         widgets = {
             "date": forms.DateInput(attrs={"type": "date"}),
             "reason": forms.TextInput(

@@ -1,21 +1,11 @@
 {% extends "layouts/admin.html" %}
 
-{% load static %}
-
 {% comment %}
   Clinic settings, layout option B: a clinic banner, four ?tab= links, and only
   the open tab's section. Details, Schedule and Vet profile are each their own
   <form> that posts a hidden "tab". Blocked dates keeps its HTMX panel.
-  The blocked panel still uses old class names (restyled in 7b-3), so
-  clinic_settings.css loads on that tab only; the other tabs load no old CSS.
+  No tab loads any old CSS.
 {% endcomment %}
-{% block legacy_css %}
-{% if active_tab == "blocked" %}
-<style>
-  @import url("{% static 'css/admin/clinic_settings.css' %}") layer(legacy);
-</style>
-{% endif %}
-{% endblock %}
 
 {% block title %}Clinic settings — Hapi Vet Admin{% endblock %}
 

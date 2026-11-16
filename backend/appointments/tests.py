@@ -2992,7 +2992,9 @@ class BlockedDateTests(AppointmentTestBase):
         response = self._add()
         self.assertEqual(response.headers["HX-Redirect"], self.tab_url)
         page = self.client.get(self.tab_url)
-        self.assertContains(page, f"{date_format(self.day, 'F j, Y')} is now blocked.")
+        self.assertContains(
+            page, f"{date_format(self.day, 'D, M j, Y')} is now blocked."
+        )
 
     def test_htmx_remove_redirects_to_the_blocked_tab_and_flashes(self):
         blocked = BlockedDate.objects.create(date=self.day)
@@ -3001,7 +3003,9 @@ class BlockedDateTests(AppointmentTestBase):
         self.assertEqual(response.headers["HX-Redirect"], self.tab_url)
         self.assertFalse(BlockedDate.objects.exists())  # hard delete
         page = self.client.get(self.tab_url)
-        self.assertContains(page, f"{date_format(self.day, 'F j, Y')} is open again.")
+        self.assertContains(
+            page, f"{date_format(self.day, 'D, M j, Y')} is open again."
+        )
 
     def test_non_htmx_add_and_remove_use_a_normal_redirect(self):
         response = self._add(htmx=False)
@@ -3038,6 +3042,153 @@ class BlockedDateTests(AppointmentTestBase):
                 self.assertEqual(response.status_code, 302)
                 self.assertIn("login", response["Location"])
         self.assertEqual(BlockedDate.objects.count(), 1)
+
+
+class BlockedPanelMarkupTests(AppointmentTestBase):
+    """Blocked dates tab on compiled Tailwind (Slice 7b-3): heading with the
+    count, one remove dialog per row, no old handlers or stylesheet."""
+
+    HTMX = {"HTTP_HX_REQUEST": "true"}
+
+    def setUp(self):
+        super().setUp()
+        self.day = self.today + datetime.timedelta(days=3)
+        self.add_url = reverse("admin_blocked_date_add")
+        self.tab_url = f"{reverse('admin_clinic_settings')}?tab=blocked"
+
+    def _panel(self, response):
+        """The panel's HTML, from its wrapper to the end of <main> (the admin
+        layout's own modal markup comes after <main>)."""
+        return (
+            response.content.decode()
+            .split('id="blocked-dates-panel"')[1]
+            .split("</main>")[0]
+        )
+
+    def _two_blocks(self):
+        first = BlockedDate.objects.create(date=self.day, reason="Fiesta")
+        second = BlockedDate.objects.create(
+            date=self.day + datetime.timedelta(days=5), reason="Training"
+        )
+        return first, second
+
+    def test_tab_shows_the_heading_with_the_count_and_each_row(self):
+        first, second = self._two_blocks()
+        response = self.client.get(self.tab_url)
+        self.assertContains(response, "Blocked dates (2)")
+        self.assertContains(
+            response, "The clinic is closed on these days. Owners can't book them."
+        )
+        for blocked in (first, second):
+            with self.subTest(date=blocked.date):
+                self.assertContains(response, date_format(blocked.date, "D, M j, Y"))
+                self.assertContains(response, blocked.reason)
+                self.assertContains(
+                    response, f'data-dialog-open="remove-blocked-dialog-{blocked.pk}"'
+                )
+
+    def test_empty_state_in_plain_words(self):
+        response = self.client.get(self.tab_url)
+        self.assertContains(response, "Blocked dates (0)")
+        self.assertContains(response, "No dates are blocked.")
+        self.assertNotContains(response, "<dialog")
+
+    def test_one_remove_dialog_per_row_with_the_right_url_and_wording(self):
+        blocks = self._two_blocks()
+        html = self.client.get(self.tab_url).content.decode()
+        self.assertEqual(html.count("<dialog"), 2)
+        for blocked in blocks:
+            with self.subTest(date=blocked.date):
+                dialog = html.split(f'id="remove-blocked-dialog-{blocked.pk}"')[
+                    1
+                ].split("</dialog>")[0]
+                label = date_format(blocked.date, "D, M j, Y")
+                url = reverse("admin_blocked_date_delete", args=[blocked.pk])
+                self.assertIn(f'action="{url}"', dialog)
+                self.assertIn('method="post"', dialog)
+                self.assertIn("csrfmiddlewaretoken", dialog)
+                self.assertIn(f"Remove the block on {label}?", dialog)
+                self.assertIn("Owners will be able to book this day again.", dialog)
+                self.assertIn("Keep it blocked", dialog)
+                self.assertIn("Yes, remove", dialog)
+                self.assertIn("data-dialog-close", dialog)
+                self.assertIn("autofocus", dialog)
+                # The row's button names the date for screen readers
+                self.assertIn(f'Remove<span class="sr-only"> {label}</span>', html)
+
+    def test_panel_has_no_hx_confirm_and_no_onclick(self):
+        self._two_blocks()
+        responses = [
+            self.client.get(self.tab_url),
+            self.client.post(self.add_url, {"date": self.day.isoformat()}, **self.HTMX),
+        ]
+        for response in responses:
+            panel = self._panel(response)
+            self.assertNotIn("hx-confirm", panel)
+            self.assertNotIn("onclick", panel)
+            self.assertNotIn("<!--", panel)
+
+    def test_duplicate_error_is_the_panel_only_with_the_mockup_wording(self):
+        BlockedDate.objects.create(date=self.day, reason="Fiesta")
+        response = self.client.post(
+            self.add_url, {"date": self.day.isoformat(), "reason": "Again"}, **self.HTMX
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "admin/settings/_blocked_dates_panel.html")
+        self.assertTemplateNotUsed(response, "layouts/admin.html")
+        self.assertNotContains(response, "<html")
+        self.assertContains(
+            response,
+            f"{date_format(self.day, 'D, M j')} is already blocked. Pick another date.",
+        )
+        self.assertContains(response, 'value="Again"')
+        self.assertContains(response, "Block this date")
+
+    def test_busy_day_warning_hides_block_this_date(self):
+        Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=self.day,
+            time=datetime.time(9, 0),
+            status=Appointment.CONFIRMED,
+        )
+        response = self.client.post(
+            self.add_url,
+            {"date": self.day.isoformat(), "reason": "Training"},
+            **self.HTMX,
+        )
+        self.assertNotContains(response, "Block this date")
+        self.assertContains(response, "Go back")
+        self.assertContains(response, "Block anyway")
+        self.assertContains(response, 'name="confirm_busy" value="1"')
+        self.assertContains(response, "readonly")
+        self.assertContains(response, 'hx-get="' + self.add_url + '"')
+        self.assertContains(response, 'hx-target="#blocked-dates-panel"')
+        self.assertContains(response, 'hx-swap="outerHTML"')
+
+    def test_normal_panel_shows_block_this_date_and_no_warning_buttons(self):
+        response = self.client.get(self.tab_url)
+        self.assertContains(response, "Block this date")
+        self.assertNotContains(response, "Block anyway")
+        self.assertNotContains(response, 'name="confirm_busy"')
+        self.assertContains(response, f'hx-post="{self.add_url}"')
+
+    def test_blocked_tab_no_longer_loads_the_old_stylesheet(self):
+        self._two_blocks()
+        response = self.client.get(self.tab_url)
+        self.assertNotContains(response, "css/admin/clinic_settings")
+        self.assertNotContains(response, "css/admin/")
+        self.assertNotContains(response, "layer(legacy)")
+
+    def test_plain_post_remove_redirects_to_the_tab_and_flashes(self):
+        blocked = BlockedDate.objects.create(date=self.day)
+        url = reverse("admin_blocked_date_delete", args=[blocked.pk])
+        response = self.client.post(url, follow=True)
+        self.assertRedirects(response, self.tab_url)
+        self.assertFalse(BlockedDate.objects.exists())
+        self.assertContains(
+            response, f"{date_format(self.day, 'D, M j, Y')} is open again."
+        )
 
 
 class BookingLimitFormTests(AppointmentTestBase):
@@ -3910,15 +4061,12 @@ class SettingsPageMarkupTests(AppointmentTestBase):
             with self.subTest(tab=tab):
                 self.assertNotContains(self._get(tab), "js/admin/clinic_settings")
 
-    def test_only_the_blocked_tab_loads_the_old_stylesheet(self):
+    def test_no_tab_loads_the_old_stylesheet(self):
         for tab in self.TABS:
             with self.subTest(tab=tab):
                 response = self._get(tab)
-                if tab == "blocked":
-                    self.assertContains(response, "css/admin/clinic_settings")
-                else:
-                    self.assertNotContains(response, "css/admin/clinic_settings")
-                    self.assertNotContains(response, "layer(legacy)")
+                self.assertNotContains(response, "css/admin/clinic_settings")
+                self.assertNotContains(response, "layer(legacy)")
 
     # ─── Logo ─────────────────────────────────────────────────────────────────
 

@@ -1,71 +1,60 @@
 {% comment %}
-  Blocked dates panel (add form + list). Every add / error / warning response
-  swaps this whole panel; success redirects to the full settings page instead.
+  Blocked dates panel (list + add form), side by side from lg up, stacked on
+  a phone. Every add / error / warning response swaps this whole panel;
+  success redirects to the full settings page instead.
   busy_visits (with busy_date) is set when the day already has visits: the
-  warning replaces the Block button, and confirm_busy=1 goes with the form.
+  warning replaces the Block button, the date and reason are readonly, and
+  confirm_busy=1 goes with the form. "Go back" GETs the panel again with the
+  typed values and no warning.
 {% endcomment %}
-<div id="blocked-dates-panel">
+<div id="blocked-dates-panel" class="grid items-start gap-6 lg:grid-cols-2">
+
+  {% include 'admin/settings/_blocked_dates_list.html' %}
 
   <form
     hx-post="{% url 'admin_blocked_date_add' %}"
     hx-target="#blocked-dates-panel"
     hx-swap="outerHTML"
-    class="blocked-date-form"
+    class="space-y-5 rounded-xl border border-gray-200 bg-white p-6 shadow-sm"
   >
     {% csrf_token %}
     {% if busy_visits %}<input type="hidden" name="confirm_busy" value="1">{% endif %}
 
-    <div class="form-group">
-      <label for="{{ blocked_form.date.id_for_label }}" class="form-label">
-        Date
-      </label>
-      {{ blocked_form.date }}
-      {% if blocked_form.date.errors %}
-        <p class="form-error">{{ blocked_form.date.errors.0 }}</p>
-      {% endif %}
-    </div>
-
-    <div class="form-group">
-      <label for="{{ blocked_form.reason.id_for_label }}" class="form-label">
-        Reason <span class="form-optional">(optional)</span>
-      </label>
-      {{ blocked_form.reason }}
-      {% if blocked_form.reason.errors %}
-        <p class="form-error">{{ blocked_form.reason.errors.0 }}</p>
-      {% endif %}
-    </div>
+    <h2 class="text-xl font-semibold text-gray-900">Block a date</h2>
 
     {% if busy_visits %}
-      <!-- Busy day: nothing is saved until "Block anyway" -->
-      <div role="alert" class="form-error-block">
-        <p class="form-error">
-          {{ busy_date|date:"D, M j" }} already has {{ busy_visits|length }} visit{{ busy_visits|length|pluralize }}.
-        </p>
-        <ul>
+      {# Busy day: nothing is saved until "Block anyway" #}
+      <div role="alert" class="rounded-xl border-2 border-yellow-400 bg-yellow-50 p-4 text-base text-yellow-950">
+        <p class="flex items-start gap-2 font-semibold">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0" %}<span>{{ busy_date|date:"D, M j" }} already has {{ busy_visits|length }} visit{{ busy_visits|length|pluralize }}.</span></p>
+        <ul class="mt-2 list-disc space-y-1 pl-10">
           {% for visit in busy_visits %}
             <li>{{ visit.time|time:"g:i A" }} · {{ visit.pet.name }} ({{ visit.owner.first_name }} {{ visit.owner.last_name }})</li>
           {% endfor %}
         </ul>
-        <p>They stay booked. Blocking the day only stops new bookings.</p>
-        <!-- Go back: GET the panel again with the typed values, no warning -->
+        <p class="mt-2 pl-7">They stay booked. Blocking the day only stops new bookings.</p>
+      </div>
+    {% endif %}
+
+    {% include "components/form_field.html" with field=blocked_form.date %}
+    {% include "components/form_field.html" with field=blocked_form.reason optional=True %}
+
+    <div class="flex flex-col-reverse gap-3 sm:flex-row sm:flex-wrap sm:justify-end">
+      {% if busy_visits %}
+        {# Go back: GET the panel again with the typed values, no warning #}
         <button
           type="button"
-          class="btn-secondary"
+          class="btn btn-outline min-h-12 w-full sm:w-auto"
           hx-get="{% url 'admin_blocked_date_add' %}"
           hx-include="closest form"
           hx-target="#blocked-dates-panel"
           hx-swap="outerHTML"
+          autofocus
         >Go back</button>
-        <button type="submit" class="btn-primary">Block anyway</button>
-      </div>
-    {% else %}
-      <button type="submit" class="btn-secondary">
-        Block This Date
-      </button>
-    {% endif %}
+        <button type="submit" class="btn btn-primary min-h-12 w-full font-semibold sm:w-auto">{% include "components/icon.html" with name="check" %}Block anyway</button>
+      {% else %}
+        <button type="submit" class="btn btn-primary min-h-12 w-full font-semibold sm:w-auto">{% include "components/icon.html" with name="plus" %}Block this date</button>
+      {% endif %}
+    </div>
   </form>
-
-  <!-- Blocked dates list -->
-  {% include 'admin/settings/_blocked_dates_list.html' %}
 
 </div>
