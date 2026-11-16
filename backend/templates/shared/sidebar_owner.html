@@ -31,7 +31,11 @@
   </div>
 
   <div class="owner-sidebar-footer">
-    <a href="{% url 'logout' %}" class="owner-sidebar-logout">Logout</a>
+    {# Logging out is a POST #}
+    <form method="post" action="{% url 'logout' %}">
+      {% csrf_token %}
+      <button type="submit" class="owner-sidebar-logout">Logout</button>
+    </form>
   </div>
 
 </nav>

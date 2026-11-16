@@ -3346,7 +3346,11 @@ class AddPetReturnToWalkInTests(TestCase):
         self.assertFalse(Pet.objects.exists())
         # The form has no action, so the next POST goes to the same URL
         # (?return=walkin included)
-        form_tag = re.search(r"<form\b[^>]*>", response.content.decode()).group()
+        # (the first form on the page is now the sidebar's POST-only Log out
+        # form, which has an action; the pet form is the one with the species)
+        forms = re.findall(r"<form\b[^>]*>", response.content.decode())
+        logout_action = f'action="{reverse("logout")}"'
+        form_tag = next(tag for tag in forms if logout_action not in tag)
         self.assertNotIn("action=", form_tag)
         response = self.client.post(f"{self.url}?return=walkin", self.POST)
         pet = Pet.objects.get(owner=self.owner)
@@ -5781,3 +5785,139 @@ class ContactLinksAtomicTests(TestCase):
         self.assertEqual(platforms, ["Instagram"])
         self.owner.refresh_from_db()
         self.assertEqual(self.owner.first_name, "Changed")
+
+
+class TakeBackRemovalTests(TestCase):
+    """Slice 8a-1b: the owner takes back a waiting removal request. It becomes
+    CANCELLED (the row is kept); the clinic's history doesn't count it."""
+
+    def setUp(self):
+        self.owner = _login_owner(self)
+        self.owner.user.is_onboarded = True
+        self.owner.user.save()
+        self.pet = _pet(self.owner, "Max")
+
+    def _url(self, pet=None):
+        return reverse("owner_pet_cancel_delete_request", args=[(pet or self.pet).pk])
+
+    def _found(self, response):
+        return [(m.level_tag, str(m)) for m in get_messages(response.wsgi_request)]
+
+    def test_post_sets_cancelled_and_keeps_the_row(self):
+        waiting = _request(self.pet)
+        response = self.client.post(self._url())
+        self.assertRedirects(
+            response,
+            reverse("owner_pet_detail", args=[self.pet.pk]),
+            fetch_redirect_response=False,
+        )
+        waiting.refresh_from_db()
+        self.assertEqual(waiting.status, PetDeletionRequest.CANCELLED)
+        self.assertIsNone(waiting.reviewed_by)
+        self.assertIsNone(waiting.reviewed_at)
+        self.assertEqual(PetDeletionRequest.objects.count(), 1)
+        self.assertEqual(
+            self._found(response),
+            [("success", "Removal request taken back. Max stays on your account.")],
+        )
+
+    def test_get_changes_nothing(self):
+        waiting = _request(self.pet)
+        response = self.client.get(self._url())
+        self.assertRedirects(
+            response,
+            reverse("owner_pet_detail", args=[self.pet.pk]),
+            fetch_redirect_response=False,
+        )
+        waiting.refresh_from_db()
+        self.assertEqual(waiting.status, PetDeletionRequest.PENDING)
+        self.assertEqual(self._found(response), [])
+
+    def test_nothing_pending_gives_an_info_message(self):
+        info = [("info", "There's no removal request to take back.")]
+        response = self.client.post(self._url())
+        self.assertRedirects(
+            response,
+            reverse("owner_pet_detail", args=[self.pet.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(self._found(response), info)
+
+        # An answered request is not waiting either, and stays as it is
+        answered = _request(
+            self.pet, PetDeletionRequest.REJECTED, reviewed=timezone.now()
+        )
+        response = self.client.post(self._url())
+        # (the first message may still be waiting in the cookie)
+        self.assertEqual(self._found(response)[-1:], info)
+        answered.refresh_from_db()
+        self.assertEqual(answered.status, PetDeletionRequest.REJECTED)
+
+    def test_another_owners_pet_is_a_404(self):
+        other = _owner(first="Bo", last="Li", email="bo@example.com")
+        theirs = _request(_pet(other, "Rex"))
+        response = self.client.post(self._url(theirs.pet))
+        self.assertEqual(response.status_code, 404)
+        theirs.refresh_from_db()
+        self.assertEqual(theirs.status, PetDeletionRequest.PENDING)
+
+    def test_a_new_request_works_afterwards(self):
+        _request(self.pet)
+        self.client.post(self._url())
+        response = self.client.post(
+            reverse("owner_pet_delete_request", args=[self.pet.pk]),
+            {"reason": PetDeletionRequest.REHOMED},
+        )
+        self.assertRedirects(
+            response,
+            reverse("owner_pet_detail", args=[self.pet.pk]),
+            fetch_redirect_response=False,
+        )
+        statuses = list(
+            PetDeletionRequest.objects.order_by("pk").values_list("status", flat=True)
+        )
+        self.assertEqual(
+            statuses, [PetDeletionRequest.CANCELLED, PetDeletionRequest.PENDING]
+        )
+
+    def test_the_clinic_pages_do_not_count_it_as_answered(self):
+        taken_back = _request(self.pet)
+        self.client.post(self._url())
+        other_pet = _pet(self.owner, "Rex")
+        waiting = _request(other_pet)
+        archived = _request(
+            _pet(self.owner, "Old"),
+            PetDeletionRequest.APPROVED,
+            reviewed=timezone.now(),
+        )
+        _admin(self)
+
+        response = self.client.get(reverse("admin_deletion_requests"))
+        self.assertEqual([r.pk for r in response.context["pending"]], [waiting.pk])
+        self.assertEqual([r.pk for r in response.context["resolved"]], [archived.pk])
+        self.assertEqual(response.context["pending_count"], 1)
+        self.assertEqual(response.context["pending_requests_count"], 1)
+        self.assertEqual(response.context["page_obj"].paginator.count, 1)
+        self.assertContains(response, "Already answered <span")
+        self.assertEqual(response.context["shell"].pending_deletions, 1)
+
+        pet_page = self.client.get(reverse("admin_pet_detail", args=[self.pet.pk]))
+        self.assertIsNone(pet_page.context["pending_deletion"])
+        self.assertTrue(pet_page.context["show_archive_button"])
+        taken_back.refresh_from_db()
+        self.assertEqual(taken_back.status, PetDeletionRequest.CANCELLED)
+
+    def test_the_clinic_cannot_answer_a_request_taken_back(self):
+        taken_back = _request(self.pet)
+        self.client.post(self._url())
+        _admin(self)
+        for name in ("admin_approve_deletion", "admin_reject_deletion"):
+            with self.subTest(name=name):
+                response = self.client.post(reverse(name, args=[taken_back.pk]))
+                self.assertIn(
+                    ("error", "The owner took this request back."),
+                    self._found(response),
+                )
+        taken_back.refresh_from_db()
+        self.assertEqual(taken_back.status, PetDeletionRequest.CANCELLED)
+        self.assertFalse(Pet.objects.get(pk=self.pet.pk).is_archived)

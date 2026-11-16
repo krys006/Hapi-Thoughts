@@ -51,6 +51,7 @@ from .utils import (
     pet_restore_refusal,
     contact_link_initial,
     save_owner_profile,
+    take_back_removal_request,
 )
 
 from accounts.utils import (
@@ -519,21 +520,16 @@ def owner_pet_cancel_delete_request(request, pk):
     pet_owner = request.owner
     pet = get_object_or_404(Pet, pk=pk, owner=pet_owner, is_archived=False)
 
-    # Only allow cancelling PENDING requests
-    deletion_request = get_object_or_404(
-        PetDeletionRequest,
-        pet=pet,
-        requested_by=request.user,
-        status=PetDeletionRequest.PENDING,
-    )
-
-    # Only process on POST — prevents accidental cancellation via GET
+    # POST only: a GET changes nothing. The request is kept as CANCELLED
+    # (never deleted), so the clinic's history stays whole.
     if request.method == "POST":
-        deletion_request.delete()
-        messages.success(
-            request,
-            f"Deletion request for {pet.name} has been cancelled.",
-        )
+        if take_back_removal_request(pet, request.user):
+            messages.success(
+                request,
+                f"Removal request taken back. {pet.name} stays on your account.",
+            )
+        else:
+            messages.info(request, "There's no removal request to take back.")
 
     return redirect("owner_pet_detail", pk=pet.pk)
 

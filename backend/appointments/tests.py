@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
 from django.core import mail
-from django.db import DatabaseError, connection
+from django.db import DatabaseError, connection, transaction
 from django.core.paginator import Paginator
 from django.templatetags.static import static
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -27,7 +27,9 @@ from appointments.utils import (
     get_clinic_settings,
     is_slot_available,
     list_period,
+    lock_schedule,
     paging_links,
+    reschedule_by_owner,
     resolve_period,
     slot_in_progress,
 )
@@ -174,7 +176,8 @@ class RejectTests(AppointmentTestBase):
             {"message": "  The vet is away that week.  "},
         )
         appointment.refresh_from_db()
-        self.assertEqual(appointment.cancellation_reason, Appointment.OTHER)
+        # Slice 8a-1b: a decline is stored as DECLINED (was OTHER)
+        self.assertEqual(appointment.cancellation_reason, Appointment.DECLINED)
         self.assertEqual(appointment.cancellation_detail, "The vet is away that week.")
         self.assertIn(
             "Message from the clinic: The vet is away that week.",
@@ -4986,3 +4989,346 @@ class DeclinedReasonChoiceTests(SimpleTestCase):
                         Appointment.OTHER,
                     ],
                 )
+
+
+# ─── Slice 8a-1b: booking lock, atomic owner reschedule, declined reason ─────
+
+
+class _OwnerRequestBase(AppointmentTestBase):
+    """Helpers for the owner booking / reschedule / move / walk-in posts."""
+
+    def setUp(self):
+        super().setUp()
+        self.day = self.today + datetime.timedelta(days=4)
+
+    def _booking_data(self, **overrides):
+        data = {
+            "pet": self.pet.pk,
+            "date": self.day.isoformat(),
+            "time": "10:00:00",
+            "reason": "Limping",
+        }
+        data.update(overrides)
+        return data
+
+    def _reschedule_data(self, **overrides):
+        data = {
+            "date": self.day.isoformat(),
+            "time": "10:00:00",
+            "reschedule_reason": "Need to move it",
+        }
+        data.update(overrides)
+        return data
+
+    def _owner_books(self, **overrides):
+        self.client.force_login(self.owner.user)
+        return self.client.post(
+            reverse("owner_book_appointment"), self._booking_data(**overrides)
+        )
+
+    def _owner_reschedules(self, appointment, **overrides):
+        self.client.force_login(self.owner.user)
+        return self.client.post(
+            reverse("owner_appointment_reschedule", args=[appointment.pk]),
+            self._reschedule_data(**overrides),
+        )
+
+    def _admin_moves(self, appointment):
+        return self.client.post(
+            reverse("admin_appointment_reschedule", args=[appointment.pk]),
+            self._reschedule_data(),
+        )
+
+    def _walk_in(self):
+        return self.client.post(
+            reverse("admin_walkin_appointment_visit"),
+            {
+                "owner": self.owner.pk,
+                "pet": self.pet.pk,
+                "date": self.day.isoformat(),
+                "time": "10:00:00",
+                "reason": "Limping",
+                "action": "book",
+            },
+        )
+
+
+class ScheduleLockTests(_OwnerRequestBase):
+    """Every path that makes a PENDING or CONFIRMED visit runs lock_schedule()
+    inside its transaction, before it checks the slot again."""
+
+    def test_owner_booking_locks(self):
+        with mock.patch("appointments.utils.lock_schedule") as lock:
+            self._owner_books()
+        lock.assert_called_once_with()
+        self.assertEqual(Appointment.objects.count(), 1)
+
+    def test_owner_reschedule_locks(self):
+        original = self._appointment(Appointment.PENDING)
+        with mock.patch("appointments.utils.lock_schedule") as lock:
+            self._owner_reschedules(original)
+        lock.assert_called_once_with()
+        self.assertEqual(Appointment.objects.count(), 2)
+
+    def test_walk_in_locks(self):
+        with mock.patch("appointments.utils.lock_schedule") as lock:
+            self._walk_in()
+        lock.assert_called_once_with()
+        self.assertTrue(Appointment.objects.get().is_walk_in)
+
+    def test_admin_move_locks(self):
+        original = self._appointment(Appointment.CONFIRMED)
+        with mock.patch("appointments.views.lock_schedule") as lock:
+            self._admin_moves(original)
+        lock.assert_called_once_with()
+        self.assertEqual(Appointment.objects.count(), 2)
+
+    def test_lock_is_a_select_for_update_on_the_settings_row(self):
+        with transaction.atomic(), CaptureQueriesContext(connection) as queries:
+            lock_schedule()
+        locking = [q["sql"] for q in queries if "FOR UPDATE" in q["sql"]]
+        self.assertEqual(len(locking), 1)
+        self.assertIn("appointments_clinicsettings", locking[0])
+
+    def test_no_settings_row_means_no_lock_and_no_error(self):
+        ClinicSettings.objects.all().delete()
+        with transaction.atomic():
+            lock_schedule()  # must not raise
+
+
+class SlotTakenAtSaveTests(_OwnerRequestBase):
+    """The form's check passed, but the slot is gone by the time the save
+    runs under the lock: patching the re-check in appointments.utils (the form
+    keeps its own, real check) is that moment."""
+
+    MESSAGE = (
+        "10:00 AM was just taken. Someone else booked it a moment ago. "
+        "Please pick another time."
+    )
+
+    def _taken(self):
+        return mock.patch("appointments.utils.is_slot_available", return_value=False)
+
+    def test_owner_booking_comes_back_with_the_time_error(self):
+        with self._taken():
+            response = self._owner_books()
+        self.assertEqual(response.status_code, 200)
+        form = response.context["form"]
+        self.assertEqual(form.errors["time"], [self.MESSAGE])
+        self.assertEqual(form.errors.keys(), {"time"})
+        # Every value kept but the time
+        self.assertEqual(form.data["pet"], str(self.pet.pk))
+        self.assertEqual(form.data["date"], self.day.isoformat())
+        self.assertEqual(form.data["reason"], "Limping")
+        self.assertEqual(form.data["time"], "")
+        self.assertFalse(Appointment.objects.exists())
+        self.assertFalse(Notification.objects.filter(recipient=self.admin).exists())
+
+    def test_owner_reschedule_comes_back_with_the_time_error(self):
+        original = self._appointment(Appointment.CONFIRMED)
+        with self._taken():
+            response = self._owner_reschedules(original)
+        self.assertEqual(response.status_code, 200)
+        form = response.context["reschedule_form"]
+        self.assertEqual(form.errors["time"], [self.MESSAGE])
+        self.assertEqual(form.data["date"], self.day.isoformat())
+        self.assertEqual(form.data["reschedule_reason"], "Need to move it")
+        self.assertEqual(form.data["time"], "")
+        # The original is untouched, and nothing new exists
+        self._assert_status(original, Appointment.CONFIRMED)
+        self.assertEqual(original.cancellation_reason, "")
+        self.assertIsNone(original.cancelled_by)
+        self.assertEqual(Appointment.objects.count(), 1)
+
+    def test_walk_in_keeps_its_taken_handling(self):
+        with mock.patch("appointments.utils.slot_is_booked", return_value=True):
+            response = self._walk_in()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["taken_time"], "10:00 AM")
+        self.assertFalse(Appointment.objects.exists())
+        self.assertFalse(
+            Notification.objects.filter(recipient=self.owner.user).exists()
+        )
+
+    def test_admin_move_keeps_its_slot_error(self):
+        original = self._appointment(Appointment.CONFIRMED)
+        with mock.patch("appointments.views.is_slot_available", return_value=False):
+            response = self._admin_moves(original)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            "This slot is no longer available. Please select another.",
+            str(response.context["reschedule_form"].errors),
+        )
+        self._assert_status(original, Appointment.CONFIRMED)
+        self.assertEqual(Appointment.objects.count(), 1)
+
+
+class OwnerRescheduleAtomicTests(_OwnerRequestBase):
+    """The owner's reschedule cancels the original and creates the new visit
+    in one transaction: both happen or neither."""
+
+    def test_the_fields_are_the_same_as_before(self):
+        original = self._appointment(Appointment.CONFIRMED)
+        service = Service.objects.create(service_name="Checkup", status=Service.ACTIVE)
+        original.service = service
+        original.reason = "Itchy skin"
+        original.save()
+        response = self._owner_reschedules(original)
+        new = Appointment.objects.exclude(pk=original.pk).get()
+        self.assertRedirects(
+            response,
+            reverse("owner_appointment_detail", args=[new.pk]),
+            fetch_redirect_response=False,
+        )
+        original.refresh_from_db()
+        self.assertEqual(original.status, Appointment.CANCELLED)
+        self.assertEqual(original.cancellation_reason, Appointment.OTHER)
+        self.assertEqual(original.cancellation_detail, "Rescheduled by pet owner.")
+        self.assertEqual(original.cancelled_by, self.owner.user)
+        self.assertEqual(new.status, Appointment.PENDING)
+        self.assertEqual(new.owner, self.owner)
+        self.assertEqual(new.pet, self.pet)
+        self.assertEqual(new.service, service)
+        self.assertEqual((new.date, new.time), (self.day, datetime.time(10, 0)))
+        self.assertEqual(new.reason, "Itchy skin")
+        self.assertEqual(new.reschedule_reason, "Need to move it")
+        self.assertEqual(new.rescheduled_from, original)
+        self.assertEqual(
+            self._messages(response),
+            [
+                "Reschedule request submitted. "
+                "You will be notified once it is confirmed."
+            ],
+        )
+        self.assertTrue(
+            Notification.objects.filter(
+                recipient=self.admin,
+                title="Appointment Reschedule Request",
+                related_appointment=new,
+            ).exists()
+        )
+
+    def test_a_failed_create_leaves_the_original_as_it_was(self):
+        for status, hour in ((Appointment.PENDING, 9), (Appointment.CONFIRMED, 11)):
+            with self.subTest(status=status):
+                original = self._appointment(status, hour=hour)
+                with mock.patch.object(
+                    Appointment.objects, "create", side_effect=RuntimeError("boom")
+                ):
+                    with self.assertRaises(RuntimeError):
+                        self._owner_reschedules(original)
+                self._assert_status(original, status)
+                self.assertEqual(original.cancellation_reason, "")
+                self.assertIsNone(original.cancelled_by)
+                self.assertFalse(
+                    Appointment.objects.filter(rescheduled_from=original).exists()
+                )
+
+    def test_an_original_cancelled_meanwhile_changes_nothing(self):
+        original = self._appointment(Appointment.PENDING)
+
+        def cancelled_by_someone_else():
+            Appointment.objects.filter(pk=original.pk).update(
+                status=Appointment.CANCELLED
+            )
+
+        with mock.patch(
+            "appointments.utils.lock_schedule", side_effect=cancelled_by_someone_else
+        ):
+            response = self._owner_reschedules(original)
+        self.assertRedirects(
+            response,
+            reverse("owner_appointment_detail", args=[original.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(
+            self._messages(response), ["This visit can't be changed any more."]
+        )
+        self.assertEqual(Appointment.objects.count(), 1)
+        self.assertFalse(Notification.objects.filter(recipient=self.admin).exists())
+
+    def test_nothing_is_created_when_the_original_is_not_changeable(self):
+        data = {
+            "date": self.day,
+            "time": datetime.time(10, 0),
+            "reschedule_reason": "x",
+        }
+        other_user = User.objects.create_user(
+            username="other", email="other@example.com", password="unused-pass-123"
+        )
+        other = PetOwner.objects.create(
+            user=other_user, first_name="Bo", last_name="Li"
+        )
+        for status in (
+            Appointment.CANCELLED,
+            Appointment.COMPLETED,
+            Appointment.NO_SHOW,
+        ):
+            with self.subTest(status=status):
+                original = self._appointment(status)
+                self.assertIsNone(
+                    reschedule_by_owner(self.owner.user, self.owner, original.pk, data)
+                )
+        # Not this owner's visit
+        pending = self._appointment(Appointment.PENDING, hour=14)
+        self.assertIsNone(reschedule_by_owner(other_user, other, pending.pk, data))
+        self._assert_status(pending, Appointment.PENDING)
+        self.assertFalse(Appointment.objects.filter(rescheduled_from__isnull=False))
+
+
+class DeclinedReasonInUseTests(_OwnerRequestBase):
+    """The clinic's decline is stored as DECLINED; the owner reads
+    "Declined by the clinic". Old rows (reason Other) keep reading Other."""
+
+    def _decline(self, **data):
+        appointment = self._appointment(Appointment.PENDING)
+        self._post("admin_appointment_reject", appointment, data)
+        appointment.refresh_from_db()
+        return appointment
+
+    def test_decline_saves_declined(self):
+        appointment = self._decline(message="The vet is away.")
+        self.assertEqual(appointment.status, Appointment.CANCELLED)
+        self.assertEqual(appointment.cancellation_reason, Appointment.DECLINED)
+        self.assertEqual(appointment.cancellation_detail, "The vet is away.")
+        self.assertEqual(appointment.cancelled_by, self.admin)
+
+    def test_default_detail_and_notification_are_unchanged(self):
+        appointment = self._decline()
+        self.assertEqual(appointment.cancellation_detail, "Rejected by clinic.")
+        notification = Notification.objects.get(
+            recipient=self.owner.user, notification_type="appointment_rejected"
+        )
+        self.assertEqual(notification.title, "Appointment Not Confirmed")
+        self.assertIn("was not confirmed by the clinic.", notification.message)
+
+    def test_owner_visit_page_says_declined_by_the_clinic(self):
+        appointment = self._decline()
+        self.client.force_login(self.owner.user)
+        response = self.client.get(
+            reverse("owner_appointment_detail", args=[appointment.pk])
+        )
+        self.assertContains(response, "Declined by the clinic")
+
+    def test_a_clinic_cancel_and_an_old_row_do_not_say_declined(self):
+        cancelled = self._appointment(Appointment.CONFIRMED, hour=11)
+        self._post(
+            "admin_appointment_cancel",
+            cancelled,
+            {
+                "cancellation_reason": Appointment.OTHER,
+                "cancellation_detail": "Closed",
+            },
+        )
+        old = self._appointment(Appointment.CANCELLED, hour=13)
+        old.cancellation_reason = Appointment.OTHER  # a decline from before 8a-1b
+        old.cancelled_by = self.admin
+        old.save()
+        self.client.force_login(self.owner.user)
+        for appointment in (cancelled, old):
+            with self.subTest(pk=appointment.pk):
+                response = self.client.get(
+                    reverse("owner_appointment_detail", args=[appointment.pk])
+                )
+                self.assertNotContains(response, "Declined by the clinic")
+                self.assertContains(response, "Other")

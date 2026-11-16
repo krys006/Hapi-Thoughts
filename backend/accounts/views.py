@@ -133,6 +133,30 @@ def allauth_signup_redirect(request):
     return _redirect_keeping_next(request, "owner_register")
 
 
+ACCOUNT_INACTIVE_MESSAGE = (
+    "This account can't log in yet. Check your email for the link, "
+    "or contact the clinic."
+)
+
+
+def allauth_password_redirect(request, key=None):
+    """allauth's password reset pages (start, done, key, key done) → our
+    forgot-password page."""
+    return redirect("forgot_password")
+
+
+def allauth_confirm_email_redirect(request, key=None):
+    """allauth's confirm-email pages → the owner login page (owners verify
+    through our own link, see owner_verify_email)."""
+    return redirect("owner_login")
+
+
+def allauth_inactive_redirect(request):
+    """/accounts/inactive/ → the owner login page, with the reason."""
+    messages.error(request, ACCOUNT_INACTIVE_MESSAGE)
+    return redirect("owner_login")
+
+
 # ─── Admin Login ──────────────────────────────────────────────────────────────
 
 
@@ -288,9 +312,17 @@ def _send_verification_email(request, user):
 # ─── Logout ───────────────────────────────────────────────────────────────────
 
 
-@login_required
 def user_logout(request):
-    """Logs out any user; admins go to admin login, others to owner login."""
+    """
+    POST logs out any user; admins go to admin login, others to owner login.
+    A GET never logs out: a logged-in user goes to their dashboard, a
+    logged-out visitor to the owner login page (so is a POST with no one
+    logged in).
+    """
+    if not request.user.is_authenticated:
+        return redirect("owner_login")
+    if request.method != "POST":
+        return redirect_by_role(request.user)
     # Read the role first: logout() replaces request.user with AnonymousUser
     was_admin = request.user.is_admin
     logout(request)

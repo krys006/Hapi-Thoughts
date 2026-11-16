@@ -207,7 +207,7 @@ CANCELLED = 'cancelled'  # label: "Taken back by the owner"
 **Meta:** `ordering = ["-created_at"]`
 
 **Rules:**
-- No deletion allowed — preserved as audit trail. Taking back a pending request sets CANCELLED (Slice 8a-1; until then the old view still deletes the row).
+- No deletion allowed — preserved as audit trail. Taking back a pending request sets CANCELLED (Slice 8a-1b); `reviewed_by` and `reviewed_at` stay empty, and the admin's "Already answered" list shows only APPROVED and REJECTED.
 - Admin approves → pet is soft deleted (`is_archived = True`)
 - Admin rejects → pet remains active, request closed
 - The clinic can also archive a pet directly, with no owner request (Slice 4b-3, `admin_pet_archive`). A row is still created, so it shows in the deletion history: `requested_by` is then the admin user, the row is created already APPROVED, and `reviewed_by` / `reviewed_at` are the same admin and time. No field changes; "by the clinic" is told apart by `requested_by.role == "admin"`.
@@ -314,7 +314,7 @@ OTHER = 'other'
 DECLINED = 'declined'  # label: "Declined by the clinic"
 ```
 
-`DECLINED` is set when the clinic declines a request (Slice 8a-1). Older declines are stored as 'other'; not backfilled. The cancel forms do not offer it.
+`DECLINED` is set when the clinic declines a request (in use since Slice 8a-1b: `admin_appointment_reject`). Older declines are stored as 'other'; not backfilled. The cancel forms do not offer it.
 
 **Rules:**
 - No two appointments can share the same `date` + `time` combination

@@ -26,23 +26,31 @@ from .forms import (
 from .utils import (
     LIST_PAGE_SIZE,
     SETTINGS_TAB_FIELDS,
+    SLOT_NO_LONGER_AVAILABLE,
     WALKIN_PAGE_SIZE,
     WALKIN_SEARCH_LIMIT,
+    SlotTaken,
     clinic_hours_line,
+    create_owner_booking,
     create_walkin_appointment,
     filter_appointments,
     first_error_tab,
+    form_with_taken_time,
     get_admin_calendar_context,
     get_available_slots,
     get_clinic_settings,
     get_walkin_owner,
     group_by_day,
     is_owner_results_swap,
+    is_slot_available,
     list_links,
     list_period,
     list_tabs,
+    lock_schedule,
+    notify_admin_of_request,
     paging_links,
     problems_label,
+    reschedule_by_owner,
     resolve_list_tab,
     schedule_warning,
     search_walkin_owners,
@@ -322,50 +330,25 @@ def owner_book_appointment(request):
     if request.method == "POST":
         form = AppointmentBookingForm(owner, request.POST)
         if form.is_valid():
-            appointment = Appointment.objects.create(
-                owner=owner,
-                pet=form.cleaned_data["pet"],
-                service=form.cleaned_data.get("service"),
-                date=form.cleaned_data["date"],
-                time=form.cleaned_data["time"],
-                reason=form.cleaned_data.get("reason", ""),
-                status=Appointment.PENDING,
-            )
-
-            # Notify admin of new appointment request
-            User = get_user_model()
-            admin_user = User.objects.filter(role="admin").first()
-            clinic = get_clinic_settings()
-
-            if admin_user:
-                admin_notification_email = (
-                    clinic.notification_email
-                    if clinic and clinic.notification_email
-                    else admin_user.email
+            try:
+                appointment = create_owner_booking(owner, form.cleaned_data)
+            except SlotTaken:
+                # Taken since the form was checked: keep every value but the time
+                form = form_with_taken_time(
+                    AppointmentBookingForm,
+                    (owner,),
+                    request.POST,
+                    form.cleaned_data["time"],
                 )
-
-                notify(
-                    recipient=admin_user,
-                    notification_type="appointment_requested",
-                    title="New Appointment Request",
-                    message=(
-                        f"{owner.first_name} {owner.last_name} has requested "
-                        f"an appointment for {appointment.pet.name} on "
-                        f"{appointment.date.strftime('%B %d, %Y')} "
-                        f"at {appointment.time.strftime('%I:%M %p')}."
-                    ),
-                    related_appointment=appointment,
-                    related_pet=appointment.pet,
-                    email_subject="New Appointment Request — Hapi Vet",
-                    recipient_email=admin_notification_email,
+                messages.error(request, "Please correct the errors below.")
+            else:
+                notify_admin_of_request(appointment)
+                messages.success(
+                    request,
+                    "Appointment request submitted. "
+                    "You will be notified once it is confirmed.",
                 )
-
-            messages.success(
-                request,
-                "Appointment request submitted. "
-                "You will be notified once it is confirmed.",
-            )
-            return redirect("owner_appointment_detail", pk=appointment.pk)
+                return redirect("owner_appointment_detail", pk=appointment.pk)
         else:
             messages.error(request, "Please correct the errors below.")
     else:
@@ -496,58 +479,13 @@ def owner_appointment_reschedule(request, pk):
     if request.method == "POST":
         form = AppointmentRescheduleForm(appointment, request.POST)
         if form.is_valid():
-            # Cancel the original appointment
-            appointment.status = Appointment.CANCELLED
-            appointment.cancellation_reason = Appointment.OTHER
-            appointment.cancellation_detail = "Rescheduled by pet owner."
-            appointment.cancelled_by = request.user
-            appointment.save()
-
-            # Create a new appointment linked to the original
-            new_appointment = Appointment.objects.create(
-                owner=owner,
-                pet=appointment.pet,
-                service=appointment.service,
-                date=form.cleaned_data["date"],
-                time=form.cleaned_data["time"],
-                reason=appointment.reason,
-                reschedule_reason=form.cleaned_data["reschedule_reason"],
-                rescheduled_from=appointment,
-                status=Appointment.PENDING,
-            )
-
-            # Notify admin of reschedule request
-            User = get_user_model()
-            admin_user = User.objects.filter(role="admin").first()
-            if admin_user:
-                notify(
-                    recipient=admin_user,
-                    notification_type="appointment_requested",
-                    title="Appointment Reschedule Request",
-                    message=(
-                        f"{owner.first_name} {owner.last_name} has requested "
-                        f"to reschedule their appointment for "
-                        f"{new_appointment.pet.name} "
-                        f"to {new_appointment.date.strftime('%B %d, %Y')} "
-                        f"at {new_appointment.time.strftime('%I:%M %p')}."
-                    ),
-                    related_appointment=new_appointment,
-                    related_pet=new_appointment.pet,
-                    email_subject="Appointment Reschedule Request — Hapi Vet",
-                )
-
-            messages.success(
-                request,
-                "Reschedule request submitted. "
-                "You will be notified once it is confirmed.",
-            )
-            return redirect("owner_appointment_detail", pk=new_appointment.pk)
+            response, form = _submit_owner_reschedule(request, appointment, form)
+            if response:
+                return response
         else:
             messages.error(request, "Please correct the errors below.")
     else:
         form = AppointmentRescheduleForm(appointment)
-
-    clinic = get_clinic_settings()
 
     return render(
         request,
@@ -556,9 +494,41 @@ def owner_appointment_reschedule(request, pk):
             "appointment": appointment,
             "reschedule_form": form,
             "show_reschedule_form": True,
-            "clinic": clinic,
+            "clinic": get_clinic_settings(),
         },
     )
+
+
+def _submit_owner_reschedule(request, appointment, form):
+    """
+    Saves a valid owner reschedule form (see reschedule_by_owner).
+    Returns (redirect, form): a redirect when the visit page is next, else
+    None and the form to show again (the time taken meanwhile).
+    """
+    try:
+        new_appointment = reschedule_by_owner(
+            request.user, request.owner, appointment.pk, form.cleaned_data
+        )
+    except SlotTaken:
+        # Taken since the form was checked: keep every value but the time
+        messages.error(request, "Please correct the errors below.")
+        again = form_with_taken_time(
+            AppointmentRescheduleForm,
+            (appointment,),
+            request.POST,
+            form.cleaned_data["time"],
+        )
+        return None, again
+    if new_appointment is None:
+        messages.error(request, "This visit can't be changed any more.")
+        return redirect("owner_appointment_detail", pk=appointment.pk), form
+    # After the transaction has committed, never inside it
+    notify_admin_of_request(new_appointment, reschedule=True)
+    messages.success(
+        request,
+        "Reschedule request submitted. You will be notified once it is confirmed.",
+    )
+    return redirect("owner_appointment_detail", pk=new_appointment.pk), form
 
 
 @login_required
@@ -723,10 +693,19 @@ def _reschedule_appointment(appointment, form, user):
     """
     Cancels the original and creates the new appointment as CONFIRMED
     (the clinic chose the slot). Runs in one transaction: if creating the
-    new appointment fails, the original stays as it was.
-    Returns the new appointment.
+    new appointment fails, the original stays as it was. The slot is
+    checked again under lock_schedule(); SlotTaken when it went meanwhile
+    (nothing changed). Returns the new appointment.
     """
     with transaction.atomic():
+        lock_schedule()
+        if not is_slot_available(
+            form.cleaned_data["date"],
+            form.cleaned_data["time"],
+            exclude_appointment_pk=appointment.pk,
+            move=True,
+        ):
+            raise SlotTaken(form.cleaned_data["time"])
         appointment.status = Appointment.CANCELLED
         appointment.cancellation_reason = Appointment.OTHER
         appointment.cancellation_detail = "Rescheduled by clinic."
@@ -874,7 +853,7 @@ def admin_appointment_reject(request, pk):
             clinic_message = clinic_message[:REJECT_MESSAGE_MAX_LENGTH]
 
             appointment.status = Appointment.CANCELLED
-            appointment.cancellation_reason = Appointment.OTHER
+            appointment.cancellation_reason = Appointment.DECLINED
             appointment.cancellation_detail = clinic_message or "Rejected by clinic."
             appointment.cancelled_by = request.user
             appointment.save()
@@ -1035,6 +1014,21 @@ def admin_appointment_cancel(request, pk):
     return redirect("admin_appointment_detail", pk=pk)
 
 
+def _notify_moved(new_appointment):
+    """Tells the owner their visit was moved by the clinic. Absolute date,
+    since the email may be read on another day."""
+    _notify_owner(
+        new_appointment,
+        "appointment_approved",
+        "Appointment moved by the clinic",
+        f"Your appointment for {new_appointment.pet.name} was moved to "
+        f"{date_format(new_appointment.date, 'D, M j')} at "
+        f"{date_format(new_appointment.time, 'g:i A')} by the clinic. "
+        "The new time is confirmed.",
+        "Appointment moved — Hapi Vet",
+    )
+
+
 @login_required
 def admin_appointment_reschedule(request, pk):
     """
@@ -1058,21 +1052,15 @@ def admin_appointment_reschedule(request, pk):
             messages.error(request, "Please correct the errors below.")
             return _render_detail(request, appointment, reschedule_form=form)
 
-        new_appointment = _reschedule_appointment(appointment, form, request.user)
+        try:
+            new_appointment = _reschedule_appointment(appointment, form, request.user)
+        except SlotTaken:
+            # Taken since the form was checked: the same error the form gives
+            form.add_error(None, SLOT_NO_LONGER_AVAILABLE)
+            messages.error(request, "Please correct the errors below.")
+            return _render_detail(request, appointment, reschedule_form=form)
 
-        # Notify pet owner of reschedule by clinic. Absolute date, since the
-        # email may be read on another day.
-        _notify_owner(
-            new_appointment,
-            "appointment_approved",
-            "Appointment moved by the clinic",
-            f"Your appointment for {new_appointment.pet.name} was moved to "
-            f"{date_format(new_appointment.date, 'D, M j')} at "
-            f"{date_format(new_appointment.time, 'g:i A')} by the clinic. "
-            "The new time is confirmed.",
-            "Appointment moved — Hapi Vet",
-        )
-
+        _notify_moved(new_appointment)
         messages.success(
             request,
             f"Rescheduled {new_appointment.pet.name} to "
@@ -1149,6 +1137,16 @@ def _render_walkin_visit(request, owner, form, taken_time=""):
     return render(request, "admin/appointments/walkin_visit.html", context)
 
 
+def _walkin_slot_taken(request, owner):
+    """Step 2 again after the chosen time was taken: every value kept except
+    the time, which must be picked again, with the "was just taken" banner."""
+    initial = walkin_values(request.POST, keep_time=False)
+    taken = _taken_time(request.POST.get("time", ""))
+    return _render_walkin_visit(
+        request, owner, AdminWalkInAppointmentForm(owner, initial=initial), taken
+    )
+
+
 def _render_walkin_review(request, owner, form):
     """Step 3 page (check and book): a summary, nothing saved yet."""
     data = form.cleaned_data
@@ -1196,18 +1194,17 @@ def admin_walkin_appointment_visit(request):
 
     form = AdminWalkInAppointmentForm(owner, request.POST)
     if form.slot_was_taken():
-        # Everything kept except the time, which must be picked again
-        initial = walkin_values(request.POST, keep_time=False)
-        taken = _taken_time(request.POST.get("time", ""))
-        return _render_walkin_visit(
-            request, owner, AdminWalkInAppointmentForm(owner, initial=initial), taken
-        )
+        return _walkin_slot_taken(request, owner)
     if not form.is_valid():
         return _render_walkin_visit(request, owner, form)
     if action != "book":
         return _render_walkin_review(request, owner, form)
 
-    appointment = create_walkin_appointment(owner, form.cleaned_data)
+    try:
+        appointment = create_walkin_appointment(owner, form.cleaned_data)
+    except SlotTaken:
+        # Booked by someone else after the check, before the save
+        return _walkin_slot_taken(request, owner)
     messages.success(request, _walk_in_booked_message(appointment))
     return redirect("admin_appointment_detail", pk=appointment.pk)
 

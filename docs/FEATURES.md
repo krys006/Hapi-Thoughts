@@ -57,7 +57,7 @@ Phase 7 — Dashboards & Polish
 | Sign in with Google (skips email verification) | `complete` |
 | Login page with both options (email/password + Google) | `complete` |
 | Logout | `complete` |
-| Logout is a POST, through the log-out confirmation sheet (GET no longer logs out) | `planned` |
+| Logout is a POST (a GET never logs out: a logged-in user goes to their dashboard, a logged-out visitor to the owner login); every logout control is a POST form with a CSRF token. The log-out confirmation sheet comes with the 8b pages. Slice 8a-1b | `complete` |
 | Resend the verification link ("Send the link again" on Check your email and on login for an unverified account; at most one send per 2 minutes per account) | `planned` |
 | `/accounts/signup/` and `/accounts/login/` redirect to the owner register and login pages (the Google provider and callback URLs keep working) | `complete` |
 | Forgot password / reset password via email | `complete` |
@@ -122,7 +122,7 @@ Phase 7 — Dashboards & Polish
 | Pet photo upload (optional) | `complete` |
 | Species icon on a light tile if no pet photo uploaded (no initials for pets) | `planned` |
 | Request pet removal with a predefined reason (owners see "remove a pet"; it reaches the Admin as a deletion request; new wording in Slice 8) | `complete` |
-| Take back a removal request (kept as Cancelled) | `planned` |
+| Take back a removal request (POST only; the request is kept as Cancelled, never deleted, and isn't shown to the clinic as answered; the owner can send a new one). Slice 8a-1b | `complete` |
 | Predefined deletion reasons (passed away, rehomed, duplicate, other) | `complete` |
 | Deletion request goes to Admin for approval | `complete` |
 | View pet profile | `complete` |
@@ -212,8 +212,10 @@ Phase 7 — Dashboards & Polish
 | Cancel appointment freely up to 24 hours before | `complete` |
 | Cancellation within 24 hours requires Admin approval (not built: owners can currently cancel at any time; late cancellations are only flagged on the owner page) | `planned` |
 | Predefined cancellation reasons (change of plans, pet unwell, cannot make time, other) | `complete` |
-| Owner reschedule note: the Change time sheet says the current visit is given up and the new time waits for the clinic to confirm ("Your {time} time is given up. The new time waits for the clinic to confirm.") | `planned` |
-| Owner sees "Declined by the clinic" (a clinic decline) vs "Cancelled by the clinic" (new `declined` cancellation reason; old rows not backfilled) | `planned` |
+| Owner reschedule gives up the current visit and makes a new PENDING request in one transaction (both happen or neither; a visit that can't be changed any more says so; a time taken a moment ago comes back as an error on the time field). Slice 8a-1b | `complete` |
+| Owner reschedule note: the Change time sheet says the current visit is given up and the new time waits for the clinic to confirm ("Your {time} time is given up. The new time waits for the clinic to confirm.") — the sheet comes with the 8b pages | `planned` |
+| Booking lock: owner booking, owner reschedule, walk-in and admin move lock the ClinicSettings row, then check the slot again before saving (no migration; a DB constraint stays in the backlog). Slice 8a-1b | `complete` |
+| Clinic decline is stored as the `declined` cancellation reason (old declines stay `other`, not backfilled): backend done in 8a-1b. The owner wording "Declined by the clinic" vs "Cancelled by the clinic" on the redesigned visit pages comes with 8b | `complete` |
 | View appointment history and current status | `complete` |
 
 ### 3.3 Appointment Management (Admin)

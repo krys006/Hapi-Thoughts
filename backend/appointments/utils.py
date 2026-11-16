@@ -2,6 +2,8 @@ import datetime
 from itertools import groupby
 from urllib.parse import urlencode
 
+from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Prefetch, Q
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
@@ -376,6 +378,171 @@ def is_slot_available(date, time, exclude_appointment_pk=None, move=False):
         conflict_qs = conflict_qs.exclude(pk=exclude_appointment_pk)
 
     return not conflict_qs.exists()
+
+
+# ── Booking lock (Slice 8a-1b) ───────────────────────────────────────────────
+
+SLOT_NO_LONGER_AVAILABLE = "This slot is no longer available. Please select another."
+
+
+class SlotTaken(Exception):
+    """The chosen slot was booked by someone else after the form was checked."""
+
+
+def lock_schedule():
+    """
+    Call inside transaction.atomic(): locks the one ClinicSettings row (the
+    lowest pk) with select_for_update(), so two bookings for the same slot
+    run one after the other. The second one then re-checks the slot and
+    finds it taken. With no settings row there is nothing to lock (and no
+    error). The lock lasts until the transaction ends.
+    """
+    list(ClinicSettings.objects.select_for_update().order_by("pk")[:1])
+
+
+def slot_is_booked(date, time):
+    """True when a non-cancelled appointment holds date + time (walk-ins)."""
+    return (
+        Appointment.objects.filter(date=date, time=time)
+        .exclude(status=Appointment.CANCELLED)
+        .exists()
+    )
+
+
+def slot_taken_message(time):
+    """The owner's error on the time field when the slot went meanwhile."""
+    return (
+        f"{date_format(time, 'g:i A')} was just taken. Someone else booked "
+        "it a moment ago. Please pick another time."
+    )
+
+
+def form_with_taken_time(form_class, args, post, time):
+    """
+    The same owner form, bound to the POST with every value but the time
+    (a fresh time list for the date, nothing picked), and the "just taken"
+    error on the time field. args are the form's leading arguments.
+    """
+    data = post.copy()
+    data["time"] = ""
+    form = form_class(*args, data)
+    form.fields["time"].required = False
+    form.is_valid()
+    form.add_error("time", slot_taken_message(time))
+    return form
+
+
+def create_owner_booking(owner, data):
+    """
+    Owner booking: lock, check the slot again with the owner rules, save
+    PENDING. data is the booking form's cleaned_data. Raises SlotTaken
+    (nothing saved) when the slot went meanwhile.
+    """
+    with transaction.atomic():
+        lock_schedule()
+        if not is_slot_available(data["date"], data["time"]):
+            raise SlotTaken(data["time"])
+        return Appointment.objects.create(
+            owner=owner,
+            pet=data["pet"],
+            service=data.get("service"),
+            date=data["date"],
+            time=data["time"],
+            reason=data.get("reason", ""),
+            status=Appointment.PENDING,
+        )
+
+
+def reschedule_by_owner(user, owner, appointment_pk, data):
+    """
+    Owner reschedule in one transaction: lock, re-read the original under
+    select_for_update(), check the new slot again (the original's own slot
+    doesn't count against it), cancel the original and create the new
+    PENDING visit. Either both happen or neither.
+    Returns the new appointment, or None when the original is no longer
+    PENDING or CONFIRMED, or no longer this owner's (nothing changed).
+    Raises SlotTaken (nothing changed) when the new slot went meanwhile.
+    """
+    with transaction.atomic():
+        lock_schedule()
+        original = (
+            Appointment.objects.select_for_update()
+            .filter(
+                pk=appointment_pk,
+                owner=owner,
+                status__in=[Appointment.PENDING, Appointment.CONFIRMED],
+            )
+            .first()
+        )
+        if original is None:
+            return None
+        if not is_slot_available(
+            data["date"], data["time"], exclude_appointment_pk=original.pk
+        ):
+            raise SlotTaken(data["time"])
+        original.status = Appointment.CANCELLED
+        original.cancellation_reason = Appointment.OTHER
+        original.cancellation_detail = "Rescheduled by pet owner."
+        original.cancelled_by = user
+        original.save()
+        return Appointment.objects.create(
+            owner=owner,
+            pet=original.pet,
+            service=original.service,
+            date=data["date"],
+            time=data["time"],
+            reason=original.reason,
+            reschedule_reason=data["reschedule_reason"],
+            rescheduled_from=original,
+            status=Appointment.PENDING,
+        )
+
+
+def notify_admin_of_request(appointment, reschedule=False):
+    """
+    Tells the admin about a new owner request (in the app, and by email per
+    notify()). Call after the transaction that saved it. reschedule=True is
+    the reschedule wording; a booking goes to the clinic's notification
+    email when one is set.
+    """
+    admin_user = get_user_model().objects.filter(role="admin").first()
+    if admin_user is None:
+        return
+    owner = appointment.owner
+    name = f"{owner.first_name} {owner.last_name}"
+    when = (
+        f"{appointment.date.strftime('%B %d, %Y')} "
+        f"at {appointment.time.strftime('%I:%M %p')}"
+    )
+    extra = {}
+    if reschedule:
+        title = "Appointment Reschedule Request"
+        message = (
+            f"{name} has requested to reschedule their appointment for "
+            f"{appointment.pet.name} to {when}."
+        )
+    else:
+        title = "New Appointment Request"
+        message = (
+            f"{name} has requested an appointment for {appointment.pet.name} "
+            f"on {when}."
+        )
+        clinic = get_clinic_settings()
+        extra["recipient_email"] = (
+            clinic.notification_email
+            if clinic and clinic.notification_email
+            else admin_user.email
+        )
+    notify(
+        recipient=admin_user,
+        notification_type="appointment_requested",
+        title=title,
+        message=message,
+        related_appointment=appointment,
+        related_pet=appointment.pet,
+        email_subject=f"{title} — Hapi Vet",
+        **extra,
+    )
 
 
 def _format_calendar_week_label(start, end):
@@ -987,18 +1154,24 @@ def create_walkin_appointment(owner, cleaned_data):
     """
     Saves a walk-in as CONFIRMED and notifies the owner (in the app, and by
     email per their preferences; owners without an email get the in-app
-    notification only). Returns the appointment.
+    notification only). Returns the appointment. The slot is checked again
+    under lock_schedule(); SlotTaken when someone booked it meanwhile
+    (nothing saved, no notification).
     """
-    appointment = Appointment.objects.create(
-        owner=owner,
-        pet=cleaned_data["pet"],
-        service=cleaned_data.get("service"),
-        date=cleaned_data["date"],
-        time=cleaned_data["time"],
-        reason=cleaned_data.get("reason", ""),
-        status=Appointment.CONFIRMED,
-        is_walk_in=True,
-    )
+    with transaction.atomic():
+        lock_schedule()
+        if slot_is_booked(cleaned_data["date"], cleaned_data["time"]):
+            raise SlotTaken(cleaned_data["time"])
+        appointment = Appointment.objects.create(
+            owner=owner,
+            pet=cleaned_data["pet"],
+            service=cleaned_data.get("service"),
+            date=cleaned_data["date"],
+            time=cleaned_data["time"],
+            reason=cleaned_data.get("reason", ""),
+            status=Appointment.CONFIRMED,
+            is_walk_in=True,
+        )
     # Absolute date, since the email may be read on another day.
     notify(
         recipient=owner.user,

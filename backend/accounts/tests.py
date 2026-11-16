@@ -12,12 +12,13 @@ from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.db import connection
 from django.test import (
+    Client,
     RequestFactory,
     TestCase,
     TransactionTestCase,
     override_settings,
 )
-from django.urls import reverse
+from django.urls import resolve, reverse
 
 from accounts.adapters import (
     ADMIN_MESSAGE,
@@ -729,3 +730,181 @@ class TermsPrivacyLinkTests(TestCase):
         self.assertTrue(settings.TERMS_URL.startswith("https://paws.org.ph/"))
         response = self.client.get(reverse("owner_register"))
         self.assertContains(response, f'href="{settings.TERMS_URL}"')
+
+
+class _LoggedInBase(TestCase):
+    """One admin and one owner (with a PetOwner row), neither logged in yet."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            username="clinic-admin",
+            email="admin@example.com",
+            password="pass-12345-x",
+            role=User.ADMIN,
+            is_onboarded=True,
+        )
+        self.owner_user = User.objects.create_user(
+            username="ana",
+            email="ana@example.com",
+            password="pass-12345-x",
+            role=User.PET_OWNER,
+            is_onboarded=True,
+        )
+        PetOwner.objects.create(
+            user=self.owner_user, first_name="Ana", last_name="Cruz"
+        )
+
+    def _is_logged_in(self):
+        return "_auth_user_id" in self.client.session
+
+
+class LogoutPostTests(_LoggedInBase):
+    """Slice 8a-1b: logging out is a POST. A GET never logs anyone out."""
+
+    def test_post_logs_out_and_redirects_by_role(self):
+        for user, login_page in (
+            (self.admin, "admin_login"),
+            (self.owner_user, "owner_login"),
+        ):
+            with self.subTest(user=user.username):
+                self.client.force_login(user)
+                response = self.client.post(reverse("logout"))
+                self.assertRedirects(
+                    response, reverse(login_page), fetch_redirect_response=False
+                )
+                self.assertFalse(self._is_logged_in())
+                found = [str(m) for m in get_messages(response.wsgi_request)]
+                # (the first subtest's message may still be waiting in the cookie)
+                self.assertEqual(found[-1], "You have been logged out.")
+
+    def test_get_keeps_the_user_logged_in_and_goes_to_their_dashboard(self):
+        for user, dashboard in (
+            (self.admin, "admin_dashboard"),
+            (self.owner_user, "owner_dashboard"),
+        ):
+            with self.subTest(user=user.username):
+                self.client.force_login(user)
+                response = self.client.get(reverse("logout"))
+                self.assertRedirects(
+                    response, reverse(dashboard), fetch_redirect_response=False
+                )
+                self.assertTrue(self._is_logged_in())
+
+    def test_logged_out_visitor_goes_to_owner_login(self):
+        for send in (self.client.get, self.client.post):
+            with self.subTest(method=send.__name__):
+                response = send(reverse("logout"))
+                self.assertRedirects(
+                    response, reverse("owner_login"), fetch_redirect_response=False
+                )
+
+    def test_post_needs_the_csrf_token(self):
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.owner_user)
+        self.assertEqual(client.post(reverse("logout")).status_code, 403)
+        self.assertIn("_auth_user_id", client.session)
+
+    def test_every_logout_control_is_a_post_form_with_a_csrf_token(self):
+        """The admin sidebar (every admin page) and the owner sidebar
+        (base_dashboard.html, every owner page)."""
+        logout_url = reverse("logout")
+        form = re.compile(
+            rf'<form method="post" action="{logout_url}">\s*'
+            r'<input type="hidden" name="csrfmiddlewaretoken" value="[^"]+">\s*'
+            r'<button type="submit"[^>]*>'
+        )
+        pages = {
+            self.admin: ["admin_dashboard", "admin_clinic_settings", "admin_pet_list"],
+            self.owner_user: [
+                "owner_dashboard",
+                "owner_pet_list",
+                "owner_profile",
+                "owner_appointments",
+                "clinic_info",
+            ],
+        }
+        for user, names in pages.items():
+            self.client.force_login(user)
+            for name in names:
+                with self.subTest(page=name):
+                    html = self.client.get(reverse(name)).content.decode()
+                    self.assertRegex(html, form)
+                    self.assertNotIn(f'href="{logout_url}"', html)
+
+    def test_the_log_out_button_keeps_its_text_and_classes(self):
+        self.client.force_login(self.admin)
+        html = self.client.get(reverse("admin_dashboard")).content.decode()
+        self.assertRegex(
+            html,
+            r'(?s)<button type="submit" class="flex min-h-11 w-full items-center gap-3 '
+            r"rounded-lg px-3 text-left text-base text-gray-800 "
+            r'hover:bg-violet-200/70">.*?Log out</button>',
+        )
+        self.client.force_login(self.owner_user)
+        html = self.client.get(reverse("owner_dashboard")).content.decode()
+        self.assertIn(
+            '<button type="submit" class="owner-sidebar-logout">Logout</button>', html
+        )
+
+
+class AllauthSideDoorTests(_LoggedInBase):
+    """Slice 8a-1b: allauth's password reset, confirm-email, inactive and
+    logout pages go to ours. Google login and callback stay."""
+
+    def _assert_redirects_to(self, path, name):
+        response = self.client.get(path)
+        self.assertRedirects(response, reverse(name), fetch_redirect_response=False)
+
+    def test_password_reset_pages_go_to_forgot_password(self):
+        for path in (
+            "/accounts/password/reset/",
+            "/accounts/password/reset/done/",
+            "/accounts/password/reset/key/done/",
+            "/accounts/password/reset/key/3f-abc123def456/",
+        ):
+            with self.subTest(path=path):
+                self._assert_redirects_to(path, "forgot_password")
+
+    def test_confirm_email_pages_go_to_owner_login(self):
+        for path in ("/accounts/confirm-email/", "/accounts/confirm-email/ab:cd-1/"):
+            with self.subTest(path=path):
+                self._assert_redirects_to(path, "owner_login")
+
+    def test_inactive_goes_to_owner_login_with_the_error(self):
+        response = self.client.get("/accounts/inactive/")
+        self.assertRedirects(
+            response, reverse("owner_login"), fetch_redirect_response=False
+        )
+        found = [(m.level_tag, str(m)) for m in get_messages(response.wsgi_request)]
+        self.assertEqual(
+            found,
+            [
+                (
+                    "error",
+                    "This account can't log in yet. Check your email for the "
+                    "link, or contact the clinic.",
+                )
+            ],
+        )
+        shown = self.client.get(reverse("owner_login"))
+        self.assertContains(shown, "This account can&#x27;t log in yet.")
+
+    def test_logout_is_our_view_and_a_post_still_logs_out(self):
+        self.assertEqual(resolve("/accounts/logout/").func.__name__, "user_logout")
+        self.client.force_login(self.owner_user)
+        response = self.client.get("/accounts/logout/")
+        self.assertRedirects(
+            response, reverse("owner_dashboard"), fetch_redirect_response=False
+        )
+        self.assertTrue(self._is_logged_in())
+
+        response = self.client.post("/accounts/logout/")
+        self.assertRedirects(
+            response, reverse("owner_login"), fetch_redirect_response=False
+        )
+        self.assertFalse(self._is_logged_in())
+
+    def test_google_login_and_callback_still_resolve(self):
+        self.assertEqual(reverse("google_login"), "/accounts/google/login/")
+        self.assertEqual(reverse("google_callback"), "/accounts/google/login/callback/")
+        self.assertEqual(self.client.get(reverse("google_login")).status_code, 200)

@@ -255,14 +255,15 @@ class LogoutRedirectTests(ShellTestBase):
 
     def test_admin_goes_to_admin_login(self):
         self.client.force_login(self.admin)
-        response = self.client.get(reverse("logout"))
+        # Slice 8a-1b: logging out is a POST (a GET no longer logs out)
+        response = self.client.post(reverse("logout"))
         self.assertRedirects(
             response, reverse("admin_login"), fetch_redirect_response=False
         )
 
     def test_owner_goes_to_owner_login(self):
         self.client.force_login(self.owner.user)
-        response = self.client.get(reverse("logout"))
+        response = self.client.post(reverse("logout"))
         self.assertRedirects(
             response, reverse("owner_login"), fetch_redirect_response=False
         )

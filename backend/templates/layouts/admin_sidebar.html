@@ -29,5 +29,9 @@
 
 {# Log out stays at the bottom #}
 <div class="border-t border-violet-200 px-3 py-3">
-  <a href="{% url 'logout' %}" class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base text-gray-800 hover:bg-violet-200/70">{% include "components/icon.html" with name="log-out" %}Log out</a>
+  {# Logging out is a POST (a link that logs out can be triggered by any page) #}
+  <form method="post" action="{% url 'logout' %}">
+    {% csrf_token %}
+    <button type="submit" class="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-base text-gray-800 hover:bg-violet-200/70">{% include "components/icon.html" with name="log-out" %}Log out</button>
+  </form>
 </div>

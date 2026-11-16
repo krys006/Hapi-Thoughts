@@ -457,6 +457,11 @@
 
 .owner-sidebar-logout {
   display: block;
+  /* now a <button> in a POST form: look like the link did */
+  width: 100%;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
   padding: 0.8rem;
   color: #b91c1c;
   font-weight: 900;

@@ -8,6 +8,8 @@ PUBLIC_URLS = [
     "/register/",
     "/register/pending/",
     "/admin-login/",
+    # user_logout handles a logged-out visitor itself (plain owner login)
+    "/logout/",
     "/forgot-password/",
     "/forgot-password/sent/",
     "/reset-password/complete/",

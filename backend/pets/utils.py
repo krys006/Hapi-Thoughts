@@ -462,8 +462,12 @@ def deletion_requests_context(params):
     pending = list(
         requests.filter(status=PetDeletionRequest.PENDING).order_by("created_at", "pk")
     )
+    # Only answers: a request the owner took back (CANCELLED) was never
+    # answered by the clinic, so it is not history here
     resolved = (
-        requests.exclude(status=PetDeletionRequest.PENDING)
+        requests.filter(
+            status__in=[PetDeletionRequest.APPROVED, PetDeletionRequest.REJECTED]
+        )
         .select_related("reviewed_by")
         .order_by(F("reviewed_at").desc(nulls_last=True), "-pk")
     )
@@ -486,9 +490,32 @@ def deletion_requests_context(params):
     }
 
 
+def take_back_removal_request(pet, user):
+    """
+    The owner takes back their waiting removal request for pet: it becomes
+    CANCELLED (reviewed_by and reviewed_at stay empty; the row is kept).
+    Returns False when the user has no PENDING request for the pet. The row
+    is locked while it changes, so a clinic answer at the same moment wins
+    or loses cleanly.
+    """
+    with transaction.atomic():
+        waiting = (
+            PetDeletionRequest.objects.select_for_update()
+            .filter(pet=pet, requested_by=user, status=PetDeletionRequest.PENDING)
+            .first()
+        )
+        if waiting is None:
+            return False
+        waiting.status = PetDeletionRequest.CANCELLED
+        waiting.save(update_fields=["status"])
+    return True
+
+
 def deletion_answer_refusal(deletion_request, approve):
     """Why Archive (approve) or Keep can't be saved, or None."""
     pet = deletion_request.pet
+    if deletion_request.status == PetDeletionRequest.CANCELLED:
+        return "The owner took this request back."
     if deletion_request.status != PetDeletionRequest.PENDING:
         return "This request was already answered."
     if approve and pet.is_archived:
