@@ -1,0 +1,13 @@
+{% comment %}
+  Error summary at the top of the open tab (mockup state 5). Needs count (the
+  open tab's number of errors). show_form_errors=True also lists errors that
+  belong to no field (closing time before opening time, Schedule only).
+{% endcomment %}
+<div role="alert" class="mb-6 flex items-start gap-3 rounded-xl border-2 border-red-600 bg-red-50 p-4 text-base text-red-900">
+  {% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-6 shrink-0" %}
+  <div>
+    <p class="font-semibold">Please fix the {{ count }} item{{ count|pluralize }} below.</p>
+    {% if show_form_errors %}{% for error in form.non_field_errors %}<p class="font-medium">{{ error }}</p>{% endfor %}{% endif %}
+    <p>Nothing was saved yet.</p>
+  </div>
+</div>

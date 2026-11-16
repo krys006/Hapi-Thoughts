@@ -940,6 +940,19 @@ dropdown (`admin/appointments/list_parts/tabs.html`):
 <noscript><button type="submit" class="btn btn-outline">Apply</button></noscript>
 ```
 
+### Server-rendered tabs (`?tab=`)
+A page with tabs (Clinic settings, `admin/settings/clinic_settings.html`)
+renders them on the server, with no JavaScript:
+- The tabs are real links (`?tab=schedule`); the view reads the value and puts
+  `active_tab` in the context. Unknown or missing falls back to the first tab.
+- The open tab's link has `aria-current="page"` (and `bg-violet-50 ring-2 ring-violet-600`).
+  A tab with errors shows a red pill ("1 problem") from the view.
+- Only the open tab's section is rendered. Each editable tab is its own
+  `<form method="post">` with a hidden `tab` field, so one Save changes saves
+  only that tab and counts as the page's one violet button.
+- Split the page into partials (`admin/settings/settings_parts/`): one per tab,
+  plus the banner, the tab links and an error summary.
+
 ### Example admin page not redesigned yet
 No billing page is on legacy CSS any more (the last two, the services pages,
 moved in 6b-4). Pages still on it are the health library and Clinic settings

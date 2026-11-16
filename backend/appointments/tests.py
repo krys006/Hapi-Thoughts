@@ -3015,7 +3015,7 @@ class BlockedDateTests(AppointmentTestBase):
 
     def test_settings_page_includes_the_panel(self):
         BlockedDate.objects.create(date=self.day, reason="Fiesta")
-        response = self.client.get(self.settings_url)
+        response = self.client.get(self.tab_url)
         self.assertContains(response, 'id="blocked-dates-panel"')
         self.assertContains(response, "Fiesta")
 
@@ -3471,7 +3471,7 @@ class SettingsTabTests(AppointmentTestBase):
         )
         self.assertContains(response, "Go back")
         self.assertContains(response, "Yes, save the new schedule")
-        self.assertNotContains(response, "Save Settings")
+        self.assertNotContains(response, "Save changes")
         self.assertNotContains(response, "form-actions")
         self.assertNotContains(response, "and 0 more")
 
@@ -3557,7 +3557,7 @@ class SettingsTabTests(AppointmentTestBase):
         self.assertIsNone(response.context["schedule_warning"])
         self.assertNotContains(response, "already booked")
         self.assertNotContains(response, "Yes, save the new schedule")
-        self.assertContains(response, "Save Settings")
+        self.assertContains(response, "Save changes")
         self.assertEqual(response.context["active_tab"], "schedule")
         self.assertEqual(
             response.context["form"]["slot_duration_minutes"].value(), "30"
@@ -3657,6 +3657,345 @@ class SettingsTabTests(AppointmentTestBase):
                 self.assertEqual(response.status_code, 302)
                 self.assertIn("login", response["Location"])
         self.assertEqual(self._saved().clinic_name, "Test Clinic")
+
+
+class SettingsPageMarkupTests(AppointmentTestBase):
+    """The clinic settings page on the admin layout (Slice 7b-2): banner,
+    ?tab= links, one section and one form per tab."""
+
+    TABS = ("details", "schedule", "blocked", "vet")
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("admin_clinic_settings")
+
+    def _data(self, **extra):
+        data = {
+            "tab": "schedule",
+            "opening_time": "08:00",
+            "closing_time": "17:00",
+            "slot_duration_minutes": "60",
+            "working_days": ["0", "1", "2", "3", "4", "5", "6"],
+            "same_day_cutoff_time": "15:00",
+            "booking_limit_days": "30",
+        }
+        data.update(extra)
+        return data
+
+    def _get(self, tab):
+        return self.client.get(self.url, {"tab": tab})
+
+    def _banner(self, response):
+        html = response.content.decode()
+        return html.split('id="clinic-banner"')[1].split("</section>")[0]
+
+    def _tab_link(self, response, tab):
+        """The whole <a>...</a> of one tab link."""
+        match = re.search(
+            rf'<a href="[^"]*\?tab={tab}".*?</a>',
+            response.content.decode(),
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, f"no link for tab {tab}")
+        return match.group(0)
+
+    # ─── Tabs ─────────────────────────────────────────────────────────────────
+
+    def test_each_tab_shows_its_own_section_only(self):
+        for tab in self.TABS:
+            with self.subTest(tab=tab):
+                response = self._get(tab)
+                for other in self.TABS:
+                    marker = f'id="settings-{other}"'
+                    if other == tab:
+                        self.assertContains(response, marker)
+                    else:
+                        self.assertNotContains(response, marker)
+
+    def test_open_tab_has_aria_current_and_the_violet_ring(self):
+        for tab in self.TABS:
+            with self.subTest(tab=tab):
+                response = self._get(tab)
+                # The sidebar marks "Clinic settings" too, so count in the tab nav
+                nav = (
+                    response.content.decode()
+                    .split('aria-label="Clinic settings sections"')[1]
+                    .split("</nav>")[0]
+                )
+                self.assertEqual(nav.count('aria-current="page"'), 1)
+                for other in self.TABS:
+                    link = self._tab_link(response, other)
+                    opening = link.split(">")[0]
+                    if other == tab:
+                        self.assertIn('aria-current="page"', opening)
+                        self.assertIn("bg-violet-50", opening)
+                        self.assertIn("ring-2 ring-violet-600", opening)
+                    else:
+                        self.assertNotIn("aria-current", opening)
+                        self.assertNotIn("ring-violet-600", opening)
+
+    def test_tabs_are_in_order_with_their_labels(self):
+        html = self._get("details").content.decode()
+        nav = html.split('aria-label="Clinic settings sections"')[1].split("</nav>")[0]
+        positions = [
+            nav.index(label)
+            for label in ("Clinic details", "Schedule", "Blocked dates", "Vet profile")
+        ]
+        self.assertEqual(positions, sorted(positions))
+        self.assertContains(self._get("details"), "grid-cols-2")
+
+    def test_unknown_tab_opens_details(self):
+        response = self._get("bogus")
+        self.assertContains(response, 'id="settings-details"')
+
+    # ─── Forms ────────────────────────────────────────────────────────────────
+
+    def test_each_form_posts_a_hidden_tab(self):
+        for tab in ("details", "schedule", "vet"):
+            with self.subTest(tab=tab):
+                response = self._get(tab)
+                self.assertContains(
+                    response, f'<input type="hidden" name="tab" value="{tab}">', count=1
+                )
+                self.assertContains(response, 'method="post"')
+                self.assertContains(response, "csrfmiddlewaretoken")
+                self.assertContains(response, "Save changes", count=1)
+
+    def test_only_the_details_form_is_multipart(self):
+        self.assertContains(
+            self._get("details"), 'enctype="multipart/form-data"', count=1
+        )
+        for tab in ("schedule", "vet"):
+            with self.subTest(tab=tab):
+                self.assertNotContains(self._get(tab), "multipart/form-data")
+
+    def test_vet_tab_has_the_given_by_note(self):
+        self.assertContains(
+            self._get("vet"),
+            "The vet name and profile show on the clinic page and as the vet "
+            "on new vaccination records.",
+        )
+
+    def test_working_days_are_large_checkboxes_and_checked_when_open(self):
+        settings_obj = get_clinic_settings()
+        settings_obj.working_days = [0, 2]
+        settings_obj.save()
+        html = self._get("schedule").content.decode()
+        boxes = re.findall(r'<input type="checkbox" name="working_days"[^>]*>', html)
+        self.assertEqual(len(boxes), 7)
+        for box in boxes:
+            self.assertIn("size-6", box)
+            self.assertIn("accent-violet-600", box)
+        checked = [b for b in boxes if " checked" in b]
+        self.assertEqual(len(checked), 2)
+
+    # ─── Errors ───────────────────────────────────────────────────────────────
+
+    def test_schedule_error_shows_the_pill_and_the_summary(self):
+        response = self.client.post(self.url, self._data(booking_limit_days="0"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="settings-schedule"')
+        self.assertContains(response, "1 problem", count=1)
+        self.assertIn("1 problem", self._tab_link(response, "schedule"))
+        for other in ("details", "blocked", "vet"):
+            self.assertNotIn("problem", self._tab_link(response, other))
+        self.assertContains(response, 'role="alert"')
+        self.assertContains(response, "Please fix the 1 item below.")
+        self.assertContains(response, "Nothing was saved yet.")
+        self.assertContains(response, "The booking limit must be at least 1 day.")
+
+    def test_two_errors_say_items_and_problems(self):
+        response = self.client.post(
+            self.url, self._data(booking_limit_days="0", opening_time="")
+        )
+        self.assertContains(response, "Please fix the 2 items below.")
+        self.assertIn("2 problems", self._tab_link(response, "schedule"))
+
+    def test_closing_before_opening_is_listed_in_the_summary(self):
+        response = self.client.post(
+            self.url, self._data(opening_time="10:00", closing_time="09:00")
+        )
+        self.assertContains(response, "Closing time must be after opening time.")
+        self.assertContains(response, "Please fix the 1 item below.")
+
+    def test_a_tab_without_errors_has_no_summary(self):
+        self.assertNotContains(self._get("schedule"), "Please fix the")
+
+    def test_banner_keeps_the_saved_name_after_a_failed_post(self):
+        response = self.client.post(
+            self.url,
+            {
+                "tab": "details",
+                "clinic_name": "Typed Name",
+                "address": "Typed Address",
+                "email": "not-an-email",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        banner = self._banner(response)
+        self.assertIn("Test Clinic", banner)
+        self.assertIn("Gasan, Marinduque", banner)
+        self.assertNotIn("Typed Name", banner)
+        self.assertNotIn("Typed Address", banner)
+        # The typed values are still in the form below the banner
+        self.assertContains(response, 'value="Typed Name"')
+        self.assertIn("1 problem", self._tab_link(response, "details"))
+
+    # ─── Schedule warning ─────────────────────────────────────────────────────
+
+    def test_warning_shows_go_back_and_confirm_and_hides_save_changes(self):
+        self._appointment(Appointment.CONFIRMED)
+        response = self.client.post(self.url, self._data(slot_duration_minutes="30"))
+        self.assertContains(response, "Go back")
+        self.assertContains(response, "Yes, save the new schedule")
+        self.assertNotContains(response, "Save changes")
+        html = response.content.decode()
+        self.assertEqual(html.count("autofocus"), 1)
+        self.assertRegex(html, r'<button[^>]*name="go_back" value="1"[^>]*autofocus')
+        self.assertContains(response, 'name="confirm_schedule" value="1"')
+
+    def test_warning_buttons_post_every_schedule_field_and_the_tab(self):
+        self._appointment(Appointment.CONFIRMED)
+        response = self.client.post(self.url, self._data(slot_duration_minutes="30"))
+        forms = response.content.decode().split("<form")
+        form = next(chunk for chunk in forms if 'name="go_back"' in chunk)
+        form = form.split("</form>")[0]
+        self.assertIn('name="confirm_schedule"', form)
+        self.assertIn('<input type="hidden" name="tab" value="schedule">', form)
+        for name in (
+            "opening_time",
+            "closing_time",
+            "slot_duration_minutes",
+            "working_days",
+            "same_day_cutoff_time",
+            "booking_limit_days",
+        ):
+            with self.subTest(field=name):
+                self.assertIn(f'name="{name}"', form)
+
+    def test_schedule_tab_without_a_warning_shows_save_changes(self):
+        response = self._get("schedule")
+        self.assertContains(response, "Save changes")
+        self.assertNotContains(response, "Yes, save the new schedule")
+
+    # ─── Banner ───────────────────────────────────────────────────────────────
+
+    def test_banner_has_the_hours_line_and_the_public_page_link(self):
+        banner = self._banner(self._get("details"))
+        self.assertIn("Every day, 8:00 AM to 5:00 PM", banner)
+        self.assertIn("View public clinic page", banner)
+        self.assertIn(f'href="{reverse("clinic_info")}"', banner)
+        self.assertIn("bg-gradient-to-r from-violet-600 to-violet-500", banner)
+
+    def test_banner_shows_phone_only_when_there_is_one(self):
+        self.assertNotIn("0917 000 0000", self._banner(self._get("details")))
+        settings_obj = get_clinic_settings()
+        settings_obj.contact_number = "0917 000 0000"
+        settings_obj.save()
+        self.assertIn("0917 000 0000", self._banner(self._get("details")))
+
+    def test_banner_shows_the_logo_or_a_plain_tile(self):
+        self.assertNotIn("<img", self._banner(self._get("details")))
+        settings_obj = get_clinic_settings()
+        settings_obj.logo = "clinic/logo.png"
+        settings_obj.save()
+        banner = self._banner(self._get("details"))
+        self.assertIn("<img", banner)
+        self.assertIn("clinic/logo.png", banner)
+
+    # ─── Old files ────────────────────────────────────────────────────────────
+
+    def test_the_page_never_loads_the_old_script(self):
+        for tab in self.TABS:
+            with self.subTest(tab=tab):
+                self.assertNotContains(self._get(tab), "js/admin/clinic_settings")
+
+    def test_only_the_blocked_tab_loads_the_old_stylesheet(self):
+        for tab in self.TABS:
+            with self.subTest(tab=tab):
+                response = self._get(tab)
+                if tab == "blocked":
+                    self.assertContains(response, "css/admin/clinic_settings")
+                else:
+                    self.assertNotContains(response, "css/admin/clinic_settings")
+                    self.assertNotContains(response, "layer(legacy)")
+
+    # ─── Logo ─────────────────────────────────────────────────────────────────
+
+    def test_logo_clear_checkbox_is_labelled_remove_the_logo(self):
+        settings_obj = get_clinic_settings()
+        settings_obj.logo = "clinic/logo.png"
+        settings_obj.save()
+        response = self._get("details")
+        self.assertContains(response, 'name="logo-clear"')
+        self.assertContains(response, '<label for="logo-clear_id"')
+        self.assertContains(response, "<span>Remove the logo</span>")
+        self.assertContains(response, "Current clinic logo")
+
+    def test_no_clear_checkbox_without_a_saved_logo(self):
+        response = self._get("details")
+        self.assertNotContains(response, "logo-clear")
+        self.assertNotContains(response, "Remove the logo")
+
+    def test_logo_input_is_labelled_and_shows_the_form_help(self):
+        response = self._get("details")
+        self.assertContains(response, '<label for="id_logo"')
+        self.assertContains(response, "Choose a new logo")
+        self.assertContains(
+            response,
+            "JPG, PNG or WebP, up to 2 MB. It shows on receipts and the clinic "
+            "page. Choosing a new file replaces the old one.",
+        )
+        self.assertContains(response, 'type="file" name="logo" id="id_logo"')
+
+    def test_a_refused_logo_shows_its_message_under_the_input(self):
+        response = self.client.post(
+            self.url,
+            {
+                "tab": "details",
+                "clinic_name": "Test Clinic",
+                "address": "Gasan, Marinduque",
+                "logo": SimpleUploadedFile("logo.svg", b"<svg></svg>"),
+            },
+        )
+        self.assertContains(response, "Only JPG, PNG or WebP files can be used.")
+        self.assertContains(response, "Please fix the 1 item below.")
+
+    # ─── Blocked tab and the form field override ──────────────────────────────
+
+    def test_only_the_blocked_tab_includes_the_blocked_panel(self):
+        for tab in self.TABS:
+            with self.subTest(tab=tab):
+                response = self._get(tab)
+                if tab == "blocked":
+                    self.assertContains(response, 'id="blocked-dates-panel"')
+                else:
+                    self.assertNotContains(response, 'id="blocked-dates-panel"')
+
+    def test_field_labels_use_plain_wording(self):
+        schedule = self._get("schedule")
+        for label in (
+            "Appointment slot length",
+            "Same-day booking cutoff",
+            "Booking limit (days ahead)",
+        ):
+            self.assertContains(schedule, label)
+        self.assertNotContains(schedule, "Slot duration minutes")
+        self.assertContains(
+            schedule,
+            "Owners can book up to this many days ahead. Between 1 and 365.",
+        )
+        details = self._get("details")
+        self.assertContains(details, "Admin notification email")
+        self.assertContains(details, "Blank means the admin account email.")
+
+    def test_page_has_no_inline_handlers_in_the_settings_content(self):
+        for tab in self.TABS:
+            with self.subTest(tab=tab):
+                main = self._get(tab).content.decode().split('id="main-content"')[1]
+                main = main.split("</main>")[0]
+                self.assertNotIn("onclick", main)
+                self.assertNotIn("<!--", main.split('id="blocked-dates-panel"')[0])
 
 
 class ClinicHoursLineTests(SimpleTestCase):

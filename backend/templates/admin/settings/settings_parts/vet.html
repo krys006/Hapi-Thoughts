@@ -1,0 +1,29 @@
+{% comment %}
+  Vet profile tab: its own form posting tab=vet.
+{% endcomment %}
+<section id="settings-vet" aria-labelledby="settings-vet-title">
+  {% include "admin/settings/settings_parts/section_head.html" with id="settings-vet-title" icon="users" tint="bg-green-100 text-green-700" title="Vet profile" text="The vet shown on the clinic page." %}
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="tab" value="vet">
+
+    {% if tab_errors.vet %}
+      {% include "admin/settings/settings_parts/error_summary.html" with count=tab_errors.vet %}
+    {% endif %}
+
+    <div class="space-y-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <p class="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-base text-gray-800">
+        {% include "components/icon.html" with name="info" class="mt-0.5 size-5 shrink-0" %}
+        <span>The vet name and profile show on the clinic page and as the vet on new vaccination records.</span>
+      </p>
+      <div class="grid gap-6 md:grid-cols-2">
+        {% include "components/form_field.html" with field=form.veterinarian_name %}
+        {% include "components/form_field.html" with field=form.veterinarian_license_number optional=True %}
+      </div>
+      {% include "components/form_field.html" with field=form.veterinarian_bio optional=True %}
+    </div>
+
+    {% include "admin/settings/settings_parts/save_row.html" %}
+  </form>
+</section>

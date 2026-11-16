@@ -1,0 +1,30 @@
+{% comment %}
+  Violet clinic banner (decision 12). Everything comes from saved_settings,
+  so a rejected save never shows typed values here. The white button keeps
+  Save changes as the page's one violet button. Stacks on a phone.
+{% endcomment %}
+<div class="flex flex-col gap-5 bg-gradient-to-r from-violet-600 to-violet-500 px-4 py-6 text-white sm:flex-row sm:flex-wrap sm:items-center sm:gap-6 sm:px-8">
+  {% if saved_settings.logo %}
+    <img src="{{ saved_settings.logo.url }}" alt="Clinic logo" class="size-20 shrink-0 rounded-2xl bg-white/95 object-contain p-1 ring-4 ring-white/40">
+  {% else %}
+    <span class="grid size-20 shrink-0 place-content-center rounded-2xl bg-white/95 text-amber-700 ring-4 ring-white/40">{% include "components/icon.html" with name="image" class="size-9" %}</span>
+  {% endif %}
+
+  <div class="min-w-0 flex-1">
+    <p class="text-base font-semibold text-violet-100">Clinic settings</p>
+    <h1 class="text-2xl font-bold sm:text-3xl">{{ saved_settings.clinic_name }}</h1>
+    <ul class="mt-2 flex flex-col gap-1 text-base text-violet-50 sm:flex-row sm:flex-wrap sm:gap-x-5">
+      {% if saved_settings.address %}
+        <li class="inline-flex items-center gap-1.5">{% include "components/icon.html" with name="map-pin" %}<span>{{ saved_settings.address }}</span></li>
+      {% endif %}
+      <li class="inline-flex items-center gap-1.5">{% include "components/icon.html" with name="clock" %}<span>{{ hours_line }}</span></li>
+      {% if saved_settings.contact_number %}
+        <li class="inline-flex items-center gap-1.5">{% include "components/icon.html" with name="phone" %}<span>{{ saved_settings.contact_number }}</span></li>
+      {% endif %}
+    </ul>
+  </div>
+
+  <a href="{% url 'clinic_info' %}" class="btn w-full border border-white/70 bg-white font-semibold text-violet-800 hover:bg-violet-50 sm:w-auto">
+    {% include "components/icon.html" with name="eye" %}View public clinic page
+  </a>
+</div>

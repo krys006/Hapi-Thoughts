@@ -81,12 +81,14 @@ class ClinicSettingsForm(forms.ModelForm):
     # TypedChoiceField (coerce=int) so changed_data compares 60 with 60, not
     # the saved 60 with the posted "60".
     slot_duration_minutes = forms.TypedChoiceField(
+        label="Appointment slot length",
         choices=SLOT_DURATION_CHOICES,
         coerce=int,
-        help_text="Duration of each appointment slot.",
+        help_text="Each booking takes one slot.",
     )
 
     booking_limit_days = forms.IntegerField(
+        label="Booking limit (days ahead)",
         min_value=1,
         max_value=365,
         help_text="Owners can book up to this many days ahead. Between 1 and 365.",
@@ -116,7 +118,19 @@ class ClinicSettingsForm(forms.ModelForm):
             "notification_email",
         ]
         field_classes = {"logo": LogoImageField}
+        labels = {
+            "notification_email": "Admin notification email",
+            "veterinarian_license_number": "License number",
+            "veterinarian_bio": "About the vet",
+            "same_day_cutoff_time": "Same-day booking cutoff",
+        }
         help_texts = {
+            "notification_email": (
+                "New visit requests are sent here. "
+                "Blank means the admin account email."
+            ),
+            "veterinarian_bio": "A few sentences. Shown on the clinic page.",
+            "same_day_cutoff_time": "No bookings for today after this time.",
             "logo": (
                 "JPG, PNG or WebP, up to 2 MB. It shows on receipts and the "
                 "clinic page. Choosing a new file replaces the old one."

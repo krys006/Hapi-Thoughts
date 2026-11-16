@@ -1,0 +1,11 @@
+{% comment %}
+  The four settings tabs as real ?tab= links (they work without JavaScript and
+  a failed save can reopen the right one). A 2x2 grid on a phone. tab_problems
+  holds "1 problem" for a tab with errors.
+{% endcomment %}
+<nav class="grid grid-cols-2 gap-2 p-2 md:grid-cols-4" aria-label="Clinic settings sections">
+  {% include "admin/settings/settings_parts/tab_link.html" with tab="details" label="Clinic details" icon="house" problems=tab_problems.details %}
+  {% include "admin/settings/settings_parts/tab_link.html" with tab="schedule" label="Schedule" icon="clock" problems=tab_problems.schedule %}
+  {% include "admin/settings/settings_parts/tab_link.html" with tab="blocked" label="Blocked dates" icon="ban" problems=tab_problems.blocked %}
+  {% include "admin/settings/settings_parts/tab_link.html" with tab="vet" label="Vet profile" icon="users" problems=tab_problems.vet %}
+</nav>
