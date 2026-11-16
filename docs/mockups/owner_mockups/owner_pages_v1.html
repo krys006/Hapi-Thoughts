@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Owner Pages v1</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { background:#e7e5e4; font-family:"Segoe UI", system-ui, sans-serif; }
+  .phone { width:390px; height:844px; overflow-y:auto; position:relative; }
+  .phone::-webkit-scrollbar { width:0; }
+  .paw-layer { position:absolute; inset:0; pointer-events:none; opacity:.10; color:#fff; }
+
+  /* Header bar: see-through over the violet band, turns white once the band has scrolled away (option B) */
+  .bar { transition: background-color .2s, color .2s, box-shadow .2s, border-color .2s; color:#fff; border-bottom:1px solid transparent; }
+  .bar .logo { background:rgba(255,255,255,.15); transition: background-color .2s; }
+  .bar .dot { box-shadow:0 0 0 2px #6d28d9; }
+  [data-scrolled] .bar { background:#fff; color:#111827; border-color:#e5e7eb; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+  [data-scrolled] .bar .logo { background:#7c3aed; color:#fff; }
+  [data-scrolled] .bar .dot { box-shadow:0 0 0 2px #fff; }
+  /* Comparison variant: white from the start, no band */
+  .bar.white { background:#fff; color:#111827; border-color:#e5e7eb; }
+  .bar.white .logo { background:#7c3aed; color:#fff; }
+  .bar.white .dot { box-shadow:0 0 0 2px #fff; }
+</style>
+</head>
+<body class="p-6 text-gray-900 antialiased">
+
+<header class="mx-auto mb-6 max-w-[2150px]">
+  <h1 class="text-2xl font-bold">Pet owner pages v1 — dashboard and My Pets</h1>
+  <p class="mt-1 text-base text-gray-700">Header option B on every page: the bar is see-through over the violet band and turns white once the band has scrolled away. The bottom tabs stay at the bottom of the screen even when a page is short. Scroll inside each phone.</p>
+</header>
+
+<div class="mx-auto flex max-w-[2150px] flex-wrap justify-center gap-8" id="frames"></div>
+
+<script>
+// ---------- Decorative trail (dashboard only) ----------
+const PAW = `<ellipse cx="14" cy="25" rx="5.5" ry="7.5" transform="rotate(-20 14 25)"/><ellipse cx="25.5" cy="14" rx="5.5" ry="7.5" transform="rotate(-6 25.5 14)"/><ellipse cx="38.5" cy="14" rx="5.5" ry="7.5" transform="rotate(6 38.5 14)"/><ellipse cx="50" cy="25" rx="5.5" ry="7.5" transform="rotate(20 50 25)"/><path d="M32 30c-9 0-17 8-17 15 0 6 5 8 9 8 3 0 5-2 8-2s5 2 8 2c4 0 9-2 9-8 0-7-8-15-17-15z"/>`;
+const paw = (x, y, s, r) => `<g transform="translate(${x} ${y}) rotate(${r} ${s/2} ${s/2}) scale(${s/64})">${PAW}</g>`;
+const steps = Array.from({length: 9}, (_, i) => paw(-10 + i*48, 220 - i*26 + (i % 2 ? -14 : 14), 26, 60)).join('');
+const trail = `<svg class="paw-layer" viewBox="0 0 390 300" preserveAspectRatio="xMidYMid slice" fill="currentColor">${steps}</svg>`;
+
+// ---------- Icons (Lucide shapes, mockup only) ----------
+const P = {
+  house:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  chev:'<path d="m9 18 6-6-6-6"/>',
+  clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  image:'<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+  dog:'<path d="M11.25 16.25h1.5L12 17z"/><path d="M16 14v.5"/><path d="M4.42 11.247A13.152 13.152 0 0 0 4 14.556C4 18.728 7.582 21 12 21s8-2.272 8-6.444a11.702 11.702 0 0 0-.493-3.309"/><path d="M8 14v.5"/><path d="M8.5 8.5c-.384 1.05-1.083 2.028-2.344 2.5-1.931.722-3.576-.297-3.656-1-.113-.994 1.177-6.53 4-7 1.923-.321 3.651.845 3.651 2.235A7.497 7.497 0 0 1 14 5.277c0-1.39 1.844-2.598 3.767-2.277 2.823.47 4.113 6.006 4 7-.08.703-1.725 1.722-3.656 1-1.261-.472-1.855-1.45-2.239-2.5"/>',
+  cat:'<path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z"/><path d="M8 14v.5"/><path d="M16 14v.5"/><path d="M11.25 16.25h1.5L12 17l-.75-.75Z"/>',
+};
+const ic = (n, c='size-5 shrink-0') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+const thin = (n, c) => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+const badge = s => ({
+  confirmed:'<span class="rounded-full bg-blue-100 px-2.5 py-1 text-sm font-medium text-blue-800">Confirmed</span>',
+  pending:'<span class="rounded-full bg-yellow-100 px-2.5 py-1 text-sm font-medium text-yellow-800">Waiting for approval</span>',
+}[s]);
+
+// ---------- Shell ----------
+const bar = (cls='') => `
+<div class="bar ${cls} sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between px-4">
+  <div class="flex items-center gap-2.5">
+    <span class="logo grid size-9 place-content-center rounded-xl">${ic('paw','size-5')}</span>
+    <span class="text-lg font-bold">Hapi Tutz</span>
+  </div>
+  <button class="relative grid size-11 place-content-center rounded-full" aria-label="Notifications, 9 unread">
+    ${ic('bell','size-6')}
+    <span class="dot absolute right-1 top-1 grid min-w-5 place-content-center rounded-full bg-red-600 px-1 text-xs font-bold text-white">9</span>
+  </button>
+</div>`;
+
+const tabs = active => `
+<nav class="sticky bottom-0 z-10 mt-auto grid shrink-0 grid-cols-5 border-t border-gray-200 bg-white pb-2">
+  ${[['house','Home'],['paw','Pets'],['calendar','Visits'],['receipt','Bills'],['user','Account']].map(([i,l]) =>
+    `<a class="flex min-h-14 flex-col items-center justify-center gap-0.5 pt-2 text-sm font-medium ${l===active ? 'text-violet-700' : 'text-gray-600'}"${l===active ? ' aria-current="page"' : ''}>
+      ${ic(i,'size-6')}${l}<span class="mt-0.5 h-1 w-6 rounded-full ${l===active ? 'bg-violet-600' : ''}"></span></a>`).join('')}
+</nav>`;
+
+// A page is a column at least as tall as the screen, so the tabs always sit at the very bottom
+const page = (inner, active) => `<div class="flex min-h-full flex-col">${inner}${tabs(active)}</div>`;
+
+// Dashboard band (trail; the first card overlaps its bottom 64px) and inner-page band (plain, short)
+const dashBand = `
+<div data-band data-overlap="64" class="relative -mt-16 overflow-hidden bg-violet-700 pb-20 pt-16 text-white">
+  ${trail}
+  <div class="relative px-4 pt-2">
+    <p class="text-base text-violet-100">Monday, November 2, 2026</p>
+    <h1 class="text-3xl font-bold">Hi, Krys</h1>
+  </div>
+</div>`;
+const titleBand = (title, sub) => `
+<div data-band data-overlap="0" class="-mt-16 bg-violet-700 px-4 pb-6 pt-[4.5rem] text-white">
+  <h1 class="text-2xl font-bold">${title}</h1>
+  <p class="text-base text-violet-100">${sub}</p>
+</div>`;
+
+// ---------- Shared pieces ----------
+const primary = (icon, label) => `<a class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm">${ic(icon,'size-6')}${label}</a>`;
+
+const section = (title, body, link='') => `
+<section>
+  <div class="mb-2 flex min-h-11 items-center justify-between"><h2 class="text-xl font-bold">${title}</h2>${link}</div>
+  ${body}
+</section>`;
+const seeAll = `<a class="inline-flex min-h-11 items-center text-base font-medium text-blue-600">See all</a>`;
+
+const emptyBox = (icon, title, text) => `
+<div class="flex flex-col items-center rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-8 text-center">
+  <span class="grid size-12 place-content-center rounded-full bg-gray-100 text-gray-500">${ic(icon,'size-6')}</span>
+  <p class="mt-3 text-base font-semibold">${title}</p>
+  <p class="mt-1 text-base text-gray-600">${text}</p>
+</div>`;
+
+// ---------- Dashboard ----------
+const nextVisit = `
+<section class="rounded-2xl border border-gray-200 bg-white p-5 shadow-md">
+  <p class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-violet-700">${ic('calendar','size-4')}Next visit</p>
+  <div class="mt-3 flex items-center gap-4">
+    <span class="grid size-16 shrink-0 place-content-center rounded-2xl bg-violet-50 text-violet-600 ring-1 ring-violet-200">${thin('dog','size-8')}</span>
+    <div><p class="text-xl font-bold">Browny</p><p class="text-base text-gray-700">Consultation</p></div>
+  </div>
+  <p class="mt-4 flex items-center gap-2 text-lg font-semibold">${ic('clock','size-5 text-gray-500')}Today, Nov 2 · 3:00 PM</p>
+  <div class="mt-4 flex items-center justify-between">${badge('confirmed')}
+    <a class="inline-flex min-h-11 items-center gap-1 text-base font-medium text-blue-600">View details${ic('chev','size-4')}</a></div>
+</section>`;
+
+const appts = [['Nov','10','Consultation','12:00 PM','confirmed'],['Nov','13','Vaccination','2:00 PM','pending'],['Nov','20','Check-up','9:00 AM','pending']];
+const upcomingList = `
+<div class="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+${appts.map(([m,d,svc,time,st]) => `
+  <a class="flex items-center gap-4 px-4 py-4">
+    <span class="grid w-14 shrink-0 place-content-center rounded-xl bg-gray-100 py-2 text-center">
+      <span class="text-xs font-semibold uppercase text-gray-600">${m}</span><span class="text-xl font-bold leading-6">${d}</span></span>
+    <span class="min-w-0 flex-1"><span class="block text-base font-semibold">Browny · ${svc}</span>
+      <span class="block text-base text-gray-600">${time}</span><span class="mt-1.5 inline-block">${badge(st)}</span></span>
+    ${ic('chev','size-5 text-gray-400')}</a>`).join('')}
+</div>`;
+
+const unpaid = `
+<section class="flex items-center gap-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+  <span class="grid size-11 shrink-0 place-content-center rounded-xl bg-green-50 text-green-700">${ic('receipt','size-6')}</span>
+  <div class="flex-1"><p class="text-base font-semibold">No unpaid bills</p><p class="text-base text-gray-600">Last bill: HV-2026-0001</p></div>
+  ${ic('chev','size-5 text-gray-400')}
+</section>`;
+
+const welcomeCard = `
+<section class="rounded-2xl border border-gray-200 bg-white p-5 text-center shadow-md">
+  <span class="mx-auto grid size-20 place-content-center rounded-full bg-violet-50 text-violet-600 ring-1 ring-violet-200">${thin('paw','size-10')}</span>
+  <h2 class="mt-4 text-xl font-bold">Welcome to Hapi Tutz!</h2>
+  <p class="mt-1 text-base text-gray-700">Start by adding your pet. Then you can book a visit with Dr. Aga.</p>
+  <div class="mt-5">${primary('plus','Add your first pet')}</div>
+</section>`;
+
+const dashboard = page(
+  bar() + dashBand +
+  `<main class="relative -mt-16 space-y-6 px-4 pb-6">${nextVisit}${primary('plus','Book an appointment')}${section('Upcoming visits', upcomingList, seeAll)}${unpaid}</main>`, 'Home');
+
+const dashboardNew = page(
+  bar() + dashBand +
+  `<main class="relative -mt-16 space-y-6 px-4 pb-6">${welcomeCard}${section('Upcoming visits', emptyBox('calendar','No visits yet','Your booked visits will show here.'))}</main>`, 'Home');
+
+// ---------- My Pets ----------
+// Pet picture: the photo when uploaded, otherwise a violet tile with the species icon (same rule as admin pet_avatar)
+const photo = `<span class="grid size-16 shrink-0 place-content-center rounded-2xl bg-gradient-to-br from-amber-200 to-amber-500 text-white ring-1 ring-black/10" role="img" aria-label="Photo of Browny">${ic('image','size-6')}</span>`;
+const noPhoto = (sp, name) => `<span class="grid size-16 shrink-0 place-content-center rounded-2xl bg-violet-50 text-violet-600 ring-1 ring-violet-200" role="img" aria-label="No photo of ${name} yet">${thin(sp,'size-8')}</span>`;
+
+const petCard = (pic, name, line, next) => `
+<a class="flex items-center gap-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+  ${pic}
+  <span class="min-w-0 flex-1">
+    <span class="block text-lg font-bold">${name}</span>
+    <span class="block text-base text-gray-700">${line}</span>
+    <span class="mt-1 flex items-center gap-1.5 text-base ${next ? 'text-gray-700' : 'text-gray-500'}">${ic('calendar','size-4 shrink-0')}${next || 'No visit booked'}</span>
+  </span>
+  ${ic('chev','size-5 text-gray-400')}
+</a>`;
+
+const pets = [
+  petCard(photo, 'Browny', 'Dog · Aspin · Male · 3 yrs', 'Nov 10 · 12:00 PM'),
+  petCard(noPhoto('cat','Mingming'), 'Mingming', 'Cat · Puspin · Female · 1 yr', ''),
+  petCard(noPhoto('dog','Choco'), 'Choco', 'Dog · Shih Tzu · Male · 5 yrs', 'Nov 20 · 9:00 AM'),
+  petCard(noPhoto('paw','Kiko'), 'Kiko', 'Rabbit · Female · 2 yrs', ''),
+  petCard(noPhoto('dog','Bantay'), 'Bantay', 'Dog · Aspin · Male · 7 yrs', ''),
+  petCard(noPhoto('cat','Snow'), 'Snow', 'Cat · Persian · Female · 4 yrs', 'Dec 1 · 10:00 AM'),
+].join('');
+
+const myPets = page(
+  bar() + titleBand('My Pets', '6 pets') +
+  `<main class="flex-1 space-y-4 px-4 py-6">${primary('plus','Add a pet')}${pets}</main>`, 'Pets');
+
+const myPetsEmpty = page(
+  bar() + titleBand('My Pets', 'No pets yet') +
+  `<main class="flex flex-1 flex-col items-center justify-center px-6 py-10 text-center">
+     <span class="grid size-24 place-content-center rounded-full bg-violet-50 text-violet-600 ring-1 ring-violet-200">${thin('paw','size-12')}</span>
+     <h2 class="mt-5 text-xl font-bold">You haven't added a pet yet</h2>
+     <p class="mt-2 text-base text-gray-700">Add your pet so you can book visits and see their health records here.</p>
+     <div class="mt-6 w-full">${primary('plus','Add a pet')}</div>
+   </main>`, 'Pets');
+
+const myPetsWhite = page(
+  bar('white') +
+  `<main class="flex-1 space-y-4 px-4 py-6">
+     <div><h1 class="text-2xl font-bold">My Pets</h1><p class="text-base text-gray-600">6 pets</p></div>
+     ${primary('plus','Add a pet')}${pets}
+   </main>`, 'Pets');
+
+// ---------- Frames ----------
+const frame = (label, note, body, watch) => `
+<figure class="flex flex-col items-center">
+  <figcaption class="mb-3 w-[390px]"><p class="text-lg font-bold">${label}</p><p class="text-base text-gray-700">${note}</p></figcaption>
+  <div class="phone rounded-[2rem] bg-gray-50 shadow-xl ring-8 ring-gray-900"${watch ? ' data-watch' : ''}>${body}</div>
+</figure>`;
+
+document.getElementById('frames').innerHTML =
+  frame('1 · Dashboard', 'Trail at 10%. Bar turns white once the greeting has scrolled away.', dashboard, true) +
+  frame('2 · Dashboard, new owner', 'No pets and no visits yet. A welcome card leads to adding the first pet.', dashboardNew, true) +
+  frame('3 · My Pets', 'Short plain band with the title. Photo when uploaded, species icon when not.', myPets, true) +
+  frame('4 · My Pets, no pets yet', 'Empty state with one clear next step. Tabs stay at the bottom.', myPetsEmpty, true) +
+  frame('5 · My Pets, white bar only (compare)', 'If you prefer inner pages with no band at all: white bar from the start.', myPetsWhite, false);
+
+// The bar turns white only after the band's visible part has fully passed under it
+document.querySelectorAll('.phone[data-watch]').forEach(p => {
+  const band = p.querySelector('[data-band]');
+  p.addEventListener('scroll', () => {
+    const t = band.offsetHeight - 64 - +band.dataset.overlap;
+    p.toggleAttribute('data-scrolled', p.scrollTop >= t);
+  });
+});
+</script>
+</body>
+</html>

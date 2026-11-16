@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bills v1</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { background:#e7e5e4; font-family:"Segoe UI", system-ui, sans-serif; }
+  .phone { width:390px; height:844px; overflow-y:auto; position:relative; }
+  .phone::-webkit-scrollbar { width:0; }
+  input[type=search]::-webkit-search-cancel-button { -webkit-appearance:none; display:none; }
+</style>
+</head>
+<body class="p-6 text-gray-900 antialiased">
+
+<header class="mx-auto mb-6 max-w-[2150px]">
+  <h1 class="text-2xl font-bold">Bills v1 — list and receipt</h1>
+  <p class="mt-1 text-base text-gray-700">Read-only for owners: the clinic makes the bills and records cash payments. Unpaid bills come first. Detail pages keep the bottom tabs and add a Back arrow. Colours match admin: unpaid yellow, paid green, cancelled red.</p>
+</header>
+
+<div class="mx-auto flex max-w-[2150px] flex-wrap justify-center gap-8" id="frames"></div>
+
+<script>
+// ---------- Icons (Lucide shapes, mockup only) ----------
+const P = {
+  house:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  chev:'<path d="m9 18 6-6-6-6"/>',
+  search:'<path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/>',
+  x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  back:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  checkCircle:'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  xCircle:'<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
+  wallet:'<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
+  printer:'<path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/>',
+  dog:'<path d="M11.25 16.25h1.5L12 17z"/><path d="M16 14v.5"/><path d="M4.42 11.247A13.152 13.152 0 0 0 4 14.556C4 18.728 7.582 21 12 21s8-2.272 8-6.444a11.702 11.702 0 0 0-.493-3.309"/><path d="M8 14v.5"/><path d="M8.5 8.5c-.384 1.05-1.083 2.028-2.344 2.5-1.931.722-3.576-.297-3.656-1-.113-.994 1.177-6.53 4-7 1.923-.321 3.651.845 3.651 2.235A7.497 7.497 0 0 1 14 5.277c0-1.39 1.844-2.598 3.767-2.277 2.823.47 4.113 6.006 4 7-.08.703-1.725 1.722-3.656 1-1.261-.472-1.855-1.45-2.239-2.5"/>',
+  cat:'<path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z"/><path d="M8 14v.5"/><path d="M16 14v.5"/><path d="M11.25 16.25h1.5L12 17l-.75-.75Z"/>',
+};
+const ic = (n, c='size-5 shrink-0') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+const thin = (n, c) => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+const badge = s => {
+  const [c, l] = {pending:['bg-yellow-100 text-yellow-800','Unpaid'], paid:['bg-green-100 text-green-800','Paid'], cancelled:['bg-red-100 text-red-800','Cancelled']}[s];
+  return `<span class="inline-block rounded-full px-2.5 py-1 text-sm font-medium ${c}">${l}</span>`;
+};
+
+// ---------- Shell ----------
+const bar = `
+<div class="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4">
+  <div class="flex items-center gap-2.5">
+    <span class="grid size-9 place-content-center rounded-xl bg-violet-600 text-white">${ic('paw','size-5')}</span>
+    <span class="text-lg font-bold">Hapi Tutz</span>
+  </div>
+  <button class="relative grid size-11 place-content-center rounded-full hover:bg-gray-100" aria-label="Notifications, 9 unread">
+    ${ic('bell','size-6')}
+    <span class="absolute right-1 top-1 grid min-w-5 place-content-center rounded-full bg-red-600 px-1 text-xs font-bold text-white ring-2 ring-white">9</span>
+  </button>
+</div>`;
+// Detail pages: Back arrow + title instead of the logo
+const backBar = title => `
+<div class="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-2">
+  <a class="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-base font-medium text-gray-800 hover:bg-gray-100">${ic('back','size-6')}Bills</a>
+  <span class="flex-1 text-center text-lg font-bold">${title}</span>
+  <span class="w-[84px]"></span>
+</div>`;
+const tabs = `
+<nav class="sticky bottom-0 z-10 mt-auto grid shrink-0 grid-cols-5 border-t border-gray-200 bg-white pb-2">
+  ${[['house','Home'],['paw','Pets'],['calendar','Visits'],['receipt','Bills'],['user','Account']].map(([i,l]) =>
+    `<a class="flex min-h-14 flex-col items-center justify-center gap-0.5 pt-2 text-sm font-medium ${l==='Bills' ? 'text-violet-700' : 'text-gray-600'}"${l==='Bills' ? ' aria-current="page"' : ''}>
+      ${ic(i,'size-6')}${l}<span class="mt-0.5 h-1 w-6 rounded-full ${l==='Bills' ? 'bg-violet-600' : ''}"></span></a>`).join('')}
+</nav>`;
+const page = (head, inner) => `<div class="flex min-h-full flex-col">${head}${inner}${tabs}</div>`;
+
+const petTile = sp => `<span class="grid size-12 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-600 ring-1 ring-violet-200">${thin(sp,'size-7')}</span>`;
+
+// ---------- List ----------
+const billRow = (no, date, pet, sp, amount, st, iso='') => `
+<a class="bill flex items-center gap-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm" data-iso="${iso}" data-text="${(no + ' ' + pet).toLowerCase()}">
+  ${petTile(sp)}
+  <span class="min-w-0 flex-1">
+    <span class="flex items-baseline justify-between gap-2"><span class="text-lg font-bold">${pet}</span><span class="text-lg font-bold tabular-nums ${st==='cancelled' ? 'text-gray-500 line-through' : ''}">₱${amount}</span></span>
+    <span class="block text-base text-gray-700">${date}</span>
+    <span class="mt-1.5 flex items-center justify-between gap-2"><span class="text-base text-gray-600">${no}</span>${badge(st)}</span>
+  </span>
+  ${ic('chev','size-5 text-gray-400')}
+</a>`;
+
+// History data (newest first). Today is Nov 2, 2026.
+const history = [
+  ['HV-2026-0003','Oct 31, 2026','Browny','dog','850.00','paid','2026-10-31'],
+  ['HV-2026-0002','Oct 28, 2026','Mingming','cat','500.00','cancelled','2026-10-28'],
+  ['HV-2026-0001','Sep 30, 2026','Browny','dog','650.00','paid','2026-09-30'],
+  ['HV-2025-0019','Dec 12, 2025','Choco','dog','1,200.00','paid','2025-12-12'],
+  ['HV-2025-0011','Jul 4, 2025','Mingming','cat','400.00','paid','2025-07-04'],
+];
+const monthOf = iso => new Date(iso + 'T00:00').toLocaleString('en-US', {month:'long', year:'numeric'});
+const historyList = rows => {
+  let out = '', last = '';
+  rows.forEach(r => { const m = monthOf(r[6]); if (m !== last) { out += `<p class="month pt-1 text-base font-semibold text-gray-600">${m}</p>`; last = m; } out += billRow(...r); });
+  return out;
+};
+
+// Search (receipt no. or pet name) + period filter, for the History list only
+const filters = `
+<div class="space-y-3">
+  <label class="relative block">
+    <span class="sr-only">Search by receipt number or pet name</span>
+    <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">${ic('search','size-5')}</span>
+    <input class="q block min-h-12 w-full rounded-xl border border-gray-300 bg-white pl-12 pr-12 text-base placeholder:text-gray-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200" type="search" placeholder="Receipt no. or pet name">
+    <button type="button" class="clear absolute right-1 top-1/2 hidden size-11 -translate-y-1/2 place-content-center rounded-lg text-gray-600" aria-label="Clear search">${ic('x','size-5')}</button>
+  </label>
+  <label class="flex items-center gap-3">
+    <span class="shrink-0 text-base font-semibold">Show</span>
+    <select class="period block min-h-12 w-full rounded-xl border border-gray-300 bg-white px-4 text-base focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200">
+      <option value="all">All time</option>
+      <option value="month">This month</option>
+      <option value="3m">Last 3 months</option>
+      <option value="year">This year (2026)</option>
+      <option value="2025">Last year (2025)</option>
+    </select>
+  </label>
+</div>`;
+
+const noMatch = `
+<div class="nomatch hidden flex-col items-center rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-8 text-center">
+  <span class="grid size-12 place-content-center rounded-full bg-gray-100 text-gray-500">${ic('search','size-6')}</span>
+  <p class="mt-3 text-base font-semibold">No bills match</p>
+  <p class="mt-1 text-base text-gray-600">Try another name or receipt number, or show All time.</p>
+  <button type="button" class="reset mt-4 inline-flex min-h-11 items-center rounded-xl border border-gray-300 bg-white px-4 text-base font-medium text-gray-800">Show all bills</button>
+</div>`;
+
+const owe = `
+<section class="rounded-2xl border border-yellow-300 bg-yellow-50 p-5">
+  <p class="flex items-center gap-2 text-base font-semibold text-yellow-900">${ic('wallet','size-5')}To pay</p>
+  <p class="mt-1 text-3xl font-bold tabular-nums">₱1,350.00</p>
+  <p class="mt-1 text-base text-yellow-900">1 unpaid bill. Please pay in cash at the clinic.</p>
+</section>`;
+
+const listPage = page(bar, `
+<main class="flex-1 space-y-5 px-4 py-5">
+  <h1 class="text-2xl font-bold">Bills</h1>
+  ${owe}
+  <section class="space-y-3">
+    <h2 class="text-xl font-bold">Unpaid</h2>
+    ${billRow('HV-2026-0004','Nov 2, 2026','Browny','dog','1,350.00','pending')}
+  </section>
+  <section class="space-y-3">
+    <h2 class="text-xl font-bold">History</h2>
+    ${filters}
+    <div class="hist space-y-3">${historyList(history)}</div>
+    ${noMatch}
+  </section>
+</main>`);
+
+const allPaid = page(bar, `
+<main class="flex-1 space-y-5 px-4 py-5">
+  <h1 class="text-2xl font-bold">Bills</h1>
+  <section class="flex items-center gap-4 rounded-2xl border border-green-200 bg-green-50 p-5 text-green-900">
+    ${ic('checkCircle','size-8')}
+    <div><p class="text-lg font-bold">You're all paid up</p><p class="text-base">No unpaid bills right now.</p></div>
+  </section>
+  <section class="space-y-3">
+    <h2 class="text-xl font-bold">History</h2>
+    <p class="pt-1 text-base font-semibold text-gray-600">October 2026</p>
+    ${billRow('HV-2026-0003','Oct 31, 2026','Browny','dog','850.00','paid')}
+    ${billRow('HV-2026-0002','Oct 28, 2026','Mingming','cat','500.00','cancelled')}
+  </section>
+</main>`);
+
+const noBills = page(bar, `
+<main class="flex flex-1 flex-col items-center justify-center px-6 py-10 text-center">
+  <span class="grid size-24 place-content-center rounded-full bg-gray-100 text-gray-500">${thin('receipt','size-12')}</span>
+  <h1 class="mt-5 text-2xl font-bold">Bills</h1>
+  <p class="mt-2 text-lg font-semibold">No bills yet</p>
+  <p class="mt-1 text-base text-gray-700">After a visit, the clinic will add your bill here so you can see what it was for.</p>
+</main>`);
+
+// ---------- Receipt detail ----------
+const items = [['Consultation',1,'500.00'],['Anti-rabies vaccine',1,'450.00'],['Deworming tablet',2,'200.00']];
+const receipt = (st, opts={}) => `
+<section class="rounded-2xl border border-gray-200 bg-white shadow-sm">
+  <div class="flex items-start justify-between gap-3 border-b border-gray-100 p-4">
+    <div><p class="text-base text-gray-600">Receipt</p><p class="text-xl font-bold">HV-2026-0004</p></div>
+    ${badge(st)}
+  </div>
+  <dl class="grid grid-cols-2 gap-3 border-b border-gray-100 p-4 text-base">
+    <div><dt class="text-gray-600">Pet</dt><dd class="font-semibold">Browny</dd></div>
+    <div><dt class="text-gray-600">Bill date</dt><dd class="font-semibold">Nov 2, 2026</dd></div>
+    <div class="col-span-2"><dt class="text-gray-600">For the visit</dt><dd class="font-semibold"><a class="text-blue-600 underline underline-offset-2">Consultation · Nov 2, 3:00 PM</a></dd></div>
+  </dl>
+  <div class="p-4">
+    <h2 class="mb-2 text-lg font-bold">What it's for</h2>
+    <ul class="divide-y divide-gray-100">
+      ${items.map(([n,q,p]) => `<li class="flex items-start justify-between gap-3 py-3"><span><span class="block text-base font-semibold">${n}</span><span class="block text-base text-gray-600">Qty ${q}</span></span><span class="text-base font-semibold tabular-nums">₱${p}</span></li>`).join('')}
+    </ul>
+    <dl class="mt-2 space-y-2 border-t border-gray-200 pt-3 text-base">
+      <div class="flex justify-between"><dt class="text-gray-700">Subtotal</dt><dd class="tabular-nums">₱1,500.00</dd></div>
+      <div class="flex justify-between"><dt class="text-gray-700">Discount <span class="text-gray-600">(Loyal client, 10%)</span></dt><dd class="tabular-nums text-green-700">−₱150.00</dd></div>
+      <div class="flex justify-between border-t border-gray-200 pt-3 text-xl font-bold"><dt>Total</dt><dd class="tabular-nums ${st==='cancelled' ? 'text-gray-500 line-through' : ''}">₱1,350.00</dd></div>
+      ${opts.paid ? `<div class="flex justify-between"><dt class="text-gray-700">Paid by</dt><dd>Cash · Nov 2, 2026</dd></div>` : ''}
+    </dl>
+  </div>
+</section>`;
+
+const banner = (tone, icon, title, text) => {
+  const t = {yellow:'border-yellow-300 bg-yellow-50 text-yellow-900', green:'border-green-200 bg-green-50 text-green-900', red:'border-red-200 bg-red-50 text-red-900'}[tone];
+  return `<div class="flex items-start gap-3 rounded-xl border px-4 py-4 ${t}">${ic(icon,'mt-0.5 size-6 shrink-0')}<div><p class="text-lg font-semibold">${title}</p><p class="mt-0.5 text-base">${text}</p></div></div>`;
+};
+const printBtn = `<a class="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-gray-300 bg-white text-base font-semibold text-gray-800">${ic('printer','size-5')}Print or save as PDF</a>`;
+
+const unpaidDetail = page(backBar('Bill'), `
+<main class="flex-1 space-y-4 px-4 py-5">
+  ${banner('yellow','wallet','Please pay ₱1,350.00 at the clinic','Cash only. The clinic will mark it paid when you pay.')}
+  ${receipt('pending')}
+  <p class="flex items-start gap-2 text-base text-gray-600">${ic('info','mt-0.5 size-5 shrink-0')}Something looks wrong? Ask at the clinic or call 0954 288 9774. Only the clinic can change a bill.</p>
+</main>`);
+
+const paidDetail = page(backBar('Bill'), `
+<main class="flex-1 space-y-4 px-4 py-5">
+  ${banner('green','checkCircle','Paid on Nov 2, 2026','Thank you! Keep this as your receipt.')}
+  ${receipt('paid', {paid:true})}
+  ${printBtn}
+</main>`);
+
+const cancelledDetail = page(backBar('Bill'), `
+<main class="flex-1 space-y-4 px-4 py-5">
+  ${banner('red','xCircle','This bill was cancelled','You don\'t need to pay it. It stays here for your records.')}
+  ${receipt('cancelled')}
+</main>`);
+
+// ---------- Frames ----------
+const frame = (lbl, note, body, id='') => `
+<figure class="flex flex-col items-center">
+  <figcaption class="mb-3 w-[390px]"><p class="text-lg font-bold">${lbl}</p><p class="text-base text-gray-700">${note}</p></figcaption>
+  <div ${id ? `id="${id}"` : ''} class="phone rounded-[2rem] bg-gray-50 shadow-xl ring-8 ring-gray-900">${body}</div>
+</figure>`;
+
+document.getElementById('frames').innerHTML =
+  frame('1 · Bills (try it)', 'What they owe first. History below has a search (receipt no. or pet) and a Show period filter. Unpaid bills are never hidden by the filter.', listPage, 'live') +
+  frame('1b · All paid', 'Nothing unpaid: a calm green note instead of the yellow box.', allPaid) +
+  frame('1c · No bills yet', 'New owner. No button, because owners don\'t create bills.', noBills) +
+  frame('2 · Unpaid bill', 'Says how much, how to pay (cash at the clinic) and who to ask if it\'s wrong.', unpaidDetail) +
+  frame('3 · Paid bill', 'Payment date and method, and a Print / save as PDF button (window.print).', paidDetail) +
+  frame('4 · Cancelled bill', 'Clear that nothing is owed. Read-only like every locked receipt.', cancelledDetail);
+// ---------- Make phone 1's search and period work ----------
+const root = document.getElementById('live');
+const today = new Date('2026-11-02T00:00');
+const inPeriod = (iso, p) => {
+  const d = new Date(iso + 'T00:00');
+  if (p === 'month') return d.getFullYear() === 2026 && d.getMonth() === 10;
+  if (p === '3m') { const from = new Date(today); from.setMonth(from.getMonth() - 3); return d > from; }
+  if (p === 'year') return d.getFullYear() === 2026;
+  if (p === '2025') return d.getFullYear() === 2025;
+  return true;
+};
+const apply = () => {
+  const q = root.querySelector('.q').value.trim().toLowerCase(), p = root.querySelector('.period').value;
+  let shown = 0;
+  root.querySelectorAll('.hist .bill').forEach(b => { const ok = b.dataset.text.includes(q) && inPeriod(b.dataset.iso, p); b.classList.toggle('hidden', !ok); if (ok) shown++; });
+  root.querySelectorAll('.hist .month').forEach(h => {
+    let el = h.nextElementSibling, any = false;
+    while (el && !el.classList.contains('month')) { if (!el.classList.contains('hidden')) any = true; el = el.nextElementSibling; }
+    h.classList.toggle('hidden', !any);
+  });
+  root.querySelector('.clear').classList.toggle('hidden', !q);
+  const nm = root.querySelector('.nomatch'); nm.classList.toggle('hidden', shown > 0); nm.classList.toggle('flex', shown === 0);
+};
+root.querySelector('.q').addEventListener('input', apply);
+root.querySelector('.period').addEventListener('change', apply);
+root.querySelector('.clear').addEventListener('click', () => { root.querySelector('.q').value = ''; apply(); });
+root.querySelector('.reset').addEventListener('click', () => { root.querySelector('.q').value = ''; root.querySelector('.period').value = 'all'; apply(); });
+</script>
+</body>
+</html>

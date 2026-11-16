@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Owner Onboarding v1</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { background:#e7e5e4; font-family:"Segoe UI", system-ui, sans-serif; }
+  .phone { width:390px; height:844px; overflow-y:auto; position:relative; }
+  .phone::-webkit-scrollbar { width:0; }
+  details > summary { list-style:none; } details > summary::-webkit-details-marker { display:none; }
+  details[open] .chev { transform:rotate(90deg); }
+</style>
+</head>
+<body class="p-6 text-gray-900 antialiased">
+
+<header class="mx-auto mb-6 max-w-[2150px]">
+  <h1 class="text-2xl font-bold">Onboarding v1 — first login after signing up</h1>
+  <p class="mt-1 text-base text-gray-700">Two steps, same flow style as booking (progress bar, buttons at the bottom, no tabs). Step 2 is the Add a pet form we already approved, and it can be skipped. Phone 3 works: tap a species, open "More details".</p>
+</header>
+
+<div class="mx-auto flex max-w-[2150px] flex-wrap justify-center gap-8" id="frames"></div>
+
+<script>
+// ---------- Icons (Lucide shapes, mockup only) ----------
+const P = {
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  back:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  next:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  chevR:'<path d="m9 18 6-6-6-6"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  checkCircle:'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  camera:'<path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z"/><circle cx="12" cy="13" r="3"/>',
+  link:'<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  image:'<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+  cat:'<path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z"/><path d="M8 14v.5"/><path d="M16 14v.5"/><path d="M11.25 16.25h1.5L12 17l-.75-.75Z"/>',
+};
+const ic = (n, c='size-5 shrink-0') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+const thin = (n, c) => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// ---------- Flow shell ----------
+const steps = ['About you','Your first pet'];
+const header = (step, back=false) => `
+<div class="sticky top-0 z-20 shrink-0 border-b border-gray-200 bg-white">
+  <div class="flex h-16 items-center gap-2 px-2">
+    ${back ? `<a class="grid size-11 place-content-center rounded-full text-gray-800 hover:bg-gray-100" aria-label="Back">${ic('back','size-6')}</a>`
+           : `<span class="ml-2 grid size-9 place-content-center rounded-xl bg-violet-600 text-white">${ic('paw','size-5')}</span>`}
+    <span class="flex-1 pl-1 text-lg font-bold">Set up your account</span>
+  </div>
+  ${step ? `<div class="px-4 pb-3">
+    <p class="text-base text-gray-700"><span class="font-semibold text-gray-900">Step ${step} of 2</span> · ${steps[step-1]}</p>
+    <div class="mt-2 grid grid-cols-2 gap-1.5">${[1,2].map(i => `<span class="h-1.5 rounded-full ${i <= step ? 'bg-violet-600' : 'bg-gray-200'}"></span>`).join('')}</div>
+  </div>` : ''}
+</div>`;
+const page = (head, inner, foot) => `<div class="flex min-h-full flex-col">${head}${inner}${foot}</div>`;
+const footer = inner => `<div class="sticky bottom-0 z-10 mt-auto shrink-0 border-t border-gray-200 bg-white px-4 pb-5 pt-3">${inner}</div>`;
+const primary = (label, icon='next') => `<button type="button" class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm">${label}${icon ? ic(icon,'size-5') : ''}</button>`;
+const ghost = label => `<button type="button" class="flex min-h-12 w-full items-center justify-center rounded-2xl text-lg font-medium text-gray-700 hover:bg-gray-100">${label}</button>`;
+
+// ---------- Form pieces (same as the approved Add a pet form) ----------
+const errLine = msg => `<p class="mt-1.5 flex items-center gap-1.5 text-base text-red-700">${ic('alert','size-5 shrink-0')}${msg}</p>`;
+const label = (t, opt=false, forId='') => `<label ${forId ? `for="${forId}"` : ''} class="block text-base font-semibold text-gray-900">${t}${opt ? ' <span class="font-normal text-gray-600">(optional)</span>' : ''}</label>`;
+const input = (id, ph='', val='', err='', type='text') => `<input id="${id}" type="${type}" value="${val}" placeholder="${ph}" class="mt-1.5 block min-h-12 w-full rounded-xl border ${err ? 'border-red-500 ring-2 ring-red-100' : 'border-gray-300'} bg-white px-4 text-base placeholder:text-gray-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200">${err ? errLine(err) : ''}`;
+const chipCls = on => `sp inline-flex min-h-11 items-center rounded-full px-4 text-base ring-1 ${on ? 'bg-violet-100 font-semibold text-violet-800 ring-violet-300' : 'bg-white font-medium text-gray-700 ring-gray-300'}`;
+const segCls = on => `min-h-11 rounded-lg text-base ${on ? 'bg-white font-semibold text-gray-900 shadow-sm ring-1 ring-gray-200' : 'font-medium text-gray-600'}`;
+
+// ---------- Step 1 · About you ----------
+const step1Body = ({errors=false, filled=false, google=false} = {}) => `
+<main class="flex-1 space-y-5 px-4 py-5">
+  <div><h1 class="text-2xl font-bold">Welcome to Hapi Tutz!</h1><p class="mt-1 text-base text-gray-700">Tell us a little about yourself so the clinic knows who you are.</p></div>
+  ${google ? `<div class="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-blue-900">${ic('info','mt-0.5 size-5 shrink-0')}<p class="text-base">We filled in your name from Google. Change it if it's not right.</p></div>` : ''}
+  ${errors ? `<div role="alert" class="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-900">${ic('alert','mt-0.5 size-5 shrink-0')}<p class="text-base"><b>3 things need fixing</b>. They're marked in red below.</p></div>` : ''}
+
+  <div class="flex items-center gap-4">
+    <span class="grid size-20 shrink-0 place-content-center rounded-full border-2 border-dashed border-gray-300 bg-white text-gray-500">${ic('camera','size-7')}</span>
+    <div>${label('Your photo', true)}<a class="mt-1 inline-flex min-h-11 items-center rounded-xl border border-gray-300 bg-white px-4 text-base font-medium text-gray-800">Choose a photo</a></div>
+  </div>
+
+  <div class="grid grid-cols-2 gap-3">
+    <div>${label('First name', false, 'fn')}${input('fn','', filled || google ? 'Krystal' : '', errors ? 'Please type your first name.' : '')}</div>
+    <div>${label('Last name', false, 'ln')}${input('ln','', filled || google ? 'Besana' : '')}</div>
+  </div>
+
+  <div>${label('Mobile number', false, 'mob')}${input('mob','e.g. 0917 123 4567', filled ? '0954 288 9774' : '', errors ? 'Please type an 11-digit number starting with 09.' : '', 'tel')}
+    ${errors ? '' : '<p class="mt-1.5 text-base text-gray-600">So the clinic can call you about your visits.</p>'}</div>
+
+  <fieldset class="space-y-4 rounded-2xl border border-gray-200 bg-white p-4">
+    <legend class="sr-only">Your address</legend>
+    <div><p class="text-lg font-bold">Your address</p><p class="text-base text-gray-600">So the clinic knows where you're from.</p></div>
+    <div>${label('House no. and street', true, 'st')}${input('st','e.g. Purok IV')}</div>
+    <div>${label('Barangay', false, 'brgy')}${input('brgy','e.g. Bognuyan', '', errors ? 'Please type your barangay.' : '')}</div>
+    <div class="grid grid-cols-2 gap-3">
+      <div>${label('Town', false, 'town')}
+        <select id="town" class="mt-1.5 block min-h-12 w-full rounded-xl border border-gray-300 bg-white px-3 text-base">
+          <option selected>Choose…</option><option>Boac</option><option>Buenavista</option><option>Gasan</option><option>Mogpog</option><option>Santa Cruz</option><option>Torrijos</option><option>Other (type it)</option>
+        </select></div>
+      <div>${label('Province', false, 'prov')}${input('prov','', 'Marinduque')}</div>
+    </div>
+  </fieldset>
+
+  <details class="rounded-2xl border border-gray-200 bg-white">
+    <summary class="flex min-h-14 cursor-pointer items-center gap-1.5 px-4 text-base font-semibold">${ic('link','size-5 text-gray-600')}Facebook or other links <span class="font-normal text-gray-600">(optional)</span><span class="chev ml-auto text-gray-500 transition-transform">${ic('chevR','size-5')}</span></summary>
+    <div class="space-y-3 border-t border-gray-100 px-4 pb-4 pt-3">
+      <div class="grid grid-cols-[1fr_1.4fr] gap-2">
+        <div>${label('Where', false)}<select class="mt-1.5 block min-h-12 w-full rounded-xl border border-gray-300 bg-white px-3 text-base"><option>Facebook</option><option>Instagram</option><option>Other</option></select></div>
+        <div>${label('Name or link', false)}${input('lk','fb.com/your.name')}</div>
+      </div>
+      <a class="inline-flex min-h-11 items-center gap-1.5 text-base font-medium text-blue-600">${ic('plus','size-5')}Add another link</a>
+    </div>
+  </details>
+</main>`;
+
+const step1 = page(header(1), step1Body(), footer(primary('Next')));
+const step1Google = page(header(1), step1Body({google:true}), footer(primary('Next')));
+const step1Err = page(header(1), step1Body({errors:true}), footer(primary('Next')));
+
+// ---------- Step 2 · First pet ----------
+const petForm = `
+<main class="flex-1 space-y-5 px-4 py-5">
+  <div><h1 class="text-2xl font-bold">Add your first pet</h1><p class="mt-1 text-base text-gray-700">You'll need a pet to book a visit. You can add more pets later, or skip this for now.</p></div>
+  <div class="flex items-center gap-4">
+    <span class="grid size-20 shrink-0 place-content-center rounded-2xl border-2 border-dashed border-gray-300 bg-white text-gray-500">${ic('camera','size-7')}</span>
+    <div>${label('Photo', true)}<a class="mt-1 inline-flex min-h-11 items-center rounded-xl border border-gray-300 bg-white px-4 text-base font-medium text-gray-800">Choose a photo</a></div>
+  </div>
+  <div>${label('Pet\'s name', false, 'pn')}${input('pn','e.g. Browny','Snow')}</div>
+  <fieldset>
+    <legend class="text-base font-semibold">Species</legend>
+    <div class="mt-1.5 flex flex-wrap gap-2">
+      ${['Dog','Cat','Rabbit','Bird','Other'].map(s => `<button type="button" data-sp="${s}" aria-pressed="${s==='Cat'}" class="${chipCls(s==='Cat')}">${s}</button>`).join('')}
+    </div>
+    <div class="other mt-2 hidden">${input('o','Type the species, e.g. Hamster')}</div>
+  </fieldset>
+  <div>${label('Breed', false, 'b')}
+    <select id="b" class="mt-1.5 block min-h-12 w-full rounded-xl border border-gray-300 bg-white px-4 text-base"><option>Choose a breed</option><option selected>Persian</option><option>Puspin (local cat)</option><option>Mixed / not sure</option></select>
+    <p class="mt-1.5 text-base text-gray-600">Not sure? Pick "Mixed / not sure".</p></div>
+  <fieldset>
+    <legend class="text-base font-semibold">Male or female?</legend>
+    <div class="mt-1.5 grid grid-cols-3 gap-1 rounded-xl bg-gray-200/70 p-1">${['Male','Female','Not sure'].map(g => `<button type="button" class="${segCls(g==='Female')}">${g}</button>`).join('')}</div>
+  </fieldset>
+  <div>${label('Birthday', false, 'd')}<input id="d" type="date" value="2022-06-15" class="mt-1.5 block min-h-12 w-full rounded-xl border border-gray-300 bg-white px-4 text-base">
+    <p class="mt-1.5 text-base text-gray-600">Don't know the exact date? A rough guess is fine.</p></div>
+  <details class="rounded-2xl border border-gray-200 bg-white">
+    <summary class="flex min-h-14 cursor-pointer items-center gap-1.5 px-4 text-base font-semibold">More details <span class="font-normal text-gray-600">(optional)</span><span class="chev ml-auto text-gray-500 transition-transform">${ic('chevR','size-5')}</span></summary>
+    <div class="space-y-4 border-t border-gray-100 px-4 pb-4 pt-3">
+      <div>${label('Color', true, 'c')}${input('c','e.g. White')}</div>
+      <div>${label('Weight in kg', true, 'w')}${input('w','e.g. 4.5')}</div>
+      <div>${label('Registration number', true, 'r')}${input('r','From the city vet, if any')}</div>
+    </div>
+  </details>
+</main>`;
+const step2 = page(header(2, true), petForm, footer(primary('Save pet', 'check') + `<div class="mt-1">${ghost('Skip for now')}</div>`));
+
+// ---------- After saving: add another or finish ----------
+const addedRow = (pic, name, line) => `
+<div class="flex items-center gap-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+  ${pic}
+  <span class="flex-1"><span class="block text-lg font-bold leading-6">${name}</span><span class="block text-base text-gray-600">${line}</span></span>
+  ${ic('checkCircle','size-6 text-green-700')}
+</div>`;
+const added = page(header(2, false), `
+<main class="flex-1 space-y-5 px-4 py-5">
+  <div role="status" class="flex items-start gap-3 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-green-900">${ic('checkCircle','mt-0.5 size-5 shrink-0')}<p class="text-base"><b>Snow was added.</b> Do you have other pets?</p></div>
+  <section class="space-y-3">
+    <h1 class="text-2xl font-bold">Your pets</h1>
+    ${addedRow(`<span class="grid size-12 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-600 ring-1 ring-violet-200">${thin('cat','size-7')}</span>`,'Snow','Cat · Persian · Female')}
+    <a class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-gray-300 bg-white text-lg font-semibold text-gray-800">${ic('plus','size-5')}Add another pet</a>
+  </section>
+</main>`, footer(primary('I\'m done, go to my dashboard', 'next')));
+
+// ---------- Frames ----------
+const frame = (lbl, note, body, id='') => `
+<figure class="flex flex-col items-center">
+  <figcaption class="mb-3 w-[390px]"><p class="text-lg font-bold">${lbl}</p><p class="text-base text-gray-700">${note}</p></figcaption>
+  <div ${id ? `id="${id}"` : ''} class="phone rounded-[2rem] bg-gray-50 shadow-xl ring-8 ring-gray-900">${body}</div>
+</figure>`;
+
+document.getElementById('frames').innerHTML =
+  frame('1 · About you', 'Name, mobile number and address. Photo, street and Facebook links are optional. Province starts as Marinduque; Town is a list of the 6 towns plus Other. No Back: this is the first screen after sign-up.', step1) +
+  frame('1a · Signed up with Google', 'Name comes pre-filled from Google, with a note so they can fix it.', step1Google) +
+  frame('1b · Missing answers', 'Summary on top, each problem in red under its field.', step1Err) +
+  frame('2 · Your first pet (try it)', 'The approved Add a pet form. "Skip for now" sits right under Save, so nobody feels stuck.', step2, 'live') +
+  frame('3 · Pet added', 'Shows who was added, offers "Add another pet", and finishes on the new-owner dashboard.', added);
+
+// ---------- Species chips in phone 4 ----------
+const root = document.getElementById('live');
+root.querySelectorAll('.sp').forEach(b => b.addEventListener('click', () => {
+  root.querySelectorAll('.sp').forEach(x => { const on = x === b; x.setAttribute('aria-pressed', on); x.className = chipCls(on); });
+  root.querySelector('.other').classList.toggle('hidden', b.dataset.sp !== 'Other');
+}));
+</script>
+</body>
+</html>

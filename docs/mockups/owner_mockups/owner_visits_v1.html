@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visits v1</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { background:#e7e5e4; font-family:"Segoe UI", system-ui, sans-serif; }
+  .phone { width:390px; height:844px; overflow-y:auto; position:relative; }
+  .phone::-webkit-scrollbar { width:0; }
+</style>
+</head>
+<body class="p-6 text-gray-900 antialiased">
+
+<header class="mx-auto mb-6 max-w-[1750px]">
+  <h1 class="text-2xl font-bold">Visits v1 — the owner's appointments list</h1>
+  <p class="mt-1 text-base text-gray-700">Same shell as My Pets v2: white bar, title with the one violet button, bottom tabs. The first phone works: switch Upcoming / Past and tap a pet to filter.</p>
+</header>
+
+<div class="mx-auto flex max-w-[1750px] flex-wrap justify-center gap-8" id="frames"></div>
+
+<script>
+// ---------- Icons (Lucide shapes, mockup only) ----------
+const P = {
+  house:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  chev:'<path d="m9 18 6-6-6-6"/>',
+  clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  move:'<path d="M16 14v2.2l1.6 1"/><path d="M16 2v4"/><path d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5"/><path d="M3 10h5"/><path d="M8 2v4"/><circle cx="16" cy="16" r="6"/>',
+};
+const ic = (n, c='size-5 shrink-0') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+const thin = (n, c) => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// Status badges: same colours as admin; owner-friendly words
+const badge = s => ({
+  pending:  ['bg-yellow-100 text-yellow-800','Waiting for approval'],
+  confirmed:['bg-blue-100 text-blue-800','Confirmed'],
+  completed:['bg-green-100 text-green-800','Completed'],
+  cancelled:['bg-red-100 text-red-800','Cancelled'],
+  no_show:  ['bg-gray-100 text-gray-800','Missed'],
+}[s]).reduce((c, l) => `<span class="inline-block rounded-full px-2.5 py-1 text-sm font-medium ${c}">${l}</span>`);
+
+// ---------- Shell ----------
+const bar = `
+<div class="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4">
+  <div class="flex items-center gap-2.5">
+    <span class="grid size-9 place-content-center rounded-xl bg-violet-600 text-white">${ic('paw','size-5')}</span>
+    <span class="text-lg font-bold">Hapi Tutz</span>
+  </div>
+  <button class="relative grid size-11 place-content-center rounded-full hover:bg-gray-100" aria-label="Notifications, 9 unread">
+    ${ic('bell','size-6')}
+    <span class="absolute right-1 top-1 grid min-w-5 place-content-center rounded-full bg-red-600 px-1 text-xs font-bold text-white ring-2 ring-white">9</span>
+  </button>
+</div>`;
+const tabs = `
+<nav class="sticky bottom-0 z-10 mt-auto grid shrink-0 grid-cols-5 border-t border-gray-200 bg-white pb-2">
+  ${[['house','Home'],['paw','Pets'],['calendar','Visits'],['receipt','Bills'],['user','Account']].map(([i,l]) =>
+    `<a class="flex min-h-14 flex-col items-center justify-center gap-0.5 pt-2 text-sm font-medium ${l==='Visits' ? 'text-violet-700' : 'text-gray-600'}"${l==='Visits' ? ' aria-current="page"' : ''}>
+      ${ic(i,'size-6')}${l}<span class="mt-0.5 h-1 w-6 rounded-full ${l==='Visits' ? 'bg-violet-600' : ''}"></span></a>`).join('')}
+</nav>`;
+const page = inner => `<div class="flex min-h-full flex-col">${bar}${inner}${tabs}</div>`;
+
+const titleRow = (btnLabel='Book a visit', icon='plus') => `
+<div class="flex items-center justify-between gap-3">
+  <h1 class="text-2xl font-bold">Visits</h1>
+  <a class="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-violet-600 px-4 text-base font-semibold text-white shadow-sm">${ic(icon,'size-5')}${btnLabel}</a>
+</div>`;
+
+// Upcoming / Past switch (segmented control)
+const segBtn = (key, label, n, on) => `<button type="button" data-seg="${key}" aria-pressed="${on}" class="seg min-h-11 rounded-lg text-base ${on ? 'bg-white font-semibold text-gray-900 shadow-sm ring-1 ring-gray-200' : 'font-medium text-gray-600'}">${label} (${n})</button>`;
+const segments = (active, up, past) => `
+<div class="grid grid-cols-2 gap-1 rounded-xl bg-gray-200/70 p-1" role="group" aria-label="Which visits to show">
+  ${segBtn('up','Upcoming',up,active==='up')}${segBtn('past','Past',past,active==='past')}
+</div>`;
+
+// Pet filter chips (only when the owner has 2+ pets)
+const chipCls = on => `chip inline-flex min-h-11 shrink-0 items-center rounded-full px-4 text-base ring-1 ${on ? 'bg-violet-100 font-semibold text-violet-800 ring-violet-300' : 'bg-white font-medium text-gray-700 ring-gray-300'}`;
+const chips = (names, active='All') => `
+<div class="flex flex-wrap gap-2" role="group" aria-label="Show visits for">
+  ${['All', ...names].map(n => `<button type="button" data-chip="${n}" aria-pressed="${n===active}" class="${chipCls(n===active)}">${n}</button>`).join('')}
+</div>`;
+
+// ---------- Data ----------
+const upcoming = [
+  {mon:'Nov', d:'2',  wd:'Mon', today:true, pet:'Browny',   svc:'Consultation', time:'3:00 PM',  st:'confirmed'},
+  {mon:'Nov', d:'10', wd:'Tue', pet:'Browny',   svc:'Consultation', time:'12:00 PM', st:'confirmed', note:['move','Moved by the clinic. Was Mon, Nov 9 at 3:00 PM.']},
+  {mon:'Nov', d:'13', wd:'Fri', pet:'Mingming', svc:'Vaccination',  time:'2:00 PM',  st:'pending',   note:['info','The clinic will confirm this soon.']},
+  {mon:'Dec', d:'1',  wd:'Tue', pet:'Choco',    svc:'Check-up',     time:'10:00 AM', st:'pending',   note:['info','The clinic will confirm this soon.']},
+];
+const past = [
+  {mon:'Oct', d:'31', wd:'Sat', pet:'Browny',   svc:'Consultation', time:'2:00 PM',  st:'completed'},
+  {mon:'Oct', d:'28', wd:'Wed', pet:'Mingming', svc:'Vaccination',  time:'9:00 AM',  st:'cancelled', note:['info','You cancelled: pet was unwell.']},
+  {mon:'Oct', d:'20', wd:'Tue', pet:'Choco',    svc:'Grooming',     time:'1:00 PM',  st:'no_show',   note:['info','Marked as missed by the clinic.']},
+  {mon:'Oct', d:'15', wd:'Thu', pet:'Browny',   svc:'Check-up',     time:'11:00 AM', st:'cancelled', note:['info','Cancelled by the clinic. Please call us if you need a new time.']},
+  {mon:'Sep', d:'30', wd:'Wed', pet:'Browny',   svc:'Vaccination',  time:'10:00 AM', st:'completed'},
+];
+const monthName = {Sep:'September 2026', Oct:'October 2026', Nov:'November 2026', Dec:'December 2026'};
+
+// ---------- Visit card ----------
+const card = v => `
+<a class="visit flex items-center gap-4 rounded-2xl border bg-white p-4 shadow-sm ${v.today ? 'border-violet-300 ring-1 ring-violet-200' : 'border-gray-200'}" data-pet="${v.pet}">
+  <span class="flex w-16 shrink-0 flex-col items-center rounded-xl py-2 text-center ${v.today ? 'bg-violet-600 text-white' : 'bg-gray-100'}">
+    <span class="text-sm font-semibold uppercase ${v.today ? 'text-violet-100' : 'text-gray-600'}">${v.today ? 'Today' : v.mon}</span>
+    <span class="text-2xl font-bold leading-7">${v.d}</span>
+    <span class="text-sm ${v.today ? 'text-violet-100' : 'text-gray-600'}">${v.wd}</span>
+  </span>
+  <span class="min-w-0 flex-1">
+    <span class="block text-lg font-bold leading-6">${v.pet}</span>
+    <span class="block text-base text-gray-700">${v.svc} · ${v.time}</span>
+    <span class="mt-2 block">${badge(v.st)}</span>
+    ${v.note ? `<span class="mt-2 flex items-start gap-1.5 text-base text-gray-600">${ic(v.note[0],'mt-0.5 size-4 shrink-0')}${v.note[1]}</span>` : ''}
+  </span>
+  ${ic('chev','size-5 text-gray-400')}
+</a>`;
+
+// Group cards under month headings
+const list = (items, key) => {
+  let out = '', last = '';
+  items.forEach(v => {
+    if (v.mon !== last) { out += `<h2 class="month pt-2 text-base font-semibold text-gray-600" data-month="${v.mon}">${monthName[v.mon]}</h2>`; last = v.mon; }
+    out += card(v);
+  });
+  return `<div class="list space-y-3" data-list="${key}">${out}</div>`;
+};
+
+const emptyBox = (icon, title, text) => `
+<div class="flex flex-col items-center rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-10 text-center">
+  <span class="grid size-12 place-content-center rounded-full bg-gray-100 text-gray-500">${ic(icon,'size-6')}</span>
+  <p class="mt-3 text-lg font-semibold">${title}</p>
+  <p class="mt-1 text-base text-gray-600">${text}</p>
+</div>`;
+
+const petNames = ['Browny','Mingming','Choco'];
+
+// ---------- Screens ----------
+const live = page(`
+<main class="flex-1 space-y-4 px-4 py-5">
+  ${titleRow()}${segments('up', upcoming.length, past.length)}${chips(petNames)}
+  ${list(upcoming,'up')}
+  <div class="hidden" data-list-wrap="past">${list(past,'past')}</div>
+  <div class="none hidden">${emptyBox('calendar','No visits for this pet here','Pick another pet, or All.')}</div>
+</main>`);
+
+const pastView = page(`
+<main class="flex-1 space-y-4 px-4 py-5">
+  ${titleRow()}${segments('past', upcoming.length, past.length)}${chips(petNames)}${list(past,'past')}
+</main>`);
+
+const noUpcoming = page(`
+<main class="flex-1 space-y-4 px-4 py-5">
+  ${titleRow()}${segments('up', 0, 5)}
+  ${emptyBox('calendar','No upcoming visits','When you book a visit, it will show here until the day comes.')}
+</main>`);
+
+// No pets yet: booking needs a pet, so the violet button becomes "Add a pet"
+const noPets = page(`
+<main class="flex flex-1 flex-col items-center justify-center px-6 py-10 text-center">
+  <span class="grid size-24 place-content-center rounded-full bg-violet-50 text-violet-600 ring-1 ring-violet-200">${thin('calendar','size-12')}</span>
+  <h1 class="mt-5 text-2xl font-bold">Visits</h1>
+  <p class="mt-2 text-lg font-semibold">No visits yet</p>
+  <p class="mt-1 text-base text-gray-700">Add your pet first. Then you can book a visit with Dr. Aga.</p>
+  <a class="mt-6 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm">${ic('plus','size-6')}Add a pet</a>
+</main>`);
+
+const frame = (label, note, body, id='') => `
+<figure class="flex flex-col items-center">
+  <figcaption class="mb-3 w-[390px]"><p class="text-lg font-bold">${label}</p><p class="text-base text-gray-700">${note}</p></figcaption>
+  <div ${id ? `id="${id}"` : ''} class="phone rounded-[2rem] bg-gray-50 shadow-xl ring-8 ring-gray-900">${body}</div>
+</figure>`;
+
+document.getElementById('frames').innerHTML =
+  frame('1 · Upcoming (try it)', 'Soonest first, grouped by month. Today is highlighted. Pending visits say what happens next.', live, 'live') +
+  frame('2 · Past', 'Newest first. Cancelled and missed visits say who cancelled and why.', pastView) +
+  frame('3 · No upcoming visits', 'Has past visits but nothing booked. Pet chips hide when there\'s nothing to filter.', noUpcoming) +
+  frame('4 · No pets yet', 'Can\'t book without a pet, so the one button is Add a pet.', noPets);
+
+// ---------- Make phone 1 work ----------
+const root = document.getElementById('live');
+let seg = 'up', pet = 'All';
+const apply = () => {
+  root.querySelector('[data-list="up"]').classList.toggle('hidden', seg !== 'up');
+  root.querySelector('[data-list-wrap="past"]').classList.toggle('hidden', seg !== 'past');
+  const list = root.querySelector(`[data-list="${seg}"]`);
+  let shown = 0;
+  list.querySelectorAll('.visit').forEach(c => { const ok = pet === 'All' || c.dataset.pet === pet; c.classList.toggle('hidden', !ok); if (ok) shown++; });
+  // hide a month heading when none of its cards are shown
+  list.querySelectorAll('.month').forEach(h => {
+    let el = h.nextElementSibling, any = false;
+    while (el && !el.classList.contains('month')) { if (!el.classList.contains('hidden')) any = true; el = el.nextElementSibling; }
+    h.classList.toggle('hidden', !any);
+  });
+  root.querySelector('.none').classList.toggle('hidden', shown > 0);
+};
+root.querySelectorAll('.seg').forEach(b => b.addEventListener('click', () => {
+  seg = b.dataset.seg;
+  root.querySelectorAll('.seg').forEach(x => {
+    const on = x === b; x.setAttribute('aria-pressed', on);
+    x.className = `seg min-h-11 rounded-lg text-base ${on ? 'bg-white font-semibold text-gray-900 shadow-sm ring-1 ring-gray-200' : 'font-medium text-gray-600'}`;
+  });
+  apply();
+}));
+root.querySelectorAll('.chip').forEach(b => b.addEventListener('click', () => {
+  pet = b.dataset.chip;
+  root.querySelectorAll('.chip').forEach(x => { const on = x === b; x.setAttribute('aria-pressed', on); x.className = chipCls(on); });
+  apply();
+}));
+</script>
+</body>
+</html>

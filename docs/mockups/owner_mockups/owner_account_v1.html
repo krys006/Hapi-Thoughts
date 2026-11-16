@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Account v1</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { background:#e7e5e4; font-family:"Segoe UI", system-ui, sans-serif; }
+  .phone { width:390px; height:844px; overflow-y:auto; position:relative; }
+  .phone::-webkit-scrollbar { width:0; }
+  #sheet { overflow:hidden; }
+  input[type=search]::-webkit-search-cancel-button { -webkit-appearance:none; display:none; }
+</style>
+</head>
+<body class="p-6 text-gray-900 antialiased">
+
+<header class="mx-auto mb-6 max-w-[2550px]">
+  <h1 class="text-2xl font-bold">Account v1 — hub and its pages</h1>
+  <p class="mt-1 text-base text-gray-700">The Account tab replaces the old side drawer. Everything that isn't Home, Pets, Visits or Bills lives here. Sub-pages keep the bottom tabs and show "← Account". Phone 4's switches and phone 6's search work.</p>
+</header>
+
+<div class="mx-auto flex max-w-[2550px] flex-wrap justify-center gap-8" id="frames"></div>
+
+<script>
+// ---------- Icons (Lucide shapes, mockup only) ----------
+const P = {
+  house:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  chev:'<path d="m9 18 6-6-6-6"/>',
+  back:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  lock:'<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  building:'<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>',
+  book:'<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+  logout:'<path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>',
+  phone:'<path d="M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384"/>',
+  mail:'<path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/>',
+  pin:'<path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>',
+  clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  camera:'<path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z"/><circle cx="12" cy="13" r="3"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  search:'<path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  link:'<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  stethoscope:'<path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/>',
+};
+const ic = (n, c='size-5 shrink-0') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// ---------- Shell ----------
+const bar = `
+<div class="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4">
+  <div class="flex items-center gap-2.5">
+    <span class="grid size-9 place-content-center rounded-xl bg-violet-600 text-white">${ic('paw','size-5')}</span>
+    <span class="text-lg font-bold">Hapi Tutz</span>
+  </div>
+  <button class="relative grid size-11 place-content-center rounded-full hover:bg-gray-100" aria-label="Notifications, 9 unread">
+    ${ic('bell','size-6')}
+    <span class="absolute right-1 top-1 grid min-w-5 place-content-center rounded-full bg-red-600 px-1 text-xs font-bold text-white ring-2 ring-white">9</span>
+  </button>
+</div>`;
+const backBar = (title, to='Account') => `
+<div class="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-2">
+  <a class="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-base font-medium text-gray-800 hover:bg-gray-100">${ic('back','size-6')}${to}</a>
+</div>`;
+const tabs = `
+<nav class="sticky bottom-0 z-10 mt-auto grid shrink-0 grid-cols-5 border-t border-gray-200 bg-white pb-2">
+  ${[['house','Home'],['paw','Pets'],['calendar','Visits'],['receipt','Bills'],['user','Account']].map(([i,l]) =>
+    `<a class="flex min-h-14 flex-col items-center justify-center gap-0.5 pt-2 text-sm font-medium ${l==='Account' ? 'text-violet-700' : 'text-gray-600'}"${l==='Account' ? ' aria-current="page"' : ''}>
+      ${ic(i,'size-6')}${l}<span class="mt-0.5 h-1 w-6 rounded-full ${l==='Account' ? 'bg-violet-600' : ''}"></span></a>`).join('')}
+</nav>`;
+const page = (head, inner, foot=tabs) => `<div class="relative flex min-h-full flex-col">${head}${inner}${foot}</div>`;
+// Edit pages: Save button and tabs share one sticky footer, so nothing can drift apart
+const withSave = label => `<div class="sticky bottom-0 z-10 mt-auto">${saveBar(label)}${tabs}</div>`;
+
+// Save bar used on edit pages (sits above the tabs)
+const saveBar = label => `
+<div class="border-t border-gray-200 bg-white px-4 py-3">
+  <button type="button" class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm">${ic('check','size-5')}${label}</button>
+</div>`;
+
+// ---------- 1 · Hub ----------
+const avatar = (size='size-16 text-2xl') => `<span class="grid ${size} shrink-0 place-content-center rounded-full bg-violet-50 font-semibold text-violet-700 ring-1 ring-violet-200" role="img" aria-label="Krys Test">KT</span>`;
+const linkRow = (icon, label, sub, danger=false) => `
+<a class="flex min-h-16 items-center gap-4 px-4 py-3 hover:bg-gray-50">
+  <span class="grid size-10 shrink-0 place-content-center rounded-xl ${danger ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-700'}">${ic(icon,'size-5')}</span>
+  <span class="flex-1"><span class="block text-base font-semibold ${danger ? 'text-red-700' : ''}">${label}</span>${sub ? `<span class="block text-base text-gray-600">${sub}</span>` : ''}</span>
+  ${danger ? '' : ic('chev','size-5 text-gray-400')}
+</a>`;
+const group = (title, rows) => `
+<section>
+  <h2 class="mb-2 px-1 text-base font-semibold text-gray-600">${title}</h2>
+  <div class="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">${rows}</div>
+</section>`;
+
+const hubBody = `
+<main class="flex-1 space-y-6 px-4 py-5">
+  <h1 class="text-2xl font-bold">Account</h1>
+  <a class="flex items-center gap-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+    ${avatar()}
+    <span class="min-w-0 flex-1"><span class="block text-xl font-bold">Krys Test</span><span class="block truncate text-base text-gray-600">krysbesana@gmail.com</span><span class="mt-1 inline-flex items-center gap-1 text-base font-medium text-blue-600">Edit my details ${ic('chev','size-4')}</span></span>
+  </a>
+  ${group('My account',
+    linkRow('user','My details','Name, phone, address, photo') +
+    linkRow('bell','Email notifications','Which emails you get, and when') +
+    linkRow('lock','Sign-in and password','Change your password'))}
+  ${group('The clinic',
+    linkRow('building','Clinic info','Hours, phone, and your vet') +
+    linkRow('book','Health library','Common pet illnesses and care'))}
+  ${group('', linkRow('logout','Log out','',true))}
+</main>`;
+const hub = page(bar, hubBody);
+
+// Log out confirmation (bottom sheet)
+const logoutSheet = page(bar, hubBody) + `
+<div class="absolute inset-0 z-30 flex items-end bg-gray-900/50">
+  <div role="dialog" aria-modal="true" aria-labelledby="lo" class="w-full rounded-t-3xl bg-white px-5 pb-8 pt-3 shadow-2xl">
+    <span class="mx-auto mb-4 block h-1.5 w-12 rounded-full bg-gray-300"></span>
+    <h2 id="lo" class="text-xl font-bold">Log out of Hapi Tutz?</h2>
+    <p class="mt-1 text-base text-gray-700">You'll need your email and password (or Google) to sign in again.</p>
+    <div class="mt-6 space-y-3">
+      <button class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-red-600 text-lg font-semibold text-white">${ic('logout','size-5')}Yes, log out</button>
+      <button class="flex min-h-14 w-full items-center justify-center rounded-2xl border border-gray-300 bg-white text-lg font-medium text-gray-800">Stay logged in</button>
+    </div>
+  </div>
+</div>`;
+
+// ---------- 3 · My details (edit form) ----------
+const field = (label, val, opt=false, ph='') => `
+<div>
+  <label class="block text-base font-semibold">${label}${opt ? ' <span class="font-normal text-gray-600">(optional)</span>' : ''}</label>
+  <input value="${val}" placeholder="${ph}" class="mt-1.5 block min-h-12 w-full rounded-xl border border-gray-300 bg-white px-4 text-base placeholder:text-gray-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200">
+</div>`;
+const card = (title, inner, sub='') => `
+<section class="space-y-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+  <div><h2 class="text-lg font-bold">${title}</h2>${sub ? `<p class="text-base text-gray-600">${sub}</p>` : ''}</div>
+  ${inner}
+</section>`;
+const details = page(backBar('My details'), `
+<main class="flex-1 space-y-5 px-4 py-5">
+  <h1 class="text-2xl font-bold">My details</h1>
+  <div class="flex items-center gap-4">
+    ${avatar('size-20 text-3xl')}
+    <div class="space-y-1"><a class="inline-flex min-h-11 items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 text-base font-medium text-gray-800">${ic('camera','size-5')}Change photo</a><p class="text-base text-gray-600">Optional</p></div>
+  </div>
+  ${card('Name', `<div class="grid grid-cols-2 gap-3">${field('First name','Krys')}${field('Last name','Test')}</div>`)}
+  ${card('Contact', field('Mobile number','09542889774') + `
+    <div><p class="text-base font-semibold">Email</p><p class="mt-1 text-base text-gray-700">krysbesana@gmail.com</p><p class="text-base text-gray-600">To change your email, ask the clinic.</p></div>`)}
+  ${card('Address', field('House no., street','Purok IV', true) + field('Barangay','Amoingon') + `<div class="grid grid-cols-2 gap-3">${field('Town / city','Boac')}${field('Province','Marinduque')}</div>`)}
+  ${card('Social and other contacts', `
+    <ul class="space-y-2">
+      <li class="flex items-center gap-3 rounded-xl border border-gray-200 px-3 py-2"><span class="grid size-9 place-content-center rounded-lg bg-gray-100 text-gray-700">${ic('link','size-5')}</span><span class="flex-1"><span class="block text-base font-semibold">Facebook</span><span class="block text-base text-gray-600">fb.com/krys.test</span></span><button class="grid size-11 place-content-center rounded-lg text-gray-600" aria-label="Remove Facebook">${ic('x','size-5')}</button></li>
+    </ul>
+    <a class="inline-flex min-h-11 items-center gap-1.5 text-base font-medium text-blue-600">${ic('plus','size-5')}Add a link</a>`, 'So the clinic can reach you another way. Optional.')}
+</main>`, withSave('Save changes'));
+
+// ---------- 4 · Email notifications ----------
+const sw = (on, id) => `<button type="button" role="switch" aria-checked="${on}" data-sw="${id}" class="sw relative h-8 w-14 shrink-0 rounded-full transition ${on ? 'bg-violet-600' : 'bg-gray-300'}"><span class="absolute top-1 size-6 rounded-full bg-white shadow transition-all ${on ? 'left-7' : 'left-1'}"></span></button>`;
+const timing = (id, label, opts, val) => `
+<div class="timing mt-3 flex items-center gap-3 rounded-xl bg-gray-50 px-3 py-2" data-for="${id}">
+  <span class="flex-1 text-base text-gray-700">${label}</span>
+  <select class="min-h-11 rounded-lg border border-gray-300 bg-white px-3 text-base">${opts.map(o => `<option ${o===val ? 'selected' : ''}>${o}</option>`).join('')}</select>
+</div>`;
+const pref = (id, title, text, on, extra='') => `
+<div class="py-4">
+  <div class="flex items-start gap-4">
+    <div class="flex-1"><p class="text-base font-semibold">${title}</p><p class="text-base text-gray-600">${text}</p></div>
+    ${sw(on, id)}
+  </div>
+  ${extra}
+</div>`;
+const notif = page(backBar('Email notifications'), `
+<main class="flex-1 space-y-5 px-4 py-5">
+  <div><h1 class="text-2xl font-bold">Email notifications</h1><p class="mt-1 text-base text-gray-700">Choose which emails you get.</p></div>
+  <div class="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-blue-900">${ic('info','mt-0.5 size-5 shrink-0')}<p class="text-base">You'll always see these in the app (the bell). These switches only turn the <b>emails</b> on or off.</p></div>
+  <section class="divide-y divide-gray-100 rounded-2xl border border-gray-200 bg-white px-4 shadow-sm">
+    ${pref('appt','Visit reminders','A reminder before each visit.', true, timing('appt','Send it',['On the same day','1 day before','2 days before','3 days before'],'1 day before'))}
+    ${pref('status','Visit updates','When the clinic confirms, moves or cancels a visit.', true)}
+    ${pref('bill','New bills','When the clinic adds a bill for you.', true)}
+    ${pref('vax','Vaccine reminders','When a vaccine is coming due.', true, timing('vax','Send it',['3 days before','7 days before','14 days before','30 days before'],'7 days before'))}
+    ${pref('follow','Follow-up reminders','When the vet asked to see your pet again.', false)}
+  </section>
+</main>`, withSave('Save settings'));
+
+// ---------- 5 · Clinic info ----------
+const infoRow = (icon, label, value, action='') => `
+<div class="flex items-start gap-4 py-4">
+  <span class="grid size-10 shrink-0 place-content-center rounded-xl bg-gray-100 text-gray-700">${ic(icon,'size-5')}</span>
+  <div class="flex-1"><p class="text-base text-gray-600">${label}</p><p class="text-base font-semibold">${value}</p>${action}</div>
+</div>`;
+const clinic = page(backBar('Clinic info'), `
+<main class="flex-1 space-y-5 px-4 py-5">
+  <div class="flex items-center gap-4">
+    <span class="grid size-16 shrink-0 place-content-center rounded-2xl bg-violet-600 text-white">${ic('paw','size-8')}</span>
+    <div><h1 class="text-2xl font-bold leading-7">Hapi Tutz Vet. Supplies</h1><p class="text-base text-gray-600">Bognuyan, Gasan, Marinduque</p></div>
+  </div>
+  <div class="grid grid-cols-2 gap-3">
+    <a class="flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm">${ic('phone','size-5')}Call</a>
+    <a class="flex min-h-14 items-center justify-center gap-2 rounded-2xl border border-gray-300 bg-white text-lg font-medium text-gray-800">${ic('mail','size-5')}Email</a>
+  </div>
+  <section class="divide-y divide-gray-100 rounded-2xl border border-gray-200 bg-white px-4 shadow-sm">
+    ${infoRow('clock','Open','Monday to Friday<br>8:00 AM – 5:00 PM', '<p class="mt-1 text-base text-gray-600">Closed Saturday, Sunday and holidays</p>')}
+    ${infoRow('phone','Phone','0954 288 9774')}
+    ${infoRow('mail','Email','hapitutzvet@gmail.com')}
+    ${infoRow('pin','Address','Bognuyan, Gasan, Marinduque')}
+  </section>
+  <section class="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+    <h2 class="text-lg font-bold">Your vet</h2>
+    <div class="mt-3 flex items-center gap-4">
+      <span class="grid size-14 shrink-0 place-content-center rounded-full bg-violet-50 text-lg font-semibold text-violet-700 ring-1 ring-violet-200">ES</span>
+      <div><p class="text-lg font-bold">Dr. Edgar Sadiwa</p><p class="text-base text-gray-600">"Dr. Aga" · License no. 0012345</p></div>
+    </div>
+    <p class="mt-3 text-base text-gray-700">Caring for the pets of Marinduque for many years. Ask about vaccines, check-ups and everyday care.</p>
+  </section>
+</main>`);
+
+// ---------- 6 · Health library ----------
+const articles = [
+  ['Parvovirus','A very contagious virus that attacks a dog\'s stomach and gut. Puppies are most at risk.'],
+  ['Rabies','A deadly virus spread by bites. The yearly vaccine protects your pet and your family.'],
+  ['Ticks and fleas','Tiny pests that cause itching and can spread disease. Easy to prevent.'],
+  ['Feline flu','Sneezing, runny eyes and nose in cats. Usually mild, but kittens need care.'],
+  ['Bordetella (kennel cough)','A honking cough that spreads where dogs meet. Most dogs recover with rest.'],
+];
+const artCard = ([t, d]) => `
+<a class="art flex items-start gap-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm" data-t="${t.toLowerCase()}">
+  <span class="grid size-11 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-700">${ic('book','size-5')}</span>
+  <span class="flex-1"><span class="block text-lg font-bold leading-6">${t}</span><span class="mt-1 block text-base text-gray-700">${d}</span></span>
+  ${ic('chev','mt-1 size-5 text-gray-400')}
+</a>`;
+const library = page(backBar('Health library'), `
+<main class="flex-1 space-y-4 px-4 py-5">
+  <div><h1 class="text-2xl font-bold">Health library</h1><p class="mt-1 text-base text-gray-700">Short guides from the clinic about common illnesses.</p></div>
+  <label class="relative block">
+    <span class="sr-only">Search by illness name</span>
+    <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">${ic('search','size-5')}</span>
+    <input class="q block min-h-12 w-full rounded-xl border border-gray-300 bg-white pl-12 pr-12 text-base placeholder:text-gray-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200" type="search" placeholder="Search by illness, e.g. rabies">
+    <button type="button" class="clear absolute right-1 top-1/2 hidden size-11 -translate-y-1/2 place-content-center rounded-lg text-gray-600" aria-label="Clear search">${ic('x','size-5')}</button>
+  </label>
+  <div class="arts space-y-3">${articles.map(artCard).join('')}</div>
+  <div class="nomatch hidden flex-col items-center rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-8 text-center">
+    <span class="grid size-12 place-content-center rounded-full bg-gray-100 text-gray-500">${ic('search','size-6')}</span>
+    <p class="mt-3 text-base font-semibold">No guide about that yet</p>
+    <p class="mt-1 text-base text-gray-600">Worried about your pet? Ask Dr. Aga at your next visit.</p>
+  </div>
+</main>`);
+
+const libraryEmpty = page(backBar('Health library'), `
+<main class="flex flex-1 flex-col items-center justify-center px-6 py-10 text-center">
+  <span class="grid size-24 place-content-center rounded-full bg-gray-100 text-gray-500">${ic('book','size-12')}</span>
+  <h1 class="mt-5 text-2xl font-bold">Health library</h1>
+  <p class="mt-2 text-lg font-semibold">No guides yet</p>
+  <p class="mt-1 text-base text-gray-700">The clinic is still writing these. Check back soon.</p>
+</main>`);
+
+// ---------- 7 · Article ----------
+const block = (t, txt) => `<section class="space-y-1"><h2 class="text-lg font-bold">${t}</h2><p class="text-base leading-7 text-gray-800">${txt}</p></section>`;
+const article = page(backBar('', 'Health library'), `
+<main class="flex-1 space-y-5 px-4 py-5">
+  <div><p class="text-base font-semibold text-violet-700">Health library</p><h1 class="text-3xl font-bold">Parvovirus</h1></div>
+  <div class="space-y-5 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+    ${block('What it is','Parvovirus is a very contagious virus that attacks a dog\'s stomach and gut. Puppies and unvaccinated dogs are most at risk.')}
+    ${block('Causes','It spreads through contact with an infected dog\'s stool, and can live on floors, shoes and bowls for months.')}
+    ${block('Signs to watch for','Vomiting, bloody diarrhea, not eating, and being very tired. Puppies can get very sick within a day.')}
+    ${block('General care','Keep your dog away from other dogs, give small sips of water, and see the vet right away. Vaccines prevent it.')}
+  </div>
+  <div class="rounded-2xl border border-violet-200 bg-violet-50 p-4">
+    <p class="flex items-start gap-2 text-base text-violet-900">${ic('stethoscope','mt-0.5 size-5 shrink-0')}This guide is not a diagnosis. If your pet shows these signs, book a visit or call the clinic.</p>
+    <a class="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 text-base font-semibold text-white">${ic('calendar','size-5')}Book a visit</a>
+  </div>
+</main>`);
+
+// ---------- Frames ----------
+const frame = (lbl, note, body, id='') => `
+<figure class="flex flex-col items-center">
+  <figcaption class="mb-3 w-[390px]"><p class="text-lg font-bold">${lbl}</p><p class="text-base text-gray-700">${note}</p></figcaption>
+  <div ${id ? `id="${id}"` : ''} class="phone rounded-[2rem] bg-gray-50 shadow-xl ring-8 ring-gray-900">${body}</div>
+</figure>`;
+
+document.getElementById('frames').innerHTML =
+  frame('1 · Account', 'Who you are on top, then grouped links. Log out is separate and red.', hub) +
+  frame('2 · Log out?', 'Asks first, in plain words. "Stay logged in" is just as big.', logoutSheet, 'sheet') +
+  frame('3 · My details', 'One edit page instead of view + edit. Email is shown but changed through the clinic.', details) +
+  frame('4 · Email notifications (try it)', 'Switches instead of tiny checkboxes. Timing only shows when its email is on.', notif, 'notif') +
+  frame('5 · Clinic info', 'Big Call and Email buttons first, then hours, contacts and the vet.', clinic) +
+  frame('6 · Health library (try it)', 'Search by illness name. Each card gives the gist in one line.', library, 'lib') +
+  frame('6b · No guides yet', 'What owners see until the clinic publishes some.', libraryEmpty) +
+  frame('7 · A guide', 'The four article parts as headings, then a gentle "this isn\'t a diagnosis" with a Book a visit button.', article);
+
+// ---------- Interactions ----------
+const n = document.getElementById('notif');
+const syncTiming = () => n.querySelectorAll('.timing').forEach(t => t.classList.toggle('hidden', n.querySelector(`[data-sw="${t.dataset.for}"]`).getAttribute('aria-checked') !== 'true'));
+n.querySelectorAll('.sw').forEach(b => b.addEventListener('click', () => {
+  const on = b.getAttribute('aria-checked') !== 'true';
+  b.setAttribute('aria-checked', on);
+  b.className = `sw relative h-8 w-14 shrink-0 rounded-full transition ${on ? 'bg-violet-600' : 'bg-gray-300'}`;
+  b.firstElementChild.className = `absolute top-1 size-6 rounded-full bg-white shadow transition-all ${on ? 'left-7' : 'left-1'}`;
+  syncTiming();
+}));
+syncTiming();
+
+const l = document.getElementById('lib');
+l.querySelector('.q').addEventListener('input', e => {
+  const q = e.target.value.trim().toLowerCase(); let shown = 0;
+  l.querySelectorAll('.art').forEach(a => { const ok = a.dataset.t.includes(q); a.classList.toggle('hidden', !ok); if (ok) shown++; });
+  l.querySelector('.clear').classList.toggle('hidden', !q);
+  const nm = l.querySelector('.nomatch'); nm.classList.toggle('hidden', shown > 0); nm.classList.toggle('flex', shown === 0);
+});
+l.querySelector('.clear').addEventListener('click', () => { const q = l.querySelector('.q'); q.value = ''; q.dispatchEvent(new Event('input')); });
+</script>
+</body>
+</html>

@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loading States v1</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { background:#e7e5e4; font-family:"Segoe UI", system-ui, sans-serif; }
+  .phone { width:390px; height:844px; overflow-y:auto; position:relative; }
+  .phone::-webkit-scrollbar { width:0; }
+
+  /* Grey placeholder with a soft moving shine */
+  .sk { background:#e5e7eb; border-radius:.75rem; position:relative; overflow:hidden; }
+  .sk::after { content:""; position:absolute; inset:0; transform:translateX(-100%);
+    background:linear-gradient(90deg, transparent, rgba(255,255,255,.65), transparent); animation:shine 1.4s infinite; }
+  @keyframes shine { to { transform:translateX(100%); } }
+
+  /* Thin bar under the top bar while a new page opens */
+  .progress { height:4px; background:#ede9fe; overflow:hidden; }
+  .progress > span { display:block; height:100%; width:40%; background:#7c3aed; border-radius:9999px; animation:slide 1.2s ease-in-out infinite; }
+  @keyframes slide { 0% { transform:translateX(-100%); } 100% { transform:translateX(260%); } }
+
+  .spin { animation:spin 1s linear infinite; } @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* People who turn off motion get still placeholders */
+  @media (prefers-reduced-motion: reduce) { .sk::after, .progress > span, .spin { animation:none; } .progress > span { width:100%; } }
+</style>
+</head>
+<body class="p-6 text-gray-900 antialiased">
+
+<header class="mx-auto mb-6 max-w-[2550px]">
+  <h1 class="text-2xl font-bold">Slow internet — loading states v1</h1>
+  <p class="mt-1 text-base text-gray-700">Hapi Vet pages come from the server in one piece, so there's no half-built page to show. What owners <i>do</i> see on a slow connection: a page that's opening, a part of the page loading with HTMX, photos arriving late, a button that's sending, and sometimes no internet at all. One design for each. The animations are live.</p>
+</header>
+
+<div class="mx-auto flex max-w-[2550px] flex-wrap justify-center gap-8" id="frames"></div>
+
+<script>
+// ---------- Icons (Lucide shapes, mockup only) ----------
+const P = {
+  house:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  back:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  next:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  chev:'<path d="m9 18 6-6-6-6"/>',
+  chevL:'<path d="m15 18-6-6 6-6"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  search:'<path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/>',
+  loader:'<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
+  wifiOff:'<path d="M12 20h.01"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5 12.859a10 10 0 0 1 5.17-2.69"/><path d="M19 12.859a10 10 0 0 0-2.007-1.523"/><path d="M2 8.82a15 15 0 0 1 4.177-2.643"/><path d="M22 8.82a15 15 0 0 0-11.288-3.764"/><path d="m2 2 20 20"/>',
+  clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  refresh:'<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+  send:'<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>',
+  dog:'<path d="M11.25 16.25h1.5L12 17z"/><path d="M16 14v.5"/><path d="M4.42 11.247A13.152 13.152 0 0 0 4 14.556C4 18.728 7.582 21 12 21s8-2.272 8-6.444a11.702 11.702 0 0 0-.493-3.309"/><path d="M8 14v.5"/><path d="M8.5 8.5c-.384 1.05-1.083 2.028-2.344 2.5-1.931.722-3.576-.297-3.656-1-.113-.994 1.177-6.53 4-7 1.923-.321 3.651.845 3.651 2.235A7.497 7.497 0 0 1 14 5.277c0-1.39 1.844-2.598 3.767-2.277 2.823.47 4.113 6.006 4 7-.08.703-1.725 1.722-3.656 1-1.261-.472-1.855-1.45-2.239-2.5"/>',
+  cat:'<path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z"/><path d="M8 14v.5"/><path d="M16 14v.5"/><path d="M11.25 16.25h1.5L12 17l-.75-.75Z"/>',
+  image:'<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+};
+const ic = (n, c='size-5 shrink-0') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+const thin = (n, c) => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+const spinner = (c='size-5') => `<svg class="spin ${c} shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">${P.loader}</svg>`;
+
+// ---------- Shell ----------
+const bar = (progress=false) => `
+<div class="sticky top-0 z-20 shrink-0 bg-white">
+  <div class="flex h-16 items-center justify-between border-b border-gray-200 px-4">
+    <div class="flex items-center gap-2.5"><span class="grid size-9 place-content-center rounded-xl bg-violet-600 text-white">${ic('paw','size-5')}</span><span class="text-lg font-bold">Hapi Tutz</span></div>
+    <button class="relative grid size-11 place-content-center rounded-full" aria-label="Notifications">${ic('bell','size-6')}</button>
+  </div>
+  ${progress ? '<div class="progress" role="progressbar" aria-label="Opening page"><span></span></div>' : ''}
+</div>`;
+const flowBar = (step) => `
+<div class="sticky top-0 z-20 shrink-0 border-b border-gray-200 bg-white">
+  <div class="flex h-16 items-center gap-2 px-2">
+    <a class="grid size-11 place-content-center rounded-full text-gray-800" aria-label="Back">${ic('back','size-6')}</a>
+    <span class="flex-1 text-lg font-bold">Book a visit</span><a class="inline-flex min-h-11 items-center rounded-lg px-3 text-base font-medium text-gray-700">Cancel</a>
+  </div>
+  <div class="px-4 pb-3">
+    <p class="text-base text-gray-700"><span class="font-semibold text-gray-900">Step ${step} of 3</span> · ${['Pet and reason','Date and time','Check and send'][step-1]}</p>
+    <div class="mt-2 grid grid-cols-3 gap-1.5">${[1,2,3].map(i => `<span class="h-1.5 rounded-full ${i <= step ? 'bg-violet-600' : 'bg-gray-200'}"></span>`).join('')}</div>
+  </div>
+</div>`;
+const tabs = (active, busy='') => `
+<nav class="sticky bottom-0 z-10 mt-auto grid shrink-0 grid-cols-5 border-t border-gray-200 bg-white pb-2">
+  ${[['house','Home'],['paw','Pets'],['calendar','Visits'],['receipt','Bills'],['user','Account']].map(([i,l]) =>
+    `<a class="flex min-h-14 flex-col items-center justify-center gap-0.5 pt-2 text-sm font-medium ${l===active || l===busy ? 'text-violet-700' : 'text-gray-600'}">
+      ${l===busy ? spinner('size-6') : ic(i,'size-6')}${l}<span class="mt-0.5 h-1 w-6 rounded-full ${l===active ? 'bg-violet-600' : ''}"></span></a>`).join('')}
+</nav>`;
+const page = (head, inner, foot) => `<div class="relative flex min-h-full flex-col">${head}${inner}${foot}</div>`;
+
+// ---------- 1 · Opening another page ----------
+const openingPage = page(bar(true), `
+<main class="flex-1 space-y-5 px-4 py-5 opacity-60" aria-busy="true">
+  <h1 class="text-2xl font-bold">Visits</h1>
+  ${[['Nov','10','Browny · Consultation','12:00 PM'],['Nov','13','Mingming · Vaccination','2:00 PM']].map(([m,d,t,h]) => `
+  <div class="flex items-center gap-4 rounded-2xl border border-gray-200 bg-white p-4">
+    <span class="grid w-16 place-content-center rounded-xl bg-gray-100 py-2 text-center"><span class="text-sm font-semibold uppercase text-gray-600">${m}</span><span class="text-2xl font-bold">${d}</span></span>
+    <span><span class="block text-lg font-bold">${t}</span><span class="text-base text-gray-700">${h}</span></span></div>`).join('')}
+</main>
+<div class="pointer-events-none sticky bottom-24 z-10 -mt-14 flex justify-center pb-2">
+  <span class="inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-base font-medium text-white shadow-lg">${spinner()}Opening Bills…</span>
+</div>`, tabs('Visits','Bills'));
+
+// ---------- 2 · Part of a page loading (HTMX): free times ----------
+const calMini = `
+<section class="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm">
+  <div class="mb-2 flex items-center justify-between"><span class="grid size-11 place-content-center text-gray-300">${ic('chevL','size-6')}</span><p class="text-lg font-bold">November 2026</p><span class="grid size-11 place-content-center">${ic('chev','size-6')}</span></div>
+  <div class="grid grid-cols-7 gap-1">${Array.from({length:21},(_,i)=>{const d=i+9; const wd=(d-1)%7; const closed=wd===0||wd===6;
+    return `<span class="grid h-11 place-content-center rounded-xl text-base ${d===12 ? 'bg-violet-600 font-semibold text-white' : closed ? 'text-gray-300' : 'bg-white font-semibold ring-1 ring-gray-200'}">${d}</span>`}).join('')}</div>
+</section>`;
+const slotsLoading = page(flowBar(2), `
+<main class="flex-1 space-y-5 px-4 py-5">
+  ${calMini}
+  <section class="space-y-3" aria-busy="true">
+    <p class="flex items-center gap-2 text-lg font-bold text-gray-800">${spinner('size-5 text-violet-600')}Finding free times for Thu, Nov 12…</p>
+    <div class="grid grid-cols-3 gap-2">${Array.from({length:9},()=>'<span class="sk h-12"></span>').join('')}</div>
+  </section>
+</main>`, `
+<div class="sticky bottom-0 z-10 mt-auto flex shrink-0 gap-3 border-t border-gray-200 bg-white px-4 pb-5 pt-3">
+  <a class="inline-flex min-h-14 items-center justify-center gap-2 rounded-2xl border border-gray-300 bg-white px-5 text-lg font-medium text-gray-800">${ic('back','size-5')}Back</a>
+  <button disabled class="flex min-h-14 flex-1 cursor-not-allowed items-center justify-center gap-2 rounded-2xl bg-gray-200 text-lg font-semibold text-gray-500">Next${ic('next','size-5')}</button>
+</div>`);
+
+// ---------- 3 · Search results loading (HTMX) ----------
+const skCard = `
+<div class="flex flex-col rounded-2xl border border-gray-200 bg-white p-2.5">
+  <span class="sk aspect-square w-full"></span>
+  <span class="sk mt-3 h-5 w-2/3"></span><span class="sk mt-2 h-4 w-1/2"></span><span class="sk mt-2 h-4 w-2/5"></span>
+</div>`;
+const searchLoading = page(bar(), `
+<main class="flex-1 space-y-4 px-4 py-5">
+  <div class="flex items-center justify-between"><div><h1 class="text-2xl font-bold">My Pets</h1><p class="text-base text-gray-600">6 pets</p></div>
+    <a class="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-violet-600 px-4 text-base font-semibold text-white">${ic('plus','size-5')}Add a pet</a></div>
+  <label class="relative block"><span class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">${ic('search','size-5')}</span>
+    <input value="ch" class="block min-h-12 w-full rounded-xl border border-violet-500 bg-white pl-12 pr-12 text-base ring-2 ring-violet-200">
+    <span class="absolute right-4 top-1/2 -translate-y-1/2 text-violet-600">${spinner()}</span></label>
+  <p class="text-base text-gray-600" role="status">Searching…</p>
+  <div class="grid grid-cols-2 gap-3" aria-busy="true">${skCard}${skCard}</div>
+</main>`, tabs('Pets'));
+
+// ---------- 4 · Photos arriving late ----------
+// Text is already there; each photo box shows the species icon until the picture arrives.
+const petCard = (name, line, state, sp) => `
+<div class="flex flex-col rounded-2xl border border-gray-200 bg-white p-2.5 shadow-sm">
+  ${state === 'loaded'
+    ? `<span class="grid aspect-square w-full place-content-center rounded-xl bg-gradient-to-br from-amber-200 to-amber-500 text-white">${ic('image','size-8')}</span>`
+    : state === 'loading'
+      ? `<span class="sk grid aspect-square w-full place-content-center text-gray-400" aria-label="Photo of ${name} is loading">${thin(sp,'relative z-10 size-14')}</span>`
+      : `<span class="grid aspect-square w-full place-content-center rounded-xl bg-violet-50 text-violet-500 ring-1 ring-inset ring-violet-200">${thin(sp,'size-14')}</span>`}
+  <span class="px-1 pb-1 pt-3"><span class="block text-lg font-bold">${name}</span><span class="block text-base text-gray-700">${line}</span></span>
+</div>`;
+const photosLoading = page(bar(), `
+<main class="flex-1 space-y-4 px-4 py-5">
+  <div><h1 class="text-2xl font-bold">My Pets</h1><p class="text-base text-gray-600">4 pets</p></div>
+  <div class="grid grid-cols-2 gap-3">
+    ${petCard('Browny','Dog · Aspin','loaded','dog')}
+    ${petCard('Mingming','Cat · Puspin','none','cat')}
+    ${petCard('Choco','Dog · Shih Tzu','loading','dog')}
+    ${petCard('Snow','Cat · Persian','loading','cat')}
+  </div>
+</main>`, tabs('Pets'));
+
+// ---------- 5 · Button sending ----------
+const sending = page(flowBar(3), `
+<main class="flex-1 space-y-5 px-4 py-5">
+  <h2 class="text-xl font-bold">Check your request</h2>
+  <dl class="divide-y divide-gray-100 rounded-2xl border border-gray-200 bg-white px-4 opacity-70">
+    ${[['Pet','Browny'],['Visit for','Consultation'],['Day and time','Tue, Nov 10, 2026 at 12:00 PM']].map(([t,d])=>`<div class="py-3"><dt class="text-base text-gray-600">${t}</dt><dd class="text-lg font-semibold">${d}</dd></div>`).join('')}
+  </dl>
+  <p class="flex items-start gap-2 text-base text-gray-700" role="status">${spinner('mt-0.5 size-5 text-violet-600')}Sending your request. Please keep this page open.</p>
+</main>`, `
+<div class="sticky bottom-0 z-10 mt-auto flex shrink-0 gap-3 border-t border-gray-200 bg-white px-4 pb-5 pt-3">
+  <span class="inline-flex min-h-14 items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white px-5 text-lg font-medium text-gray-400">${ic('back','size-5')}Back</span>
+  <button disabled aria-busy="true" class="flex min-h-14 flex-1 cursor-wait items-center justify-center gap-2 rounded-2xl bg-violet-400 text-lg font-semibold text-white">${spinner()}Sending…</button>
+</div>`);
+
+// ---------- 6 · Taking too long ----------
+const tooLong = page(flowBar(2), `
+<main class="flex-1 space-y-5 px-4 py-5">
+  ${calMini}
+  <section class="space-y-3">
+    <div role="alert" class="flex items-start gap-3 rounded-xl border border-orange-300 bg-orange-50 px-4 py-4 text-orange-900">
+      ${ic('clock','mt-0.5 size-6 shrink-0')}
+      <div class="flex-1"><p class="text-lg font-semibold">This is taking longer than usual</p><p class="mt-0.5 text-base">Your internet may be slow. Your answers are kept.</p>
+        <button class="mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl border border-orange-400 bg-white px-4 text-base font-semibold text-orange-900">${ic('refresh','size-5')}Try again</button></div>
+    </div>
+    <div class="grid grid-cols-3 gap-2 opacity-60">${Array.from({length:6},()=>'<span class="sk h-12"></span>').join('')}</div>
+  </section>
+</main>`, `
+<div class="sticky bottom-0 z-10 mt-auto flex shrink-0 gap-3 border-t border-gray-200 bg-white px-4 pb-5 pt-3">
+  <a class="inline-flex min-h-14 items-center justify-center gap-2 rounded-2xl border border-gray-300 bg-white px-5 text-lg font-medium text-gray-800">${ic('back','size-5')}Back</a>
+  <button disabled class="flex min-h-14 flex-1 cursor-not-allowed items-center justify-center gap-2 rounded-2xl bg-gray-200 text-lg font-semibold text-gray-500">Next${ic('next','size-5')}</button>
+</div>`);
+
+// ---------- 7 · No internet ----------
+const offline = page(`
+${bar()}
+<div role="status" class="sticky top-16 z-10 flex items-center gap-3 border-b border-gray-300 bg-gray-800 px-4 py-3 text-white">
+  ${ic('wifiOff','size-5')}<p class="flex-1 text-base"><b>No internet.</b> You can still read this page. We'll reconnect by ourselves.</p>
+</div>`, `
+<main class="flex-1 space-y-4 px-4 py-5">
+  <h1 class="text-2xl font-bold">Bills</h1>
+  <section class="rounded-2xl border border-yellow-300 bg-yellow-50 p-5"><p class="text-base font-semibold text-yellow-900">To pay</p><p class="text-3xl font-bold">₱1,350.00</p></section>
+  <div class="flex items-center gap-4 rounded-2xl border border-gray-200 bg-white p-4">
+    <span class="grid size-12 place-content-center rounded-xl bg-violet-50 text-violet-600 ring-1 ring-violet-200">${thin('dog','size-7')}</span>
+    <span class="flex-1"><span class="block text-lg font-bold">Browny · ₱1,350.00</span><span class="text-base text-gray-700">Nov 2, 2026 · Unpaid</span></span></div>
+</main>`, tabs('Bills'));
+
+// ---------- Frames ----------
+const frame = (lbl, note, body) => `
+<figure class="flex flex-col items-center">
+  <figcaption class="mb-3 w-[390px]"><p class="text-lg font-bold">${lbl}</p><p class="text-base text-gray-700">${note}</p></figcaption>
+  <div class="phone rounded-[2rem] bg-gray-50 shadow-xl ring-8 ring-gray-900">${body}</div>
+</figure>`;
+
+document.getElementById('frames').innerHTML =
+  frame('1 · Opening another page', 'Tapped Bills on a slow connection. The old page dims, a violet bar moves under the top bar, the tapped tab spins, and a small "Opening Bills…" note appears. Stops people tapping again.', openingPage) +
+  frame('2 · Free times loading', 'After picking a day, only the times part loads (HTMX). Grey boxes in the shape of the time buttons, with words saying what\'s happening.', slotsLoading) +
+  frame('3 · Search results loading', 'While typing in a search box: a spinner inside the box, "Searching…", and grey cards in the shape of the results.', searchLoading) +
+  frame('4 · Photos arriving late', 'Names and details show straight away. Each photo box shows the species icon on a shining grey tile until the picture arrives.', photosLoading) +
+  frame('5 · Sending', 'Any Send or Save button: turns lighter, spins, says "Sending…", and can\'t be tapped twice. Stops double bookings and double saves.', sending) +
+  frame('6 · Taking too long', 'After about 10 seconds: an orange note, "your answers are kept", and Try again. Never an endless spinner.', tooLong) +
+  frame('7 · No internet', 'A dark strip under the top bar while offline. The page stays readable; it goes away by itself when the internet is back.', offline);
+</script>
+</body>
+</html>

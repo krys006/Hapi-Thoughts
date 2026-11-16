@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Book Without a Pet</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { background:#e7e5e4; font-family:"Segoe UI", system-ui, sans-serif; }
+  .phone { width:390px; height:844px; overflow-y:auto; position:relative; }
+  .phone::-webkit-scrollbar { width:0; }
+  details > summary { list-style:none; } details > summary::-webkit-details-marker { display:none; }
+  details[open] .chev { transform:rotate(90deg); }
+</style>
+</head>
+<body class="p-6 text-gray-900 antialiased">
+
+<header class="mx-auto mb-6 max-w-[2150px]">
+  <h1 class="text-2xl font-bold">Booking when the owner has no pet yet</h1>
+  <p class="mt-1 text-base text-gray-700">Booking needs a pet, so step 1 sends them to the normal Add a pet form in "booking mode". After saving, they come straight back to step 1 with the new pet already picked. No second pet form to maintain. Phone 2 works: tap a species, open "More details".</p>
+</header>
+
+<div class="mx-auto flex max-w-[2150px] flex-wrap justify-center gap-8" id="frames"></div>
+
+<script>
+// ---------- Icons (Lucide shapes, mockup only) ----------
+const P = {
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  back:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  next:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  chevR:'<path d="m9 18 6-6-6-6"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  checkCircle:'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  camera:'<path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z"/><circle cx="12" cy="13" r="3"/>',
+  x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  cat:'<path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z"/><path d="M8 14v.5"/><path d="M16 14v.5"/><path d="M11.25 16.25h1.5L12 17l-.75-.75Z"/>',
+};
+const ic = (n, c='size-5 shrink-0') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+const thin = (n, c) => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// ---------- Shell ----------
+const header = (title, progress) => `
+<div class="sticky top-0 z-20 shrink-0 border-b border-gray-200 bg-white">
+  <div class="flex h-16 items-center gap-2 px-2">
+    <a class="grid size-11 place-content-center rounded-full text-gray-800 hover:bg-gray-100" aria-label="Back">${ic('back','size-6')}</a>
+    <span class="flex-1 text-lg font-bold">${title}</span>
+    <a class="inline-flex min-h-11 items-center rounded-lg px-3 text-base font-medium text-gray-700 hover:bg-gray-100">Cancel</a>
+  </div>
+  ${progress ? `<div class="px-4 pb-3">
+    <p class="text-base text-gray-700"><span class="font-semibold text-gray-900">Step 1 of 3</span> · Pet and reason</p>
+    <div class="mt-2 grid grid-cols-3 gap-1.5"><span class="h-1.5 rounded-full bg-violet-600"></span><span class="h-1.5 rounded-full bg-gray-200"></span><span class="h-1.5 rounded-full bg-gray-200"></span></div>
+  </div>` : ''}
+</div>`;
+
+const footer = (label, icon, enabled, back=false) => `
+<div class="sticky bottom-0 z-10 mt-auto flex shrink-0 gap-3 border-t border-gray-200 bg-white px-4 pb-5 pt-3">
+  ${back ? `<a class="inline-flex min-h-14 items-center justify-center gap-2 rounded-2xl border border-gray-300 bg-white px-5 text-lg font-medium text-gray-800">${ic('back','size-5')}Back</a>` : ''}
+  <button type="button" ${enabled ? '' : 'disabled'} class="flex min-h-14 flex-1 items-center justify-center gap-2 rounded-2xl text-lg font-semibold ${enabled ? 'bg-violet-600 text-white shadow-sm' : 'cursor-not-allowed bg-gray-200 text-gray-500'}">${label}${ic(icon,'size-5')}</button>
+</div>`;
+const page = (head, inner, foot) => `<div class="flex min-h-full flex-col">${head}${inner}${foot}</div>`;
+
+const sectionTitle = (t, sub='') => `<div><h2 class="text-xl font-bold">${t}</h2>${sub ? `<p class="text-base text-gray-600">${sub}</p>` : ''}</div>`;
+
+// ---------- 1 · Step 1 with no pets ----------
+const step1Empty = page(header('Book a visit', true), `
+<main class="flex-1 space-y-5 px-4 py-5">
+  ${sectionTitle('Which pet is this for?')}
+  <section class="flex flex-col items-center rounded-2xl border border-dashed border-violet-300 bg-white px-6 py-8 text-center">
+    <span class="grid size-20 place-content-center rounded-full bg-violet-50 text-violet-600 ring-1 ring-violet-200">${thin('paw','size-10')}</span>
+    <p class="mt-4 text-lg font-bold">You haven't added a pet yet</p>
+    <p class="mt-1 text-base text-gray-700">Add your pet first. It takes about a minute, and we'll bring you right back here to finish booking.</p>
+    <a class="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm">${ic('plus','size-6')}Add a pet</a>
+  </section>
+  <p class="flex items-start gap-2 text-base text-gray-600">${ic('info','mt-0.5 size-5 shrink-0')}The rest of the booking (service, day and time) comes after your pet is added.</p>
+</main>`, `
+<div class="sticky bottom-0 z-10 mt-auto shrink-0 border-t border-gray-200 bg-white px-4 pb-5 pt-3">
+  <button type="button" disabled class="flex min-h-14 w-full cursor-not-allowed items-center justify-center gap-2 rounded-2xl bg-gray-200 text-lg font-semibold text-gray-500">Next${ic('next','size-5')}</button>
+  <p class="mt-2 text-center text-base text-gray-600">Add a pet to continue</p>
+</div>`);
+
+// ---------- 2 · Add a pet, booking mode ----------
+const label = (t, req=true, forId='') => `<label ${forId ? `for="${forId}"` : ''} class="block text-base font-semibold text-gray-900">${t}${req ? '' : ' <span class="font-normal text-gray-600">(optional)</span>'}</label>`;
+const input = (id, ph='', val='', err='') => `<input id="${id}" value="${val}" placeholder="${ph}" class="mt-1.5 block min-h-12 w-full rounded-xl border ${err ? 'border-red-500 ring-2 ring-red-100' : 'border-gray-300'} bg-white px-4 text-base placeholder:text-gray-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200">${err ? `<p class="mt-1.5 flex items-center gap-1.5 text-base text-red-700">${ic('alert','size-5 shrink-0')}${err}</p>` : ''}`;
+const chipCls = on => `sp inline-flex min-h-11 items-center rounded-full px-4 text-base ring-1 ${on ? 'bg-violet-100 font-semibold text-violet-800 ring-violet-300' : 'bg-white font-medium text-gray-700 ring-gray-300'}`;
+const segCls = on => `min-h-11 rounded-lg text-base ${on ? 'bg-white font-semibold text-gray-900 shadow-sm ring-1 ring-gray-200' : 'font-medium text-gray-600'}`;
+
+const petForm = ({errors=false, filled=false} = {}) => `
+<main class="flex-1 space-y-5 px-4 py-5">
+  <div class="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-blue-900">
+    ${ic('info','mt-0.5 size-5 shrink-0')}<p class="text-base">After you save, you'll go back to booking with this pet already picked.</p>
+  </div>
+  ${errors ? `<div role="alert" class="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-900">${ic('alert','mt-0.5 size-5 shrink-0')}<p class="text-base"><b>2 things need fixing</b> before we can save. They're marked in red below.</p></div>` : ''}
+
+  <div class="flex items-center gap-4">
+    <span class="grid size-20 shrink-0 place-content-center rounded-2xl border-2 border-dashed border-gray-300 bg-white text-gray-500">${ic('camera','size-7')}</span>
+    <div>${label('Photo', false)}<a class="mt-1 inline-flex min-h-11 items-center rounded-xl border border-gray-300 bg-white px-4 text-base font-medium text-gray-800">Choose a photo</a></div>
+  </div>
+
+  <div>${label('Pet\'s name', true, 'n')}${input('n','e.g. Snow', filled ? 'Snow' : '', errors ? 'Please type your pet\'s name.' : '')}</div>
+
+  <fieldset>
+    <legend class="text-base font-semibold">Species</legend>
+    <div class="species mt-1.5 flex flex-wrap gap-2">
+      ${['Dog','Cat','Rabbit','Bird','Other'].map(s => `<button type="button" data-sp="${s}" aria-pressed="${s==='Cat'}" class="${chipCls(s==='Cat')}">${s}</button>`).join('')}
+    </div>
+    <div class="other mt-2 hidden">${input('o','Type the species, e.g. Hamster')}</div>
+  </fieldset>
+
+  <div>${label('Breed', true, 'b')}
+    <select id="b" class="mt-1.5 block min-h-12 w-full rounded-xl border border-gray-300 bg-white px-4 text-base">
+      <option ${filled ? '' : 'selected'}>Choose a breed</option><option ${filled ? 'selected' : ''}>Persian</option><option>Puspin (local cat)</option><option>Siamese</option><option>Mixed / not sure</option><option>Other (type it)</option>
+    </select>
+    <p class="mt-1.5 text-base text-gray-600">Not sure? Pick "Mixed / not sure".</p>
+  </div>
+
+  <fieldset>
+    <legend class="text-base font-semibold">Male or female?</legend>
+    <div class="mt-1.5 grid grid-cols-3 gap-1 rounded-xl bg-gray-200/70 p-1">
+      ${['Male','Female','Not sure'].map(g => `<button type="button" class="${segCls(g==='Female')}">${g}</button>`).join('')}
+    </div>
+  </fieldset>
+
+  <div>${label('Birthday', true, 'd')}
+    <input id="d" type="date" ${filled ? 'value="2022-06-15"' : ''} class="mt-1.5 block min-h-12 w-full rounded-xl border ${errors ? 'border-red-500 ring-2 ring-red-100' : 'border-gray-300'} bg-white px-4 text-base">
+    ${errors ? `<p class="mt-1.5 flex items-center gap-1.5 text-base text-red-700">${ic('alert','size-5 shrink-0')}Please pick a birthday. A rough guess is fine.</p>`
+             : `<p class="mt-1.5 text-base text-gray-600">Don't know the exact date? A rough guess is fine.</p>`}
+  </div>
+
+  <details class="rounded-2xl border border-gray-200 bg-white">
+    <summary class="flex min-h-14 cursor-pointer items-center gap-1.5 px-4 text-base font-semibold">More details <span class="font-normal text-gray-600">(optional)</span><span class="chev ml-auto text-gray-500 transition-transform">${ic('chevR','size-5')}</span></summary>
+    <div class="space-y-4 border-t border-gray-100 px-4 pb-4 pt-3">
+      <div>${label('Color', false, 'c')}${input('c','e.g. White')}</div>
+      <div>${label('Weight in kg', false, 'w')}${input('w','e.g. 4.5')}</div>
+      <div>${label('Registration number', false, 'r')}${input('r','From the city vet, if any')}</div>
+    </div>
+  </details>
+</main>`;
+
+const addPet = page(header('Add a pet', false), petForm({filled:true}), footer('Save and continue', 'next', true));
+const addPetErr = page(header('Add a pet', false), petForm({errors:true}), footer('Save and continue', 'next', true));
+
+// ---------- 3 · Back on step 1, pet picked ----------
+const services = ['Consultation','Vaccination','Check-up','Grooming','Deworming','Not sure yet'];
+const choice = (on, inner) => `
+<label class="flex min-h-14 cursor-pointer items-center gap-3 rounded-2xl border bg-white px-4 py-3 ${on ? 'border-violet-500 bg-violet-50 ring-2 ring-violet-200' : 'border-gray-200'}">
+  ${inner}<span class="grid size-6 shrink-0 place-content-center rounded-full border-2 ${on ? 'border-violet-600 bg-violet-600 text-white' : 'border-gray-400'}">${on ? ic('check','size-4') : ''}</span>
+</label>`;
+const step1Back = page(header('Book a visit', true), `
+<main class="flex-1 space-y-6 px-4 py-5">
+  <div role="status" class="flex items-start gap-3 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-green-900">
+    ${ic('checkCircle','mt-0.5 size-5 shrink-0')}<p class="flex-1 text-base"><b>Snow was added.</b> Now pick what the visit is for.</p>
+    <button class="-my-2 -mr-2 grid size-11 place-content-center rounded-lg" aria-label="Close message">${ic('x','size-5')}</button>
+  </div>
+  <section class="space-y-3">
+    ${sectionTitle('Which pet is this for?')}
+    ${choice(true, `<span class="grid size-12 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-600 ring-1 ring-violet-200">${thin('cat','size-7')}</span><span class="flex-1"><span class="block text-lg font-bold leading-6">Snow</span><span class="block text-base text-gray-600">Cat · Persian</span></span>`)}
+    <a class="inline-flex min-h-11 items-center gap-1.5 text-base font-medium text-blue-600">${ic('plus','size-5')}Add another pet</a>
+  </section>
+  <section class="space-y-3">
+    ${sectionTitle('What is the visit for?', 'Not sure? Pick "Not sure yet" and Dr. Aga will check.')}
+    ${services.map(s => choice(false, `<span class="flex-1 text-base font-semibold">${s}</span>`)).join('')}
+  </section>
+</main>`, `
+<div class="sticky bottom-0 z-10 mt-auto shrink-0 border-t border-gray-200 bg-white px-4 pb-5 pt-3">
+  <button type="button" disabled class="flex min-h-14 w-full cursor-not-allowed items-center justify-center gap-2 rounded-2xl bg-gray-200 text-lg font-semibold text-gray-500">Next${ic('next','size-5')}</button>
+</div>`);
+
+// ---------- Frames ----------
+const frame = (lbl, note, body, id='') => `
+<figure class="flex flex-col items-center">
+  <figcaption class="mb-3 w-[390px]"><p class="text-lg font-bold">${lbl}</p><p class="text-base text-gray-700">${note}</p></figcaption>
+  <div ${id ? `id="${id}"` : ''} class="phone rounded-[2rem] bg-gray-50 shadow-xl ring-8 ring-gray-900">${body}</div>
+</figure>`;
+
+document.getElementById('frames').innerHTML =
+  frame('1 · Step 1, no pets', 'Only the pet question shows. One clear button; Next stays grey and says why.', step1Empty) +
+  frame('2 · Add a pet (booking mode) — try it', 'Same form as My Pets → Add a pet, plus a note that they\'ll come back. Required fields first; extras tucked under "More details".', addPet, 'live') +
+  frame('2b · Missing answers', 'Summary at the top, each problem in red under its field (same style as the admin form_field).', addPetErr) +
+  frame('3 · Back on step 1', 'New pet already picked, a short "added" message, and the booking carries on.', step1Back);
+
+// ---------- Make phone 2's species chips work ----------
+const root = document.getElementById('live');
+root.querySelectorAll('.sp').forEach(b => b.addEventListener('click', () => {
+  root.querySelectorAll('.sp').forEach(x => { const on = x === b; x.setAttribute('aria-pressed', on); x.className = chipCls(on); });
+  root.querySelector('.other').classList.toggle('hidden', b.dataset.sp !== 'Other');
+}));
+</script>
+</body>
+</html>
