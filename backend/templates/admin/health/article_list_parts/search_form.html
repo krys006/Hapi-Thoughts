@@ -1,0 +1,15 @@
+{% comment %}
+  Health library search: a plain GET form on ?q (the condition name). Used
+  twice by article_list.html: in the top bar from md up and in the page body
+  below md (form_class sets the breakpoint, id_prefix keeps the ids apart).
+{% endcomment %}
+<form method="get" action="{% url 'admin_health_article_list' %}" class="{{ form_class }}" role="search">
+  <label for="{{ id_prefix }}-article-search" class="sr-only">Search articles by condition name</label>
+  <div class="relative w-full min-w-0 max-w-[30rem]">
+    <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-600">
+      {% include "components/icon.html" with name="search" %}
+    </span>
+    <input id="{{ id_prefix }}-article-search" type="search" name="q" value="{{ q }}" placeholder="Search articles by condition name" class="input pl-10">
+  </div>
+  <button type="submit" class="btn btn-outline font-semibold">{% include "components/icon.html" with name="search" %}Search</button>
+</form>

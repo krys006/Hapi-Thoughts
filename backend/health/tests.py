@@ -294,15 +294,142 @@ class AdminListTests(HealthTestBase):
         full = self.client.get(self.url).content.decode()
         self.assertNotIn("/delete/", full)
         # The layout still includes shared/modals.html (its own onclick,
-        # removed in 7b-5), so check the page's own content only: from the
-        # page wrapper to the end of the article table.
-        start = full.index('<div class="admin-page">')
-        html = full[start : full.index("</table>", start)]
+        # removed in 7b-5), so check the page's own content only: the
+        # <main> element.
+        start = full.index('<main id="main-content"')
+        html = full[start : full.index("</main>", start)]
         self.assertNotIn("onclick", html)
         self.assertNotIn("openConfirmModal", html)
         self.assertIn(
             reverse("admin_health_article_toggle_publish", args=[article.pk]), html
         )
+
+
+OLD_ASSETS = ("article_list.js", "article_list.css", "article_form.css")
+
+
+class ListPageMarkupTests(HealthTestBase):
+    """Slice 7b-1: the list page's dialogs, escaping and old-file checks."""
+
+    url = "/admin/health/"
+
+    def main_html(self, response):
+        """The page's own markup (the layout's shared modal has an onclick)."""
+        full = response.content.decode()
+        start = full.index('<main id="main-content"')
+        return full[start : full.index("</main>", start)]
+
+    def test_one_dialog_per_article_with_the_right_toggle_url_and_wording(self):
+        live = self.article("Live one", published=True)
+        draft = self.article("Draft one")
+        response = self.client.get(self.url)
+        html = self.main_html(response)
+        self.assertEqual(html.count("<dialog "), 2)
+        live_url = reverse("admin_health_article_toggle_publish", args=[live.pk])
+        draft_url = reverse("admin_health_article_toggle_publish", args=[draft.pk])
+        # Published article: Unpublish dialog.
+        unpublish = html[html.index(f'id="unpublish-dialog-{live.pk}"') :]
+        unpublish = unpublish[: unpublish.index("</dialog>")]
+        self.assertIn(f'action="{live_url}"', unpublish)
+        self.assertIn("csrfmiddlewaretoken", unpublish)
+        self.assertIn("Unpublish “Live one”?", unpublish)
+        self.assertIn(
+            "Pet owners will no longer see this article. It stays in the list, "
+            "and you can publish it again at any time.",
+            unpublish,
+        )
+        self.assertIn("Keep it published", unpublish)
+        self.assertIn("Yes, unpublish", unpublish)
+        self.assertIn("btn-danger", unpublish)
+        # Draft: Publish dialog.
+        publish = html[html.index(f'id="publish-dialog-{draft.pk}"') :]
+        publish = publish[: publish.index("</dialog>")]
+        self.assertIn(f'action="{draft_url}"', publish)
+        self.assertIn("csrfmiddlewaretoken", publish)
+        self.assertIn("Publish “Draft one”?", publish)
+        self.assertIn("Pet owners will be able to read it.", publish)
+        self.assertIn("Go back", publish)
+        self.assertIn("Yes, publish", publish)
+        # The row buttons open the matching dialog.
+        self.assertIn(f'data-dialog-open="unpublish-dialog-{live.pk}"', html)
+        self.assertIn(f'data-dialog-open="publish-dialog-{draft.pk}"', html)
+
+    def test_title_with_apostrophe_and_quotes_is_escaped(self):
+        title = 'Bantay\'s "first" visit'
+        self.article(title, published=True)
+        self.article(title + " two")
+        response = self.client.get(self.url)
+        html = self.main_html(response)
+        escaped = "Bantay&#x27;s &quot;first&quot; visit"
+        self.assertIn(f"Unpublish “{escaped}”?", html)
+        self.assertIn(f"Publish “{escaped} two”?", html)
+        self.assertIn(
+            f'<p class="text-lg font-semibold text-gray-900">{escaped}</p>', html
+        )
+        self.assertNotIn(title, html)
+
+    def test_no_onclick_and_no_openconfirmmodal_in_the_page_content(self):
+        self.article("Live one", published=True)
+        self.article("Draft one")
+        html = self.main_html(self.client.get(self.url))
+        self.assertNotIn("onclick", html)
+        self.assertNotIn("openConfirmModal", html)
+
+    def test_empty_and_no_results_states(self):
+        response = self.client.get(self.url)
+        self.assertContains(response, "No health articles yet")
+        self.article("Kennel cough")
+        response = self.client.get(self.url, {"q": "zzz"})
+        self.assertContains(response, "No articles match your search")
+        self.assertNotContains(response, "No health articles yet")
+
+    def test_list_and_form_pages_load_none_of_the_old_files(self):
+        article = self.article("Live one", published=True)
+        pages = [
+            self.url,
+            reverse("admin_health_article_create"),
+            reverse("admin_health_article_edit", args=[article.pk]),
+        ]
+        for url in pages:
+            response = self.client.get(url)
+            for name in OLD_ASSETS:
+                with self.subTest(url=url, asset=name):
+                    self.assertNotContains(response, name)
+
+
+class FormPageMarkupTests(HealthTestBase):
+    """Slice 7b-1: the form page has no Published field, and says the status."""
+
+    def test_new_article_page_shows_the_draft_line_and_no_published_field(self):
+        response = self.client.get(reverse("admin_health_article_create"))
+        self.assertNotIn("is_published", response.context["form"].fields)
+        self.assertNotContains(response, 'name="is_published"')
+        self.assertNotContains(response, 'type="checkbox"')
+        self.assertContains(response, "This article is a <b>draft</b>.")
+        self.assertNotContains(response, "This article is <b>published</b>.")
+        self.assertContains(response, "Save changes")
+        self.assertContains(response, "Cancel")
+
+    def test_edit_page_shows_the_status_line_for_draft_and_published(self):
+        draft = self.article("Draft one")
+        live = self.article("Live one", published=True)
+        response = self.client.get(
+            reverse("admin_health_article_edit", args=[draft.pk])
+        )
+        self.assertContains(response, "This article is a <b>draft</b>.")
+        response = self.client.get(reverse("admin_health_article_edit", args=[live.pk]))
+        self.assertContains(response, "This article is <b>published</b>.")
+        self.assertNotContains(response, 'name="is_published"')
+
+    def test_labels_help_and_errors_come_from_the_form(self):
+        response = self.client.post(
+            reverse("admin_health_article_create"), {"title": "", "description": ""}
+        )
+        self.assertContains(response, "Condition name")
+        self.assertContains(response, "This is the title pet owners see.")
+        self.assertContains(response, "Type the condition name.")
+        self.assertNotContains(response, "Condition Name")
+        self.assertNotContains(response, "General Care")
 
 
 class OwnerSideTests(HealthTestBase):
