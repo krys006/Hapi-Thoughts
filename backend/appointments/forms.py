@@ -4,7 +4,12 @@ from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
 from .models import ClinicSettings, BlockedDate, Appointment
-from .utils import is_slot_available, get_available_slots, get_clinic_settings
+from .utils import (
+    SETTINGS_TAB_FIELDS,
+    is_slot_available,
+    get_available_slots,
+    get_clinic_settings,
+)
 
 # ── Weekday and slot duration choices ────────────────────────────────────────
 WEEKDAY_CHOICES = [
@@ -26,6 +31,8 @@ SLOT_DURATION_CHOICES = [
 class ClinicSettingsForm(forms.ModelForm):
     """
     Form for Admin to configure clinic schedule and contact details.
+    With tab=details, schedule or vet it keeps only that tab's fields
+    (SETTINGS_TAB_FIELDS), so saving never touches the other tabs' values.
     """
 
     working_days = forms.MultipleChoiceField(
@@ -35,8 +42,11 @@ class ClinicSettingsForm(forms.ModelForm):
         help_text="Select the days the clinic is open.",
     )
 
-    slot_duration_minutes = forms.ChoiceField(
+    # TypedChoiceField (coerce=int) so changed_data compares 60 with 60, not
+    # the saved 60 with the posted "60".
+    slot_duration_minutes = forms.TypedChoiceField(
         choices=SLOT_DURATION_CHOICES,
+        coerce=int,
         help_text="Duration of each appointment slot.",
     )
 
@@ -76,6 +86,13 @@ class ClinicSettingsForm(forms.ModelForm):
             "address": forms.Textarea(attrs={"rows": 3}),
             "veterinarian_bio": forms.Textarea(attrs={"rows": 4}),
         }
+
+    def __init__(self, *args, tab=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if tab in SETTINGS_TAB_FIELDS:
+            for name in list(self.fields):
+                if name not in SETTINGS_TAB_FIELDS[tab]:
+                    del self.fields[name]
 
     def clean(self):
         cleaned_data = super().clean()

@@ -18,6 +18,7 @@ from django.utils.dateformat import format as date_format
 from appointments.models import Appointment, BlockedDate, ClinicSettings
 from appointments.utils import (
     CLINIC_SETTINGS_DEFAULTS,
+    clinic_hours_line,
     get_available_slots,
     get_clinic_settings,
     is_slot_available,
@@ -3065,6 +3066,482 @@ class BookingLimitFormTests(AppointmentTestBase):
         self.assertEqual(
             ClinicSettingsForm().fields["booking_limit_days"].help_text,
             "Owners can book up to this many days ahead. Between 1 and 365.",
+        )
+
+
+class SettingsTabTests(AppointmentTestBase):
+    """?tab=, saving per tab, the tab errors and the saved_settings banner
+    data (Slice 7a-5)."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("admin_clinic_settings")
+
+    def _data(self, **extra):
+        data = {
+            "clinic_name": "Test Clinic",
+            "address": "Gasan, Marinduque",
+            "contact_number": "",
+            "email": "",
+            "notification_email": "",
+            "veterinarian_name": "",
+            "veterinarian_license_number": "",
+            "veterinarian_bio": "",
+            "opening_time": "08:00",
+            "closing_time": "17:00",
+            "slot_duration_minutes": "60",
+            "working_days": ["0", "1", "2", "3", "4", "5", "6"],
+            "same_day_cutoff_time": "15:00",
+            "booking_limit_days": "30",
+        }
+        data.update(extra)
+        return data
+
+    def _saved(self):
+        return get_clinic_settings()
+
+    # ─── GET ──────────────────────────────────────────────────────────────────
+
+    def test_get_each_tab_value_opens_that_tab(self):
+        for tab in ("details", "schedule", "blocked", "vet"):
+            with self.subTest(tab=tab):
+                response = self.client.get(self.url, {"tab": tab})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.context["active_tab"], tab)
+
+    def test_unknown_or_missing_tab_falls_back_to_details(self):
+        for query in ({"tab": "bogus"}, {"tab": ""}, {}):
+            with self.subTest(query=query):
+                response = self.client.get(self.url, query)
+                self.assertEqual(response.context["active_tab"], "details")
+
+    def test_get_has_no_tab_errors_and_the_banner_data(self):
+        response = self.client.get(self.url)
+        self.assertEqual(
+            response.context["tab_errors"],
+            {"details": 0, "schedule": 0, "blocked": 0, "vet": 0},
+        )
+        self.assertEqual(response.context["tab_problems"], {})
+        self.assertEqual(response.context["saved_settings"].pk, self._saved().pk)
+        self.assertEqual(
+            response.context["hours_line"], "Every day, 8:00 AM to 5:00 PM"
+        )
+        self.assertIsNone(response.context["schedule_warning"])
+
+    # ─── Saving per tab ───────────────────────────────────────────────────────
+
+    def test_vet_tab_saves_only_the_vet_fields(self):
+        response = self.client.post(
+            self.url,
+            self._data(
+                tab="vet",
+                veterinarian_name="Dr. Reyes",
+                veterinarian_license_number="PRC 123",
+                veterinarian_bio="Small animals.",
+                # Other tabs' values are ignored on a vet save
+                clinic_name="Ignored Name",
+                opening_time="09:30",
+                slot_duration_minutes="30",
+            ),
+        )
+        self.assertRedirects(response, f"{self.url}?tab=vet")
+        saved = self._saved()
+        self.assertEqual(saved.veterinarian_name, "Dr. Reyes")
+        self.assertEqual(saved.veterinarian_license_number, "PRC 123")
+        self.assertEqual(saved.veterinarian_bio, "Small animals.")
+        self.assertEqual(saved.clinic_name, "Test Clinic")
+        self.assertEqual(saved.opening_time, datetime.time(8, 0))
+        self.assertEqual(saved.slot_duration_minutes, 60)
+
+    def test_schedule_tab_saves_only_the_schedule_fields(self):
+        response = self.client.post(
+            self.url,
+            self._data(
+                tab="schedule",
+                booking_limit_days="60",
+                clinic_name="Ignored Name",
+                veterinarian_name="Ignored Vet",
+            ),
+        )
+        self.assertRedirects(response, f"{self.url}?tab=schedule")
+        saved = self._saved()
+        self.assertEqual(saved.booking_limit_days, 60)
+        self.assertEqual(saved.clinic_name, "Test Clinic")
+        self.assertEqual(saved.veterinarian_name, "")
+
+    def test_details_tab_saves_only_the_details_fields(self):
+        response = self.client.post(
+            self.url,
+            self._data(
+                tab="details",
+                clinic_name="New Name",
+                contact_number="0917",
+                booking_limit_days="60",
+            ),
+        )
+        self.assertRedirects(response, f"{self.url}?tab=details")
+        saved = self._saved()
+        self.assertEqual(saved.clinic_name, "New Name")
+        self.assertEqual(saved.contact_number, "0917")
+        self.assertEqual(saved.booking_limit_days, 30)
+
+    def test_post_without_tab_saves_every_field_and_opens_details(self):
+        response = self.client.post(
+            self.url,
+            self._data(
+                clinic_name="New Name",
+                veterinarian_name="Dr. Reyes",
+                booking_limit_days="60",
+            ),
+        )
+        self.assertRedirects(response, f"{self.url}?tab=details")
+        saved = self._saved()
+        self.assertEqual(saved.clinic_name, "New Name")
+        self.assertEqual(saved.veterinarian_name, "Dr. Reyes")
+        self.assertEqual(saved.booking_limit_days, 60)
+        self.assertIn("Clinic settings updated successfully.", self._messages(response))
+
+    def test_unknown_posted_tab_is_the_old_all_fields_save(self):
+        response = self.client.post(
+            self.url, self._data(tab="bogus", clinic_name="New Name")
+        )
+        self.assertRedirects(response, f"{self.url}?tab=details")
+        self.assertEqual(self._saved().clinic_name, "New Name")
+
+    # ─── Errors ───────────────────────────────────────────────────────────────
+
+    def test_details_error_reopens_details_with_tab_errors(self):
+        response = self.client.post(
+            self.url, self._data(tab="details", clinic_name="", booking_limit_days="0")
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["active_tab"], "details")
+        # The schedule field is not part of a details save, so only 1 error
+        self.assertEqual(
+            response.context["tab_errors"],
+            {"details": 1, "schedule": 0, "blocked": 0, "vet": 0},
+        )
+        self.assertEqual(response.context["tab_problems"], {"details": "1 problem"})
+        self.assertEqual(self._saved().clinic_name, "Test Clinic")
+
+    def test_post_without_tab_opens_the_tab_of_the_first_error(self):
+        response = self.client.post(self.url, self._data(booking_limit_days="0"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["active_tab"], "schedule")
+        self.assertEqual(response.context["tab_errors"]["schedule"], 1)
+        self.assertEqual(response.context["tab_problems"], {"schedule": "1 problem"})
+        self.assertEqual(self._saved().booking_limit_days, 30)
+
+    def test_first_error_tab_follows_tab_order_and_counts_problems(self):
+        response = self.client.post(
+            self.url,
+            self._data(
+                veterinarian_name="x" * 101,
+                booking_limit_days="0",
+                opening_time="",
+            ),
+        )
+        self.assertEqual(response.context["active_tab"], "schedule")
+        self.assertEqual(response.context["tab_errors"]["schedule"], 2)
+        self.assertEqual(response.context["tab_errors"]["vet"], 1)
+        self.assertEqual(
+            response.context["tab_problems"],
+            {"schedule": "2 problems", "vet": "1 problem"},
+        )
+        response = self.client.post(
+            self.url, self._data(clinic_name="", veterinarian_name="x" * 101)
+        )
+        self.assertEqual(response.context["active_tab"], "details")
+
+    def test_a_closing_time_error_counts_on_the_schedule_tab(self):
+        response = self.client.post(
+            self.url, self._data(opening_time="10:00", closing_time="09:00")
+        )
+        self.assertEqual(response.context["active_tab"], "schedule")
+        self.assertEqual(response.context["tab_errors"]["schedule"], 1)
+
+    def test_saved_settings_shows_the_saved_name_after_a_failed_post(self):
+        response = self.client.post(
+            self.url, self._data(clinic_name="Typed Name", booking_limit_days="0")
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["saved_settings"].clinic_name, "Test Clinic")
+        self.assertEqual(response.context["settings_obj"].clinic_name, "Test Clinic")
+        # The form keeps what was typed
+        self.assertEqual(response.context["form"]["clinic_name"].value(), "Typed Name")
+
+    def test_hours_line_comes_from_the_saved_settings_not_the_typed_ones(self):
+        response = self.client.post(
+            self.url,
+            self._data(
+                opening_time="09:00",
+                working_days=["0", "1"],
+                booking_limit_days="0",
+            ),
+        )
+        self.assertEqual(
+            response.context["hours_line"], "Every day, 8:00 AM to 5:00 PM"
+        )
+
+    # ─── Schedule warning ─────────────────────────────────────────────────────
+
+    def _schedule_post(self, **extra):
+        return self.client.post(self.url, self._data(tab="schedule", **extra))
+
+    def test_slot_change_with_a_confirmed_visit_warns_then_saves_on_confirm(self):
+        visit = self._appointment(Appointment.CONFIRMED)
+        before = (visit.status, visit.date, visit.time)
+        response = self._schedule_post(slot_duration_minutes="30")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._saved().slot_duration_minutes, 60)
+        self.assertEqual(response.context["active_tab"], "schedule")
+        day = date_format(visit.date, "D, M j")
+        self.assertContains(
+            response,
+            "Changing the slot length to 30 minutes affects 1 visit already booked.",
+        )
+        self.assertContains(response, f"{day} at 9:00 AM · Bantay (Ana Cruz)")
+        self.assertContains(
+            response,
+            "They stay booked. Nothing is cancelled or moved. Check that these "
+            "times still fit the new slots, then save again to confirm.",
+        )
+        self.assertContains(response, "Go back")
+        self.assertContains(response, "Yes, save the new schedule")
+        self.assertNotContains(response, "Save Settings")
+        self.assertNotContains(response, "form-actions")
+        self.assertNotContains(response, "and 0 more")
+
+        response = self._schedule_post(slot_duration_minutes="30", confirm_schedule="1")
+        self.assertRedirects(response, f"{self.url}?tab=schedule")
+        self.assertEqual(self._saved().slot_duration_minutes, 30)
+        visit.refresh_from_db()
+        self.assertEqual((visit.status, visit.date, visit.time), before)
+
+    def test_confirm_is_still_validated(self):
+        self._appointment(Appointment.CONFIRMED)
+        response = self._schedule_post(
+            slot_duration_minutes="30", confirm_schedule="1", booking_limit_days="0"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._saved().slot_duration_minutes, 60)
+        self.assertEqual(response.context["tab_errors"]["schedule"], 1)
+
+    def test_warning_without_a_posted_tab_shows_on_the_old_page(self):
+        self._appointment(Appointment.CONFIRMED)
+        response = self.client.post(self.url, self._data(slot_duration_minutes="30"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["active_tab"], "schedule")
+        self.assertContains(response, "Yes, save the new schedule")
+        self.assertEqual(self._saved().slot_duration_minutes, 60)
+        response = self.client.post(
+            self.url, self._data(slot_duration_minutes="30", confirm_schedule="1")
+        )
+        self.assertRedirects(response, f"{self.url}?tab=details")
+        self.assertEqual(self._saved().slot_duration_minutes, 30)
+
+    def test_pending_visit_warns(self):
+        self._appointment(Appointment.PENDING)
+        response = self._schedule_post(slot_duration_minutes="30")
+        self.assertContains(response, "affects 1 visit already booked.")
+        self.assertEqual(self._saved().slot_duration_minutes, 60)
+
+    def test_a_visit_today_warns(self):
+        self._appointment(Appointment.CONFIRMED, days_from_today=0)
+        response = self._schedule_post(slot_duration_minutes="30")
+        self.assertContains(response, "affects 1 visit already booked.")
+
+    def test_past_and_finished_visits_do_not_warn(self):
+        self._appointment(Appointment.CONFIRMED, days_from_today=-2)
+        self._appointment(Appointment.PENDING, days_from_today=-1)
+        self._appointment(Appointment.CANCELLED, days_from_today=3)
+        self._appointment(Appointment.COMPLETED, days_from_today=4)
+        self._appointment(Appointment.NO_SHOW, days_from_today=5)
+        response = self._schedule_post(slot_duration_minutes="30")
+        self.assertRedirects(response, f"{self.url}?tab=schedule")
+        self.assertEqual(self._saved().slot_duration_minutes, 30)
+
+    def test_no_visits_saves_at_once(self):
+        response = self._schedule_post(slot_duration_minutes="30")
+        self.assertRedirects(response, f"{self.url}?tab=schedule")
+        self.assertEqual(self._saved().slot_duration_minutes, 30)
+
+    def test_an_unchanged_schedule_does_not_warn(self):
+        self._appointment(Appointment.CONFIRMED)
+        response = self._schedule_post(booking_limit_days="31")
+        self.assertRedirects(response, f"{self.url}?tab=schedule")
+
+    def test_booking_limit_change_alone_never_warns(self):
+        self._appointment(Appointment.CONFIRMED)
+        response = self._schedule_post(booking_limit_days="60")
+        self.assertRedirects(response, f"{self.url}?tab=schedule")
+        self.assertEqual(self._saved().booking_limit_days, 60)
+
+    def test_other_tabs_never_warn(self):
+        self._appointment(Appointment.CONFIRMED)
+        for tab, extra in (
+            ("details", {"clinic_name": "New Name"}),
+            ("vet", {"veterinarian_name": "Dr. Reyes"}),
+        ):
+            with self.subTest(tab=tab):
+                response = self.client.post(self.url, self._data(tab=tab, **extra))
+                self.assertRedirects(response, f"{self.url}?tab={tab}")
+
+    def test_go_back_saves_nothing_shows_no_warning_and_keeps_typed_values(self):
+        self._appointment(Appointment.CONFIRMED)
+        response = self._schedule_post(slot_duration_minutes="30", go_back="1")
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context["schedule_warning"])
+        self.assertNotContains(response, "already booked")
+        self.assertNotContains(response, "Yes, save the new schedule")
+        self.assertContains(response, "Save Settings")
+        self.assertEqual(response.context["active_tab"], "schedule")
+        self.assertEqual(
+            response.context["form"]["slot_duration_minutes"].value(), "30"
+        )
+        self.assertEqual(self._saved().slot_duration_minutes, 60)
+        self.assertEqual(self._messages(response), [])
+
+    def test_heading_names_one_changed_field(self):
+        self._appointment(Appointment.CONFIRMED)
+        cases = (
+            ({"opening_time": "09:00"}, "the opening hours"),
+            ({"closing_time": "16:00"}, "the opening hours"),
+            (
+                {"opening_time": "09:00", "closing_time": "16:00"},
+                "the opening hours",
+            ),
+            (
+                {"working_days": ["0", "1", "2", "3", "4", "5"]},
+                "the working days",
+            ),
+            ({"same_day_cutoff_time": "14:00"}, "the booking cutoff"),
+            ({"slot_duration_minutes": "30"}, "the slot length to 30 minutes"),
+        )
+        for extra, phrase in cases:
+            with self.subTest(extra=extra):
+                response = self._schedule_post(**extra)
+                self.assertEqual(
+                    response.context["schedule_warning"]["heading"],
+                    f"Changing {phrase} affects 1 visit already booked.",
+                )
+
+    def test_heading_for_several_fields_says_the_schedule(self):
+        self._appointment(Appointment.CONFIRMED)
+        response = self._schedule_post(slot_duration_minutes="30", opening_time="09:00")
+        self.assertContains(
+            response, "Changing the schedule affects 1 visit already booked."
+        )
+
+    def test_heading_counts_visits(self):
+        for days in (3, 4, 5):
+            self._appointment(Appointment.CONFIRMED, days_from_today=days)
+        response = self._schedule_post(slot_duration_minutes="30")
+        self.assertContains(
+            response,
+            "Changing the slot length to 30 minutes affects 3 visits already booked.",
+        )
+
+    def test_visits_are_listed_by_date_and_time(self):
+        late = self._appointment(Appointment.CONFIRMED, days_from_today=5, hour=9)
+        afternoon = self._appointment(Appointment.PENDING, days_from_today=2, hour=14)
+        morning = self._appointment(Appointment.CONFIRMED, days_from_today=2, hour=9)
+        response = self._schedule_post(slot_duration_minutes="30")
+        expected = [
+            f"{date_format(v.date, 'D, M j')} at {t} · Bantay (Ana Cruz)"
+            for v, t in (
+                (morning, "9:00 AM"),
+                (afternoon, "2:00 PM"),
+                (late, "9:00 AM"),
+            )
+        ]
+        self.assertEqual(response.context["schedule_warning"]["lines"], expected)
+
+    def test_more_than_ten_visits_show_and_n_more(self):
+        for days in range(1, 13):
+            self._appointment(Appointment.CONFIRMED, days_from_today=days)
+        response = self._schedule_post(slot_duration_minutes="30")
+        warning = response.context["schedule_warning"]
+        self.assertEqual(len(warning["lines"]), 10)
+        self.assertEqual(warning["more_count"], 2)
+        self.assertContains(response, "affects 12 visits already booked.")
+        self.assertContains(response, "and 2 more")
+        exactly_ten = Appointment.objects.filter(
+            date__gt=self.today + datetime.timedelta(days=10)
+        )
+        exactly_ten.delete()
+        response = self._schedule_post(slot_duration_minutes="30")
+        self.assertEqual(response.context["schedule_warning"]["more_count"], 0)
+        self.assertNotContains(response, " more</li>")
+
+    # ─── Access ───────────────────────────────────────────────────────────────
+
+    def test_an_owner_cannot_reach_or_save_the_page(self):
+        self.client.force_login(self.owner.user)
+        response = self.client.get(self.url)
+        self.assertRedirects(
+            response, reverse("owner_dashboard"), fetch_redirect_response=False
+        )
+        response = self.client.post(self.url, self._data(clinic_name="Hacked"))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self._saved().clinic_name, "Test Clinic")
+
+    def test_a_logged_out_user_cannot_reach_or_save_the_page(self):
+        self.client.logout()
+        for method in (self.client.get, self.client.post):
+            with self.subTest(method=method.__name__):
+                response = method(self.url)
+                self.assertEqual(response.status_code, 302)
+                self.assertIn("login", response["Location"])
+        self.assertEqual(self._saved().clinic_name, "Test Clinic")
+
+
+class ClinicHoursLineTests(SimpleTestCase):
+    """The banner's hours line (decision 12)."""
+
+    def _line(self, days, opening=(8, 0), closing=(17, 0)):
+        row = ClinicSettings(
+            working_days=days,
+            opening_time=datetime.time(*opening),
+            closing_time=datetime.time(*closing),
+        )
+        return clinic_hours_line(row)
+
+    def test_days_in_a_row(self):
+        self.assertEqual(
+            self._line([0, 1, 2, 3, 4, 5]), "Mon to Sat, 8:00 AM to 5:00 PM"
+        )
+        self.assertEqual(self._line([0, 1]), "Mon to Tue, 8:00 AM to 5:00 PM")
+        self.assertEqual(self._line([2, 3, 4, 5, 6]), "Wed to Sun, 8:00 AM to 5:00 PM")
+
+    def test_days_not_in_a_row(self):
+        self.assertEqual(self._line([0, 2, 4]), "Mon, Wed and Fri, 8:00 AM to 5:00 PM")
+        self.assertEqual(self._line([0, 2]), "Mon and Wed, 8:00 AM to 5:00 PM")
+        self.assertEqual(
+            self._line([0, 1, 2, 4]), "Mon, Tue, Wed and Fri, 8:00 AM to 5:00 PM"
+        )
+
+    def test_one_day(self):
+        self.assertEqual(self._line([3]), "Thu, 8:00 AM to 5:00 PM")
+
+    def test_every_day(self):
+        self.assertEqual(
+            self._line([0, 1, 2, 3, 4, 5, 6]), "Every day, 8:00 AM to 5:00 PM"
+        )
+
+    def test_no_days_is_closed(self):
+        self.assertEqual(self._line([]), "Closed")
+
+    def test_unsorted_days_and_minutes(self):
+        self.assertEqual(
+            self._line([5, 0, 3, 1, 2, 4], opening=(8, 30), closing=(17, 30)),
+            "Mon to Sat, 8:30 AM to 5:30 PM",
+        )
+
+    def test_noon_and_midnight_style_times(self):
+        self.assertEqual(
+            self._line([0], opening=(9, 0), closing=(12, 0)),
+            "Mon, 9:00 AM to 12:00 PM",
         )
 
 

@@ -32,6 +32,24 @@
       <form method="post" enctype="multipart/form-data">
         {% csrf_token %}
 
+        {% if schedule_warning %}
+          {# Schedule warning: nothing is saved until "Yes, save the new schedule" (confirm_schedule=1). The form already holds every typed value. #}
+          <div role="alert" class="form-error-block mb-6">
+            <p class="form-error">{{ schedule_warning.heading }}</p>
+            <ul>
+              {% for line in schedule_warning.lines %}
+                <li>{{ line }}</li>
+              {% endfor %}
+              {% if schedule_warning.more_count %}
+                <li>and {{ schedule_warning.more_count }} more</li>
+              {% endif %}
+            </ul>
+            <p>They stay booked. Nothing is cancelled or moved. Check that these times still fit the new slots, then save again to confirm.</p>
+            <button type="submit" name="go_back" value="1" class="btn btn-outline" autofocus>Go back</button>
+            <button type="submit" name="confirm_schedule" value="1" class="btn btn-primary">Yes, save the new schedule</button>
+          </div>
+        {% endif %}
+
         <!-- Clinic Identity -->
         <section class="settings-section">
           <h2 class="settings-section-title">Clinic Information</h2>
@@ -237,11 +255,14 @@
           {% endif %}
         </section>
 
+        {# Save is hidden while the schedule warning shows #}
+        {% if not schedule_warning %}
         <div class="form-actions">
           <button type="submit" class="btn-primary">
             Save Settings
           </button>
         </div>
+        {% endif %}
 
       </form>
     </div>

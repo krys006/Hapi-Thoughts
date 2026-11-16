@@ -505,6 +505,10 @@ PENDING or CONFIRMED → CANCELLED
 | Set same-day booking cutoff time | `complete` |
 | Set admin notification email | `complete` |
 | Edit veterinarian profile (Dr. Edgar's details and bio) | `complete` |
+| Settings open on a tab with `?tab=` (details, schedule, blocked, vet); a failed save reopens the tab with the error and shows a "1 problem" count (backend 7a-5; the page itself changes in 7b-2) | `complete` |
+| Each tab saves only its own fields: a save that posts `tab` (details, schedule or vet) validates and saves only that tab's fields and returns to `?tab=<that tab>`; a save without `tab` (the current page) still saves every field | `complete` |
+| Schedule warning: changing the opening hours, working days, slot length or same-day cutoff while CONFIRMED or PENDING visits exist from today on saves nothing and lists them (date and time order, first 10 then "and N more"); "Yes, save the new schedule" saves, "Go back" saves nothing. Visits are never changed, cancelled or moved. Changing only the booking limit never warns | `complete` |
+| Banner hours line from the saved settings (e.g. "Mon to Sat, 8:00 AM to 5:00 PM") | `complete` |
 
 ### 7.5 Health Library
 | Feature | Status |

@@ -25,10 +25,13 @@ from .forms import (
 
 from .utils import (
     LIST_PAGE_SIZE,
+    SETTINGS_TAB_FIELDS,
     WALKIN_PAGE_SIZE,
     WALKIN_SEARCH_LIMIT,
+    clinic_hours_line,
     create_walkin_appointment,
     filter_appointments,
+    first_error_tab,
     get_admin_calendar_context,
     get_available_slots,
     get_clinic_settings,
@@ -39,8 +42,12 @@ from .utils import (
     list_period,
     list_tabs,
     paging_links,
+    problems_label,
     resolve_list_tab,
+    schedule_warning,
     search_walkin_owners,
+    settings_tab,
+    settings_tab_errors,
     slot_in_progress,
     tab_counts,
     unfinished_visits,
@@ -70,36 +77,66 @@ def admin_clinic_settings(request):
         return redirect("owner_dashboard")
 
     settings_obj = get_clinic_settings(create=True)
+    warning = None
 
     if request.method == "POST":
-        form = ClinicSettingsForm(
-            request.POST,
-            request.FILES,
-            instance=settings_obj,
-        )
-        if form.is_valid():
-            form.save()
-            messages.success(request, "Clinic settings updated successfully.")
-            return redirect("admin_clinic_settings")
-        else:
-            messages.error(request, "Please correct the errors below.")
+        done, form, active_tab, warning = _save_settings(request, settings_obj)
+        if done:
+            return done
     else:
+        active_tab = settings_tab(request.GET.get("tab"))
         initial = {"working_days": settings_obj.working_days}
         form = ClinicSettingsForm(instance=settings_obj, initial=initial)
 
-    blocked_dates = BlockedDate.objects.all()
-    blocked_form = BlockedDateForm()
-
+    tab_errors = settings_tab_errors(form)
+    # A failed form changes form.instance; the banner shows what is saved
+    saved_settings = get_clinic_settings()
     return render(
         request,
         "admin/settings/clinic_settings.html",
         {
             "form": form,
-            "blocked_dates": blocked_dates,
-            "blocked_form": blocked_form,
-            "settings_obj": settings_obj,
+            "blocked_dates": BlockedDate.objects.all(),
+            "blocked_form": BlockedDateForm(),
+            "settings_obj": saved_settings,
+            "saved_settings": saved_settings,
+            "hours_line": clinic_hours_line(saved_settings),
+            "active_tab": active_tab,
+            "tab_errors": tab_errors,
+            "tab_problems": {
+                tab: problems_label(count) for tab, count in tab_errors.items() if count
+            },
+            "schedule_warning": warning,
         },
     )
+
+
+def _save_settings(request, settings_obj):
+    """
+    Handle a settings POST. A posted tab (details, schedule or vet) validates
+    and saves only that tab's fields; no tab means every field (the old page).
+    Returns (redirect or None, form, active tab, schedule warning or None).
+    A valid change to the hours, days, slot length or cutoff with visits
+    booked saves nothing until confirm_schedule=1; go_back=1 saves nothing.
+    """
+    posted = request.POST.get("tab")
+    tab = posted if posted in SETTINGS_TAB_FIELDS else None
+    form = ClinicSettingsForm(
+        request.POST, request.FILES, instance=settings_obj, tab=tab
+    )
+    if request.POST.get("go_back"):
+        return None, form, tab or "schedule", None
+    if not form.is_valid():
+        messages.error(request, "Please correct the errors below.")
+        return None, form, tab or first_error_tab(settings_tab_errors(form)), None
+    if not request.POST.get("confirm_schedule"):
+        warning = schedule_warning(form)
+        if warning:
+            return None, form, tab or "schedule", warning
+    form.save()
+    messages.success(request, "Clinic settings updated successfully.")
+    url = f"{reverse('admin_clinic_settings')}?tab={tab or 'details'}"
+    return redirect(url), form, tab, None
 
 
 def _blocked_tab_url():
