@@ -1,5 +1,7 @@
 /*
-  Owner form (Add owner / Edit details), loaded by admin/pets/owner_form.html.
+  Address part of a form (the admin owner form and the owner's onboarding
+  step 1). The address part of the old static/js/admin/owner_form.js, moved
+  here in Slice 8b-3 (same behaviour).
   - The Province select switches between the Town/Barangay dropdowns
     ([data-address-pick]) and the typed fields ([data-address-typed]).
   - After HTMX swaps in a town's barangays, the Barangay select is enabled

@@ -6,6 +6,8 @@
   optional=True: adds a gray "(optional)" after the label.
   required=True: adds the red * for a field the form's clean() requires
   only sometimes (e.g. the pet form's "Type the species").
+  large=True: help text and errors in text-base instead of text-sm (owner
+  pages, which never go below text-base).
 {% endcomment %}
 {% if field.is_hidden %}
   {{ field }}
@@ -25,7 +27,7 @@
       {{ field.label }}{% if field.field.required or required %} <span class="text-red-700" aria-hidden="true">*</span>{% endif %}{% if optional %} <span class="font-normal text-gray-600">(optional)</span>{% endif %}
     </label>
     {{ field }}
-    {% if field.help_text %}<p class="text-sm text-gray-600">{{ field.help_text }}</p>{% endif %}
-    {% for error in field.errors %}<p class="flex items-start gap-1 text-sm font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-4 shrink-0" %}{{ error }}</p>{% endfor %}
+    {% if field.help_text %}<p class="{% if large %}text-base{% else %}text-sm{% endif %} text-gray-600">{{ field.help_text }}</p>{% endif %}
+    {% for error in field.errors %}<p class="flex items-start gap-1 {% if large %}text-base{% else %}text-sm{% endif %} font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-4 shrink-0" %}{{ error }}</p>{% endfor %}
   </div>
 {% endif %}

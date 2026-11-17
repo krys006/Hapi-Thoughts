@@ -485,9 +485,9 @@ static/
 │   ├── owner/              ← Pet owner page styles
 │   └── shared/             ← Styles used by both roles (header, clinic info)
 ├── js/
-│   ├── admin/              ← Admin page scripts; dialogs.js and auto_submit.js are loaded by layouts/admin.html on every page; photo_input.js by admin/pets/owner_form.html, pet_form.html and admin/medical/record_detail.html (the Add file dialog), owner_form.js / pet_form.js / record_form.js / vaccination_form.js only by their form, receipt_detail.js (print buttons, Add item prefill, discount sign) only by the receipt page and service_form.js (price sets, closed note) only by the service form (extra_js)
+│   ├── admin/              ← Admin page scripts; auto_submit.js is loaded by layouts/admin.html on every page; record_form.js / vaccination_form.js only by their form, receipt_detail.js (print buttons, Add item prefill, discount sign) only by the receipt page and service_form.js (price sets, closed note) only by the service form (extra_js)
 │   ├── owner/              ← Pet owner page scripts
-│   └── shared/             ← Scripts used by both roles
+│   └── shared/             ← Scripts used by both roles (a script both the admin and the owner pages need lives here, not in admin/): dialogs.js, flash.js, password_toggle.js; since 8b-3 photo_input.js (photo cards and the record page's Add file dialog), pet_form.js (species / breed boxes) and address_form.js (Province switch, barangay select), loaded by the admin owner / pet forms and the owner onboarding and Add pet pages
 ├── vendor/
 │   └── htmx-2.0.11.min.js  ← Pinned HTMX for new admin pages
 └── images/
@@ -513,6 +513,9 @@ static/
 > names them any more; Krys deletes the files), `css/admin/receipt_form.css`
 > (Slice 6a-3: the receipt edit page is gone). Other old files still
 > mention them in comments; those comments go when their own pages migrate.
+> Slice 8b-3: `js/admin/photo_input.js`, `pet_form.js` and `owner_form.js` moved
+> to `js/shared/` (`owner_form.js` held only address code, now
+> `shared/address_form.js`); the old files are unused (Krys deletes them).
 > Template gone with them: `admin/appointments/_pet_options.html` (Slice 6a-3;
 > Krys deletes it).
 > Slice 5b-2: `admin/medical/record_detail.html` no longer loads
@@ -845,6 +848,22 @@ class AppointmentBookingForm(forms.ModelForm):
         # validation logic here
         return cleaned_data
 ```
+
+### Shared form parts (Slice 8b-3)
+- `AddressFieldsMixin` (`pets/forms.py`, a `forms.Form` subclass so its fields
+  are collected) holds the Province / Town / Barangay fields and the address
+  rules. `address_required = False` (admin owner form) or `True` (owner
+  onboarding, `OwnerOnboardingForm`); `address_barangays_url` names the HTMX
+  endpoint (`admin_address_barangays` or `owner_address_barangays`). Put it
+  before the ModelForm in the bases: `class X(ErrorCountMixin,
+  AddressFieldsMixin, SomeModelForm)`.
+- `SpeciesBreedFieldsMixin` (same idea; `breed_options_url`) and
+  `PetBasicsCleanMixin` (sex, weight, birthday checks) are shared by
+  `AdminPetForm` and `OwnerPetForm`.
+- Owner and admin pages share the same HTMX partials
+  (`admin/pets/_barangay_options.html`, `_breed_options.html`) through
+  separate role-checked views; the param readers are `town_from_params` and
+  `species_from_params` in `pets/utils.py`.
 
 ---
 

@@ -1,0 +1,28 @@
+{% comment %}
+  Facebook or other links (optional): a native <details> that opens when
+  there are saved links or a row has a problem (links_open). Rows come from
+  the contact links formset (platform, name or link). Needs link_formset and
+  links_open.
+{% endcomment %}
+<details class="rounded-xl border border-gray-200 bg-white shadow-sm"{% if links_open %} open{% endif %}>
+  <summary class="flex min-h-14 cursor-pointer items-center gap-2 px-5 text-lg font-semibold text-gray-900">{% include "components/icon.html" with name="link" class="size-5 shrink-0 text-gray-600" %}Facebook or other links <span class="text-base font-normal text-gray-600">(optional)</span></summary>
+  <div class="space-y-5 border-t border-gray-100 px-5 pb-5 pt-4">
+    <p class="text-base text-gray-600">Add Facebook, Instagram, or any other way to reach you.</p>
+    {{ link_formset.management_form }}
+    {% for link_form in link_formset %}
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div class="form-field space-y-1.5{% if link_form.platform.errors %} has-error{% endif %}">
+          <label for="{{ link_form.platform.id_for_label }}" class="block text-base font-medium text-gray-800">Where <span class="font-normal text-gray-600">(link {{ forloop.counter }})</span></label>
+          {{ link_form.platform }}
+          {% for error in link_form.platform.errors %}<p class="flex items-start gap-1 text-base font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0" %}{{ error }}</p>{% endfor %}
+        </div>
+        <div class="form-field space-y-1.5{% if link_form.url_or_handle.errors %} has-error{% endif %}">
+          <label for="{{ link_form.url_or_handle.id_for_label }}" class="block text-base font-medium text-gray-800">Name or link <span class="font-normal text-gray-600">(link {{ forloop.counter }})</span></label>
+          {{ link_form.url_or_handle }}
+          {% for error in link_form.url_or_handle.errors %}<p class="flex items-start gap-1 text-base font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0" %}{{ error }}</p>{% endfor %}
+        </div>
+        {% for error in link_form.non_field_errors %}<p class="flex items-start gap-1 text-base font-medium text-red-700 sm:col-span-2">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0" %}{{ error }}</p>{% endfor %}
+      </div>
+    {% endfor %}
+  </div>
+</details>

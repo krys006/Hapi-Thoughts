@@ -1,9 +1,11 @@
 # pets/forms.py
 
 from django import forms
-from django.core.exceptions import NON_FIELD_ERRORS
 from django.forms import formset_factory
 from django.urls import reverse
+from django.utils import timezone
+
+from medical.forms import ErrorCountMixin
 
 from .models import ContactLink, Pet, PetDeletionRequest, PetOwner
 from .utils import (
@@ -306,6 +308,14 @@ class AdminPetArchiveForm(forms.Form):
 PROVINCE_MARINDUQUE = "Marinduque"
 PROVINCE_OTHER = "other"
 
+# The Sex select of the admin and owner pet forms: "Not sure" first (the
+# model's "unknown")
+SEX_CHOICES = [
+    (Pet.UNKNOWN, "Not sure"),
+    (Pet.MALE, "Male"),
+    (Pet.FEMALE, "Female"),
+]
+
 
 class _ListChoiceField(forms.ChoiceField):
     """A select whose options only guide the pick: any value passes here,
@@ -316,23 +326,23 @@ class _ListChoiceField(forms.ChoiceField):
         return True
 
 
-class AdminPetOwnerForm(forms.ModelForm):
+class AddressFieldsMixin(forms.Form):
     """
-    Used by Admin to add an owner or edit their details.
-    Does not include password — email is handled as an extra field
-    since it lives on the User model, not PetOwner.
+    The address part shared by the admin owner form and the owner's
+    onboarding form (a Form subclass so its declared fields are collected).
 
-    Address: in Marinduque mode the town and barangay are picked from the
-    PSA list (address_town / address_barangay) and saved into the model's
-    text fields; in "other" mode the text fields are typed. No model change.
+    In Marinduque mode the town and barangay are picked from the PSA list
+    (address_town / address_barangay) and saved into the model's text
+    fields; in "other" mode the text fields are typed. No model change.
+
+    address_required: False (admin: every address part is optional), True
+    (owner: barangay, town and province are required; the street stays
+    optional). address_barangays_url: the URL name of the HTMX endpoint that
+    lists a town's barangays.
     """
 
-    # Extra field — not part of PetOwner model, saved to owner.user.email
-    email = forms.EmailField(
-        label="Email",
-        required=False,
-        widget=forms.EmailInput(attrs={"placeholder": "Leave empty if they have none"}),
-    )
+    address_required = False
+    address_barangays_url = "admin_address_barangays"
 
     # Form-only address fields. The province always has a value (the select
     # has no empty option); clean() refuses a missing one without a red *.
@@ -354,6 +364,166 @@ class AdminPetOwnerForm(forms.ModelForm):
         label="Barangay",
         required=False,
         help_text="The list fills in after you choose the town.",
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Read the saved address before validation can change the instance
+        picked, hand_typed = self._saved_address_mode()
+        for name, value in picked.items():
+            self.fields[name].initial = value
+        if self.is_bound:
+            # A hand-typed address keeps its note while "other" stays chosen
+            self.address_hand_typed = hand_typed and self.address_mode == "other"
+        else:
+            self.address_hand_typed = hand_typed
+        self._set_address_choices()
+
+    def _saved_address_mode(self):
+        """
+        Initial picks for the edit page, and whether the saved address was
+        typed by hand (shown in "other" mode with a note):
+        - province Marinduque (any case) + a known town + an empty or known
+          barangay → Marinduque mode with them picked (official spelling);
+          province Marinduque with no town and no barangay → Marinduque
+          mode, nothing picked (that's how Marinduque + street only saves);
+        - else any address field filled → "other" mode, saved text as is;
+          the note only when the province is Marinduque but the town or
+          barangay isn't on the list (another province gets no note);
+        - else → Marinduque mode, nothing picked.
+        """
+        owner = self.instance
+        marinduque = {"address_province": PROVINCE_MARINDUQUE}
+        if not owner.pk:
+            return marinduque, False
+        town = match_town(owner.city_municipality)
+        barangay = match_barangay(town, owner.barangay) if town else None
+        is_marinduque = (owner.province or "").strip().casefold() == "marinduque"
+        if is_marinduque and town and (barangay or not owner.barangay.strip()):
+            picked = {"address_town": town, "address_barangay": barangay or ""}
+            return {**marinduque, **picked}, False
+        no_town = not owner.city_municipality.strip() and not owner.barangay.strip()
+        if is_marinduque and no_town:
+            return marinduque, False
+        saved = (
+            owner.province,
+            owner.city_municipality,
+            owner.barangay,
+            owner.address_line,
+        )
+        if any(value.strip() for value in saved):
+            return {"address_province": PROVINCE_OTHER}, is_marinduque
+        return marinduque, False
+
+    @property
+    def address_mode(self):
+        """The address mode: "marinduque" (dropdowns) or "other" (typed)."""
+        if self.is_bound:
+            province = self.data.get(self.add_prefix("address_province"))
+        else:
+            province = self.fields["address_province"].initial
+        return "other" if province == PROVINCE_OTHER else "marinduque"
+
+    def _set_address_choices(self):
+        """Town options, and the barangay options of the chosen town (the
+        posted one on a POST, so a re-render keeps the list)."""
+        town_field = self.fields["address_town"]
+        town_field.choices = [("", "Choose a town")] + [
+            (town, town) for town in marinduque_towns()
+        ]
+        town_field.widget.attrs.update(
+            {
+                "data-address-town": "",
+                "hx-get": reverse(self.address_barangays_url),
+                "hx-trigger": "change",
+                "hx-target": f"#{self['address_barangay'].auto_id}",
+                "hx-swap": "innerHTML",
+                "hx-include": "this",
+            }
+        )
+
+        if self.is_bound:
+            town = self.data.get(self.add_prefix("address_town"))
+        else:
+            town = town_field.initial
+        barangay_field = self.fields["address_barangay"]
+        barangay_field.choices = barangay_choices(town)
+        barangay_field.widget.attrs["data-address-barangay"] = ""
+        if not match_town(town):
+            barangay_field.widget.attrs["disabled"] = True
+
+    def _require_picked(self, town, typed_barangay):
+        """address_required in Marinduque mode: the town and the barangay
+        must be picked. Adds the errors; True when nothing is missing."""
+        ok = True
+        if not town:
+            self.add_error("address_town", "Choose your town.")
+            ok = False
+        if not typed_barangay:
+            self.add_error("address_barangay", "Choose your barangay.")
+            ok = False
+        return ok
+
+    def _require_typed(self, cleaned):
+        """address_required in "other" mode: province, town and barangay
+        must be typed."""
+        for name, message in (
+            ("province", "Type your province."),
+            ("city_municipality", "Type your town."),
+            ("barangay", "Type your barangay."),
+        ):
+            if not cleaned.get(name):
+                self.add_error(name, message)
+
+    def clean(self):
+        cleaned = super().clean()
+        if self.errors.get("address_province") or self.errors.get("address_town"):
+            return cleaned
+        province = cleaned.get("address_province")
+        if not province:
+            self.add_error("address_province", "Choose a province.")
+            return cleaned
+        if province == PROVINCE_OTHER:
+            # Typed fields, cleaned by clean_barangay / clean_province etc.
+            if self.address_required:
+                self._require_typed(cleaned)
+            return cleaned
+
+        town = match_town(cleaned.get("address_town"))
+        typed_barangay = cleaned.get("address_barangay") or ""
+        if self.address_required and not self._require_picked(town, typed_barangay):
+            return cleaned
+        barangay = ""
+        if typed_barangay and not town:
+            self.add_error("address_town", "Choose the town first.")
+            return cleaned
+        if typed_barangay:
+            barangay = match_barangay(town, typed_barangay)
+            if not barangay:
+                self.add_error("address_barangay", f"Choose a barangay in {town}.")
+                return cleaned
+
+        # Empty rule: nothing picked and no street → no "Marinduque" on its own
+        has_address = town or cleaned.get("address_line")
+        cleaned["province"] = PROVINCE_MARINDUQUE if has_address else ""
+        cleaned["city_municipality"] = town or ""
+        cleaned["barangay"] = barangay
+        return cleaned
+
+
+class AdminPetOwnerForm(ErrorCountMixin, AddressFieldsMixin, forms.ModelForm):
+    """
+    Used by Admin to add an owner or edit their details.
+    Does not include password — email is handled as an extra field
+    since it lives on the User model, not PetOwner. The address comes from
+    AddressFieldsMixin (every part optional here).
+    """
+
+    # Extra field — not part of PetOwner model, saved to owner.user.email
+    email = forms.EmailField(
+        label="Email",
+        required=False,
+        widget=forms.EmailInput(attrs={"placeholder": "Leave empty if they have none"}),
     )
 
     class Meta:
@@ -428,17 +598,6 @@ class AdminPetOwnerForm(forms.ModelForm):
             self.fields["email"].initial = self.current_user.email
         self.fields["email"].help_text = self._email_help()
 
-        # Read the saved address before validation can change the instance
-        picked, hand_typed = self._saved_address_mode()
-        for name, value in picked.items():
-            self.fields[name].initial = value
-        if self.is_bound:
-            # A hand-typed address keeps its note while "other" stays chosen
-            self.address_hand_typed = hand_typed and self.address_mode == "other"
-        else:
-            self.address_hand_typed = hand_typed
-        self._set_address_choices()
-
     # ── Email ────────────────────────────────────────────────────────────────
 
     @property
@@ -462,120 +621,6 @@ class AdminPetOwnerForm(forms.ModelForm):
             f"Adding an email lets {name} log in. "
             "We'll send them a link to set a password."
         )
-
-    # ── Address ──────────────────────────────────────────────────────────────
-
-    def _saved_address_mode(self):
-        """
-        Initial picks for the edit page, and whether the saved address was
-        typed by hand (shown in "other" mode with a note):
-        - province Marinduque (any case) + a known town + an empty or known
-          barangay → Marinduque mode with them picked (official spelling);
-          province Marinduque with no town and no barangay → Marinduque
-          mode, nothing picked (that's how Marinduque + street only saves);
-        - else any address field filled → "other" mode, saved text as is;
-          the note only when the province is Marinduque but the town or
-          barangay isn't on the list (another province gets no note);
-        - else → Marinduque mode, nothing picked.
-        """
-        owner = self.instance
-        marinduque = {"address_province": PROVINCE_MARINDUQUE}
-        if not owner.pk:
-            return marinduque, False
-        town = match_town(owner.city_municipality)
-        barangay = match_barangay(town, owner.barangay) if town else None
-        is_marinduque = (owner.province or "").strip().casefold() == "marinduque"
-        if is_marinduque and town and (barangay or not owner.barangay.strip()):
-            picked = {"address_town": town, "address_barangay": barangay or ""}
-            return {**marinduque, **picked}, False
-        no_town = not owner.city_municipality.strip() and not owner.barangay.strip()
-        if is_marinduque and no_town:
-            return marinduque, False
-        saved = (
-            owner.province,
-            owner.city_municipality,
-            owner.barangay,
-            owner.address_line,
-        )
-        if any(value.strip() for value in saved):
-            return {"address_province": PROVINCE_OTHER}, is_marinduque
-        return marinduque, False
-
-    @property
-    def address_mode(self):
-        """The address mode: "marinduque" (dropdowns) or "other" (typed)."""
-        if self.is_bound:
-            province = self.data.get(self.add_prefix("address_province"))
-        else:
-            province = self.fields["address_province"].initial
-        return "other" if province == PROVINCE_OTHER else "marinduque"
-
-    def _set_address_choices(self):
-        """Town options, and the barangay options of the chosen town (the
-        posted one on a POST, so a re-render keeps the list)."""
-        town_field = self.fields["address_town"]
-        town_field.choices = [("", "Choose a town")] + [
-            (town, town) for town in marinduque_towns()
-        ]
-        town_field.widget.attrs.update(
-            {
-                "data-address-town": "",
-                "hx-get": reverse("admin_address_barangays"),
-                "hx-trigger": "change",
-                "hx-target": f"#{self['address_barangay'].auto_id}",
-                "hx-swap": "innerHTML",
-                "hx-include": "this",
-            }
-        )
-
-        if self.is_bound:
-            town = self.data.get(self.add_prefix("address_town"))
-        else:
-            town = town_field.initial
-        barangay_field = self.fields["address_barangay"]
-        barangay_field.choices = barangay_choices(town)
-        barangay_field.widget.attrs["data-address-barangay"] = ""
-        if not match_town(town):
-            barangay_field.widget.attrs["disabled"] = True
-
-    def clean(self):
-        cleaned = super().clean()
-        if self.errors.get("address_province") or self.errors.get("address_town"):
-            return cleaned
-        province = cleaned.get("address_province")
-        if not province:
-            self.add_error("address_province", "Choose a province.")
-            return cleaned
-        if province == PROVINCE_OTHER:
-            # Typed fields, cleaned by clean_barangay / clean_province etc.
-            return cleaned
-
-        town = match_town(cleaned.get("address_town"))
-        typed_barangay = cleaned.get("address_barangay") or ""
-        barangay = ""
-        if typed_barangay and not town:
-            self.add_error("address_town", "Choose the town first.")
-            return cleaned
-        if typed_barangay:
-            barangay = match_barangay(town, typed_barangay)
-            if not barangay:
-                self.add_error("address_barangay", f"Choose a barangay in {town}.")
-                return cleaned
-
-        # Empty rule: nothing picked and no street → no "Marinduque" on its own
-        has_address = town or cleaned.get("address_line")
-        cleaned["province"] = PROVINCE_MARINDUQUE if has_address else ""
-        cleaned["city_municipality"] = town or ""
-        cleaned["barangay"] = barangay
-        return cleaned
-
-    # ── Page helpers ─────────────────────────────────────────────────────────
-
-    @property
-    def error_count(self):
-        """Fields with errors, plus 1 when there are form-wide errors."""
-        fields = [name for name in self.errors if name != NON_FIELD_ERRORS]
-        return len(fields) + (1 if self.non_field_errors() else 0)
 
     def clean_email(self):
         # Saved lowercase; the check ignores case so "Ana@x.com" matches "ana@x.com"
@@ -601,16 +646,75 @@ class AdminPetOwnerForm(forms.ModelForm):
         return email
 
 
-class AdminPetForm(forms.ModelForm):
+class OwnerOnboardingForm(ErrorCountMixin, AddressFieldsMixin, PetOwnerProfileForm):
     """
-    Used by Admin to manually add or edit a pet.
-    Includes all pet fields — Admin has full access unlike pet owners
-    who can only edit minor details.
+    Onboarding step 1: the owner's profile with the address asked for.
+    Barangay, town and province are required (the street stays optional);
+    the town and barangay come from the PSA list in Marinduque mode. The
+    profile edit page keeps PetOwnerProfileForm (no address rule there yet).
+    """
 
+    address_required = True
+    address_barangays_url = "owner_address_barangays"
+
+    class Meta(PetOwnerProfileForm.Meta):
+        labels = {
+            "first_name": "First name",
+            "last_name": "Last name",
+            "contact_number": "Mobile number",
+            "address_line": "House no. and street",
+            "barangay": "Barangay",
+            "city_municipality": "Town",
+            "province": "Province",
+        }
+        widgets = {
+            "first_name": forms.TextInput(attrs={"autocomplete": "given-name"}),
+            "last_name": forms.TextInput(attrs={"autocomplete": "family-name"}),
+            "contact_number": forms.TextInput(
+                attrs={"type": "tel", "placeholder": "For example: 0917 123 4567"}
+            ),
+            "address_line": forms.TextInput(
+                attrs={"placeholder": "For example: Purok 3"}
+            ),
+            "barangay": forms.TextInput(attrs={"placeholder": "For example: Sabang"}),
+            "city_municipality": forms.TextInput(
+                attrs={"placeholder": "For example: Lipa City"}
+            ),
+            "province": forms.TextInput(attrs={"placeholder": "For example: Batangas"}),
+        }
+
+
+class PetBasicsCleanMixin:
+    """Sex, weight and birthday checks shared by the admin and owner pet forms."""
+
+    def clean_gender(self):
+        # A missing value (a hand-made POST) means "Not sure"
+        return self.cleaned_data.get("gender") or Pet.UNKNOWN
+
+    def clean_weight(self):
+        weight = self.cleaned_data.get("weight")
+        if weight is not None and weight <= 0:
+            raise forms.ValidationError("Weight must be more than 0.")
+        return weight
+
+    def clean_date_of_birth(self):
+        dob = self.cleaned_data.get("date_of_birth")
+        if dob and dob > timezone.localdate():
+            raise forms.ValidationError("The birthday can't be in the future.")
+        return dob
+
+
+class SpeciesBreedFieldsMixin(forms.Form):
+    """
     Species and breed: picked from the list (species_choice / breed_choice)
     and saved into the model's text fields; "Other (type it)" uses the typed
-    boxes (the model's species / breed fields). No model change.
+    boxes (the model's species / breed fields). No model change. Shared by
+    the admin and owner pet forms (a Form subclass so the fields are
+    collected). breed_options_url: the URL name of the HTMX endpoint that
+    lists a species' breeds.
     """
+
+    breed_options_url = "admin_pet_breed_options"
 
     # Form-only fields, like the owner form's address selects
     species_choice = forms.ChoiceField(
@@ -622,80 +726,14 @@ class AdminPetForm(forms.ModelForm):
     )
     breed_choice = _ListChoiceField(label="Breed", required=False)
 
-    class Meta:
-        model = Pet
-        fields = [
-            "name",
-            "species",
-            "breed",
-            "color",
-            "gender",
-            "date_of_birth",
-            "weight",
-            "registration_number",
-            "photo",
-        ]
-        labels = {
-            "name": "Name",
-            "species": "Type the species",
-            "breed": "Type the breed",
-            "gender": "Sex",
-            "date_of_birth": "Birthday",
-            "weight": "Weight (kg)",
-            "color": "Color",
-            "registration_number": "Registration no.",
-        }
-        help_texts = {"date_of_birth": "A rough date is fine."}
-        error_messages = {"name": {"required": "Enter the pet's name."}}
-        widgets = {
-            "species": forms.TextInput(
-                attrs={"placeholder": "For example: Turtle", "data-species-text": ""}
-            ),
-            "breed": forms.TextInput(
-                attrs={
-                    "placeholder": "For example: Golden Retriever",
-                    "data-breed-text": "",
-                }
-            ),
-            "color": forms.TextInput(
-                attrs={"placeholder": "For example: Brown and white"}
-            ),
-            "date_of_birth": forms.DateInput(
-                attrs={"type": "date"},
-                format="%Y-%m-%d",
-            ),
-            "weight": forms.NumberInput(
-                attrs={"placeholder": "For example: 8.5", "step": "0.01"}
-            ),
-            "registration_number": forms.TextInput(
-                attrs={"placeholder": "From the pet's ID card, if any"}
-            ),
-        }
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # The species comes from species_choice or the typed box (clean())
         self.fields["species"].required = False
-        self.fields["date_of_birth"].required = False
         self.fields["breed"].required = False
-        self.fields["color"].required = False
-        self.fields["weight"].required = False
-        self.fields["registration_number"].required = False
-        self.fields["photo"].required = False
-        # Same values as the model, relabelled and with "Not sure" first. The
-        # select always has a value, so it isn't marked required (clean_gender)
-        self.fields["gender"].required = False
-        self.fields["gender"].choices = [
-            (Pet.UNKNOWN, "Not sure"),
-            (Pet.MALE, "Male"),
-            (Pet.FEMALE, "Female"),
-        ]
-
         if not self.is_bound and self.instance.pk:
             self._set_saved_choices()
         self._set_species_choices()
-
-    # ── Species and breed ────────────────────────────────────────────────────
 
     def _set_saved_choices(self):
         """
@@ -755,7 +793,7 @@ class AdminPetForm(forms.ModelForm):
         species_field.widget.attrs.update(
             {
                 "data-species-choice": "",
-                "hx-get": reverse("admin_pet_breed_options"),
+                "hx-get": reverse(self.breed_options_url),
                 "hx-trigger": "change",
                 "hx-target": f"#{self['breed_choice'].auto_id}",
                 "hx-swap": "innerHTML",
@@ -772,33 +810,9 @@ class AdminPetForm(forms.ModelForm):
             # No list for a typed species: the typed box is the breed
             self.fields["breed"].label = "Breed"
 
-    def clean_name(self):
-        value = self.cleaned_data.get("name", "").strip()
-        if not value:
-            raise forms.ValidationError("Enter the pet's name.")
-        return value.title()
-
     def clean_species(self):
         # The typed species (used only with "Other"); clean() checks it
         return self.cleaned_data.get("species", "").strip().title()
-
-    def clean_gender(self):
-        # A missing value (a hand-made POST) means "Not sure"
-        return self.cleaned_data.get("gender") or Pet.UNKNOWN
-
-    def clean_weight(self):
-        weight = self.cleaned_data.get("weight")
-        if weight is not None and weight <= 0:
-            raise forms.ValidationError("Weight must be more than 0.")
-        return weight
-
-    def clean_date_of_birth(self):
-        from django.utils import timezone
-
-        dob = self.cleaned_data.get("date_of_birth")
-        if dob and dob > timezone.localdate():
-            raise forms.ValidationError("The birthday can't be in the future.")
-        return dob
 
     def clean(self):
         cleaned = super().clean()
@@ -834,13 +848,125 @@ class AdminPetForm(forms.ModelForm):
             cleaned["breed"] = breed
         return cleaned
 
-    # ── Page helpers ─────────────────────────────────────────────────────────
 
-    @property
-    def error_count(self):
-        """Fields with errors, plus 1 when there are form-wide errors."""
-        fields = [name for name in self.errors if name != NON_FIELD_ERRORS]
-        return len(fields) + (1 if self.non_field_errors() else 0)
+class AdminPetForm(
+    ErrorCountMixin, SpeciesBreedFieldsMixin, PetBasicsCleanMixin, forms.ModelForm
+):
+    """
+    Used by Admin to manually add or edit a pet.
+    Includes all pet fields — Admin has full access unlike pet owners
+    who can only edit minor details. Species and breed come from
+    SpeciesBreedFieldsMixin.
+    """
+
+    class Meta:
+        model = Pet
+        fields = [
+            "name",
+            "species",
+            "breed",
+            "color",
+            "gender",
+            "date_of_birth",
+            "weight",
+            "registration_number",
+            "photo",
+        ]
+        labels = {
+            "name": "Name",
+            "species": "Type the species",
+            "breed": "Type the breed",
+            "gender": "Sex",
+            "date_of_birth": "Birthday",
+            "weight": "Weight (kg)",
+            "color": "Color",
+            "registration_number": "Registration no.",
+        }
+        help_texts = {"date_of_birth": "A rough date is fine."}
+        error_messages = {"name": {"required": "Enter the pet's name."}}
+        widgets = {
+            "species": forms.TextInput(
+                attrs={"placeholder": "For example: Turtle", "data-species-text": ""}
+            ),
+            "breed": forms.TextInput(
+                attrs={
+                    "placeholder": "For example: Golden Retriever",
+                    "data-breed-text": "",
+                }
+            ),
+            "color": forms.TextInput(
+                attrs={"placeholder": "For example: Brown and white"}
+            ),
+            "date_of_birth": forms.DateInput(
+                attrs={"type": "date"},
+                format="%Y-%m-%d",
+            ),
+            "weight": forms.NumberInput(
+                attrs={"placeholder": "For example: 8.5", "step": "0.01"}
+            ),
+            "registration_number": forms.TextInput(
+                attrs={"placeholder": "From the pet's ID card, if any"}
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["date_of_birth"].required = False
+        self.fields["color"].required = False
+        self.fields["weight"].required = False
+        self.fields["registration_number"].required = False
+        self.fields["photo"].required = False
+        # Same values as the model, relabelled and with "Not sure" first. The
+        # select always has a value, so it isn't marked required (clean_gender)
+        self.fields["gender"].required = False
+        self.fields["gender"].choices = SEX_CHOICES
+
+    def clean_name(self):
+        value = self.cleaned_data.get("name", "").strip()
+        if not value:
+            raise forms.ValidationError("Enter the pet's name.")
+        return value.title()
+
+
+class OwnerPetForm(
+    ErrorCountMixin, SpeciesBreedFieldsMixin, PetBasicsCleanMixin, forms.ModelForm
+):
+    """
+    The owner's pet form (onboarding step 2 and the Add pet page). Species and
+    breed work like the admin form. The pet's owner is never a field: the view
+    sets it from the logged-in owner. Fields: species_choice / species,
+    breed_choice / breed, name, gender, date_of_birth, color, weight,
+    registration_number (optional) and photo.
+    """
+
+    breed_options_url = "owner_pet_breed_options"
+
+    class Meta:
+        model = Pet
+        fields = AdminPetForm.Meta.fields
+        labels = {**AdminPetForm.Meta.labels, "name": "Pet's name"}
+        help_texts = AdminPetForm.Meta.help_texts
+        error_messages = {"name": {"required": "Enter your pet's name."}}
+        widgets = {
+            **AdminPetForm.Meta.widgets,
+            "registration_number": forms.TextInput(
+                attrs={"placeholder": "From the city vet, if any"}
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name in ("date_of_birth", "color", "weight", "registration_number"):
+            self.fields[name].required = False
+        self.fields["photo"].required = False
+        self.fields["gender"].required = False
+        self.fields["gender"].choices = SEX_CHOICES
+
+    def clean_name(self):
+        value = self.cleaned_data.get("name", "").strip()
+        if not value:
+            raise forms.ValidationError("Enter your pet's name.")
+        return value
 
 
 class AdminOwnerEmailForm(forms.Form):

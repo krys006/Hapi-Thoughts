@@ -172,6 +172,18 @@ def breed_choices(species):
     return [("", "Not sure")] + breeds + [(PET_OTHER, "Other (type it)")]
 
 
+def town_from_params(params):
+    """The town an HTMX barangay request asks for: ?town=, or the Town
+    select's own name ?address_town= (the admin and owner endpoints)."""
+    return params.get("town", params.get("address_town", ""))
+
+
+def species_from_params(params):
+    """The species an HTMX breed request asks for: ?species=, or the Species
+    select's own name ?species_choice= (the admin and owner endpoints)."""
+    return params.get("species", params.get("species_choice", ""))
+
+
 # ── Admin owners list ────────────────────────────────────────────────────────
 
 
@@ -322,6 +334,32 @@ def contact_link_initial(owner):
         {"platform": link.platform, "url_or_handle": link.url_or_handle}
         for link in owner.contact_links.all()
     ]
+
+
+def onboarding_owner(session, user):
+    """The PetOwner saved by step 1 (session key onboarding_owner_id), or
+    None when there is no key or it isn't this user's row."""
+    owner_id = session.get("onboarding_owner_id")
+    if not owner_id:
+        return None
+    return PetOwner.objects.filter(pk=owner_id, user=user).first()
+
+
+def onboarding_step1_context(profile_form, link_formset):
+    """Context of onboarding step 1: both forms, the number of things to fix
+    for the red box (fields, plus link rows with a problem), and whether the
+    links box opens (saved or mistyped links)."""
+    bad_rows = [form for form in link_formset if form.errors]
+    has_text = any(
+        form["platform"].value() or form["url_or_handle"].value()
+        for form in link_formset
+    )
+    return {
+        "profile_form": profile_form,
+        "link_formset": link_formset,
+        "error_count": profile_form.error_count + len(bad_rows),
+        "links_open": bool(bad_rows) or bool(has_text),
+    }
 
 
 def save_owner_profile(profile_form, link_formset, user):

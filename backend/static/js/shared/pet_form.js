@@ -1,5 +1,6 @@
 /*
-  Pet form (Add pet / Edit pet), loaded by admin/pets/pet_form.html.
+  Pet form (admin Add pet / Edit pet, owner onboarding step 2 and owner Add
+  pet). Moved from static/js/admin/ in Slice 8b-3.
   - Species "Other (type it)" shows "Type the species" and the typed breed
     box (labelled "Breed"), and hides the Breed select.
   - Breed "Other (type it)" shows "Type the breed".

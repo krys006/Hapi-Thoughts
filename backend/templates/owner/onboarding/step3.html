@@ -1,0 +1,37 @@
+{% extends "layouts/owner.html" %}
+
+{% block title %}Pet added — Hapi Vet{% endblock %}
+
+{# Last frame of the flow: still "Step 2 of 2", no bell, no tabs #}
+{% block top_bar %}{% include "owner/onboarding_parts/top_bar.html" with step=2 step_label="Pet added" %}{% endblock %}
+
+{% block content %}
+<div role="status" class="flex items-start gap-3 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-green-900">
+  {% include "components/icon.html" with name="circle-check" class="mt-0.5 size-5 shrink-0" %}
+  <p class="text-base"><b>{{ pet.name }} was added.</b> Do you have other pets?</p>
+</div>
+
+<section class="mt-5 space-y-3" aria-labelledby="pets-title">
+  <h1 id="pets-title" class="text-2xl font-bold text-gray-900">Your pets</h1>
+  {% for added in pets %}
+    <div class="flex items-center gap-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+      {% include "components/pet_avatar.html" with pet=added size="lg" %}
+      <span class="min-w-0 flex-1">
+        <span class="block text-lg font-bold leading-6 text-gray-900">{{ added.name }}</span>
+        <span class="block text-base text-gray-600">{{ added.species }}{% if added.breed %} · {{ added.breed }}{% endif %}{% if added.gender != "unknown" %} · {{ added.get_gender_display }}{% endif %}</span>
+      </span>
+      {% include "components/icon.html" with name="circle-check" class="size-6 shrink-0 text-green-700" %}<span class="sr-only">Added</span>
+    </div>
+  {% endfor %}
+  <a href="{% url 'owner_pet_add' %}" class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-gray-300 bg-white text-lg font-semibold text-gray-800 hover:bg-gray-50">{% include "components/icon.html" with name="plus" class="size-5 shrink-0" %}Add another pet</a>
+</section>
+{% endblock %}
+
+{# The one violet button of the page #}
+{% block bottom_bar %}
+<div class="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white pb-[env(safe-area-inset-bottom)]">
+  <div class="mx-auto max-w-3xl px-4 pb-5 pt-3">
+    <a href="{% url 'owner_dashboard' %}" class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700">I'm done, go to my dashboard{% include "components/icon.html" with name="arrow-right" class="size-5 shrink-0" %}</a>
+  </div>
+</div>
+{% endblock %}

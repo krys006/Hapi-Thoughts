@@ -3679,7 +3679,8 @@ class RecordDetailPageTests(FrozenMedicalTestBase):
         self.assertContains(
             response, "<title>Bantay's visit record — Hapi Vet Admin</title>"
         )
-        self.assertContains(response, "js/admin/photo_input")
+        # Slice 8b-3: photo_input.js moved to js/shared/
+        self.assertContains(response, "js/shared/photo_input")
 
     def test_one_violet_button_outside_dialogs(self):
         self._everything()

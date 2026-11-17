@@ -92,10 +92,11 @@ Phase 7 — Dashboards & Polish
 |---|---|
 | Onboarding triggered after first login | `complete` |
 | Step 1 — Enter basic profile info (name, contact number) | `complete` |
-| Step 1 — Ask for the address: barangay, town and province required, street optional; Marinduque town list + Other | `planned` |
+| Step 1 — Ask for the address: barangay, town and province required, street optional; Marinduque town list + Other | `complete` (8b-3: Province Marinduque / Another province; the 6 towns and their barangays from the PSA list, or typed) |
+| Step 3 — "Pet added" page: who was added, "Add another pet", "I'm done, go to my dashboard" | `complete` (8b-3) |
 | Step 1 — Optional profile photo upload | `complete` |
 | Step 1 — Optional contact links (Facebook, other socials) | `complete` |
-| Step 2 — Add first pet (name, species, breed, date of birth) | `complete` |
+| Step 2 — Add first pet (name, species and breed from lists with "Other (type it)", sex, birthday optional, color, weight, registration no., photo) | `complete` |
 | Option to skip pet addition and add later | `complete` |
 | Option to add multiple pets during onboarding | `complete` |
 | Redirect to Pet Owner dashboard after onboarding | `complete` |
@@ -118,7 +119,7 @@ Phase 7 — Dashboards & Polish
 ### 2.3 Pet Management (Pet Owner)
 | Feature | Status |
 |---|---|
-| Add a new pet | `complete` |
+| Add a new pet (the Add pet page on the owner layout, same form as onboarding step 2: species and breed from lists, sex starting on "Not sure", birthday optional; from booking, `?next=book` returns to step 1 with the new pet picked; the pet's owner is always the logged-in owner) | `complete` (8b-3) |
 | Edit pet details: name, breed, color, weight, photo (species, sex, birthday and registration no. shown locked) | `complete` |
 | Pet photo upload (optional) | `complete` |
 | Species icon on a light tile if no pet photo uploaded (no initials for pets) | `planned` |
@@ -155,7 +156,7 @@ Phase 7 — Dashboards & Polish
 | Add owner without booking a visit (owners list; no pet, no appointment; set-password link sent if an email is given) | `complete` |
 | Resend the set-password link: "Send the link again" on the owner page, asks first (owner has an email and has never set up the account; Google sign-ups count as set up) | `complete` |
 | Edit pet owner details | `complete` |
-| Address: Marinduque towns and barangays from dropdowns (PSA list); other provinces typed (Add owner and Edit details; owner-side forms and the walk-in New owner page still typed) | `complete` |
+| Address: Marinduque towns and barangays from dropdowns (PSA list); other provinces typed (Add owner and Edit details, and the owner's onboarding step 1 since 8b-3 (there the address is required); the owner's profile edit page and the walk-in New owner page are still typed) | `complete` |
 | Archive pet owner account (soft delete; asks first, and warns about visits still to come, which archiving doesn't cancel) | `complete` |
 | Restore archived pet owner account (asks first) | `complete` |
 | View all registered pets (tabs Active / Archived / Deletion requests, with counts; a pet of an archived owner is on Archived; split rows: the pet with its tags, then the owner with a link and phone number; 25 per page) | `complete` |

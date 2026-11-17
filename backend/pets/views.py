@@ -21,9 +21,10 @@ from .forms import (
     AdminPetForm,
     AdminPetOwnerForm,
     ContactLinkFormSet,
+    OwnerOnboardingForm,
     OwnerPetEditForm,
+    OwnerPetForm,
     PetDeletionRequestForm,
-    PetForm,
     PetOwnerProfileForm,
 )
 
@@ -50,8 +51,12 @@ from .utils import (
     pet_list_context,
     pet_restore_refusal,
     contact_link_initial,
+    onboarding_owner,
+    onboarding_step1_context,
     save_owner_profile,
+    species_from_params,
     take_back_removal_request,
+    town_from_params,
 )
 
 from accounts.utils import (
@@ -102,7 +107,8 @@ def onboarding_step1(request):
         return redirect("owner_dashboard")
 
     if request.method == "POST":
-        profile_form = PetOwnerProfileForm(
+        # The address is required here (OwnerOnboardingForm)
+        profile_form = OwnerOnboardingForm(
             request.POST, request.FILES, instance=existing
         )
         link_formset = ContactLinkFormSet(request.POST, prefix="links")
@@ -118,21 +124,13 @@ def onboarding_step1(request):
             return redirect("owner_onboarding_step2")
 
     else:
-        profile_form = PetOwnerProfileForm(instance=existing)
+        profile_form = OwnerOnboardingForm(instance=existing)
         link_formset = ContactLinkFormSet(
             prefix="links", initial=contact_link_initial(existing)
         )
 
-    return render(
-        request,
-        "owner/onboarding/step1.html",
-        {
-            "profile_form": profile_form,
-            "link_formset": link_formset,
-            # Used by the template to show which step is active
-            "current_step": 1,
-        },
-    )
+    context = onboarding_step1_context(profile_form, link_formset)
+    return render(request, "owner/onboarding/step1.html", context)
 
 
 # ---------------------------------------------------------------------------
@@ -151,17 +149,10 @@ def onboarding_step2(request):
     if request.user.is_onboarded:
         return redirect("owner_dashboard")
 
-    # Guard: Step 2 requires Step 1 to have been completed first.
-    # If someone navigates directly to step 2 without a session key,
-    # send them back to step 1.
-    owner_id = request.session.get("onboarding_owner_id")
-    if not owner_id:
-        return redirect("owner_onboarding_step1")
-
-    # Safely fetch the PetOwner — if something is wrong, restart onboarding
-    try:
-        pet_owner = PetOwner.objects.get(pk=owner_id, user=request.user)
-    except PetOwner.DoesNotExist:
+    # Step 2 needs step 1 done first: no session key (or a wrong one) means
+    # back to step 1
+    pet_owner = onboarding_owner(request.session, request.user)
+    if pet_owner is None:
         return redirect("owner_onboarding_step1")
 
     if request.method == "POST":
@@ -171,31 +162,51 @@ def onboarding_step2(request):
             _complete_onboarding(request)
             return redirect("owner_dashboard")
 
-        # --- Pet form submitted ---
-        pet_form = PetForm(request.POST, request.FILES)
-        if pet_form.is_valid():
-            pet = pet_form.save(commit=False)
+        # --- Pet form submitted --- (the owner is the one from step 1,
+        # never a posted value)
+        form = OwnerPetForm(request.POST, request.FILES)
+        if form.is_valid():
+            pet = form.save(commit=False)
             pet.owner = pet_owner
             pet.save()
 
             _complete_onboarding(request)
-            messages.success(
-                request,
-                f"{pet.name} has been added. Welcome to Hapi Vet!",
-            )
-            return redirect("owner_dashboard")
+            # Step 3 shows this pet
+            request.session["onboarding_pet_id"] = pet.pk
+            return redirect("owner_onboarding_step3")
 
     else:
-        pet_form = PetForm()
+        form = OwnerPetForm()
 
     return render(
         request,
         "owner/onboarding/step2.html",
-        {
-            "pet_form": pet_form,
-            "pet_owner": pet_owner,
-            "current_step": 2,
-        },
+        {"form": form, "pet_owner": pet_owner},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Onboarding — Step 3: Pet added
+# ---------------------------------------------------------------------------
+
+
+@login_required
+@owner_profile_required
+def onboarding_step3(request):
+    guard = _require_pet_owner(request)
+    if guard:
+        return guard
+
+    # Only right after step 2 saved a pet (the session key); a refresh works
+    pets = Pet.objects.filter(owner=request.owner, is_archived=False).order_by("pk")
+    pet = pets.filter(pk=request.session.get("onboarding_pet_id")).first()
+    if pet is None:
+        return redirect("owner_dashboard")
+
+    return render(
+        request,
+        "owner/onboarding/step3.html",
+        {"pet": pet, "pets": pets},
     )
 
 
@@ -387,7 +398,7 @@ def owner_pet_add(request):
     back_to_booking = next_value == "book"
 
     if request.method == "POST":
-        form = PetForm(request.POST, request.FILES)
+        form = OwnerPetForm(request.POST, request.FILES)
         if form.is_valid():
             pet = form.save(commit=False)
             pet.owner = pet_owner
@@ -399,14 +410,18 @@ def owner_pet_add(request):
             return redirect("owner_pet_detail", pk=pet.pk)
 
     else:
-        form = PetForm()
+        form = OwnerPetForm()
 
+    # The back bar: "Back to booking" with ?next=book, else "Back to My Pets"
+    back_name = "owner_book_appointment" if back_to_booking else "owner_pet_list"
     return render(
         request,
         "owner/pets/add.html",
         {
             "form": form,
             "next_value": "book" if back_to_booking else "",
+            "back_url": reverse(back_name),
+            "back_label": "booking" if back_to_booking else "My Pets",
         },
     )
 
@@ -704,11 +719,28 @@ def admin_address_barangays(request):
     if guard:
         return guard
 
-    town = request.GET.get("town", request.GET.get("address_town", ""))
     return render(
         request,
         "admin/pets/_barangay_options.html",
-        {"options": barangay_choices(town)},
+        {"options": barangay_choices(town_from_params(request.GET))},
+    )
+
+
+@login_required
+def owner_address_barangays(request):
+    """
+    HTMX, for the owner: the same Barangay <option> list as the admin one
+    (same partial, same ?town= / ?address_town= params). No PetOwner row is
+    needed: onboarding step 1 uses it before the row exists.
+    """
+    guard = _require_pet_owner(request)
+    if guard:
+        return guard
+
+    return render(
+        request,
+        "admin/pets/_barangay_options.html",
+        {"options": barangay_choices(town_from_params(request.GET))},
     )
 
 
@@ -723,11 +755,28 @@ def admin_pet_breed_options(request):
     if guard:
         return guard
 
-    species = request.GET.get("species", request.GET.get("species_choice", ""))
     return render(
         request,
         "admin/pets/_breed_options.html",
-        {"options": breed_choices(species)},
+        {"options": breed_choices(species_from_params(request.GET))},
+    )
+
+
+@login_required
+def owner_pet_breed_options(request):
+    """
+    HTMX, for the owner: the same Breed <option> list as the admin one (same
+    partial, same ?species= / ?species_choice= params). No PetOwner row is
+    needed: onboarding step 2 can use it as soon as step 1 is saved.
+    """
+    guard = _require_pet_owner(request)
+    if guard:
+        return guard
+
+    return render(
+        request,
+        "admin/pets/_breed_options.html",
+        {"options": breed_choices(species_from_params(request.GET))},
     )
 
 
