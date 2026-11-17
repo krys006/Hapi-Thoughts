@@ -637,7 +637,9 @@ class OwnerProfileRequiredTests(TestCase):
         ]
         for url in urls:
             with self.subTest(url=url):
-                self.assertEqual(self.client.get(url).status_code, 200)
+                # follow=True: the medical history URL redirects to the pet
+                # profile since 8b-5 (it was a 200 page)
+                self.assertEqual(self.client.get(url, follow=True).status_code, 200)
 
 
 class RegisterEmailFailureTests(TestCase):

@@ -10,8 +10,8 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
 from django.core import mail
-from django.db import connection
-from django.http import QueryDict
+from django.db import connection, reset_queries
+from django.http import Http404, QueryDict
 from django.template import engines
 from django.template.loader import render_to_string
 from django.test import SimpleTestCase, TestCase
@@ -19,10 +19,11 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from appointments.models import Appointment
+from appointments.models import Appointment, ClinicSettings
+from appointments.utils import CLINIC_SETTINGS_DEFAULTS
 from billing.models import Service
 from dashboard.templatetags.friendly_dates import friendly_date
-from medical.models import MedicalRecord, Vaccination
+from medical.models import MedicalRecord, TestResultFile, Vaccination
 from notifications.models import Notification
 from pets.forms import (
     AdminOwnerEmailForm,
@@ -48,6 +49,7 @@ from pets.utils import (
     match_species,
     match_town,
     owner_list_context,
+    owner_pet_profile_context,
     owner_pets_context,
     pet_list_context,
     psgc_marinduque,
@@ -7449,3 +7451,942 @@ class OwnerPetsPageTests(TestCase):
                 self.assertNotIn("<!--", source)
                 for link in re.findall(r"(?s)<a\b.*?</a>", source):
                     self.assertNotIn("\n", link)
+
+
+# ── Slice 8b-5: owner pet profile, edit and remove ───────────────────────────
+
+PROFILE_TODAY = date(2026, 11, 3)
+# 9:00 AM in Manila on Tue, Nov 3, 2026 (the clinic's default slot is 60 min)
+PROFILE_NOW = datetime(2026, 11, 3, 9, 0, tzinfo=timezone.get_fixed_timezone(480))
+
+
+def _dose(pet, due_days=None, given_days=-300, **fields):
+    """A vaccination given given_days from PROFILE_TODAY, next due due_days
+    from it (None: no next date)."""
+    fields.setdefault("vaccine_name", Vaccination.ANTI_RABIES)
+    due = None if due_days is None else PROFILE_TODAY + timedelta(days=due_days)
+    return Vaccination.objects.create(
+        pet=pet,
+        date_administered=PROFILE_TODAY + timedelta(days=given_days),
+        next_due_date=due,
+        **fields,
+    )
+
+
+def _profile_record(pet, days=-5, **fields):
+    return MedicalRecord.objects.create(
+        pet=pet, record_date=PROFILE_TODAY + timedelta(days=days), **fields
+    )
+
+
+def _sheet_form(sheet):
+    """(action URL, inner HTML) of the POST form inside a bottom sheet."""
+    found = re.search(r'(?s)<form method="post" action="([^"]+)"(.*?)</form>', sheet)
+    return found.group(1), found.group(2)
+
+
+def _profile_visit(pet, days=1, hour=10, status=Appointment.CONFIRMED, **fields):
+    return Appointment.objects.create(
+        owner=pet.owner,
+        pet=pet,
+        date=PROFILE_TODAY + timedelta(days=days),
+        time=time(hour, 0),
+        status=status,
+        **fields,
+    )
+
+
+class OwnerPetProfileContextTests(TestCase):
+    """owner_pet_profile_context: tabs, next visit, due note, records."""
+
+    def setUp(self):
+        self.owner = _owner(first="Ana", last="Cruz", email="ana@example.com")
+        self.pet = _pet(self.owner, "Bantay", "Dog", "Aspin")
+
+    def _ctx(self, query="", pet=None, owner=None):
+        return owner_pet_profile_context(
+            owner or self.owner,
+            pet or self.pet,
+            QueryDict(query),
+            PROFILE_TODAY,
+            PROFILE_NOW,
+        )
+
+    def _count(self, query):
+        with CaptureQueriesContext(connection) as queries:
+            self._ctx(query)
+        return len(queries)
+
+    # ── Tabs ────────────────────────────────────────────────────────────────
+
+    def test_tab_parsing_unknown_and_missing_fall_back_to_about(self):
+        cases = (
+            ("", "about"),
+            ("tab=about", "about"),
+            ("tab=vaccines", "vaccines"),
+            ("tab=records", "records"),
+            ("tab=nonsense", "about"),
+            ("tab=", "about"),
+            ("tab=VACCINES", "about"),
+        )
+        for query, expected in cases:
+            with self.subTest(query=query):
+                self.assertEqual(self._ctx(query)["tab"], expected)
+
+    def test_tab_links_and_only_the_open_panel_is_built(self):
+        about = self._ctx()
+        base = reverse("owner_pet_detail", args=[self.pet.pk])
+        self.assertEqual(
+            [(t["key"], t["url"]) for t in about["tabs"]],
+            [
+                ("about", f"{base}?tab=about"),
+                ("vaccines", f"{base}?tab=vaccines"),
+                ("records", f"{base}?tab=records"),
+            ],
+        )
+        self.assertIn("details", about)
+        self.assertNotIn("vaccines", about)
+        self.assertNotIn("records", about)
+        vaccines = self._ctx("tab=vaccines")
+        self.assertIn("vaccines", vaccines)
+        self.assertNotIn("details", vaccines)
+        self.assertNotIn("records", vaccines)
+        records = self._ctx("tab=records")
+        self.assertIn("records", records)
+        self.assertNotIn("vaccines", records)
+
+    def test_top_of_the_page(self):
+        pet = _pet(
+            self.owner,
+            "Mingming",
+            "Cat",
+            "",
+            gender=Pet.FEMALE,
+            date_of_birth=date(2025, 3, 3),
+            weight=Decimal("4.50"),
+        )
+        context = self._ctx(pet=pet)
+        self.assertEqual(context["kind_line"], "Cat")
+        self.assertEqual(context["facts"], ["Female", "1 year old", "4.5 kg"])
+        bare = self._ctx()
+        self.assertEqual(bare["kind_line"], "Dog · Aspin")
+        self.assertEqual(bare["facts"], [])
+
+    def test_age_wording(self):
+        from pets.utils import pet_age_chip, pet_age_phrase
+
+        cases = (
+            (date(2022, 6, 15), "4 years old", "4 years"),
+            (date(2025, 11, 3), "1 year old", "1 year"),
+            (date(2026, 3, 3), "8 months old", "8 months"),
+            (date(2026, 10, 3), "1 month old", "1 month"),
+            (date(2026, 10, 4), "Under 1 month old", "under 1 month"),
+            (date(2026, 11, 3), "Under 1 month old", "under 1 month"),
+            (None, "", ""),
+        )
+        for born, chip, phrase in cases:
+            with self.subTest(born=born):
+                self.assertEqual(pet_age_chip(born, PROFILE_TODAY), chip)
+                self.assertEqual(pet_age_phrase(born, PROFILE_TODAY), phrase)
+
+    def test_details_rows(self):
+        pet = _pet(
+            self.owner,
+            "Max",
+            "Dog",
+            "Aspin",
+            color="Brown",
+            gender=Pet.MALE,
+            date_of_birth=date(2022, 6, 15),
+            weight=Decimal("12.50"),
+        )
+        rows = dict(self._ctx(pet=pet)["details"])
+        self.assertEqual(rows["Species"], "Dog")
+        self.assertEqual(rows["Male or female"], "Male")
+        self.assertEqual(rows["Birthday"], "Jun 15, 2022 (4 years)")
+        self.assertEqual(rows["Weight"], "12.5 kg")
+        self.assertIsNone(rows["Registration no."])
+
+    # ── Next visit ──────────────────────────────────────────────────────────
+
+    def test_next_visit_is_the_soonest_pending_or_confirmed(self):
+        _profile_visit(self.pet, days=5)
+        soon = _profile_visit(self.pet, days=2, status=Appointment.PENDING)
+        _profile_visit(self.pet, days=1, status=Appointment.CANCELLED)
+        _profile_visit(self.pet, days=0, hour=8, status=Appointment.COMPLETED)
+        self.assertEqual(self._ctx()["next_visit"], soon)
+
+    def test_a_slot_that_just_ended_is_not_next_but_one_going_is(self):
+        _profile_visit(self.pet, days=0, hour=8)  # 8:00 to 9:00, ended
+        self.assertIsNone(self._ctx()["next_visit"])
+        going = _profile_visit(self.pet, days=0, hour=9)
+        self.assertEqual(self._ctx()["next_visit"], going)
+
+    def test_another_pets_visit_is_not_this_pets(self):
+        other = _pet(self.owner, "Rex")
+        _profile_visit(other, days=1)
+        self.assertIsNone(self._ctx()["next_visit"])
+
+    # ── Due note ────────────────────────────────────────────────────────────
+
+    def _note(self):
+        return self._ctx("tab=vaccines")["due_note"]
+
+    def test_due_note_today_in_n_days_and_overdue(self):
+        protect = "Book a visit so Bantay stays protected."
+        dose = _dose(self.pet, due_days=0)
+        self.assertEqual(
+            self._note(),
+            {
+                "title": "Anti-rabies is due on Nov 3",
+                "text": f"That's today. {protect}",
+            },
+        )
+        dose.next_due_date = PROFILE_TODAY + timedelta(days=7)
+        dose.save()
+        self.assertEqual(
+            self._note(),
+            {
+                "title": "Anti-rabies is due on Nov 10",
+                "text": f"That's in 7 days. {protect}",
+            },
+        )
+        dose.next_due_date = PROFILE_TODAY + timedelta(days=1)
+        dose.save()
+        self.assertEqual(self._note()["text"], f"That's in 1 day. {protect}")
+        dose.next_due_date = PROFILE_TODAY - timedelta(days=2)
+        dose.save()
+        self.assertEqual(
+            self._note(),
+            {"title": "Anti-rabies was due on Nov 1", "text": protect},
+        )
+
+    def test_no_due_note_outside_the_shared_rule(self):
+        self.assertIsNone(self._note())
+        _dose(self.pet, due_days=None)
+        _dose(self.pet, due_days=8, vaccine_name=Vaccination.DEWORMING)
+        self.assertIsNone(self._note())
+
+    def test_a_dose_with_a_later_dose_is_not_due(self):
+        old = _dose(self.pet, due_days=-3, given_days=-400)
+        _dose(self.pet, due_days=300, given_days=-5)
+        self.assertIsNone(self._note())
+        rows = {row["given"]: row for row in self._ctx("tab=vaccines")["vaccines"]}
+        self.assertFalse(rows[old.date_administered]["is_due"])
+
+    def test_another_pets_dose_is_not_this_pets_note(self):
+        _dose(_pet(self.owner, "Rex"), due_days=2)
+        self.assertIsNone(self._note())
+
+    def test_history_is_newest_given_first_and_flags_corrected_only(self):
+        _dose(self.pet, given_days=-200, vaccine_name=Vaccination.DEWORMING)
+        _dose(
+            self.pet,
+            given_days=-30,
+            is_corrected=True,
+            correction_note="Dose was wrong, fixed by Dr. Aga",
+        )
+        rows = self._ctx("tab=vaccines")["vaccines"]
+        self.assertEqual([row["name"] for row in rows], ["Anti-rabies", "Deworming"])
+        self.assertEqual([row["is_corrected"] for row in rows], [True, False])
+        for row in rows:
+            self.assertNotIn("note", " ".join(row))
+            self.assertNotIn("Dr. Aga", str(row))
+
+    # ── Records ─────────────────────────────────────────────────────────────
+
+    def test_records_newest_first_with_public_fields_only(self):
+        _profile_record(self.pet, days=-20, diagnosis="Old cough")
+        newer = _profile_record(
+            self.pet,
+            days=-2,
+            diagnosis="Skin allergy",
+            symptoms="Itchy paws",
+            public_notes="Use the cream",
+            private_notes="Owner was rude",
+            follow_up_required=True,
+            follow_up_date=date(2026, 11, 15),
+        )
+        TestResultFile.objects.create(record=newer, file="test_results/a.pdf")
+        TestResultFile.objects.create(
+            record=newer, file="test_results/b.pdf", is_archived=True
+        )
+        rows = self._ctx("tab=records")["records"]
+        headings = [row["heading"] for row in rows]
+        self.assertEqual(headings, ["Skin allergy", "Old cough"])
+        first = rows[0]
+        self.assertEqual(first["line"], "Itchy paws")
+        self.assertEqual(first["follow_up"], date(2026, 11, 15))
+        self.assertEqual(first["files"], 1)
+        self.assertEqual(rows[1]["files"], 0)
+        self.assertIsNone(rows[1]["follow_up"])
+        self.assertNotIn("Owner was rude", str(rows))
+
+    def test_record_heading_kind_and_truncated_line(self):
+        checkup = Service.objects.create(service_name="Check-up", status=Service.ACTIVE)
+        visit = _profile_visit(self.pet, days=-5, status=Appointment.COMPLETED)
+        visit.service = checkup
+        visit.save()
+        _profile_record(self.pet, appointment=visit, treatment_given="x" * 300)
+        _profile_record(self.pet, days=-9, follow_up_date=date(2026, 12, 1))
+        rows = self._ctx("tab=records")["records"]
+        self.assertEqual(rows[0]["kind"], "Check-up")
+        self.assertEqual(rows[0]["heading"], "Visit record")
+        self.assertLessEqual(len(rows[0]["line"]), 90)
+        self.assertTrue(rows[0]["line"].endswith("…"))
+        self.assertEqual(rows[1]["kind"], "Visit")
+        # A follow-up date with the flag off is not a follow-up
+        self.assertIsNone(rows[1]["follow_up"])
+
+    # ── Removal pending ─────────────────────────────────────────────────────
+
+    def test_pending_flag_and_the_reason_in_plain_words(self):
+        self.assertIsNone(self._ctx()["pending"])
+        waiting = _request(self.pet)
+        cases = (
+            (
+                PetDeletionRequest.PASSED_AWAY,
+                "You said Bantay has passed away. The clinic will review it soon.",
+            ),
+            (
+                PetDeletionRequest.REHOMED,
+                "You said Bantay has a new home. The clinic will review it soon.",
+            ),
+            (
+                PetDeletionRequest.DUPLICATE,
+                "You said Bantay was added twice. The clinic will review it soon.",
+            ),
+            (PetDeletionRequest.OTHER, "The clinic will review your request soon."),
+        )
+        for reason, line in cases:
+            with self.subTest(reason=reason):
+                waiting.reason = reason
+                waiting.save()
+                context = self._ctx()
+                self.assertEqual(context["pending"], waiting)
+                self.assertEqual(context["pending_line"], line)
+
+    def test_a_taken_back_or_answered_request_is_not_pending(self):
+        for status in (
+            PetDeletionRequest.CANCELLED,
+            PetDeletionRequest.REJECTED,
+            PetDeletionRequest.APPROVED,
+        ):
+            with self.subTest(status=status):
+                PetDeletionRequest.objects.all().delete()
+                _request(self.pet, status)
+                self.assertIsNone(self._ctx()["pending"])
+
+    # ── Ownership ───────────────────────────────────────────────────────────
+
+    def test_another_owners_pet_and_an_archived_pet_are_a_404(self):
+        other = _owner(first="Ben", last="Reyes", email="ben@example.com")
+        theirs = _pet(other, "Rex")
+        with self.assertRaises(Http404):
+            self._ctx(pet=theirs)
+        gone = _pet(self.owner, "Gone", is_archived=True)
+        with self.assertRaises(Http404):
+            self._ctx(pet=gone)
+
+    # ── Queries ─────────────────────────────────────────────────────────────
+
+    def test_queries_per_tab_are_flat(self):
+        _profile_visit(self.pet, days=1)
+        for number in range(3):
+            _dose(self.pet, given_days=-10 - number, due_days=number)
+            record = _profile_record(self.pet, days=-10 - number, diagnosis="D")
+            TestResultFile.objects.create(record=record, file="test_results/a.pdf")
+        tabs = ("about", "vaccines", "records")
+        few = {tab: self._count(f"tab={tab}") for tab in tabs}
+        for number in range(27):
+            _dose(self.pet, given_days=-50 - number, due_days=number)
+            record = _profile_record(self.pet, days=-50 - number, diagnosis="D")
+            TestResultFile.objects.create(record=record, file="test_results/a.pdf")
+        many = {tab: self._count(f"tab={tab}") for tab in tabs}
+        self.assertEqual(few, many)
+        # The removal request, plus: About 2 (settings, visit), Vaccines 1, Records 1
+        self.assertEqual(many, {"about": 3, "vaccines": 2, "records": 2})
+
+
+@patch("django.utils.timezone.now", return_value=PROFILE_NOW)
+class OwnerPetProfilePageTests(TestCase):
+    """owner_pet_detail on layouts/owner.html, Pets tab, back bar, three tabs,
+    the remove sheet and the take-back sheet."""
+
+    def setUp(self):
+        self.owner = _login_owner(self)
+        self.owner.user.is_onboarded = True
+        self.owner.user.save()
+        self.pet = _pet(self.owner, "Bantay", "Dog", "Aspin")
+        self.url = reverse("owner_pet_detail", args=[self.pet.pk])
+
+    def _html(self, query="", pet=None):
+        url = reverse("owner_pet_detail", args=[(pet or self.pet).pk])
+        response = self.client.get(f"{url}{query}")
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _main(self, html):
+        return re.search(r"(?s)<main\b.*?</main>", html).group(0)
+
+    def _flash(self, response):
+        return [(m.level_tag, str(m)) for m in get_messages(response.wsgi_request)]
+
+    def test_layout_pets_tab_and_back_bar(self, _now):
+        response = self.client.get(self.url)
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertTemplateUsed(response, "owner/pets/detail.html")
+        self.assertTemplateNotUsed(response, "base_dashboard.html")
+        html = response.content.decode()
+        nav = re.search(r'(?s)<nav aria-label="Main"[^>]*>(.*?)</nav>', html).group(1)
+        self.assertEqual(nav.count('aria-current="page"'), 1)
+        current = re.search(r'<a href="([^"]+)"[^>]*aria-current="page"', nav)
+        self.assertEqual(current.group(1), reverse("owner_pet_list"))
+        self.assertIn(f'<a href="{reverse("owner_pet_list")}"', html)
+        self.assertIn("Back to My Pets", html)
+        self.assertIn("Bantay", html)
+
+    def test_one_violet_button_the_book_link_and_none_while_pending(self, _now):
+        book = f"{reverse('owner_book_appointment')}?pet={self.pet.pk}"
+        for query in ("", "?tab=vaccines", "?tab=records"):
+            with self.subTest(query=query):
+                found = re.findall(VIOLET_BUTTON, self._html(query))
+                self.assertEqual(len(found), 1)
+                self.assertIn(f'href="{book}"', found[0])
+        self.assertIn("Book a visit for Bantay</a>", self._html())
+        _request(self.pet)
+        for query in ("", "?tab=vaccines", "?tab=records"):
+            with self.subTest(pending=query):
+                html = self._html(query)
+                self.assertEqual(re.findall(VIOLET_BUTTON, html), [])
+                self.assertNotIn("Book a visit for", html)
+
+    def test_each_tab_has_one_aria_current_link(self, _now):
+        cases = (
+            ("", "about"),
+            ("?tab=vaccines", "vaccines"),
+            ("?tab=records", "records"),
+            ("?tab=zzz", "about"),
+        )
+        for query, key in cases:
+            with self.subTest(query=query):
+                html = self._html(query)
+                tabs = re.search(
+                    r'(?s)<nav aria-label="About this pet"[^>]*>(.*?)</nav>', html
+                ).group(1)
+                self.assertEqual(tabs.count('aria-current="page"'), 1)
+                current = re.search(r'<a href="([^"]+)"[^>]*aria-current="page"', tabs)
+                self.assertTrue(current.group(1).endswith(f"?tab={key}"))
+                self.assertEqual(len(re.findall(r"<a\b", tabs)), 3)
+                for tag in re.findall(r"<a\b[^>]*>", tabs):
+                    self.assertIn("min-h-11", tag)
+
+    def test_about_details_edit_and_remove(self, _now):
+        html = self._html()
+        edit = reverse("owner_pet_edit", args=[self.pet.pk])
+        self.assertIn(f'<a href="{edit}"', html)
+        self.assertIn('<span class="font-normal text-gray-500">None</span>', html)
+        self.assertIn("Registration no.", html)
+        self.assertIn('data-dialog-open="remove-sheet"', html)
+        self.assertIn("Remove Bantay from my pets", html)
+        # Only the open panel: nothing from the other two
+        self.assertNotIn("Vaccine history", html)
+        self.assertNotIn("No health records yet", html)
+
+    def test_next_visit_card_blue_or_yellow_with_one_link(self, _now):
+        self.assertNotIn("Next visit", self._html())
+        visit = _profile_visit(self.pet, days=1, hour=14)
+        html = self._html()
+        link = reverse("owner_appointment_detail", args=[visit.pk])
+        self.assertEqual(html.count(f'<a href="{link}"'), 1)
+        card = re.search(rf'(?s)<a href="{link}".*?</a>', html).group(0)
+        self.assertIn("border-blue-200 bg-blue-50", card)
+        self.assertIn("2:00 PM · Confirmed", card)
+        self.assertIn(">Nov</span>", card)
+        visit.status = Appointment.PENDING
+        visit.save()
+        card = re.search(rf'(?s)<a href="{link}".*?</a>', self._html()).group(0)
+        self.assertIn("border-yellow-300 bg-yellow-50", card)
+        self.assertIn("Waiting for approval", card)
+
+    def test_empty_states(self, _now):
+        self.assertIn("No vaccines yet", self._html("?tab=vaccines"))
+        self.assertIn(
+            "The clinic adds them here after each shot.", self._html("?tab=vaccines")
+        )
+        html = self._html("?tab=records")
+        self.assertIn("No health records yet", html)
+        self.assertIn("The clinic adds one after each visit.", html)
+
+    def test_vaccines_due_note_history_and_corrected_words_only(self, _now):
+        _dose(
+            self.pet,
+            due_days=7,
+            given_days=-358,
+            is_corrected=True,
+            correction_note="Secret clinic note about the date",
+        )
+        _dose(self.pet, 200, -20, vaccine_name=Vaccination.DEWORMING)
+        html = self._html("?tab=vaccines")
+        self.assertIn("Anti-rabies is due on Nov 10", html)
+        self.assertIn(
+            "That&#x27;s in 7 days. Book a visit so Bantay stays protected.", html
+        )
+        self.assertIn("border-orange-300 bg-orange-50", html)
+        self.assertIn("Vaccine history", html)
+        self.assertLess(html.index("Deworming"), html.index("Given Nov 10, 2025"))
+        self.assertIn("Next: Nov 10, 2026", html)
+        self.assertIn("bg-orange-100 text-orange-800", html)  # due
+        self.assertIn("bg-gray-100 text-gray-800", html)  # not due
+        self.assertIn("Corrected by the clinic", html)
+        self.assertEqual(html.count("Corrected by the clinic"), 1)
+        self.assertNotIn("Secret clinic note", html)
+
+    def test_records_cards_follow_up_files_and_private_notes(self, _now):
+        record = _profile_record(
+            self.pet,
+            days=-3,
+            diagnosis="Mild skin allergy",
+            treatment_given="Cream and a tablet",
+            private_notes="Owner seemed upset",
+            follow_up_required=True,
+            follow_up_date=date(2026, 11, 15),
+        )
+        TestResultFile.objects.create(record=record, file="test_results/a.pdf")
+        TestResultFile.objects.create(record=record, file="test_results/b.pdf")
+        plain = _profile_record(self.pet, days=-20, diagnosis="Healthy check")
+        html = self._html("?tab=records")
+        self.assertIn("What Dr. Aga wrote after each visit.", html)
+        link = reverse("owner_medical_record", args=[self.pet.pk, record.pk])
+        self.assertEqual(html.count(f'<a href="{link}"'), 1)
+        card = re.search(rf'(?s)<a href="{link}".*?</a>', html).group(0)
+        for text in (
+            "Oct 31, 2026 · Visit",
+            "Mild skin allergy",
+            "Cream and a tablet",
+            "Follow-up around Nov 15",
+            "2 test results",
+        ):
+            self.assertIn(text, card)
+        self.assertIn("bg-blue-100", card)
+        self.assertIn("text-blue-800", card)
+        self.assertNotIn("Owner seemed upset", html)
+        plain_link = reverse("owner_medical_record", args=[self.pet.pk, plain.pk])
+        other = re.search(rf'(?s)<a href="{plain_link}".*?</a>', html).group(0)
+        self.assertNotIn("Follow-up around", other)
+        self.assertNotIn("test result", other)
+        self.assertLess(html.index("Mild skin allergy"), html.index("Healthy check"))
+        # Text only: no file link of any kind
+        self.assertNotIn("test_results/", html)
+
+    def test_remove_sheet_has_four_reasons_and_a_post_form(self, _now):
+        html = self._html()
+        sheet = re.search(r'(?s)<dialog id="remove-sheet".*?</dialog>', html).group(0)
+        self.assertIn("Remove Bantay from your pets?", sheet)
+        self.assertIn(
+            "The clinic will check your request first. "
+            "Bantay&#x27;s health records are kept safe either way.",
+            sheet,
+        )
+        self.assertIn("<legend", sheet)
+        self.assertIn("What happened?", sheet)
+        values = re.findall(r'<input type="radio" name="reason" value="([^"]+)"', sheet)
+        self.assertEqual(values, ["passed_away", "rehomed", "duplicate", "other"])
+        for words in (
+            "My pet has passed away",
+            "My pet has a new home",
+            "I added this pet twice",
+            "Other reason",
+        ):
+            self.assertIn(words, sheet)
+        self.assertEqual(sheet.count("has-[:checked]:bg-violet-50"), 4)
+        self.assertEqual(sheet.count("min-h-14"), 4 + 2)  # cards + the two buttons
+        self.assertNotIn(" checked", sheet)
+        action, inner = _sheet_form(sheet)
+        self.assertEqual(
+            action, reverse("owner_pet_delete_request", args=[self.pet.pk])
+        )
+        self.assertIn("csrfmiddlewaretoken", inner)
+        self.assertIn("Send request", inner)
+        self.assertIn("bg-red-600", inner)
+        self.assertIn('name="reason"', inner)
+        self.assertIn("Keep Bantay</button>", sheet)
+        # Only on the About tab
+        self.assertNotIn("remove-sheet", self._html("?tab=records"))
+
+    def test_while_pending_no_remove_and_a_take_back_sheet(self, _now):
+        _request(self.pet)
+        html = self._html()
+        self.assertNotIn("remove-sheet", html)
+        self.assertNotIn("Remove Bantay from my pets", html)
+        self.assertNotIn(reverse("owner_pet_edit", args=[self.pet.pk]), html)
+        self.assertIn("Removal requested", html)
+        self.assertIn("You said Bantay has passed away.", html)
+        self.assertIn('data-dialog-open="take-back-sheet"', html)
+        found = re.search(r'(?s)<dialog id="take-back-sheet".*?</dialog>', html)
+        sheet = found.group(0)
+        self.assertIn("Take back your request?", sheet)
+        self.assertIn("Bantay stays on your account.", sheet)
+        action, inner = _sheet_form(sheet)
+        self.assertEqual(
+            action, reverse("owner_pet_cancel_delete_request", args=[self.pet.pk])
+        )
+        self.assertIn("csrfmiddlewaretoken", inner)
+        self.assertIn("Yes, take it back", inner)
+        # Both buttons the same size
+        self.assertEqual(sheet.count("min-h-14 w-full"), 2)
+        self.assertIn("Close</button>", sheet)
+        # The sheet is on every tab while a request is waiting
+        self.assertIn("take-back-sheet", self._html("?tab=vaccines"))
+
+    def test_send_without_a_reason_is_an_error_and_creates_nothing(self, _now):
+        post = reverse("owner_pet_delete_request", args=[self.pet.pk])
+        for data in ({}, {"reason": ""}, {"reason": "bored"}):
+            with self.subTest(data=data):
+                response = self.client.post(post, data)
+                self.assertRedirects(response, self.url, fetch_redirect_response=False)
+                # (earlier subtests' messages may still wait in the cookie)
+                self.assertEqual(
+                    self._flash(response)[-1:],
+                    [("error", "Choose what happened, then send the request.")],
+                )
+                self.assertFalse(PetDeletionRequest.objects.exists())
+
+    def test_send_with_a_reason_makes_a_pending_request(self, _now):
+        post = reverse("owner_pet_delete_request", args=[self.pet.pk])
+        response = self.client.post(post, {"reason": "rehomed"})
+        self.assertRedirects(response, self.url, fetch_redirect_response=False)
+        waiting = PetDeletionRequest.objects.get()
+        self.assertEqual(waiting.status, PetDeletionRequest.PENDING)
+        self.assertEqual(waiting.reason, PetDeletionRequest.REHOMED)
+        self.assertEqual(waiting.requested_by, self.owner.user)
+        self.assertEqual(waiting.pet, self.pet)
+        self.assertEqual(
+            self._flash(response),
+            [("success", "Request sent. The clinic will review it soon.")],
+        )
+        page = self.client.get(self.url)
+        self.assertContains(page, "Request sent.")
+        self.assertContains(page, "You said Bantay has a new home.")
+
+    def test_a_second_request_while_one_waits_makes_no_second_row(self, _now):
+        _request(self.pet)
+        post = reverse("owner_pet_delete_request", args=[self.pet.pk])
+        response = self.client.post(post, {"reason": "other"})
+        self.assertEqual(PetDeletionRequest.objects.count(), 1)
+        self.assertEqual(self._flash(response)[0][0], "warning")
+
+    def test_a_get_to_the_request_url_changes_nothing(self, _now):
+        post = reverse("owner_pet_delete_request", args=[self.pet.pk])
+        response = self.client.get(post)
+        self.assertRedirects(response, self.url, fetch_redirect_response=False)
+        self.assertFalse(PetDeletionRequest.objects.exists())
+
+    def test_another_owners_pet_and_an_archived_pet_are_a_404(self, _now):
+        other = _owner(first="Ben", last="Reyes", email="ben@example.com")
+        theirs = _pet(other, "Rex")
+        gone = _pet(self.owner, "Gone", is_archived=True)
+        for pet in (theirs, gone):
+            for tab in ("", "?tab=vaccines", "?tab=records"):
+                with self.subTest(pet=pet.name, tab=tab):
+                    url = reverse("owner_pet_detail", args=[pet.pk])
+                    self.assertEqual(self.client.get(f"{url}{tab}").status_code, 404)
+            post = reverse("owner_pet_delete_request", args=[pet.pk])
+            response = self.client.post(post, {"reason": "other"})
+            self.assertEqual(response.status_code, 404)
+        self.assertFalse(PetDeletionRequest.objects.exists())
+
+    def test_page_queries_are_flat_per_tab(self, _now):
+        def count(query):
+            # A request clears the query log, so start from an empty one
+            reset_queries()
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.get(f"{self.url}{query}")
+            total = len(queries)  # read now: the next request clears the log
+            self.assertEqual(response.status_code, 200)
+            return total
+
+        tabs = ("", "?tab=vaccines", "?tab=records")
+        for number in range(3):
+            _dose(self.pet, given_days=-10 - number)
+            _profile_record(self.pet, days=-10 - number)
+        few = [count(query) for query in tabs]
+        for number in range(27):
+            _dose(self.pet, given_days=-50 - number)
+            _profile_record(self.pet, days=-50 - number)
+        self.assertEqual([count(query) for query in tabs], few)
+        # (printed so the page totals can be written in HANDOFF)
+        print(f"\nowner pet profile page queries (about, vaccines, records): {few}")
+
+    def test_links_on_one_line_no_inline_script_or_handler(self, _now):
+        _request(self.pet)
+        record = _profile_record(self.pet, diagnosis="Cough")
+        _dose(self.pet, due_days=3)
+        _profile_visit(self.pet, days=1)
+        for query in ("", "?tab=vaccines", "?tab=records"):
+            with self.subTest(query=query):
+                html = self._html(query)
+                self.assertEqual(re.findall(INLINE_SCRIPT, html), [])
+                self.assertIsNone(re.search(r"\son[a-z]+\s*=", html))
+                self.assertNotIn("hx-confirm", html)
+                self.assertNotIn("<!--", html)
+                # Each opening tag is on one line (the icon's SVG inside an
+                # anchor may span lines, as on My Pets)
+                for tag in re.findall(r"<a\b[^>]*>", self._main(html)):
+                    self.assertNotIn("\n", tag)
+        self.assertIn(str(record.pk), self._html("?tab=records"))
+        for name in (
+            "owner/pets/detail.html",
+            "owner/pet_profile_parts/top.html",
+            "owner/pet_profile_parts/tabs.html",
+            "owner/pet_profile_parts/about.html",
+            "owner/pet_profile_parts/vaccines.html",
+            "owner/pet_profile_parts/records.html",
+            "owner/pet_profile_parts/removal_box.html",
+            "owner/pet_profile_parts/remove_reasons.html",
+            "owner/pet_edit_parts/photo_row.html",
+            "owner/pet_edit_parts/change_card.html",
+            "owner/pet_edit_parts/locked_card.html",
+            "owner/pets/edit.html",
+        ):
+            source = engines["django"].get_template(name).template.source
+            with self.subTest(file=name):
+                self.assertNotIn("<!--", source)
+                for link in re.findall(r"(?s)<a\b.*?</a>", source):
+                    self.assertNotIn("\n", link)
+
+
+class OwnerPetEditPageTests(TestCase):
+    """owner_pet_edit on layouts/owner.html, Pets tab, back bar to the profile."""
+
+    def setUp(self):
+        self.owner = _login_owner(self)
+        self.owner.user.is_onboarded = True
+        self.owner.user.save()
+        self.pet = _pet(
+            self.owner,
+            "Bantay",
+            "Dog",
+            "Aspin (Native)",
+            color="Brown",
+            gender=Pet.MALE,
+            date_of_birth=date(2022, 6, 15),
+            weight=Decimal("12.50"),
+            registration_number="R-1",
+        )
+        self.url = reverse("owner_pet_edit", args=[self.pet.pk])
+        self.profile = reverse("owner_pet_detail", args=[self.pet.pk])
+
+    def _html(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _flash(self, response):
+        return [(m.level_tag, str(m)) for m in get_messages(response.wsgi_request)]
+
+    def _clinic(self, phone):
+        return ClinicSettings.objects.create(
+            **{**CLINIC_SETTINGS_DEFAULTS, "contact_number": phone}
+        )
+
+    def test_layout_pets_tab_and_back_bar_to_the_profile(self):
+        response = self.client.get(self.url)
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertTemplateNotUsed(response, "base_dashboard.html")
+        html = response.content.decode()
+        self.assertIn(f'<a href="{self.profile}"', html)
+        self.assertIn("Back to Bantay", html)
+        nav = re.search(r'(?s)<nav aria-label="Main"[^>]*>(.*?)</nav>', html).group(1)
+        current = re.search(r'<a href="([^"]+)"[^>]*aria-current="page"', nav)
+        self.assertEqual(current.group(1), reverse("owner_pet_list"))
+
+    def test_one_violet_save_button_for_the_form(self):
+        found = re.findall(VIOLET_BUTTON, self._html())
+        self.assertEqual(len(found), 1)
+        self.assertIn('form="pet-edit-form"', found[0])
+        self.assertIn("Save changes", self._html())
+        self.assertIn('<form id="pet-edit-form" method="post"', self._html())
+
+    def test_locked_list_with_lock_icons(self):
+        html = self._html()
+        card = re.search(
+            r'(?s)<section[^>]*aria-labelledby="locked-title".*?</section>', html
+        ).group(0)
+        self.assertIn("Only the clinic can change these", card)
+        for label in ("Species", "Male or female", "Birthday", "Registration no."):
+            self.assertIn(f">{label}</dt>", card)
+        self.assertEqual(card.count("<svg"), 4)
+        self.assertIn("Jun 15, 2022", card)
+        self.assertIn("R-1", card)
+        self.assertNotIn("Weight", card)
+
+    def test_phone_line_with_and_without_a_clinic_phone(self):
+        none = "Something wrong here? Tell the clinic at your next visit."
+        self.assertIn(none, self._html())  # no ClinicSettings row at all
+        clinic = self._clinic("")
+        self.assertIn(none, self._html())
+        clinic.contact_number = "0954 288 9774"
+        clinic.save()
+        self.assertIn(
+            "Something wrong here? Tell the clinic at your next visit "
+            "or call 0954 288 9774.",
+            self._html(),
+        )
+
+    def test_breed_options_come_from_the_pets_species(self):
+        response = self.client.get(self.url)
+        form = response.context["form"]
+        dog = [value for value, _ in form.fields["breed_choice"].choices]
+        self.assertIn("Labrador Retriever", dog)
+        self.assertNotIn("Persian", dog)
+        self.assertEqual(form["breed_choice"].value(), "Aspin (Native)")
+        self.assertNotIn("species", form.fields)
+        cat = _pet(self.owner, "Mingming", "Cat", "Persian")
+        response = self.client.get(reverse("owner_pet_edit", args=[cat.pk]))
+        field = response.context["form"].fields["breed_choice"]
+        options = [value for value, _ in field.choices]
+        self.assertIn("Persian", options)
+        self.assertNotIn("Labrador Retriever", options)
+
+    def test_a_species_outside_the_list_has_only_the_typed_breed(self):
+        turtle = _pet(self.owner, "Shelly", "Turtle", "Red-eared")
+        response = self.client.get(reverse("owner_pet_edit", args=[turtle.pk]))
+        form = response.context["form"]
+        self.assertNotIn("breed_choice", form.fields)
+        self.assertContains(response, 'value="Red-eared"')
+        self.assertContains(response, "Weight in kg")
+        self.assertContains(response, "The clinic also weighs Shelly at each visit.")
+
+    def test_optional_labels_and_weight_help(self):
+        html = self._html()
+        self.assertGreaterEqual(html.count("(optional)"), 3)
+        self.assertIn("The clinic also weighs Bantay at each visit.", html)
+        self.assertIn("You can change these", html)
+
+    def test_save_goes_to_the_profile_with_the_flash_and_new_values(self):
+        response = self.client.post(
+            self.url,
+            {
+                "name": "Rex",
+                "breed_choice": "Shih Tzu",
+                "color": "White",
+                "weight": "7.5",
+            },
+        )
+        self.assertRedirects(response, self.profile, fetch_redirect_response=False)
+        self.assertEqual(
+            self._flash(response), [("success", "Rex's details were saved.")]
+        )
+        self.pet.refresh_from_db()
+        self.assertEqual(
+            (self.pet.name, self.pet.breed, self.pet.color, self.pet.weight),
+            ("Rex", "Shih Tzu", "White", Decimal("7.50")),
+        )
+        page = self.client.get(self.profile)
+        self.assertContains(page, "Rex&#x27;s details were saved.")
+
+    def test_breed_other_keeps_the_typed_text_and_not_sure_clears_it(self):
+        post = {"name": "Bantay", "breed_choice": "__other__", "breed": " Mix of two "}
+        self.client.post(self.url, post)
+        self.pet.refresh_from_db()
+        self.assertEqual(self.pet.breed, "Mix of two")
+        self.client.post(self.url, {"name": "Bantay", "breed_choice": ""})
+        self.pet.refresh_from_db()
+        self.assertEqual(self.pet.breed, "")
+
+    def test_a_breed_of_another_species_is_refused(self):
+        response = self.client.post(
+            self.url, {"name": "Bantay", "breed_choice": "Persian"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("breed_choice", response.context["form"].errors)
+        self.pet.refresh_from_db()
+        self.assertEqual(self.pet.breed, "Aspin (Native)")
+
+    def test_locked_fields_posted_anyway_change_nothing(self):
+        self.client.post(
+            self.url,
+            {
+                "name": "Rex",
+                "species": "Cat",
+                "species_choice": "Cat",
+                "gender": "female",
+                "date_of_birth": "2019-05-05",
+                "registration_number": "HACKED",
+            },
+        )
+        self.pet.refresh_from_db()
+        self.assertEqual(self.pet.name, "Rex")
+        self.assertEqual(self.pet.species, "Dog")
+        self.assertEqual(self.pet.gender, Pet.MALE)
+        self.assertEqual(self.pet.date_of_birth, date(2022, 6, 15))
+        self.assertEqual(self.pet.registration_number, "R-1")
+
+    def test_form_with_a_pet_adds_only_the_breed_list(self):
+        form = OwnerPetEditForm(instance=self.pet)
+        self.assertEqual(
+            list(form.fields),
+            ["name", "breed", "color", "weight", "photo", "breed_choice"],
+        )
+
+    def test_remove_photo_only_when_there_is_a_photo_and_it_clears_it(self):
+        self.assertNotIn("Remove photo", self._html())
+        Pet.objects.filter(pk=self.pet.pk).update(photo="pets/bantay.jpg")
+        html = self._html()
+        self.assertIn("Remove photo", html)
+        self.assertIn('name="photo-clear"', html)
+        self.assertIn("Change photo", html)
+        self.client.post(self.url, {"name": "Bantay", "photo-clear": "on"})
+        self.pet.refresh_from_db()
+        self.assertFalse(self.pet.photo)
+
+    def test_errors_use_the_summary_and_keep_what_was_typed(self):
+        response = self.client.post(
+            self.url, {"name": "  ", "color": "Typed color", "weight": "0"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Please fix the 2 items below.")
+        self.assertIn("name", response.context["form"].errors)
+        self.assertContains(response, "Weight must be greater than 0.")
+        self.assertContains(response, 'value="Typed color"')
+        # The back bar and the heading still show the saved name
+        self.assertContains(response, "Back to Bantay")
+        self.pet.refresh_from_db()
+        self.assertEqual(self.pet.color, "Brown")
+
+    def test_editing_while_a_removal_waits_goes_back_to_the_profile(self):
+        _request(self.pet)
+        response = self.client.get(self.url)
+        self.assertRedirects(response, self.profile, fetch_redirect_response=False)
+        self.assertEqual(self._flash(response)[0][0], "warning")
+        response = self.client.post(self.url, {"name": "Changed"})
+        self.assertRedirects(response, self.profile, fetch_redirect_response=False)
+        self.pet.refresh_from_db()
+        self.assertEqual(self.pet.name, "Bantay")
+
+    def test_another_owners_and_archived_pets_are_a_404(self):
+        other = _owner(first="Ben", last="Reyes", email="ben@example.com")
+        theirs = _pet(other, "Rex")
+        gone = _pet(self.owner, "Gone", is_archived=True)
+        for pet in (theirs, gone):
+            url = reverse("owner_pet_edit", args=[pet.pk])
+            self.assertEqual(self.client.get(url).status_code, 404)
+
+    def test_page_queries_are_flat(self):
+        def count():
+            # A request clears the query log, so start from an empty one
+            reset_queries()
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.get(self.url)
+            total = len(queries)
+            self.assertEqual(response.status_code, 200)
+            return total
+
+        few = count()
+        for number in range(25):
+            _dose(self.pet, given_days=-10 - number)
+            _profile_record(self.pet, days=-10 - number)
+        self.assertEqual(count(), few)
+        # (printed so the page total can be written in HANDOFF)
+        print(f"\nowner pet edit page queries: {few}")

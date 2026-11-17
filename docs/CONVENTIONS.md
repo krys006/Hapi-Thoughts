@@ -964,7 +964,9 @@ Loads compiled `app.css`, vendored HTMX, `js/shared/dialogs.js` and
   Include it with parameters (no block pattern):
   `{% include "components/bottom_sheet.html" with id="logout-sheet" title="Log out of Hapi Tutz?" text="…" action_url=logout_url action_label="Yes, log out" action_icon="log-out" keep_label="Stay logged in" %}`.
   The action is a POST form with csrf; the keep button is the same size and
-  has `autofocus`; Escape, backdrop and keep close it.
+  has `autofocus`; Escape, backdrop and keep close it. Optional
+  `body_template="…"` includes a template inside that form, above the action
+  button (the pet profile's reason radios, 8b-5).
 - Error pages: `templates/404.html`, `403.html`, `500.html` are standalone
   (own `<html>`, `app.css`, no layout, no `{% url %}`, no context values, no
   database), one button "Go to the home page" to `/`. Django's default
@@ -1191,7 +1193,7 @@ The main admin user is an elderly vet. Every migrated admin page follows these:
 ### Components (`templates/components/`)
 | Component | Usage |
 |---|---|
-| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 59 icons (`tag` added for the Services and prices sidebar link, 2026-11-16; `printer`, `percent` and `ban` added in Slice 6b-2, `calendar-check` added in dashboard v5, `archive` in Slice 4a-2, `map-pin`, `link`, `pencil`, `rotate-ccw`, `send` in Slice 4a-3, `upload` in Slice 4a-4, `pill` and `chevron-down` in Slice 5b-2). To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
+| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 60 icons (`hourglass` added in Slice 8b-5; `tag` added for the Services and prices sidebar link, 2026-11-16; `printer`, `percent` and `ban` added in Slice 6b-2, `calendar-check` added in dashboard v5, `archive` in Slice 4a-2, `map-pin`, `link`, `pencil`, `rotate-ccw`, `send` in Slice 4a-3, `upload` in Slice 4a-4, `pill` and `chevron-down` in Slice 5b-2). To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
 | `pet_avatar.html` | `{% include "components/pet_avatar.html" with pet=appointment.pet size="lg" %}`. `lg` 64px (`size-16 rounded-2xl`), `sm` 40px (`size-10 rounded-xl`). The pet's photo, or a violet tile with the `species_icon` icon (dog, cat, rabbit, bird, paw-print) at stroke 1.5, labelled "No photo of {name} yet". Optional `muted=True`: gray tile (`bg-gray-100 text-gray-600 ring-gray-300`) for archived pets, or every pet of an archived owner (owner page); a photo is unchanged. |
 | `owner_avatar.html` | `{% include "components/owner_avatar.html" with owner=appointment.owner size="xs" %}`. Circle; `lg` 64px (`size-16`, `text-xl` initials; owner page header), `sm` 40px, `xs` 32px. The profile photo, or initials (one letter when the last name is blank). Optional `muted=True`: gray initials tile (`bg-gray-100 text-gray-700 ring-gray-300`) for archived owners (owners list Archived tab, owner page). |
 | `form_field.html` | `{% include "components/form_field.html" with field=form.email %}`. Label, control, help text, errors (red text with the `triangle-alert` icon). Optional `optional=True` adds a gray "(optional)" after the label; `required=True` adds the red * for a field only `clean()` requires (the pet form's "Type the species"). Needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple field uses it. |

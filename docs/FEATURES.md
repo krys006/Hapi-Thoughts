@@ -120,16 +120,16 @@ Phase 7 — Dashboards & Polish
 | Feature | Status |
 |---|---|
 | Add a new pet (the Add pet page on the owner layout, same form as onboarding step 2: species and breed from lists, sex starting on "Not sure", birthday optional; from booking, `?next=book` returns to step 1 with the new pet picked; the pet's owner is always the logged-in owner) | `complete` (8b-3) |
-| Edit pet details: name, breed, color, weight, photo (species, sex, birthday and registration no. shown locked) | `complete` |
+| Edit pet details: name, breed (from the pet's species list), color, weight, photo with Change and Remove photo (species, sex, birthday and registration no. shown locked, with the clinic's phone; the page is on the owner layout since 8b-5) | `complete` (8b-5) |
 | Pet photo upload (optional) | `complete` |
-| Species icon on a light tile if no pet photo uploaded (no initials for pets) | `planned` |
-| Request pet removal with a predefined reason (owners see "remove a pet"; it reaches the Admin as a deletion request; new wording in Slice 8) | `complete` |
+| Species icon on a light tile if no pet photo uploaded (no initials for pets) | `complete` (8b-5 on the pet profile and edit page; My Pets since 8b-4) |
+| Request pet removal with a predefined reason (owners see "remove a pet"; a bottom sheet with four reasons on the pet profile; it reaches the Admin as a deletion request) | `complete` (8b-5) |
 | Take back a removal request (POST only; the request is kept as Cancelled, never deleted, and isn't shown to the clinic as answered; the owner can send a new one). Slice 8a-1b | `complete` |
 | Predefined deletion reasons (passed away, rehomed, duplicate, other) | `complete` |
 | Deletion request goes to Admin for approval | `complete` |
-| View pet profile | `complete` |
-| View pet vaccination history | `complete` |
-| View pet medical history (read-only, public notes only) | `complete` |
+| View pet profile (photo, facts, Book a visit, About / Vaccines / Records tabs, next visit, a due-vaccine note, a removal-requested box with take back; 8b-5) | `complete` (8b-5) |
+| View pet vaccination history (the Vaccines tab; the old page redirects to it) | `complete` (8b-5) |
+| View pet medical history (the Records tab: read-only, public notes only; the old page redirects to it) | `complete` (8b-5) |
 
 ### Pet Profile Fields
 | Field | Required | Notes |

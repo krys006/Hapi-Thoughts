@@ -1,0 +1,27 @@
+{% load pet_display %}
+{% comment %}
+  Edit page photo row: the saved photo (or the species icon on a violet tile),
+  "Change photo" (a label around a hidden file input; shared/photo_input.js
+  shows the chosen name) and, when the pet has a photo, "Remove photo", the
+  form's own photo-clear checkbox. Needs form, pet, pet_name, photo_url.
+{% endcomment %}
+<section class="flex items-center gap-4" aria-label="Photo of {{ pet_name }}" data-photo>
+  {% if photo_url %}
+    <img src="{{ photo_url }}" alt="Photo of {{ pet_name }}" class="size-24 shrink-0 rounded-2xl object-cover ring-1 ring-black/10">
+  {% else %}
+    <span class="grid size-24 shrink-0 place-content-center rounded-2xl bg-violet-50 text-violet-600 ring-1 ring-violet-200" role="img" aria-label="No photo of {{ pet_name }} yet">{% include "components/icon.html" with name=pet.species|species_icon class="size-12 shrink-0" stroke="1.5" %}</span>
+  {% endif %}
+  <div class="min-w-0 space-y-2">
+    <label for="{{ form.photo.id_for_label }}" class="btn btn-outline min-h-12 font-semibold has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-violet-600">
+      {% include "components/icon.html" with name="upload" %}Change photo
+      <input type="file" name="{{ form.photo.html_name }}" id="{{ form.photo.id_for_label }}" accept="image/*" class="sr-only" data-photo-input>
+    </label>
+    <p class="text-base font-medium text-gray-800" aria-live="polite" hidden data-photo-name></p>
+    {% if photo_url %}
+      <label for="{{ form.photo.html_name }}-clear_id" class="flex min-h-11 cursor-pointer items-center gap-2 text-base font-medium text-red-700"><input type="checkbox" name="{{ form.photo.html_name }}-clear" id="{{ form.photo.html_name }}-clear_id" class="size-5 accent-red-600">Remove photo</label>
+      <p class="text-base text-gray-600">Tick it, then choose Save changes.</p>
+    {% endif %}
+    {% if form.errors %}<p class="text-base font-medium text-gray-800">Choose a new photo again. Browsers can't keep it after a problem.</p>{% endif %}
+    {% for error in form.photo.errors %}<p class="flex items-start gap-1 text-base font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0" %}{{ error }}</p>{% endfor %}
+  </div>
+</section>

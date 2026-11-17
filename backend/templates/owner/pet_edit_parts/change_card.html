@@ -1,0 +1,25 @@
+{% comment %}
+  "You can change these": name, breed, color and weight. For a species in the
+  list the Breed select shows that species' breeds (pet_form.js shows the
+  typed breed box for "Other"; the hidden species input below is what the
+  script reads, and it is never posted). Needs form (OwnerPetEditForm).
+{% endcomment %}
+<section class="card" aria-labelledby="change-title" data-pet-about>
+  <h2 id="change-title" class="text-xl font-semibold text-gray-900">You can change these</h2>
+  <div class="mt-4 space-y-5">
+    {% include "components/form_field.html" with field=form.name large=True %}
+    {% if form.has_breed_list %}
+      <input type="hidden" value="{{ form.listed_species }}" data-species-choice>
+      <div data-breed-pick>
+        {% include "components/form_field.html" with field=form.breed_choice optional=True large=True %}
+      </div>
+      <div class="{% if not form.show_breed_text %}hidden{% endif %}" data-breed-other data-label-list="Type the breed" data-label-other="Breed">
+        {% include "components/form_field.html" with field=form.breed optional=True large=True %}
+      </div>
+    {% else %}
+      {% include "components/form_field.html" with field=form.breed optional=True large=True %}
+    {% endif %}
+    {% include "components/form_field.html" with field=form.color optional=True large=True %}
+    {% include "components/form_field.html" with field=form.weight optional=True large=True %}
+  </div>
+</section>

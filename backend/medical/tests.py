@@ -978,7 +978,9 @@ class TestFileArchiveTests(FrozenMedicalTestBase):
 
 
 class OwnerMedicalHistoryTests(FrozenMedicalTestBase):
-    """The owner's read-only history page."""
+    """The owner's health records. Since 8b-5 the old history URL redirects to
+    the pet profile's Records tab, so these checks follow the redirect and read
+    the tab (same checks, the tab's wording)."""
 
     def setUp(self):
         super().setUp()
@@ -990,35 +992,38 @@ class OwnerMedicalHistoryTests(FrozenMedicalTestBase):
         TestResultFile.objects.create(
             record=record, file="test_results/wrong.pdf", is_archived=True
         )
-        response = self.client.get(self.url)
+        response = self.client.get(self.url, follow=True)
         self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, "Test Results:")
-        self.assertEqual(response.context["records"][0].active_test_files, [])
+        # was: no "Test Results:" and active_test_files == [] in the context
+        # (the intro line says "test results", so look for the count)
+        self.assertNotContains(response, "1 test result")
+        self.assertEqual(response.context["records"][0]["files"], 0)
 
     def test_active_files_still_show(self):
         record = self._record()
         TestResultFile.objects.create(record=record, file="test_results/xray.pdf")
-        response = self.client.get(self.url)
-        self.assertContains(response, "Test Results:")
+        response = self.client.get(self.url, follow=True)
+        # was: "Test Results:"
+        self.assertContains(response, "1 test result")
 
     def test_follow_up_date_only_when_required(self):
         self._record(
             follow_up_required=False, follow_up_date=datetime.date(2026, 12, 1)
         )
-        response = self.client.get(self.url)
-        self.assertNotContains(response, "December 1, 2026")
-        self.assertNotContains(response, "Follow-up Date:")
+        response = self.client.get(self.url, follow=True)
+        self.assertNotContains(response, "Dec 1")
+        self.assertNotContains(response, "Follow-up around")
 
         self._record(follow_up_required=True, follow_up_date=datetime.date(2026, 12, 9))
-        response = self.client.get(self.url)
-        self.assertContains(response, "December 9, 2026")
-        self.assertNotContains(response, "December 1, 2026")
+        response = self.client.get(self.url, follow=True)
+        self.assertContains(response, "Follow-up around Dec 9")
+        self.assertNotContains(response, "Dec 1")
 
     def test_private_notes_never_show(self):
         self._record(
             public_notes="Give food slowly", private_notes="Owner seemed upset"
         )
-        response = self.client.get(self.url)
+        response = self.client.get(self.url, follow=True)
         self.assertContains(response, "Give food slowly")
         self.assertNotContains(response, "Owner seemed upset")
         # 5b-2: not even the admin page's card title
@@ -4774,7 +4779,7 @@ class RecordFormPageTests(FrozenMedicalTestBase):
         self.assertEqual(record.private_notes, "Possibly yeast too")
         self.client.force_login(self.owner_user)
         response = self.client.get(
-            reverse("owner_pet_medical_history", args=[self.pet.pk])
+            reverse("owner_pet_medical_history", args=[self.pet.pk]), follow=True
         )
         self.assertContains(response, "Ear infection")
         self.assertNotContains(response, "Possibly yeast too")
@@ -7075,7 +7080,7 @@ class OwnerMedicalRecordPageTests(FrozenMedicalTestBase):
     def test_the_history_page_links_to_each_record(self):
         other = self._record(record_date=TODAY - datetime.timedelta(days=9))
         response = self.client.get(
-            reverse("owner_pet_medical_history", args=[self.pet.pk])
+            reverse("owner_pet_medical_history", args=[self.pet.pk]), follow=True
         )
         for record in (self.record, other):
             link = reverse("owner_medical_record", args=[self.pet.pk, record.pk])
@@ -7124,3 +7129,63 @@ class OwnerMedicalRecordPageTests(FrozenMedicalTestBase):
         self.assertEqual(few, many)
         # medicines, files, doses, the follow-up visit and the receipt
         self.assertEqual(many[1], 5)
+
+
+class OwnerPetHistoryRedirectTests(FrozenMedicalTestBase):
+    """Slice 8b-5: the old owner history URLs keep their names, run the same
+    owner checks, then redirect (302) to the pet profile's tabs."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.owner_user)
+        self.profile = reverse("owner_pet_detail", args=[self.pet.pk])
+
+    def _urls(self, pet):
+        return (
+            (reverse("owner_pet_medical_history", args=[pet.pk]), "records"),
+            (reverse("owner_vaccination_history", args=[pet.pk]), "vaccines"),
+        )
+
+    def test_each_old_url_goes_to_its_tab(self):
+        for url, tab in self._urls(self.pet):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertRedirects(
+                    response,
+                    f"{self.profile}?tab={tab}",
+                    fetch_redirect_response=False,
+                )
+                self.assertEqual(response.status_code, 302)
+
+    def test_the_tab_it_lands_on_is_the_right_page(self):
+        for url, tab in self._urls(self.pet):
+            with self.subTest(url=url):
+                response = self.client.get(url, follow=True)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.context["tab"], tab)
+
+    def test_another_owners_pet_is_a_404(self):
+        user = User.objects.create_user(
+            username="ben_reyes", email="ben@example.com", role=User.PET_OWNER
+        )
+        other = PetOwner.objects.create(user=user, first_name="Ben", last_name="Reyes")
+        theirs = Pet.objects.create(owner=other, name="Rex", species="Dog")
+        for url, _tab in self._urls(theirs):
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 404)
+
+    def test_an_archived_pet_is_a_404(self):
+        Pet.objects.filter(pk=self.pet.pk).update(is_archived=True)
+        for url, _tab in self._urls(self.pet):
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 404)
+
+    def test_the_clinic_is_sent_to_its_own_dashboard(self):
+        self.client.force_login(self.admin)
+        for url, _tab in self._urls(self.pet):
+            with self.subTest(url=url):
+                self.assertRedirects(
+                    self.client.get(url),
+                    reverse("admin_dashboard"),
+                    fetch_redirect_response=False,
+                )

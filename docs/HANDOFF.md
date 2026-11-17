@@ -318,11 +318,20 @@ to needs-approval) and the appointments list.
     - Unused now (Krys deletes or keeps): `owner/dashboard/_dashboard_partial.html`; the `owner_dashboard_partial` view and URL `owner_dashboard_refresh` (still mapped to the Home tab); the old My Pets markup is gone. `static/css/owner/dashboard.css` and `js/owner/dashboard.js` are still loaded by `base_dashboard.html`, and the old classes are still used by the unused partial, the owner search results, the owner health list and the admin calendar partial.
     - Tests added: dashboard `OwnerDashboardPageTests`; pets `OwnerPetsContextTests`, `OwnerPetsPageTests`; accounts `test_owner_dashboard_and_my_pets_have_no_get_link_to_logout`.
     - Tests changed (on purpose): dashboard `test_the_page_keeps_the_old_keys_and_has_the_new_ones` ("Next visit", was "Upcoming Appointments"); `test_the_old_upcoming_list_no_longer_shows_completed_visits` ("No visits booked", was "No upcoming appointments"); `test_the_page_has_no_polling_attributes` (no `owner-dashboard-content` div check; the `hx-trigger` / `hx-swap` checks now cover the whole page); accounts `test_every_logout_control_is_a_post_form_with_a_csrf_token` (owner_dashboard and owner_pet_list left the list: covered by the new no-GET-link test) and `test_the_log_out_button_keeps_its_text_and_classes` (owner check runs on owner_profile, was owner_dashboard). No assertion loosened.
+  - **Slice 8b-5 owner pet profile, edit and remove — 2026-11-18** (templates, helpers, one form change; no migration, no model change). `app.css` needs a rebuild (new classes); no new static file, so collectstatic only for the new `app.css` hash.
+    - 1 Pet profile (`owner_pet_detail`, `owner_pet_profile_context(owner, pet, params, today, now)` in `pets/utils.py`; parts in `owner/pet_profile_parts/`): back bar "My Pets"; photo or species tile, name, "Species · Breed", chips (sex when known, age, weight; `pet_age_phrase` / `pet_age_chip` take `today`); one violet "Book a visit for {name}" (not while a removal waits); server-rendered `?tab=about|vaccines|records` (unknown: about; only the open panel's queries run). About: next visit card (soonest Pending/Confirmed, slot not ended, this pet only), Details with Edit, quiet red Remove. Vaccines: orange due note by the shared due rule (`vaccination_due_state`: today to +7 days, or overdue; superseded doses never due), history newest first, a corrected dose says only "Corrected by the clinic". Records: one card per record (`owner_record_queryset`, private_notes deferred; heading = diagnosis, "Visit record" when none; one public line; follow-up tag; file count, no links).
+    - 2 Removal: the yellow "Removal requested" box names the reason; "Take back my request" opens a sheet (POST to `owner_pet_cancel_delete_request`). The remove sheet reuses `components/bottom_sheet.html`, which got an optional `body_template` (included inside its POST form) for the "What happened?" radio cards. `owner_pet_delete_request` is now POST only (a GET redirects): `request_pet_removal` checks the reason against the model's four choices (no `PetDeletionRequestForm`, which demands a detail for Other), locks the pet row, makes the PENDING request; flashes "Request sent. The clinic will review it soon." / "Choose what happened, then send the request." / "A removal request for {name} is already waiting."
+    - 3 Old URLs `owner_pet_medical_history` / `owner_vaccination_history` keep their names and owner checks, then redirect (302) to `?tab=records` / `?tab=vaccines`. `notification_target` already points at `owner_pet_detail`: unchanged.
+    - 4 Edit pet (`owner_pet_edit`, `owner_pet_edit_context`; parts in `owner/pet_edit_parts/`): back bar "{name}"; `OwnerPetEditForm` keeps name, breed, color, weight, photo and, for a pet with a saved instance whose species is in the list, adds a form-only `breed_choice` (that species' breeds, "Other" shows the typed box; `pet_form.js` through a hidden species input); a POST without `breed_choice` keeps the typed breed. "Remove photo" is Django's `photo-clear` checkbox. "Only the clinic can change these" card (lock icons, clinic phone from `get_clinic_settings`), Save changes in a bar above the tabs, flash "{name}'s details were saved." Editing is still refused while a removal waits (warning, back to the profile).
+    - 5 New icon `hourglass` (lucide-static 1.66.0). Query totals (whole request, measured by the tests, flat for 3 vs 30 rows): pet profile About 7, Vaccines 6, Records 6; Edit pet 6. (Profile context alone: About 3, Vaccines 2, Records 2.)
+    - Unused now (Krys deletes or keeps): `owner/medical/history.html`, `owner/medical/vaccination_history.html`, `owner/pets/delete_request.html`, the class `PetDeletionRequestForm` in `pets/forms.py`. `static/js/shared/pet_species_breed.js` is still unused (8b-10).
+    - Tests added: pets `OwnerPetProfileContextTests`, `OwnerPetProfilePageTests`, `OwnerPetEditPageTests`; medical `OwnerPetHistoryRedirectTests`.
+    - Tests changed (on purpose): medical `OwnerMedicalHistoryTests` (4) and the two owner-history checks in `RecordFormPageTests.test_private_notes_save_but_never_reach_the_owner` and `OwnerMedicalRecordPageTests.test_the_history_page_links_to_each_record` now follow the redirect (`follow=True`) and read the Records tab (files: "1 test result" was "Test Results:"; follow-up: "Follow-up around Dec 9" was "December 9, 2026"; archived file: no "1 test result" and `records[0]["files"] == 0` were "no Test Results:" and `active_test_files == []`); accounts `OwnerProfileRequiredTests.test_owner_with_a_row_gets_the_pages` follows redirects (the history URL is a 302 now). No assertion removed or loosened.
 - Slice 9 admin mobile pass (incl. dashboard schedule rows keep a 3-column grid that is tight at phone width), record detail tab order on phones, walk-in type-ahead live region, admin layout inline script → static JS file, `form_field.html` fieldset/legend branch
 - Open: `form_field.html` needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple form is migrated.
 - Notes for later slices:
   - Slice 6 (billing): done (see "Slice 6 complete"). The habits it settled (no `{% url %}` in handlers, `for=` on every label, typed values kept, no inline handlers) apply to the next admin slices too.
-  - Owner side: `owner/pets/edit.html` extends no base template (no Tailwind/HTMX/frame). Real bug, fixed in 8b-5. (`owner/onboarding/step2.html` was the same; fixed in 8b-3.)
+  - Owner side: the `owner/pets/edit.html` bug (it extended no base template) is fixed in 8b-5. (`owner/onboarding/step2.html` was the same; fixed in 8b-3.)
   - Clinic info: admins get `admin/clinic_info.html` (admin layout); owners get `shared/clinic_info.html` on `base_dashboard.html`.
 - Every slice: rebuild `app.css` before committing; test at 150% zoom; re-run collectstatic locally once a template references `app.css` or vendored HTMX (tests use the manifest).
 
@@ -338,7 +347,7 @@ to needs-approval) and the appointments list.
 - Re-save requirements.txt as UTF-8 [backend] — verified: currently UTF-16 LE with CRLF
 - Logout always redirects to owner_login, even for admins — Done 2026-11-01
 - Admin sidebar has no logout link [frontend] → UI overhaul Slice 1 — Done 2026-11-01
-- Logout accepts GET; convert to POST form (low priority) [both] — Done 2026-11-17 (8a-1b; the log-out sheet itself comes with 8b)
+- Logout accepts GET; convert to POST form (low priority) [both] — Done 2026-11-17 (8a-1b; log-out sheet since 8b-1)
 - Pricing on booking page: bring over commit 8b45d23 from backend-dev (no migration) [both]
 - UTC dates: every `timezone.now().date()` in `backend/` is now `timezone.localdate()` — Done 2026-11-02 [backend]
   - `BillingReceipt.generate_receipt_number` uses `timezone.localdate().year` — Done 2026-11-02
@@ -459,10 +468,16 @@ deletes.
   compiled `static/css/app.css` (Tailwind v4, CONVENTIONS §11); redesigned
   ones use `templates/components/`, the others (e.g. receipt detail)
   import their old `static/css/admin/` file into the `legacy` layer via
-  `legacy_css`. Owner pages still use `base_dashboard.html` (only the Account
-  page is on `layouts/owner.html` since 8b-1) with the
-  Tailwind CDN plus per-page CSS files in `static/css/owner|shared/`. Rebuild `app.css` before every
-  frontend commit.
+  `legacy_css`. Owner pages (checked with a grep of the extends lines, 8b-5):
+  on `layouts/owner.html`: dashboard, My Pets, Add pet, pet profile, Edit pet,
+  onboarding steps 1 to 3, Account; on `layouts/owner_auth.html`: log in,
+  create account, check your email, forgot / new password and their done
+  pages, the invalid-link page, the three `socialaccount/` pages; still on
+  `base_dashboard.html` (Tailwind CDN plus per-page CSS in `static/css/owner|shared/`):
+  visits list / detail / book, bills list / receipt, my details, email
+  notifications, notifications list, health library list / article, the
+  medical record page, and Clinic info for owners (`shared/clinic_info.html`).
+  Rebuild `app.css` before every frontend commit.
 - Keep views under about 50 lines and move shared logic to `utils.py`.
 
 **Git:**

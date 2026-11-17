@@ -24,7 +24,6 @@ from .forms import (
     OwnerOnboardingForm,
     OwnerPetEditForm,
     OwnerPetForm,
-    PetDeletionRequestForm,
     PetOwnerProfileForm,
 )
 
@@ -46,6 +45,8 @@ from .utils import (
     owner_account_state,
     owner_detail_context,
     owner_list_context,
+    owner_pet_edit_context,
+    owner_pet_profile_context,
     owner_pets_context,
     pet_detail_context,
     pet_archive_refusal,
@@ -54,6 +55,7 @@ from .utils import (
     contact_link_initial,
     onboarding_owner,
     onboarding_step1_context,
+    request_pet_removal,
     save_owner_profile,
     species_from_params,
     take_back_removal_request,
@@ -332,33 +334,15 @@ def owner_pet_detail(request, pk):
     if guard:
         return guard
 
-    pet_owner = request.owner
-    pet = get_object_or_404(Pet, pk=pk, owner=pet_owner, is_archived=False)
+    pet = get_object_or_404(Pet, pk=pk, owner=request.owner, is_archived=False)
 
-    pending_deletion = PetDeletionRequest.objects.filter(
-        pet=pet,
-        status=PetDeletionRequest.PENDING,
-    ).first()
-
-    # Medical history — public notes only, no private_notes in context
-    medical_records = MedicalRecord.objects.filter(
-        pet=pet,
-    ).order_by("-record_date")
-
-    vaccinations = Vaccination.objects.filter(
-        pet=pet,
-    ).order_by("-date_administered")
-
-    return render(
-        request,
-        "owner/pets/detail.html",
-        {
-            "pet": pet,
-            "pending_deletion": pending_deletion,
-            "medical_records": medical_records,
-            "vaccinations": vaccinations,
-        },
+    # One clock read (Manila); ?tab=about|vaccines|records picks the panel.
+    # The page never loads private_notes or correction_note.
+    now = timezone.now()
+    context = owner_pet_profile_context(
+        request.owner, pet, request.GET, timezone.localdate(now), now
     )
+    return render(request, "owner/pets/detail.html", context)
 
 
 # ---------------------------------------------------------------------------
@@ -420,39 +404,32 @@ def owner_pet_edit(request, pk):
     if guard:
         return guard
 
-    pet_owner = request.owner
-    pet = get_object_or_404(Pet, pk=pk, owner=pet_owner, is_archived=False)
+    pet = get_object_or_404(Pet, pk=pk, owner=request.owner, is_archived=False)
 
-    # Block editing if a deletion request is pending
-    pending_deletion = PetDeletionRequest.objects.filter(
-        pet=pet,
-        status=PetDeletionRequest.PENDING,
-    ).first()
-    if pending_deletion:
+    # No editing while the clinic is looking at a removal request
+    waiting = PetDeletionRequest.objects.filter(
+        pet=pet, status=PetDeletionRequest.PENDING
+    )
+    if waiting.exists():
         messages.warning(
             request,
-            "You cannot edit a pet while a deletion request is pending.",
+            f"You can't edit {pet.name} while a removal request is waiting.",
         )
         return redirect("owner_pet_detail", pk=pet.pk)
 
+    # Read from the saved pet, before the form changes it in memory
+    context = owner_pet_edit_context(pet)
     if request.method == "POST":
         form = OwnerPetEditForm(request.POST, request.FILES, instance=pet)
         if form.is_valid():
-            form.save()
-            messages.success(request, f"{pet.name} has been updated.")
+            pet = form.save()
+            messages.success(request, f"{pet.name}'s details were saved.")
             return redirect("owner_pet_detail", pk=pet.pk)
-
     else:
         form = OwnerPetEditForm(instance=pet)
 
-    return render(
-        request,
-        "owner/pets/edit.html",
-        {
-            "form": form,
-            "pet": pet,
-        },
-    )
+    context["form"] = form
+    return render(request, "owner/pets/edit.html", context)
 
 
 # ---------------------------------------------------------------------------
@@ -467,47 +444,15 @@ def owner_pet_delete_request(request, pk):
     if guard:
         return guard
 
-    pet_owner = request.owner
-    pet = get_object_or_404(Pet, pk=pk, owner=pet_owner, is_archived=False)
+    pet = get_object_or_404(Pet, pk=pk, owner=request.owner, is_archived=False)
 
-    # Prevent duplicate pending requests
-    existing_request = PetDeletionRequest.objects.filter(
-        pet=pet,
-        status=PetDeletionRequest.PENDING,
-    ).first()
-    if existing_request:
-        messages.warning(
-            request,
-            "A deletion request for this pet is already pending.",
-        )
-        return redirect("owner_pet_detail", pk=pet.pk)
-
+    # The sheet on the profile posts here. A GET changes nothing; the answer
+    # is always a flash on the profile (no reason picked: an error, no row).
     if request.method == "POST":
-        form = PetDeletionRequestForm(request.POST)
-        if form.is_valid():
-            deletion_request = form.save(commit=False)
-            deletion_request.pet = pet
-            deletion_request.requested_by = request.user
-            deletion_request.status = PetDeletionRequest.PENDING
-            deletion_request.save()
-            messages.success(
-                request,
-                f"Deletion request for {pet.name} has been submitted. "
-                "The clinic will review your request.",
-            )
-            return redirect("owner_pet_detail", pk=pet.pk)
+        level, text = request_pet_removal(pet, request.user, request.POST.get("reason"))
+        messages.add_message(request, level, text)
 
-    else:
-        form = PetDeletionRequestForm()
-
-    return render(
-        request,
-        "owner/pets/delete_request.html",
-        {
-            "form": form,
-            "pet": pet,
-        },
-    )
+    return redirect("owner_pet_detail", pk=pet.pk)
 
 
 # ---------------------------------------------------------------------------

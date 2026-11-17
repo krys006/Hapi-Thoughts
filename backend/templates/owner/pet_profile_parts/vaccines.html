@@ -1,0 +1,41 @@
+{% comment %}
+  Vaccines tab: an orange note when a dose is due (the shared due rule), then
+  the vaccine history. A corrected dose says only "Corrected by the clinic":
+  the clinic's note is never shown (decision 7). Needs pet, vaccines, due_note.
+{% endcomment %}
+<div class="space-y-4">
+  {% if due_note %}
+    <div class="flex items-start gap-3 rounded-xl border border-orange-300 bg-orange-50 px-4 py-3 text-orange-900" role="status">
+      {% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0" %}
+      <div>
+        <p class="text-base font-semibold">{{ due_note.title }}</p>
+        <p class="text-base">{{ due_note.text }}</p>
+      </div>
+    </div>
+  {% endif %}
+
+  {% if vaccines %}
+    <section aria-labelledby="vaccine-history-title" class="rounded-2xl border border-gray-200 bg-white px-4 shadow-sm">
+      <h2 id="vaccine-history-title" class="pt-4 text-lg font-bold text-gray-900">Vaccine history</h2>
+      <ul class="divide-y divide-gray-100">
+        {% for dose in vaccines %}
+          <li class="flex items-start gap-3 py-4">
+            <span class="grid size-10 shrink-0 place-content-center rounded-xl bg-green-50 text-green-700">{% include "components/icon.html" with name="syringe" class="size-5 shrink-0" %}</span>
+            <div class="min-w-0 flex-1">
+              <p class="text-base font-semibold text-gray-900">{{ dose.name }}</p>
+              <p class="text-base text-gray-700">Given {{ dose.given|date:"M j, Y" }}</p>
+              {% if dose.next %}<p class="mt-1 inline-block rounded-full px-2.5 py-0.5 text-sm font-medium {% if dose.is_due %}bg-orange-100 text-orange-800{% else %}bg-gray-100 text-gray-800{% endif %}">Next: {{ dose.next|date:"M j, Y" }}</p>{% endif %}
+              {% if dose.is_corrected %}
+                <p class="mt-2 flex items-start gap-1.5 rounded-lg bg-gray-50 px-3 py-2 text-base text-gray-700">{% include "components/icon.html" with name="info" class="mt-0.5 size-4 shrink-0" %}<span>Corrected by the clinic</span></p>
+              {% endif %}
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% else %}
+    <div class="rounded-2xl border border-dashed border-gray-300 bg-white">
+      {% include "components/empty_state.html" with icon="syringe" title="No vaccines yet" text="The clinic adds them here after each shot." %}
+    </div>
+  {% endif %}
+</div>

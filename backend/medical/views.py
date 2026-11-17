@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.urls import reverse
 from django.utils import timezone
 
 from .models import MedicalRecord, PrescriptionItem, TestResultFile, Vaccination
@@ -40,8 +41,6 @@ from .utils import (
     visit_for_record,
     visit_stop,
 )
-
-from django.db.models import Prefetch
 
 from accounts.utils import owner_profile_required
 from pets.utils import archived_pet_refusal
@@ -517,39 +516,16 @@ def admin_trigger_followup_reminder(request, pk):
 @owner_profile_required
 def owner_pet_medical_history(request, pk):
     """
-    Pet Owner view — view their pet's medical history.
-    Read-only. The template never shows private_notes, and archived test
-    files never reach it (active_test_files).
+    Old URL kept: the pet's health records now live on the pet profile
+    (Records tab). The same owner checks run, then it redirects (302).
     """
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
     from pets.models import Pet
 
-    owner = request.owner
-    pet = get_object_or_404(Pet, pk=pk, owner=owner, is_archived=False)
-
-    records = (
-        MedicalRecord.objects.filter(pet=pet)
-        .order_by("-record_date")
-        .prefetch_related(
-            "prescription_items",
-            Prefetch(
-                "test_result_files",
-                queryset=TestResultFile.objects.filter(is_archived=False),
-                to_attr="active_test_files",
-            ),
-        )
-    )
-
-    return render(
-        request,
-        "owner/medical/history.html",
-        {
-            "pet": pet,
-            "records": records,
-        },
-    )
+    pet = get_object_or_404(Pet, pk=pk, owner=request.owner, is_archived=False)
+    return redirect(f"{reverse('owner_pet_detail', args=[pet.pk])}?tab=records")
 
 
 @login_required
@@ -579,24 +555,13 @@ def owner_medical_record(request, pet_pk, pk):
 @owner_profile_required
 def owner_vaccination_history(request, pk):
     """
-    Pet Owner view — view their pet's vaccination history.
-    Read-only.
+    Old URL kept: the pet's vaccines now live on the pet profile (Vaccines
+    tab). The same owner checks run, then it redirects (302).
     """
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
     from pets.models import Pet
 
-    owner = request.owner
-    pet = get_object_or_404(Pet, pk=pk, owner=owner, is_archived=False)
-
-    vaccinations = Vaccination.objects.filter(pet=pet).order_by("-date_administered")
-
-    return render(
-        request,
-        "owner/medical/vaccination_history.html",
-        {
-            "pet": pet,
-            "vaccinations": vaccinations,
-        },
-    )
+    pet = get_object_or_404(Pet, pk=pk, owner=request.owner, is_archived=False)
+    return redirect(f"{reverse('owner_pet_detail', args=[pet.pk])}?tab=vaccines")

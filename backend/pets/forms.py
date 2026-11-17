@@ -195,16 +195,24 @@ class PetForm(forms.ModelForm):
         return dob
 
 
-class OwnerPetEditForm(forms.ModelForm):
+class OwnerPetEditForm(ErrorCountMixin, forms.ModelForm):
     """
     Owner pet edit: name, breed, color, weight and photo only. Species,
     sex, birthday and registration no. are not fields here, so a hand-made
     POST can't change them (only the clinic does).
+
+    For a pet whose species is in the list, a form-only breed_choice select
+    (that species' breeds, "Not sure" and "Other (type it)") is added, like
+    the Add pet form; the typed breed box is then used for "Other". The
+    species is never a field. A POST with no breed_choice (no list on the
+    page) keeps the typed breed. The photo can be cleared: the "photo-clear"
+    checkbox of Django's file input.
     """
 
     class Meta:
         model = Pet
         fields = ["name", "breed", "color", "weight", "photo"]
+        labels = {"name": "Pet's name", "weight": "Weight in kg"}
         widgets = {
             "name": forms.TextInput(attrs={"placeholder": "Pet's name"}),
             "breed": forms.TextInput(
@@ -222,6 +230,49 @@ class OwnerPetEditForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         for name in ("breed", "color", "weight", "photo"):
             self.fields[name].required = False
+        if self.instance.pk:
+            # The saved name, before validation changes the pet in memory
+            self.fields["weight"].help_text = (
+                f"The clinic also weighs {self.instance.name} at each visit."
+            )
+        self.listed_species = match_species(self.instance.species)
+        if self.listed_species:
+            self._add_breed_choice()
+
+    def _add_breed_choice(self):
+        """The breed select of the pet's species; initial pick from the saved
+        breed (a saved breed outside the list shows as "Other" and is kept)."""
+        field = _ListChoiceField(
+            label="Breed",
+            required=False,
+            choices=breed_choices(self.listed_species),
+        )
+        field.widget.attrs["data-breed-choice"] = ""
+        self.fields["breed_choice"] = field
+        self.fields["breed"].widget.attrs["data-breed-text"] = ""
+        self.fields["breed"].label = "Type the breed"
+        saved = self.instance.breed
+        picked = match_breed(self.listed_species, saved)
+        if picked:
+            self.initial["breed_choice"] = picked
+            self.initial["breed"] = ""
+        elif saved.strip():
+            self.initial["breed_choice"] = PET_OTHER
+
+    @property
+    def has_breed_list(self):
+        return "breed_choice" in self.fields
+
+    @property
+    def show_breed_text(self):
+        """The typed breed box shows for breed Other, or with no list."""
+        if not self.has_breed_list:
+            return True
+        if self.is_bound:
+            picked = self.data.get(self.add_prefix("breed_choice"), "")
+        else:
+            picked = self.initial.get("breed_choice", "")
+        return picked == PET_OTHER
 
     def clean_name(self):
         value = self.cleaned_data.get("name", "").strip()
@@ -240,6 +291,26 @@ class OwnerPetEditForm(forms.ModelForm):
         if weight is not None and weight <= 0:
             raise forms.ValidationError("Weight must be greater than 0.")
         return weight
+
+    def clean(self):
+        cleaned = super().clean()
+        if not self.has_breed_list or self.add_prefix("breed_choice") not in self.data:
+            return cleaned
+        choice = cleaned.get("breed_choice") or ""
+        if not choice:
+            cleaned["breed"] = ""
+        elif choice == PET_OTHER:
+            cleaned["breed"] = cleaned.get("breed") or ""
+        else:
+            breed = match_breed(self.listed_species, choice)
+            if breed is None:
+                self.add_error(
+                    "breed_choice",
+                    f"Choose a breed for {self.listed_species}, or pick Other.",
+                )
+            else:
+                cleaned["breed"] = breed
+        return cleaned
 
 
 class PetDeletionRequestForm(forms.ModelForm):
