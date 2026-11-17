@@ -8,6 +8,7 @@ from django.db.models import Count, Exists, OuterRef, Prefetch, Q
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
 from django.utils.dateformat import time_format
+from django.utils.text import Truncator
 
 from dashboard.templatetags.friendly_dates import (
     MID_SENTENCE,
@@ -21,7 +22,7 @@ from dashboard.utils import (
     booking_limit,
     resolve_month,
 )
-from notifications.utils import notify
+from notifications.utils import compact_message, notify, when_line
 from pets.models import Pet, PetOwner
 from .models import ClinicSettings, BlockedDate, Appointment
 
@@ -1198,20 +1199,54 @@ def create_walkin_appointment(owner, cleaned_data):
             is_walk_in=True,
         )
     # Absolute date, since the email may be read on another day.
+    when = when_line(appointment.date, appointment.time, timezone.localdate())
     notify(
         recipient=owner.user,
         notification_type="appointment_approved",
         title="Visit booked by the clinic",
-        message=(
-            f"The clinic booked a visit for {appointment.pet.name} on "
-            f"{date_format(appointment.date, 'D, M j')} at "
-            f"{date_format(appointment.time, 'g:i A')}. The time is confirmed."
+        message=compact_message(
+            appointment.pet.name, f"{when}. The time is confirmed."
         ),
         related_appointment=appointment,
         related_pet=appointment.pet,
         email_subject="Visit booked — Hapi Vet",
+        email_body=(
+            f"The clinic booked a visit for {appointment.pet.name} on {when}. "
+            "The time is confirmed."
+        ),
     )
     return appointment
+
+
+# Longest clinic message kept in the compact "request declined" text
+DECLINED_CLAUSE_LENGTH = 100
+
+
+def notify_request_declined(appointment, clinic_message, today):
+    """
+    Tells the owner the clinic declined their request: a compact message
+    ("Choco · Fri, Oct 30 at 1:00 PM. That day is fully booked." with the
+    clinic's own message, trimmed) and the full sentence in the email.
+    """
+    pet = appointment.pet.name
+    when = when_line(appointment.date, appointment.time, today)
+    clause = Truncator(clinic_message).chars(DECLINED_CLAUSE_LENGTH)
+    email_body = (
+        f"Your appointment request for {pet} on {when} was not confirmed by "
+        "the clinic. Please contact the clinic for more information."
+    )
+    if clinic_message:
+        email_body += f" Message from the clinic: {clinic_message}"
+    notify(
+        recipient=appointment.owner.user,
+        notification_type="appointment_rejected",
+        title="Visit request declined",
+        message=compact_message(pet, f"{when}. {clause}" if clause else when),
+        related_appointment=appointment,
+        related_pet=appointment.pet,
+        email_subject="Appointment Update — Hapi Vet",
+        email_body=email_body,
+    )
 
 
 # ── Owner booking: pet picked first (Slice 8a-2a) ────────────────────────────

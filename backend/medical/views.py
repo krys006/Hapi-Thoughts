@@ -83,7 +83,7 @@ def admin_medical_record_create(request, pet_pk):
         if form.is_valid():
             record, created = save_new_record(form, pet, appointment, request.user)
             if created:
-                notify_record_created(record)
+                notify_record_created(record, today)
                 messages.success(request, "Medical record created.")
             else:
                 messages.error(request, RECORD_EXISTS)
@@ -472,7 +472,7 @@ def admin_trigger_vaccination_reminder(request, pk):
             return redirect(back)
 
         # The flash says how it reached the owner (app, email, or why not)
-        level, text = send_vaccination_reminder(vaccination)
+        level, text = send_vaccination_reminder(vaccination, timezone.localdate())
         messages.add_message(request, level, text)
 
     return redirect(back)
@@ -500,7 +500,7 @@ def admin_trigger_followup_reminder(request, pk):
 
     if request.method == "POST":
         if record.follow_up_required:
-            level, text = send_followup_reminder(record)
+            level, text = send_followup_reminder(record, timezone.localdate())
             messages.add_message(request, level, text)
         else:
             messages.error(request, "This record does not have a follow-up scheduled.")

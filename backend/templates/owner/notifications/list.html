@@ -1,0 +1,54 @@
+{% extends 'base_dashboard.html' %}
+
+{% block title %}Notifications — Hapi Vet{% endblock %}
+
+{% block content %}
+
+{# Plain markup only: 8b-9 designs this page. Rows come from owner_notifications_context. #}
+<main>
+  <h1>Notifications</h1>
+
+  {% if unread_count %}
+  <form method="post" action="{% url 'notification_mark_all_read' %}">
+    {% csrf_token %}
+    <input type="hidden" name="return_to" value="page">
+    <button type="submit">Mark all as read</button>
+  </form>
+  {% endif %}
+
+  {% if today_rows %}
+  <section aria-labelledby="notifications-today">
+    <h2 id="notifications-today">Today</h2>
+    <ul>
+      {% for row in today_rows %}
+        {% include 'owner/notifications/_row.html' %}
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  {% if earlier_rows %}
+  <section aria-labelledby="notifications-earlier">
+    <h2 id="notifications-earlier">Earlier</h2>
+    <ul>
+      {% for row in earlier_rows %}
+        {% include 'owner/notifications/_row.html' %}
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  {% if not today_rows and not earlier_rows %}
+  <p>No notifications yet. We will tell you here when the clinic confirms a visit, adds a bill, or a vaccine is due.</p>
+  {% endif %}
+
+  {% if prev_page_query or next_page_query %}
+  <nav aria-label="Pages">
+    {% if prev_page_query %}<a href="{{ prev_page_query }}">Previous</a>{% endif %}
+    <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+    {% if next_page_query %}<a href="{{ next_page_query }}">Next</a>{% endif %}
+  </nav>
+  {% endif %}
+</main>
+
+{% endblock %}

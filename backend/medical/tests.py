@@ -2160,15 +2160,23 @@ class ReminderFlashTests(FrozenMedicalTestBase):
         followup = Notification.objects.get(
             notification_type=Notification.FOLLOWUP_REMINDER
         )
-        self.assertIn("is due on Thursday, November 5, 2026.", vaccination.message)
-        self.assertIn("scheduled for Thursday, November 5, 2026.", followup.message)
-        self.assertNotIn("November 05", vaccination.message + followup.message)
+        # 8a-2b: the full sentences are the email bodies (the app text is
+        # compact: "Bantay · Anti-rabies, due Nov 5", "Bantay · Follow-up on Nov 5")
+        vaccination_email, followup_email = mail.outbox[0].body, mail.outbox[1].body
+        self.assertIn("is due on Thursday, November 5, 2026.", vaccination_email)
+        self.assertIn("scheduled for Thursday, November 5, 2026.", followup_email)
+        self.assertNotIn("November 05", vaccination_email + followup_email)
+        self.assertEqual(vaccination.message, "Bantay · Anti-rabies, due Nov 5")
+        self.assertEqual(followup.message, "Bantay · Follow-up on Nov 5")
 
     def test_record_created_message_uses_a_friendly_date(self):
         url = reverse("admin_medical_record_create", args=[self.pet.pk])
         self.client.post(url, {"record_date": _days(-1).isoformat()})
-        created = Notification.objects.get(title="Medical Record Created")
-        self.assertIn("on Monday, November 2, 2026.", created.message)
+        # 8a-2b: the title was "Medical Record Created"; the long sentence
+        # with the date is the email body now
+        created = Notification.objects.get(title="New medical record")
+        self.assertEqual(created.message, "Bantay · Record for Mon, Nov 2")
+        self.assertIn("on Monday, November 2, 2026.", mail.outbox[-1].body)
 
 
 class LastReminderTests(FrozenMedicalTestBase):

@@ -181,9 +181,12 @@ class RejectTests(AppointmentTestBase):
         # Slice 8a-1b: a decline is stored as DECLINED (was OTHER)
         self.assertEqual(appointment.cancellation_reason, Appointment.DECLINED)
         self.assertEqual(appointment.cancellation_detail, "The vet is away that week.")
+        # 8a-2b: the app text is compact and carries the clinic's message as
+        # its one clause; "Message from the clinic: …" is now in the email
+        self.assertIn("The vet is away that week.", self._owner_notification().message)
         self.assertIn(
             "Message from the clinic: The vet is away that week.",
-            self._owner_notification().message,
+            mail.outbox[-1].body,
         )
 
     def test_without_message_keeps_default_text(self):
@@ -387,9 +390,16 @@ class RescheduleTests(AppointmentTestBase):
         )
         notification = Notification.objects.get(recipient=self.owner.user)
         self.assertEqual(notification.notification_type, "appointment_approved")
-        self.assertEqual(notification.title, "Appointment moved by the clinic")
+        # 8a-2b: short title and compact message (were "Appointment moved by
+        # the clinic" and the full sentence, which is now the email body)
+        self.assertEqual(notification.title, "The clinic moved your visit")
         self.assertEqual(
             notification.message,
+            f"Bantay · now {date_format(self.target, 'D, M j')} at 9:00 AM. "
+            "The new time is confirmed.",
+        )
+        self.assertEqual(
+            mail.outbox[0].body,
             f"Your appointment for Bantay was moved to "
             f"{date_format(self.target, 'D, M j')} at 9:00 AM by the clinic. "
             "The new time is confirmed.",
@@ -1919,8 +1929,13 @@ class WalkInAppointmentCreateTests(FrozenNowTestBase):
         notification = Notification.objects.get(recipient=self.owner.user)
         self.assertEqual(notification.notification_type, "appointment_approved")
         self.assertEqual(notification.title, "Visit booked by the clinic")
+        # 8a-2b: compact message; the full sentence is now the email body
         self.assertEqual(
             notification.message,
+            "Bantay · Mon, Nov 2 at 10:00 AM. The time is confirmed.",
+        )
+        self.assertEqual(
+            mail.outbox[0].body,
             "The clinic booked a visit for Bantay on Mon, Nov 2 at 10:00 AM. "
             "The time is confirmed.",
         )
@@ -5301,8 +5316,11 @@ class DeclinedReasonInUseTests(_OwnerRequestBase):
         notification = Notification.objects.get(
             recipient=self.owner.user, notification_type="appointment_rejected"
         )
-        self.assertEqual(notification.title, "Appointment Not Confirmed")
-        self.assertIn("was not confirmed by the clinic.", notification.message)
+        # 8a-2b: title was "Appointment Not Confirmed"; "was not confirmed by
+        # the clinic." moved to the email body, the app text is compact
+        self.assertEqual(notification.title, "Visit request declined")
+        self.assertIn("Bantay · ", notification.message)
+        self.assertIn("was not confirmed by the clinic.", mail.outbox[-1].body)
 
     def test_owner_visit_page_says_declined_by_the_clinic(self):
         appointment = self._decline()

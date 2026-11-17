@@ -414,6 +414,9 @@ PENDING or CONFIRMED → CANCELLED
 | Mark all as read button | `complete` |
 | In-app notifications always on regardless of email toggles | `complete` |
 | Admin can clear notifications (all, read only) | `complete` |
+| Owner notifications page `/owner/notifications/` (backend and a plain page; Slice 8a-2b): newest first, 25 a page, grouped Today / Earlier by Manila date, unread flagged, one link per row through `notification_open` (no link when there is nowhere to go), "Mark all as read" (`return_to=page`), "See all notifications" link in the bell panel | `complete` |
+| Owner notifications page design (cards with type icon, violet unread, bell badge capped at 9+; `owner_notifications_v1.html`) | `planned` — page in 8b-9 |
+| Owner notifications use a short title and a compact message ("Visit confirmed" / "Bantay · Mon, Nov 2 at 3:00 PM"); the email keeps the full sentence; old rows keep their long text (decision 9) | `complete` |
 
 ### 6.2 Email Notifications (Gmail SMTP)
 | Feature | Status |
@@ -490,6 +493,8 @@ PENDING or CONFIRMED → CANCELLED
 | Upcoming appointments section | `complete` |
 | My pets summary | `complete` |
 | Recent notifications | `complete` |
+| Next visit and the visits after it, Pending or Confirmed only (never Completed or No show); unpaid bills count and total; new-owner state (backend context `owner_dashboard_context`, Slice 8a-2b; no 30-second polling, decision 13) | `complete` |
+| Next visit card, upcoming list, unpaid bills box and new-owner welcome card on the page (`owner_pages_v1.html` frames 1–2) | `planned` — page in 8b-4 |
 | Quick book appointment button | `complete` |
 | Health Library quick access card | `complete` |
 | Clinic info quick access | `complete` |

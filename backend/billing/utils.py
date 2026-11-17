@@ -26,7 +26,7 @@ from appointments.utils import (
     walkin_owner_list,
 )
 from medical.utils import short_date
-from notifications.utils import notify
+from notifications.utils import compact_message, notify
 from pets.models import Pet, PetOwner
 
 from .forms import SERVICE_STATUS_CHOICES, billable_services, peso, service_options
@@ -118,14 +118,24 @@ def mark_receipt_cancelled(receipt):
 
 
 def receipt_paid_title(receipt):
-    """ "Receipt HV-2026-0012 for Bantay" ("Receipt HV-2026-0012" with no pet)."""
-    title = f"Receipt {receipt.receipt_number}"
-    return f"{title} for {receipt.pet.name}" if receipt.pet else title
+    """The owner notification's short title: "Bill paid: ₱1,450.00"."""
+    return f"Bill paid: {peso(receipt.total_amount)}"
+
+
+def receipt_paid_compact(receipt, today):
+    """The compact message: "Bantay · HV-2026-0012. Paid on Fri, Nov 6."
+    (no pet: "HV-2026-0012. Paid on Fri, Nov 6."; the year only when the
+    payment date isn't in this year)."""
+    detail = (
+        f"{receipt.receipt_number}. "
+        f"Paid on {short_date(receipt.payment_date, today)}."
+    )
+    return compact_message(receipt.pet.name if receipt.pet else "", detail)
 
 
 def receipt_paid_message(receipt, today):
     """ "Paid ₱1,450.00 on Fri, Nov 6. You can view or print it in Billing."
-    (the year only when the payment date isn't in this year)."""
+    (the year only when the payment date isn't in this year). The email body."""
     return (
         f"Paid {peso(receipt.total_amount)} on "
         f"{short_date(receipt.payment_date, today)}. "
@@ -139,14 +149,16 @@ def notify_receipt_paid(receipt):
     if not (receipt.owner and receipt.owner.user):
         return
     title = receipt_paid_title(receipt)
+    today = timezone.localdate()
     notify(
         recipient=receipt.owner.user,
         notification_type="billing_generated",
         title=title,
-        message=receipt_paid_message(receipt, timezone.localdate()),
+        message=receipt_paid_compact(receipt, today),
         related_billing=receipt,
         related_pet=receipt.pet,
         email_subject=f"{title} — Hapi Vet",
+        email_body=receipt_paid_message(receipt, today),
     )
 
 

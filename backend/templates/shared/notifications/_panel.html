@@ -53,6 +53,11 @@
       Clear all
     </button>
   </div>
+  {% else %}
+  {# Owners: one link to the full notifications page #}
+  <div class="notification-clear-controls">
+    <a href="{% url 'owner_notifications' %}" class="notification-mark-all-btn">See all notifications</a>
+  </div>
   {% endif %}
 
   <!-- ── Notification List ─────────────────────────────────── -->

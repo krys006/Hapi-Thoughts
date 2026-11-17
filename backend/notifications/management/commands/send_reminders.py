@@ -11,9 +11,10 @@ from medical.utils import (
     VACCINATION_REMINDER_DEFAULT_DAYS,
     active_pet_filter,
     later_dose_exists,
+    message_date,
 )
 from notifications.models import Notification, NotificationPreference
-from notifications.utils import notify
+from notifications.utils import compact_message, notify, short_day, when_line
 
 
 class Command(BaseCommand):
@@ -94,19 +95,26 @@ class Command(BaseCommand):
                 )
                 continue
 
+            # Short title and "Bantay · Tue, Nov 3 at 8:00 AM" in the app; the
+            # email keeps the full sentence
+            when = when_line(appointment.date, appointment.time, today)
+            message = compact_message(appointment.pet.name, when)
             if days_until == 0:
-                title = f"Your appointment is today"
-                message = (
+                title = "Visit today"
+                email_body = (
                     f"Reminder: {appointment.pet.name} has an appointment today "
                     f"at {appointment.time.strftime('%I:%M %p')}. "
                     f"We look forward to seeing you!"
                 )
             else:
-                title = f"Upcoming appointment in {days_until} day{'s' if days_until != 1 else ''}"
-                message = (
+                title = (
+                    "Visit tomorrow"
+                    if days_until == 1
+                    else f"Visit in {days_until} days"
+                )
+                email_body = (
                     f"Reminder: {appointment.pet.name} has an appointment on "
-                    f"{appointment.date.strftime('%B %d, %Y')} "
-                    f"at {appointment.time.strftime('%I:%M %p')}."
+                    f"{when}."
                 )
 
             if self.dry_run:
@@ -123,6 +131,7 @@ class Command(BaseCommand):
                     related_appointment=appointment,
                     related_pet=appointment.pet,
                     email_subject=f"Appointment Reminder — Hapi Vet",
+                    email_body=email_body,
                 )
                 self.stdout.write(
                     f"  SENT: Appointment reminder → {owner_user.email} "
@@ -184,17 +193,22 @@ class Command(BaseCommand):
 
             vaccine_display = vaccination.display_vaccine_name
 
+            # "Bantay · Anti-rabies, due Nov 9" in the app; full sentence by email
+            due = short_day(vaccination.next_due_date, today)
+            message = compact_message(
+                vaccination.pet.name, f"{vaccine_display}, due {due}"
+            )
             if days_until == 0:
-                title = f"Vaccination due today for {vaccination.pet.name}"
-                message = (
+                title = "Vaccine due today"
+                email_body = (
                     f"{vaccination.pet.name}'s {vaccine_display} vaccination "
                     f"is due today. Please contact the clinic to schedule an appointment."
                 )
             else:
-                title = f"Vaccination due in {days_until} day{'s' if days_until != 1 else ''}"
-                message = (
+                title = "Vaccine due soon"
+                email_body = (
                     f"{vaccination.pet.name}'s {vaccine_display} vaccination "
-                    f"is due on {vaccination.next_due_date.strftime('%B %d, %Y')}. "
+                    f"is due on {message_date(vaccination.next_due_date)}. "
                     f"Please contact the clinic to schedule an appointment."
                 )
 
@@ -212,6 +226,7 @@ class Command(BaseCommand):
                     message=message,
                     related_pet=vaccination.pet,
                     email_subject=f"Vaccination Reminder — Hapi Vet",
+                    email_body=email_body,
                 )
                 self.stdout.write(
                     f"  SENT: Vaccination reminder → {owner_user.email} "
@@ -264,19 +279,20 @@ class Command(BaseCommand):
                 )
                 continue
 
+            # "Bantay · Follow-up on Nov 15" in the app; full sentence by email
+            day = short_day(record.follow_up_date, today)
+            message = compact_message(record.pet.name, f"Follow-up on {day}")
             if days_until == 0:
-                title = f"Follow-up appointment today for {record.pet.name}"
-                message = (
+                title = "Follow-up visit today"
+                email_body = (
                     f"{record.pet.name} has a follow-up visit scheduled for today. "
                     f"Please contact the clinic if you have any questions."
                 )
             else:
-                title = (
-                    f"Follow-up appointment in {days_until} days for {record.pet.name}"
-                )
-                message = (
+                title = "Follow-up visit"
+                email_body = (
                     f"{record.pet.name} has a follow-up visit scheduled for "
-                    f"{record.follow_up_date.strftime('%B %d, %Y')}. "
+                    f"{message_date(record.follow_up_date)}. "
                     f"Please contact the clinic to confirm your appointment."
                 )
 
@@ -294,6 +310,7 @@ class Command(BaseCommand):
                     related_appointment=record.appointment,
                     related_pet=record.pet,
                     email_subject=f"Follow-up Reminder — Hapi Vet",
+                    email_body=email_body,
                 )
                 self.stdout.write(
                     f"  SENT: Follow-up reminder → {owner_user.email} "

@@ -1,0 +1,12 @@
+{# One notification: row = a dict from owner_notifications_context. A link only when it leads somewhere. #}
+<li{% if row.is_unread %} data-unread="true"{% endif %}>
+  {% include "components/icon.html" with name=row.icon %}
+  {% if row.target %}
+  <a href="{{ row.target }}">{{ row.title }}</a>
+  {% else %}
+  <strong>{{ row.title }}</strong>
+  {% endif %}
+  {% if row.is_unread %}<span>New</span>{% endif %}
+  <p>{{ row.message }}</p>
+  <time datetime="{{ row.created_at|date:'c' }}">{{ row.created_at|timesince }} ago</time>
+</li>

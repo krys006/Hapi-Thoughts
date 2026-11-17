@@ -5,7 +5,10 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.http import HttpResponse
 from django.utils import timezone
 
+from accounts.utils import owner_profile_required
+
 from .models import Notification
+from .utils import notification_target, owner_notifications_context
 
 from .forms import NotificationPreferenceForm
 
@@ -71,7 +74,9 @@ def notification_mark_all_read(request):
     """
     Marks all unread notifications as read.
     Called via HTMX POST from the Mark All Read button.
-    Returns the full refreshed panel.
+    Returns the full refreshed panel. POST return_to=page (a fixed choice,
+    not a URL) is the owner notifications page's button: it goes back to
+    that page instead.
     """
     if request.method != "POST":
         return HttpResponse(status=405)
@@ -80,6 +85,9 @@ def notification_mark_all_read(request):
         recipient=request.user,
         is_read=False,
     ).update(is_read=True, read_at=timezone.now())
+
+    if request.POST.get("return_to") == "page" and not request.user.is_admin:
+        return redirect("owner_notifications")
 
     # Reload the full panel with updated state
     notifications = Notification.objects.filter(
@@ -157,33 +165,27 @@ def notification_open(request, pk):
 
     notification.mark_as_read()
 
-    # Redirect to the relevant page based on notification type and related objects
-    if notification.related_appointment:
-        if request.user.is_admin:
-            return redirect(
-                "admin_appointment_detail", pk=notification.related_appointment.pk
-            )
-        else:
-            return redirect(
-                "owner_appointment_detail", pk=notification.related_appointment.pk
-            )
+    # The visit, bill or pet it is about (notification_target)
+    target = notification_target(notification)
+    if target:
+        return redirect(target)
 
-    if notification.related_billing:
-        if request.user.is_admin:
-            return redirect("admin_receipt_detail", pk=notification.related_billing.pk)
-        else:
-            return redirect("owner_receipt_detail", pk=notification.related_billing.pk)
-
-    if notification.related_pet:
-        if request.user.is_admin:
-            return redirect("admin_pet_detail", pk=notification.related_pet.pk)
-        else:
-            return redirect("owner_pet_detail", pk=notification.related_pet.pk)
-
-    # Fallback — no related object, go to notifications page
+    # Fallback — no related object, go to the dashboard
     if request.user.is_admin:
         return redirect("admin_dashboard")
     return redirect("owner_dashboard")
+
+
+@login_required
+@owner_profile_required
+def owner_notifications(request):
+    """Pet Owner view — the notifications page opened from the bell."""
+    if request.user.role != "pet_owner":
+        return redirect("admin_dashboard")
+
+    today = timezone.localdate()  # one read of the clock (Manila)
+    context = owner_notifications_context(request.user, request.GET, today)
+    return render(request, "owner/notifications/list.html", context)
 
 
 @login_required

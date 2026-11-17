@@ -2688,9 +2688,13 @@ class AnswerDeletionTests(TestCase):
         answer = self._answers().get()
         self.assertEqual(answer.recipient, self.owner.user)
         self.assertIsNone(answer.related_pet)
-        self.assertEqual(answer.title, "Bantay was removed")
+        # 8a-2b: was "Bantay was removed" and the full sentence (now the email)
+        self.assertEqual(answer.title, "Pet removed")
         self.assertEqual(
-            answer.message,
+            answer.message, "Bantay · Removed from your account, as you asked."
+        )
+        self.assertEqual(
+            mail.outbox[0].body,
             "The clinic removed Bantay from your account, as you asked.",
         )
 
@@ -2699,9 +2703,14 @@ class AnswerDeletionTests(TestCase):
         answer = self._answers().get()
         self.assertEqual(answer.recipient, self.owner.user)
         self.assertEqual(answer.related_pet, self.pet)
-        self.assertEqual(answer.title, "Bantay stays on your account")
+        # 8a-2b: was "Bantay stays on your account" and the full sentence
+        self.assertEqual(answer.title, "Pet stays on your account")
         self.assertEqual(
             answer.message,
+            "Bantay · The clinic kept your pet. Call us if you still want it removed.",
+        )
+        self.assertEqual(
+            mail.outbox[0].body,
             "The clinic kept Bantay on your account. If you still want it "
             "removed, please contact the clinic.",
         )
@@ -2719,7 +2728,8 @@ class AnswerDeletionTests(TestCase):
         self._post()
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["ana@example.com"])
-        self.assertEqual(mail.outbox[0].subject, "Bantay was removed — Hapi Vet")
+        # 8a-2b: the subject follows the new title (was "Bantay was removed")
+        self.assertEqual(mail.outbox[0].subject, "Pet removed — Hapi Vet")
         self.assertTrue(self._answers().get().email_sent)
 
     def test_no_email_still_notifies_in_app(self):
@@ -3021,9 +3031,13 @@ class DirectArchiveTests(TestCase):
         self.assertEqual(Notification.objects.count(), 1)
         self.assertEqual(answer.recipient, self.owner.user)
         self.assertIsNone(answer.related_pet)
-        self.assertEqual(answer.title, "Bantay was removed")
+        # 8a-2b: was "Bantay was removed" and the full sentence (now the email)
+        self.assertEqual(answer.title, "Pet removed")
         self.assertEqual(
-            answer.message,
+            answer.message, "Bantay · Removed by the clinic (duplicate entry)."
+        )
+        self.assertEqual(
+            mail.outbox[0].body,
             "The clinic removed Bantay from your account (reason: duplicate entry).",
         )
 
@@ -3031,7 +3045,8 @@ class DirectArchiveTests(TestCase):
         self._post()
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["ana@example.com"])
-        self.assertEqual(mail.outbox[0].subject, "Bantay was removed — Hapi Vet")
+        # 8a-2b: the subject follows the new title (was "Bantay was removed")
+        self.assertEqual(mail.outbox[0].subject, "Pet removed — Hapi Vet")
 
     def test_no_email_still_notifies_in_app(self):
         owner = _owner(first="Lito", last="Reyes")

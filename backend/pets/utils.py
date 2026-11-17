@@ -18,7 +18,7 @@ from accounts.utils import create_owner_user
 from appointments.models import Appointment
 from appointments.utils import paging_links
 from notifications.models import Notification
-from notifications.utils import notify
+from notifications.utils import compact_message, notify
 
 from .models import Pet, PetDeletionRequest, PetOwner
 
@@ -555,19 +555,26 @@ def notify_deletion_answer(pet, approved):
     answer stays saved. notify() itself records a failed send on the row.
     """
     if approved:
-        title = f"{pet.name} was removed"
-        message = f"The clinic removed {pet.name} from your account, as you asked."
+        title = "Pet removed"
+        message = compact_message(pet.name, "Removed from your account, as you asked.")
+        email_body = f"The clinic removed {pet.name} from your account, as you asked."
     else:
-        title = f"{pet.name} stays on your account"
-        message = (
+        title = "Pet stays on your account"
+        message = compact_message(
+            pet.name, "The clinic kept your pet. Call us if you still want it removed."
+        )
+        email_body = (
             f"The clinic kept {pet.name} on your account. If you still want it "
             "removed, please contact the clinic."
         )
-    _send_removal_notice(pet, title, message, related_pet=None if approved else pet)
+    _send_removal_notice(
+        pet, title, message, email_body, related_pet=None if approved else pet
+    )
 
 
-def _send_removal_notice(pet, title, message, related_pet):
-    """notify() the pet's owner (PET_DELETION_ANSWERED); never raises."""
+def _send_removal_notice(pet, title, message, email_body, related_pet):
+    """notify() the pet's owner (PET_DELETION_ANSWERED): a short title and
+    compact message in the app, the full sentence in the email. Never raises."""
     try:
         notify(
             recipient=pet.owner.user,
@@ -576,6 +583,7 @@ def _send_removal_notice(pet, title, message, related_pet):
             message=message,
             related_pet=related_pet,
             email_subject=f"{title} — Hapi Vet",
+            email_body=email_body,
         )
     except Exception:
         logger.exception("Deletion answer not sent to the owner of pet %s", pet.pk)
@@ -620,7 +628,8 @@ def archive_pet_directly(pet, admin, reason, reason_detail):
     reason_label = deletion_request.get_reason_display().lower()
     _send_removal_notice(
         pet,
-        f"{pet.name} was removed",
+        "Pet removed",
+        compact_message(pet.name, f"Removed by the clinic ({reason_label})."),
         f"The clinic removed {pet.name} from your account (reason: {reason_label}).",
         related_pet=None,
     )

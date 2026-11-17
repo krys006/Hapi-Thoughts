@@ -3207,19 +3207,24 @@ class ReceiptPaidNotificationTests(FrozenBillingTestBase):
         receipt.calculate_totals()
         self._mark_paid(receipt)
         notification = Notification.objects.get()
-        title = f"Receipt {receipt.receipt_number} for Bantay"
+        # 8a-2b: the title was "Receipt HV-… for Bantay" and the message the
+        # full sentence (now the email body)
+        title = "Bill paid: ₱1,250.00"
         self.assertEqual(notification.notification_type, "billing_generated")
         self.assertEqual(notification.title, title)
         # 00:30 Manila on Sat, Nov 7 (still Nov 6 in UTC): paid on Nov 7
         self.assertEqual(
             notification.message,
-            "Paid ₱1,250.00 on Sat, Nov 7. You can view or print it in Billing.",
+            f"Bantay · {receipt.receipt_number}. Paid on Sat, Nov 7.",
         )
         self.assertEqual(notification.related_billing, receipt)
         self.assertEqual(notification.related_pet, self.pet)
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].subject, f"{title} — Hapi Vet")
-        self.assertEqual(mail.outbox[0].body, notification.message)
+        self.assertEqual(
+            mail.outbox[0].body,
+            "Paid ₱1,250.00 on Sat, Nov 7. You can view or print it in Billing.",
+        )
 
     def test_title_without_a_pet(self):
         receipt = BillingReceipt.objects.create(
@@ -3229,11 +3234,13 @@ class ReceiptPaidNotificationTests(FrozenBillingTestBase):
         receipt.calculate_totals()
         self._mark_paid(receipt)
         notification = Notification.objects.get()
-        self.assertEqual(notification.title, f"Receipt {receipt.receipt_number}")
-        self.assertIsNone(notification.related_pet)
+        # 8a-2b: was f"Receipt {number}" (title and subject)
+        self.assertEqual(notification.title, "Bill paid: ₱100.00")
         self.assertEqual(
-            mail.outbox[0].subject, f"Receipt {receipt.receipt_number} — Hapi Vet"
+            notification.message, f"{receipt.receipt_number}. Paid on Sat, Nov 7."
         )
+        self.assertIsNone(notification.related_pet)
+        self.assertEqual(mail.outbox[0].subject, "Bill paid: ₱100.00 — Hapi Vet")
 
     def test_the_year_shows_when_it_isnt_this_year(self):
         receipt = self._receipt(BillingReceipt.PAID)

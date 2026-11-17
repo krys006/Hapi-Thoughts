@@ -14,6 +14,7 @@ from billing.utils import owner_receipts
 from dashboard.utils import (
     dashboard_calendar_context,
     day_schedule,
+    owner_dashboard_context,
     pending_requests,
     picked_day,
 )
@@ -135,31 +136,22 @@ def _run_global_search(query):
 
 def _get_owner_dashboard_context(request):
     """
-    Builds the widget context for the pet owner dashboard.
-    Shared by the full-page view and the HTMX polling partial.
+    Builds the context for the pet owner dashboard: owner_dashboard_context
+    (the new keys) plus the keys the old template reads. The old
+    upcoming_appointments is now the next visit and the ones after it
+    (Pending or Confirmed only, so no Completed or No show visit shows).
     """
-    owner = request.owner
-    today = timezone.localdate()
-
-    upcoming_appointments = (
-        Appointment.objects.filter(owner=owner, date__gte=today)
-        .exclude(status=Appointment.CANCELLED)
-        .select_related("pet", "service")
-        .order_by("date", "time")[:5]
+    now = timezone.localtime()  # one read of the clock (Manila)
+    context = owner_dashboard_context(request.owner, now.date(), now)
+    next_visit = context["next_visit"]
+    context["upcoming_appointments"] = (
+        [next_visit, *context["upcoming"]] if next_visit else []
     )
-
-    my_pets = Pet.objects.filter(owner=owner, is_archived=False).order_by("name")[:6]
-
-    recent_notifications = Notification.objects.filter(
+    context["my_pets"] = context["pets"][:6]
+    context["recent_notifications"] = Notification.objects.filter(
         recipient=request.user,
     ).order_by("is_read", "-created_at")[:5]
-
-    return {
-        "today": today,
-        "upcoming_appointments": upcoming_appointments,
-        "my_pets": my_pets,
-        "recent_notifications": recent_notifications,
-    }
+    return context
 
 
 def _run_owner_search(owner, query):
@@ -322,7 +314,7 @@ def owner_dashboard(request):
 def owner_dashboard_partial(request):
     """
     Returns the owner dashboard widgets block only.
-    Polled automatically every 30s by the block itself.
+    Not polled any more (Slice 8a-2b, decision 13): nothing calls it now.
     """
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")

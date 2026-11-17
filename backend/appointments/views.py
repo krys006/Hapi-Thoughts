@@ -49,6 +49,7 @@ from .utils import (
     list_tabs,
     lock_schedule,
     notify_admin_of_request,
+    notify_request_declined,
     paging_links,
     picked_pet_initial,
     problems_label,
@@ -70,7 +71,7 @@ from .utils import (
 )
 
 from accounts.utils import owner_profile_required
-from notifications.utils import notify
+from notifications.utils import compact_message, notify, when_line
 from dashboard.templatetags.friendly_dates import friendly_date
 from django.contrib.auth import get_user_model
 
@@ -590,17 +591,18 @@ def _too_early_message(appointment):
     )
 
 
-def _notification_when(appointment):
-    """'November 02, 2026 at 02:00 PM', the format of the older owner messages."""
-    return (
-        f"{appointment.date.strftime('%B %d, %Y')} "
-        f"at {appointment.time.strftime('%I:%M %p')}"
-    )
+def _notification_when(appointment, today):
+    """'Mon, Nov 2 at 2:00 PM' (the year when not this year): an absolute
+    date, since an email may be read on another day."""
+    return when_line(appointment.date, appointment.time, today)
 
 
-def _notify_owner(appointment, notification_type, title, message, email_subject):
-    """In-app notification to the appointment's owner, plus email per their
-    preferences (see notifications.utils.notify)."""
+def _notify_owner(
+    appointment, notification_type, title, message, email_subject, email_body=None
+):
+    """In-app notification to the appointment's owner (compact title and
+    message), plus email per their preferences with email_body (the full
+    sentence; see notifications.utils.notify)."""
     notify(
         recipient=appointment.owner.user,
         notification_type=notification_type,
@@ -609,6 +611,7 @@ def _notify_owner(appointment, notification_type, title, message, email_subject)
         related_appointment=appointment,
         related_pet=appointment.pet,
         email_subject=email_subject,
+        email_body=email_body,
     )
 
 
@@ -811,9 +814,10 @@ def admin_appointment_approve(request, pk):
     appointment = get_object_or_404(Appointment, pk=pk)
 
     if request.method == "POST":
+        today = timezone.localdate()  # one read of the clock
         if appointment.status != Appointment.PENDING:
             messages.error(request, "Only pending appointments can be approved.")
-        elif appointment.date < timezone.localdate():
+        elif appointment.date < today:
             messages.error(
                 request,
                 f"This request was for {date_format(appointment.date, 'D, M j')}, "
@@ -823,14 +827,19 @@ def admin_appointment_approve(request, pk):
             appointment.status = Appointment.CONFIRMED
             appointment.save()
 
-            # Notify pet owner of approval
+            # Notify pet owner of approval (compact text; the email keeps
+            # the full sentence)
+            when = _notification_when(appointment, today)
             _notify_owner(
                 appointment,
                 "appointment_approved",
-                "Appointment Confirmed",
-                f"Your appointment for {appointment.pet.name} on "
-                f"{_notification_when(appointment)} has been confirmed.",
+                "Visit confirmed",
+                compact_message(appointment.pet.name, when),
                 "Appointment Confirmed — Hapi Vet",
+                email_body=(
+                    f"Your appointment for {appointment.pet.name} on {when} "
+                    "has been confirmed."
+                ),
             )
 
             messages.success(
@@ -867,23 +876,7 @@ def admin_appointment_reject(request, pk):
             appointment.cancelled_by = request.user
             appointment.save()
 
-            owner_message = (
-                f"Your appointment request for {appointment.pet.name} on "
-                f"{_notification_when(appointment)} "
-                f"was not confirmed by the clinic. "
-                f"Please contact the clinic for more information."
-            )
-            if clinic_message:
-                owner_message += f" Message from the clinic: {clinic_message}"
-
-            # Notify pet owner of rejection
-            _notify_owner(
-                appointment,
-                "appointment_rejected",
-                "Appointment Not Confirmed",
-                owner_message,
-                "Appointment Update — Hapi Vet",
-            )
+            notify_request_declined(appointment, clinic_message, timezone.localdate())
 
             messages.success(
                 request,
@@ -1003,16 +996,7 @@ def admin_appointment_cancel(request, pk):
         appointment.cancelled_by = request.user
         appointment.save()
 
-        # Notify pet owner of cancellation by clinic
-        _notify_owner(
-            appointment,
-            "appointment_cancelled",
-            "Appointment Cancelled by Clinic",
-            f"Your appointment for {appointment.pet.name} on "
-            f"{_notification_when(appointment)} has been cancelled by the clinic. "
-            "Please contact the clinic for more information.",
-            "Appointment Cancelled — Hapi Vet",
-        )
+        _notify_cancelled(appointment, timezone.localdate())
 
         messages.success(
             request,
@@ -1023,18 +1007,41 @@ def admin_appointment_cancel(request, pk):
     return redirect("admin_appointment_detail", pk=pk)
 
 
-def _notify_moved(new_appointment):
+def _notify_cancelled(appointment, today):
+    """Tells the owner the clinic cancelled their visit."""
+    when = _notification_when(appointment, today)
+    _notify_owner(
+        appointment,
+        "appointment_cancelled",
+        "The clinic cancelled a visit",
+        compact_message(
+            appointment.pet.name, f"{when}. Please call us for a new time."
+        ),
+        "Appointment Cancelled — Hapi Vet",
+        email_body=(
+            f"Your appointment for {appointment.pet.name} on {when} "
+            "has been cancelled by the clinic. "
+            "Please contact the clinic for more information."
+        ),
+    )
+
+
+def _notify_moved(new_appointment, today):
     """Tells the owner their visit was moved by the clinic. Absolute date,
     since the email may be read on another day."""
+    when = _notification_when(new_appointment, today)
     _notify_owner(
         new_appointment,
         "appointment_approved",
-        "Appointment moved by the clinic",
-        f"Your appointment for {new_appointment.pet.name} was moved to "
-        f"{date_format(new_appointment.date, 'D, M j')} at "
-        f"{date_format(new_appointment.time, 'g:i A')} by the clinic. "
-        "The new time is confirmed.",
+        "The clinic moved your visit",
+        compact_message(
+            new_appointment.pet.name, f"now {when}. The new time is confirmed."
+        ),
         "Appointment moved — Hapi Vet",
+        email_body=(
+            f"Your appointment for {new_appointment.pet.name} was moved to "
+            f"{when} by the clinic. The new time is confirmed."
+        ),
     )
 
 
@@ -1069,7 +1076,7 @@ def admin_appointment_reschedule(request, pk):
             messages.error(request, "Please correct the errors below.")
             return _render_detail(request, appointment, reschedule_form=form)
 
-        _notify_moved(new_appointment)
+        _notify_moved(new_appointment, timezone.localdate())
         messages.success(
             request,
             f"Rescheduled {new_appointment.pet.name} to "

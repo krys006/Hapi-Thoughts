@@ -19,7 +19,14 @@ from django.utils.dateformat import format as date_format
 from appointments.models import Appointment
 from appointments.utils import get_clinic_settings, paging_links
 from notifications.models import Notification
-from notifications.utils import EMAIL_NO_ADDRESS, EMAIL_OFF, EMAIL_SENT, notify
+from notifications.utils import (
+    EMAIL_NO_ADDRESS,
+    EMAIL_OFF,
+    EMAIL_SENT,
+    compact_message,
+    notify,
+    short_day,
+)
 from pets.models import Pet
 from pets.utils import ARCHIVED_PET, pet_state
 
@@ -225,49 +232,57 @@ def reminder_flash(owner, notification):
     )
 
 
-def send_vaccination_reminder(vaccination):
+def send_vaccination_reminder(vaccination, today):
     """notify() the owner that the next dose is due; reminder_flash's
-    (level, text). Needs a next_due_date (vaccination_reminder_refusal)."""
+    (level, text). Needs a next_due_date (vaccination_reminder_refusal).
+    The app shows "Bantay · Anti-rabies, due Nov 9"; the email, the sentence."""
     pet = vaccination.pet
+    due = short_day(vaccination.next_due_date, today)
     notification = notify(
         recipient=pet.owner.user,
         notification_type=Notification.VACCINATION_REMINDER,
-        title=f"Vaccination Reminder — {pet.name}",
-        message=(
+        title="Vaccine due soon",
+        message=compact_message(
+            pet.name, f"{vaccination.display_vaccine_name}, due {due}"
+        ),
+        related_pet=pet,
+        email_subject="Vaccination Reminder — Hapi Vet",
+        email_body=(
             f"This is a reminder that {pet.name}'s "
             f"{vaccination.display_vaccine_name} vaccination is due on "
             f"{message_date(vaccination.next_due_date)}. "
             f"Please contact the clinic to schedule an appointment."
         ),
-        related_pet=pet,
-        email_subject="Vaccination Reminder — Hapi Vet",
     )
     return reminder_flash(pet.owner, notification)
 
 
-def send_followup_reminder(record):
+def send_followup_reminder(record, today):
     """notify() the owner about the record's follow-up visit;
     reminder_flash's (level, text)."""
     pet = record.pet
     if record.follow_up_date:
-        message = (
+        detail = f"Follow-up on {short_day(record.follow_up_date, today)}"
+        email_body = (
             f"This is a reminder that {pet.name} has a follow-up visit "
             f"scheduled for {message_date(record.follow_up_date)}. "
             f"Please contact the clinic to confirm your appointment."
         )
     else:
-        message = (
+        detail = "A follow-up visit is recommended"
+        email_body = (
             f"This is a reminder that {pet.name} has a follow-up visit "
             f"recommended. Please contact the clinic to schedule."
         )
     notification = notify(
         recipient=pet.owner.user,
         notification_type=Notification.FOLLOWUP_REMINDER,
-        title=f"Follow-up Reminder — {pet.name}",
-        message=message,
+        title="Follow-up visit",
+        message=compact_message(pet.name, detail),
         related_appointment=record.appointment,
         related_pet=pet,
         email_subject="Follow-up Reminder — Hapi Vet",
+        email_body=email_body,
     )
     return reminder_flash(pet.owner, notification)
 
@@ -710,21 +725,26 @@ def record_form_context(pet, appointment, record, today):
     }
 
 
-def notify_record_created(record):
-    """Tell the owner a medical record was written for their pet."""
+def notify_record_created(record, today):
+    """Tell the owner a medical record was written for their pet: a short
+    title and "Bantay · Record for Mon, Nov 2" in the app, the full
+    sentence in the email."""
     pet = record.pet
     notify(
         recipient=pet.owner.user,
         notification_type="appointment_approved",
-        title="Medical Record Created",
-        message=(
-            f"A medical record has been created for {pet.name} "
-            f"on {message_date(record.record_date)}. "
-            f"You can view the details in your pet's medical history."
+        title="New medical record",
+        message=compact_message(
+            pet.name, f"Record for {short_date(record.record_date, today)}"
         ),
         related_appointment=record.appointment,
         related_pet=pet,
         email_subject="Medical Record Created — Hapi Vet",
+        email_body=(
+            f"A medical record has been created for {pet.name} "
+            f"on {message_date(record.record_date)}. "
+            f"You can view the details in your pet's medical history."
+        ),
     )
 
 

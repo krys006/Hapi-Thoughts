@@ -1,8 +1,10 @@
 import re
 from datetime import date, datetime, time, timedelta
 from datetime import timezone as dt_timezone
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
@@ -15,6 +17,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from appointments.models import Appointment
+from appointments.utils import get_clinic_settings
 from billing.models import BillingReceipt, Service
 from dashboard.context_processors import shell
 from dashboard.templatetags.friendly_dates import (
@@ -29,6 +32,7 @@ from dashboard.utils import (
     day_schedule,
     month_cells,
     month_day_counts,
+    owner_dashboard_context,
     pending_requests,
     resolve_month,
     resolve_picked,
@@ -1635,3 +1639,281 @@ class DashboardMarkupTests(DashboardV5TestBase):
             self._html(),
             r'<span id="bell-count" class="rounded-full[^"]*">2 new</span>',
         )
+
+
+# ─── Slice 8a-2b: owner dashboard context ────────────────────────────────────
+
+MANILA = ZoneInfo("Asia/Manila")
+# 00:30 on Tue, Nov 3, 2026 in Manila (still Nov 2 in UTC)
+OWNER_NOW = datetime(2026, 11, 3, 0, 30, tzinfo=MANILA)
+OWNER_TODAY = date(2026, 11, 3)
+
+
+class OwnerDashboardContextTests(DashboardV5TestBase):
+    """owner_dashboard_context(owner, today, now) and the page that uses it."""
+
+    def _owner_context(self, now=OWNER_NOW, owner=None):
+        return owner_dashboard_context(owner or self.owner, now.date(), now)
+
+    def _at(self, day, hour, minute=0):
+        return datetime(2026, 11, day, hour, minute, tzinfo=MANILA)
+
+    def _receipt(self, status, amount, owner=None):
+        number = BillingReceipt.objects.count() + 1
+        return BillingReceipt.objects.create(
+            receipt_number=f"HV-2026-{number:04d}",
+            owner=owner or self.owner,
+            payment_status=status,
+            total_amount=Decimal(amount),
+        )
+
+    def _new_owner(self, name="Ben"):
+        user = User.objects.create_user(
+            username=name.lower(),
+            email=f"{name.lower()}@example.com",
+            password="unused-pass-123",
+            role=User.PET_OWNER,
+            is_onboarded=True,
+        )
+        return PetOwner.objects.create(user=user, first_name=name, last_name="Reyes")
+
+    # next_visit
+
+    def test_next_visit_is_the_soonest_pending_or_confirmed(self):
+        later = self._booking(date(2026, 11, 5), 10, Appointment.CONFIRMED)
+        soon = self._booking(date(2026, 11, 4), 9, Appointment.PENDING)
+        context = self._owner_context()
+        self.assertEqual(context["next_visit"], soon)
+        self.assertIs(context["is_pending"], True)
+        self.assertEqual(context["upcoming"], [later])
+        Appointment.objects.filter(pk=soon.pk).update(status=Appointment.CONFIRMED)
+        context = self._owner_context()
+        self.assertEqual(context["next_visit"], soon)
+        self.assertIs(context["is_pending"], False)
+
+    def test_no_visits_means_no_next_visit(self):
+        context = self._owner_context()
+        self.assertIsNone(context["next_visit"])
+        self.assertIs(context["is_pending"], False)
+        self.assertEqual(context["upcoming"], [])
+        self.assertEqual(context["today"], OWNER_TODAY)
+
+    def test_a_visit_in_progress_is_still_the_next_visit(self):
+        visit = self._booking(OWNER_TODAY, 14, Appointment.CONFIRMED)
+        # No clinic settings: a 60 minute slot, so 14:00 runs to 15:00
+        for now in (self._at(3, 14, 0), self._at(3, 14, 30), self._at(3, 14, 59)):
+            with self.subTest(now=now):
+                self.assertEqual(self._owner_context(now)["next_visit"], visit)
+
+    def test_a_visit_that_just_ended_is_not(self):
+        self._booking(OWNER_TODAY, 14, Appointment.CONFIRMED)
+        evening = self._booking(OWNER_TODAY, 16, Appointment.CONFIRMED)
+        for now in (self._at(3, 15, 0), self._at(3, 15, 1)):
+            with self.subTest(now=now):
+                context = self._owner_context(now)
+                self.assertEqual(context["next_visit"], evening)
+                self.assertEqual(context["upcoming"], [])
+        self.assertIsNone(self._owner_context(self._at(3, 17, 0))["next_visit"])
+
+    def test_the_slot_length_comes_from_the_clinic_settings(self):
+        clinic = get_clinic_settings(create=True)
+        clinic.slot_duration_minutes = 30
+        clinic.save()
+        visit = self._booking(OWNER_TODAY, 14, Appointment.CONFIRMED)
+        self.assertEqual(self._owner_context(self._at(3, 14, 29))["next_visit"], visit)
+        self.assertIsNone(self._owner_context(self._at(3, 14, 30))["next_visit"])
+
+    def test_a_request_for_a_day_that_has_passed_is_not_next(self):
+        self._booking(date(2026, 11, 2), 9, Appointment.PENDING)
+        self.assertIsNone(self._owner_context()["next_visit"])
+
+    def test_another_owners_visits_are_left_out(self):
+        other = self._new_owner()
+        pet = Pet.objects.create(owner=other, name="Rex", species="Dog")
+        Appointment.objects.create(
+            owner=other,
+            pet=pet,
+            date=date(2026, 11, 4),
+            time=time(9, 0),
+            status=Appointment.CONFIRMED,
+        )
+        self.assertIsNone(self._owner_context()["next_visit"])
+        self.assertIsNotNone(self._owner_context(owner=other)["next_visit"])
+
+    # upcoming
+
+    def test_upcoming_is_the_next_three_after_the_next_visit(self):
+        visits = [
+            self._booking(date(2026, 11, 4 + n), 10, Appointment.CONFIRMED)
+            for n in range(6)
+        ]
+        context = self._owner_context()
+        self.assertEqual(context["next_visit"], visits[0])
+        self.assertEqual(context["upcoming"], visits[1:4])
+
+    def test_upcoming_includes_later_visits_today(self):
+        first = self._booking(OWNER_TODAY, 9, Appointment.CONFIRMED)
+        second = self._booking(OWNER_TODAY, 13, Appointment.PENDING)
+        context = self._owner_context(self._at(3, 8, 0))
+        self.assertEqual(context["next_visit"], first)
+        self.assertEqual(context["upcoming"], [second])
+
+    def test_upcoming_never_has_completed_no_show_or_cancelled(self):
+        soon = self._booking(date(2026, 11, 4), 9, Appointment.CONFIRMED)
+        self._booking(date(2026, 11, 5), 9, Appointment.COMPLETED)
+        self._booking(date(2026, 11, 6), 9, Appointment.NO_SHOW)
+        self._booking(date(2026, 11, 7), 9, Appointment.CANCELLED)
+        last = self._booking(date(2026, 11, 8), 9, Appointment.PENDING)
+        context = self._owner_context()
+        self.assertEqual(context["next_visit"], soon)
+        self.assertEqual(context["upcoming"], [last])
+
+    def test_completed_and_no_show_are_never_the_next_visit(self):
+        self._booking(OWNER_TODAY, 9, Appointment.COMPLETED)
+        self._booking(OWNER_TODAY, 10, Appointment.NO_SHOW)
+        context = self._owner_context(self._at(3, 8, 0))
+        self.assertIsNone(context["next_visit"])
+        self.assertEqual(context["upcoming"], [])
+
+    # unpaid
+
+    def test_unpaid_count_and_total_leave_out_paid_and_cancelled(self):
+        self._receipt(BillingReceipt.PENDING, "100.00")
+        self._receipt(BillingReceipt.PENDING, "250.50")
+        self._receipt(BillingReceipt.PAID, "999.00")
+        self._receipt(BillingReceipt.CANCELLED, "888.00")
+        self._receipt(BillingReceipt.PENDING, "70.00", owner=self._new_owner())
+        context = self._owner_context()
+        self.assertEqual(context["unpaid_count"], 2)
+        self.assertEqual(context["unpaid_total"], Decimal("350.50"))
+
+    def test_no_unpaid_bills(self):
+        self._receipt(BillingReceipt.PAID, "100.00")
+        context = self._owner_context()
+        self.assertEqual(context["unpaid_count"], 0)
+        self.assertEqual(context["unpaid_total"], Decimal("0"))
+
+    # new owner, pets, clinic
+
+    def test_a_new_owner_has_no_pets_and_no_visits(self):
+        context = self._owner_context(owner=self._new_owner())
+        self.assertIs(context["is_new_owner"], True)
+        self.assertEqual(context["pets"], [])
+
+    def test_an_owner_with_a_pet_or_a_visit_is_not_new(self):
+        self.assertIs(self._owner_context()["is_new_owner"], False)
+        other = self._new_owner()
+        pet = Pet.objects.create(
+            owner=other, name="Old", species="Cat", is_archived=True
+        )
+        # Only an archived pet and no visits: still a new owner
+        self.assertIs(self._owner_context(owner=other)["is_new_owner"], True)
+        Appointment.objects.create(
+            owner=other,
+            pet=pet,
+            date=date(2026, 11, 1),
+            time=time(9, 0),
+            status=Appointment.CANCELLED,
+        )
+        self.assertIs(self._owner_context(owner=other)["is_new_owner"], False)
+
+    def test_pets_are_not_archived_and_in_name_order(self):
+        Pet.objects.create(owner=self.owner, name="Zed", species="Dog")
+        Pet.objects.create(owner=self.owner, name="Alpha", species="Cat")
+        Pet.objects.create(
+            owner=self.owner, name="Gone", species="Cat", is_archived=True
+        )
+        names = [pet.name for pet in self._owner_context()["pets"]]
+        self.assertEqual(names, ["Alpha", "Bantay", "Zed"])
+
+    def test_clinic_is_the_settings_row_or_none(self):
+        self.assertIsNone(self._owner_context()["clinic"])
+        clinic = get_clinic_settings(create=True)
+        self.assertEqual(self._owner_context()["clinic"], clinic)
+
+    def test_query_count_is_flat(self):
+        def count():
+            with CaptureQueriesContext(connection) as queries:
+                self._owner_context()
+            return len(queries)
+
+        for n in range(3):
+            self._booking(date(2026, 11, 4 + n), 9, Appointment.CONFIRMED)
+            self._receipt(BillingReceipt.PENDING, "10.00")
+        few = count()
+        for n in range(27):
+            self._booking(date(2026, 11, 4 + n % 20), 10, Appointment.CONFIRMED)
+            self._receipt(BillingReceipt.PENDING, "10.00")
+        self.assertEqual(count(), few)
+        self.assertLessEqual(few, 5)
+
+    # the page
+
+    def _page(self):
+        self.client.force_login(self.owner.user)
+        response = self.client.get(reverse("owner_dashboard"))
+        self.assertEqual(response.status_code, 200)
+        return response
+
+    @mock.patch("django.utils.timezone.now", return_value=OWNER_NOW)
+    def test_the_page_keeps_the_old_keys_and_has_the_new_ones(self, _now):
+        visit = self._booking(date(2026, 11, 4), 9, Appointment.PENDING)
+        response = self._page()
+        for key in (
+            "today",
+            "upcoming_appointments",
+            "my_pets",
+            "recent_notifications",
+            "next_visit",
+            "is_pending",
+            "upcoming",
+            "unpaid_count",
+            "unpaid_total",
+            "pets",
+            "is_new_owner",
+            "clinic",
+        ):
+            with self.subTest(key=key):
+                self.assertIn(key, response.context)
+        self.assertEqual(response.context["today"], OWNER_TODAY)
+        self.assertEqual(list(response.context["upcoming_appointments"]), [visit])
+        self.assertEqual([p.name for p in response.context["my_pets"]], ["Bantay"])
+        self.assertContains(response, "Upcoming Appointments")
+
+    @mock.patch("django.utils.timezone.now", return_value=OWNER_NOW)
+    def test_the_old_upcoming_list_no_longer_shows_completed_visits(self, _now):
+        self._booking(OWNER_TODAY, 9, Appointment.COMPLETED)
+        self._booking(OWNER_TODAY, 10, Appointment.NO_SHOW)
+        response = self._page()
+        self.assertEqual(response.context["upcoming_appointments"], [])
+        self.assertContains(response, "No upcoming appointments")
+
+    @mock.patch("django.utils.timezone.now", return_value=OWNER_NOW)
+    def test_the_page_has_no_polling_attributes(self, _now):
+        html = self._page().content.decode()
+        self.assertIn('<div id="owner-dashboard-content">', html)
+        self.assertNotIn("every 30s", html)
+        self.assertNotIn(reverse("owner_dashboard_refresh"), html)
+        start = html.index('id="owner-dashboard-content"')
+        widgets = html[start : html.index('class="owner-bottom-nav"')]
+        # (the Recent Notifications button keeps its click-driven hx-get)
+        self.assertNotIn("hx-trigger", widgets)
+        self.assertNotIn('hx-swap="outerHTML"', widgets)
+
+    @mock.patch("django.utils.timezone.now", return_value=OWNER_NOW)
+    def test_the_page_query_count_is_flat(self, _now):
+        def count():
+            self.client.force_login(self.owner.user)
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.get(reverse("owner_dashboard"))
+            self.assertEqual(response.status_code, 200)
+            return len(queries)
+
+        for n in range(3):
+            self._booking(date(2026, 11, 4 + n), 9, Appointment.CONFIRMED)
+            self._receipt(BillingReceipt.PENDING, "10.00")
+        few = count()
+        for n in range(27):
+            self._booking(date(2026, 11, 4 + n % 20), 10, Appointment.CONFIRMED)
+            self._receipt(BillingReceipt.PENDING, "10.00")
+        self.assertEqual(count(), few)

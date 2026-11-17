@@ -9,13 +9,15 @@ approval helpers query the database.
 import calendar
 import re
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 
-from django.db.models import Count
+from django.db.models import Count, Q, Sum
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
 from appointments.models import Appointment
 from dashboard.templatetags.friendly_dates import long_date_on
+from pets.models import Pet
 
 # Months shown before today's month in the month dropdown.
 CALENDAR_MONTHS_BACK = 3
@@ -280,3 +282,68 @@ def pending_requests():
         .select_related("pet", "owner", "service")
         .order_by("date", "time", "id")
     )
+
+
+# ── Owner dashboard (Slice 8a-2b) ────────────────────────────────────────────
+
+# Visits that are still ahead: waiting for the clinic or confirmed. Completed,
+# no-show and cancelled visits never count as upcoming.
+OWNER_UPCOMING_STATUSES = (Appointment.PENDING, Appointment.CONFIRMED)
+# Visits listed under the next visit
+OWNER_UPCOMING_ROWS = 3
+
+
+def _owner_visits_not_ended(owner, now, minutes):
+    """The owner's Pending / Confirmed visits whose slot hasn't ended
+    (one in progress still counts), soonest first, as a queryset. A slot
+    ends `minutes` after it starts, so it is still going when its start is
+    later than now minus the slot length (Manila date and time)."""
+    cutoff = timezone.localtime(now) - timedelta(minutes=minutes)
+    return Appointment.objects.filter(
+        Q(date__gt=cutoff.date()) | Q(date=cutoff.date(), time__gt=cutoff.time()),
+        owner=owner,
+        status__in=OWNER_UPCOMING_STATUSES,
+    ).select_related("pet", "service")
+
+
+def owner_dashboard_context(owner, today, now):
+    """
+    Context for the owner dashboard: next_visit (the soonest Pending or
+    Confirmed visit whose slot hasn't ended, or None) with is_pending; upcoming
+    (the visits after it, at most 3, never Completed or No show);
+    unpaid_count and unpaid_total (Unpaid receipts); pets (not archived, by
+    name); is_new_owner (no pets and no visits at all); clinic. Four queries
+    (five for an owner with no pets, who is checked for visits) however many
+    visits and receipts.
+    """
+    # Imported here: these modules import this one
+    from appointments.utils import get_clinic_settings
+    from billing.models import BillingReceipt
+    from billing.utils import owner_receipts
+
+    clinic = get_clinic_settings()
+    visits = list(
+        _owner_visits_not_ended(owner, now, slot_minutes(clinic)).order_by(
+            "date", "time", "id"
+        )[: OWNER_UPCOMING_ROWS + 1]
+    )
+    unpaid = owner_receipts(owner).filter(payment_status=BillingReceipt.PENDING)
+    totals = unpaid.aggregate(count=Count("id"), total=Sum("total_amount"))
+    pets = list(Pet.objects.filter(owner=owner, is_archived=False).order_by("name"))
+    next_visit = visits[0] if visits else None
+    return {
+        "today": today,
+        "next_visit": next_visit,
+        "is_pending": bool(next_visit and next_visit.status == Appointment.PENDING),
+        "upcoming": visits[1:],
+        "unpaid_count": totals["count"],
+        "unpaid_total": totals["total"] or Decimal("0"),
+        "pets": pets,
+        "is_new_owner": not pets and not _owner_has_visits(owner),
+        "clinic": clinic,
+    }
+
+
+def _owner_has_visits(owner):
+    """True when the owner has any visit, in any status."""
+    return Appointment.objects.filter(owner=owner).exists()
