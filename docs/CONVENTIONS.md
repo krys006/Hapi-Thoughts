@@ -950,6 +950,10 @@ Loads compiled `app.css`, vendored HTMX, `js/shared/dialogs.js` and
   Pets, Visits, Bills, Account, fixed to the bottom on every width with
   safe-area padding. Flows (booking, onboarding) override `bottom_bar` with
   Back / Next (and `main_padding` if they need other room).
+- Flow frame (booking, Slice 8b-6): top bar with Back, "Book a visit", Cancel,
+  "Step N of 3 · name" and a 3-part `role="progressbar"`; bottom bar with an
+  outline Back and the one violet Next / Send; no bottom tabs. Parts in
+  `owner/booking_parts/`, state in one session draft.
 - Which tab is lit comes from the URL name, in one place: `OWNER_TABS` /
   `owner_tab(url_name)` in `accounts/utils.py`, read by the `owner_active_tab`
   tag (`accounts/templatetags/ui_helpers.py`). Add a new owner URL name there.

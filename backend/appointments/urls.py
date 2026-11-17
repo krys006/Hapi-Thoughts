@@ -104,6 +104,21 @@ urlpatterns = [
         name="owner_book_appointment",
     ),
     path(
+        "owner/appointments/book/time/",
+        views.owner_book_time,
+        name="owner_book_time",
+    ),
+    path(
+        "owner/appointments/book/check/",
+        views.owner_book_check,
+        name="owner_book_check",
+    ),
+    path(
+        "owner/book/sent/<int:pk>/",
+        views.owner_book_sent,
+        name="owner_book_sent",
+    ),
+    path(
         "owner/appointments/<int:pk>/",
         views.owner_appointment_detail,
         name="owner_appointment_detail",

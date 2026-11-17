@@ -369,10 +369,13 @@ def owner_pet_add(request):
             pet = form.save(commit=False)
             pet.owner = pet_owner
             pet.save()
-            messages.success(request, f"{pet.name} has been added.")
             if back_to_booking:
+                messages.success(
+                    request, f"{pet.name} was added. Now pick what the visit is for."
+                )
                 book_url = reverse("owner_book_appointment")
                 return redirect(f"{book_url}?pet={pet.pk}")
+            messages.success(request, f"{pet.name} has been added.")
             return redirect("owner_pet_detail", pk=pet.pk)
 
     else:

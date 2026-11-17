@@ -12,9 +12,6 @@
 {# Back goes to the pet's profile #}
 {% block top_bar %}{% include "layouts/owner_parts/back_bar.html" with url=profile_url label=pet_name %}{% endblock %}
 
-{# Room for the Save bar and the tabs under the page #}
-{% block main_padding %}pb-52{% endblock %}
-
 {% block content %}
 <h1 class="text-2xl font-bold text-gray-900">Edit {{ pet_name }}'s details</h1>
 
@@ -32,7 +29,7 @@
 
 {# The one violet button rides in a bar above the bottom tabs (the tabs are 57 px tall) #}
 {% block bottom_bar %}
-<div class="fixed inset-x-0 bottom-[calc(3.5rem+1px+env(safe-area-inset-bottom))] z-20 border-t border-gray-200 bg-white px-4 py-3">
+<div class="fixed inset-x-0 bottom-[calc(3.5rem+1px+env(safe-area-inset-bottom))] z-20 border-t border-gray-200 bg-white px-4 py-3" data-bar="tall">
   <div class="mx-auto max-w-3xl">
     <button type="submit" form="pet-edit-form" class="flex min-h-14 w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700">{% include "components/icon.html" with name="check" class="size-5 shrink-0" %}Save changes</button>
   </div>

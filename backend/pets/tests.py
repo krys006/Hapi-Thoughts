@@ -5988,7 +5988,12 @@ class AddPetNextBookTests(TestCase):
         self.assertRedirects(
             response, self._book_url(pet), fetch_redirect_response=False
         )
-        self.assertEqual(_messages(response), ["Bantay has been added."])
+        # Slice 8b-6: the booking-mode flash points at the next step (was
+        # "Bantay has been added.")
+        self.assertEqual(
+            _messages(response),
+            ["Bantay was added. Now pick what the visit is for."],
+        )
 
     def test_the_hidden_field_also_counts(self):
         response = self.client.post(self.url, {**self.POST, "next": "book"})
@@ -6975,7 +6980,10 @@ class OwnerAddPetPageTests(TestCase):
                 found = re.findall(VIOLET_BUTTON, html)
                 self.assertEqual(len(found), 1)
                 self.assertIn('type="submit"', found[0])
-                self.assertEqual(html.count("Add pet</button>"), 1)
+                # Slice 8b-6: in booking mode the label is "Save and continue"
+                label = "Save and continue" if query else "Add pet"
+                labelled = re.findall(rf"{label}\s*(?:<svg|</button>)", html)
+                self.assertEqual(len(labelled), 1)
 
     def test_no_inline_script_or_handler_and_one_line_links(self):
         for query in ("", "?next=book"):
@@ -8156,6 +8164,116 @@ class OwnerPetProfilePageTests(TestCase):
                     self.assertNotIn("\n", link)
 
 
+class OwnerBarGapAndPhotoTileTests(TestCase):
+    """Fixes after the browser check: the room under <main> follows the pinned
+    bar (data-bar on the bar, one rule in layouts/owner.html), and a pet photo
+    is clipped to its tile so a missing file shows an empty tile."""
+
+    ONE = "group-has-[[data-bar=one]]/body:pb-[calc(8rem+env(safe-area-inset-bottom))]"
+    TALL = (
+        "group-has-[[data-bar=tall]]/body:pb-[calc(12rem+env(safe-area-inset-bottom))]"
+    )
+
+    def _main_classes(self, html):
+        return re.search(r'<main id="main" class="([^"]*)"', html).group(1)
+
+    def _assert_room(self, html, size):
+        self.assertRegex(html, r'<body class="group/body ')
+        classes = self._main_classes(html)
+        self.assertIn("pb-28", classes)
+        self.assertIn(self.ONE if size == "one" else self.TALL, classes)
+        self.assertRegex(
+            html, rf'<div class="fixed inset-x-0 [^"]*"[^>]*data-bar="{size}"'
+        )
+
+    def _photo_tag(self, html, name):
+        tag = re.search(rf'<img [^>]*alt="Photo of {name}"[^>]*>', html)
+        self.assertIsNotNone(tag, name)
+        return tag.group(0)
+
+    # ── Room under the page ──────────────────────────────────────────────────
+
+    def test_onboarding_steps_leave_room_for_their_bar(self):
+        user = User.objects.create_user(
+            username="newbie",
+            email="newbie@example.com",
+            password="pass-12345-x",
+            role=User.PET_OWNER,
+        )
+        self.client.force_login(user)
+        step1 = reverse("owner_onboarding_step1")
+        step2 = reverse("owner_onboarding_step2")
+        self._assert_room(self.client.get(step1).content.decode(), "one")
+        data = {
+            "first_name": "Ana",
+            "last_name": "Cruz",
+            **OWNER_ADDRESS,
+            **_links_post(),
+        }
+        self.client.post(step1, data)
+        self._assert_room(self.client.get(step2).content.decode(), "tall")
+        self.client.post(
+            step2, {"name": "Snow", "species_choice": "Cat", "gender": "female"}
+        )
+        step3 = self.client.get(reverse("owner_onboarding_step3"))
+        self._assert_room(step3.content.decode(), "one")
+
+    def test_edit_pet_leaves_room_for_the_save_bar_and_the_tabs(self):
+        owner = _login_owner(self)
+        owner.user.is_onboarded = True
+        owner.user.save()
+        pet = _pet(owner, "Bantay", "Dog", "Aspin")
+        html = self.client.get(
+            reverse("owner_pet_edit", args=[pet.pk])
+        ).content.decode()
+        self._assert_room(html, "tall")
+        self.assertIn('<nav aria-label="Main"', html)
+
+    def test_a_tab_page_keeps_the_plain_room(self):
+        owner = _login_owner(self)
+        owner.user.is_onboarded = True
+        owner.user.save()
+        html = self.client.get(reverse("owner_pet_list")).content.decode()
+        self.assertIn("pb-28", self._main_classes(html))
+        self.assertNotIn('data-bar="', html)
+
+    # ── Photo tiles ──────────────────────────────────────────────────────────
+
+    def test_a_photo_is_clipped_to_a_tinted_tile(self):
+        for muted, tint in ((False, "bg-violet-50"), (True, "bg-violet-50")):
+            for size in ("lg", "sm"):
+                with self.subTest(muted=muted, size=size):
+                    html = render_to_string(
+                        "components/pet_avatar.html",
+                        {
+                            "pet": Pet(
+                                name="Browny", species="Dog", photo="pets/x.jpg"
+                            ),
+                            "size": size,
+                            "muted": muted,
+                        },
+                    )
+                    self.assertIn('alt="Photo of Browny"', html)
+                    self.assertIn("overflow-hidden", html)
+                    self.assertIn(tint, html)
+
+    def test_my_pets_profile_and_booking_tiles_clip_a_missing_photo(self):
+        owner = _login_owner(self)
+        owner.user.is_onboarded = True
+        owner.user.save()
+        pet = _pet(owner, "Browny", "Dog", photo="pets/missing.jpg")
+        pages = {
+            "my pets": reverse("owner_pet_list"),
+            "profile": reverse("owner_pet_detail", args=[pet.pk]),
+            "booking": reverse("owner_book_appointment"),
+        }
+        for name, url in pages.items():
+            with self.subTest(page=name):
+                tag = self._photo_tag(self.client.get(url).content.decode(), "Browny")
+                self.assertIn("overflow-hidden", tag)
+                self.assertIn("bg-violet-50", tag)
+
+
 class OwnerPetEditPageTests(TestCase):
     """owner_pet_edit on layouts/owner.html, Pets tab, back bar to the profile."""
 
@@ -8390,3 +8508,73 @@ class OwnerPetEditPageTests(TestCase):
         self.assertEqual(count(), few)
         # (printed so the page total can be written in HANDOFF)
         print(f"\nowner pet edit page queries: {few}")
+
+
+class AddPetBookingModeTests(TestCase):
+    """Slice 8b-6: Add pet with ?next=book says where it goes next (the blue
+    note and "Save and continue"), and booking step 1 opens with the new pet
+    picked and a flash. Without next=book the 8b-3 page is unchanged."""
+
+    POST = {"name": "Bantay", "species_choice": "Dog", "gender": "unknown"}
+
+    def setUp(self):
+        self.owner = _login_owner(self)
+        self.owner.user.is_onboarded = True
+        self.owner.user.save()
+        self.url = reverse("owner_pet_add")
+
+    def _page(self, query=""):
+        return self.client.get(f"{self.url}{query}").content.decode()
+
+    def test_the_note_and_the_button_label_only_in_booking_mode(self):
+        note = "After you save, you'll go back to booking with this pet already picked."
+        booking = self._page("?next=book")
+        self.assertIn(note, booking)
+        self.assertIn("Save and continue", booking)
+        self.assertNotIn("Add pet</button>", booking)
+        for query in ("", "?next=https://example.com/"):
+            with self.subTest(query=query):
+                plain = self._page(query)
+                self.assertNotIn(note, plain)
+                self.assertNotIn("Save and continue", plain)
+                self.assertIn("Add pet</button>", plain)
+
+    def test_the_note_is_a_blue_box_above_the_form(self):
+        html = self._page("?next=book")
+        note = html.index("After you save")
+        box = html.rindex("<div", 0, note)
+        self.assertIn("border-blue-200 bg-blue-50", html[box:note])
+        self.assertLess(note, html.index("<form"))
+
+    def test_still_one_violet_button_in_booking_mode(self):
+        found = re.findall(VIOLET_BUTTON, self._page("?next=book"))
+        self.assertEqual(len(found), 1)
+        self.assertIn('type="submit"', found[0])
+
+    def test_back_on_step_1_with_the_pet_picked_and_the_flash(self):
+        response = self.client.post(f"{self.url}?next=book", self.POST, follow=True)
+        pet = Pet.objects.get(owner=self.owner)
+        self.assertEqual(
+            response.redirect_chain[-1][0],
+            f"{reverse('owner_book_appointment')}?pet={pet.pk}",
+        )
+        self.assertEqual(response.context["form"]["pet"].value(), pet.pk)
+        html = response.content.decode()
+        self.assertIn(
+            '<strong class="font-semibold">Bantay was added.</strong> '
+            "Now pick what the visit is for.",
+            html,
+        )
+        checked = re.findall(r'<input type="radio" name="pet"[^>]*>', html)
+        self.assertEqual(len(checked), 1)
+        self.assertIn(" checked", checked[0])
+
+    def test_without_booking_mode_the_flash_and_page_are_the_old_ones(self):
+        response = self.client.post(self.url, self.POST)
+        pet = Pet.objects.get(owner=self.owner)
+        self.assertRedirects(
+            response,
+            reverse("owner_pet_detail", args=[pet.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(_messages(response), ["Bantay has been added."])

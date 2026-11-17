@@ -1,0 +1,24 @@
+{% comment %}
+  "What is the visit for?": one radio card per bookable service, by name,
+  then "Not sure yet" (saves no service). Needs services, selected_service
+  ("none", a pk as text, or empty) and form.service.errors. The radio sits
+  inside its label; the card and the check circle are its siblings, styled
+  with peer-checked (no :has() needed).
+{% endcomment %}
+<fieldset class="space-y-3">
+  <legend class="text-xl font-bold text-gray-900">What is the visit for?</legend>
+  <p class="text-base text-gray-600">Not sure? Pick "Not sure yet" and Dr. Aga will check.</p>
+  {% for service in services %}
+    <label class="relative block cursor-pointer">
+      <input type="radio" name="service" value="{{ service.pk }}" class="peer sr-only"{% if selected_service == service.pk|stringformat:"s" %} checked{% endif %}>
+      <span class="flex min-h-14 items-center rounded-2xl border border-gray-200 bg-white py-3 pl-4 pr-14 text-base font-semibold text-gray-900 peer-checked:border-violet-500 peer-checked:bg-violet-50 peer-checked:ring-2 peer-checked:ring-violet-200 peer-focus-visible:ring-2 peer-focus-visible:ring-violet-600">{{ service.service_name }}</span>
+      <span class="absolute right-4 top-1/2 grid size-6 -translate-y-1/2 place-content-center rounded-full border-2 border-gray-400 text-transparent peer-checked:border-violet-600 peer-checked:bg-violet-600 peer-checked:text-white" aria-hidden="true">{% include "components/icon.html" with name="check" class="size-4" %}</span>
+    </label>
+  {% endfor %}
+  <label class="relative block cursor-pointer">
+    <input type="radio" name="service" value="none" class="peer sr-only"{% if selected_service == "none" %} checked{% endif %}>
+    <span class="flex min-h-14 items-center rounded-2xl border border-gray-200 bg-white py-3 pl-4 pr-14 text-base font-semibold text-gray-900 peer-checked:border-violet-500 peer-checked:bg-violet-50 peer-checked:ring-2 peer-checked:ring-violet-200 peer-focus-visible:ring-2 peer-focus-visible:ring-violet-600">Not sure yet</span>
+    <span class="absolute right-4 top-1/2 grid size-6 -translate-y-1/2 place-content-center rounded-full border-2 border-gray-400 text-transparent peer-checked:border-violet-600 peer-checked:bg-violet-600 peer-checked:text-white" aria-hidden="true">{% include "components/icon.html" with name="check" class="size-4" %}</span>
+  </label>
+  {% for error in form.service.errors %}{% include "owner/booking_parts/field_error.html" with message=error %}{% endfor %}
+</fieldset>

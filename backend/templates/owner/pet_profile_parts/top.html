@@ -6,7 +6,7 @@
 {% endcomment %}
 <section class="flex flex-col items-center text-center" aria-labelledby="pet-name">
   {% if pet.photo %}
-    <img src="{{ pet.photo.url }}" alt="Photo of {{ pet.name }}" class="size-36 rounded-3xl object-cover shadow-sm ring-1 ring-black/10">
+    <img src="{{ pet.photo.url }}" alt="Photo of {{ pet.name }}" class="size-36 overflow-hidden rounded-3xl bg-violet-50 object-cover shadow-sm ring-1 ring-black/10">
   {% else %}
     <span class="grid size-36 place-content-center rounded-3xl bg-violet-50 text-violet-600 ring-1 ring-violet-200" role="img" aria-label="No photo of {{ pet.name }} yet">{% include "components/icon.html" with name=pet.species|species_icon class="size-20 shrink-0" stroke="1.5" %}</span>
   {% endif %}

@@ -60,6 +60,9 @@ OWNER_TABS = {
     "visits": [
         "owner_appointments",
         "owner_book_appointment",
+        "owner_book_time",
+        "owner_book_check",
+        "owner_book_sent",
         "owner_appointment_detail",
         "owner_appointment_cancel",
         "owner_appointment_reschedule",

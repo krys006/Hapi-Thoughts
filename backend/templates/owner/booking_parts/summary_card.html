@@ -1,0 +1,11 @@
+{% comment %}
+  The chosen pet and service on top of step 2: picture, name, service (or
+  "Not sure yet"). Needs pet and service (None for "Not sure yet").
+{% endcomment %}
+<div class="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3">
+  {% include "components/pet_avatar.html" with pet=pet size="lg" %}
+  <p class="min-w-0 flex-1">
+    <span class="block text-lg font-bold leading-6 text-gray-900">{{ pet.name }}</span>
+    <span class="block text-base text-gray-600">{% if service %}{{ service.service_name }}{% else %}Not sure yet{% endif %}</span>
+  </p>
+</div>

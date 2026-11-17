@@ -14,7 +14,7 @@ from .models import BlockedDate, Appointment
 from .forms import (
     ClinicSettingsForm,
     BlockedDateForm,
-    AppointmentBookingForm,
+    OwnerBookingStepOneForm,
     AppointmentRescheduleForm,
     AppointmentCancellationForm,
     AdminAppointmentNotesForm,
@@ -30,6 +30,14 @@ from .utils import (
     WALKIN_PAGE_SIZE,
     WALKIN_SEARCH_LIMIT,
     SlotTaken,
+    apply_picked_date,
+    bookable_services,
+    booking_cancel_url,
+    booking_data,
+    booking_problem,
+    booking_summary,
+    booking_time_context,
+    clear_booking_draft,
     clinic_hours_line,
     create_owner_booking,
     create_walkin_appointment,
@@ -38,6 +46,7 @@ from .utils import (
     form_with_taken_time,
     get_admin_calendar_context,
     get_available_slots,
+    get_booking_draft,
     get_clinic_settings,
     get_walkin_owner,
     group_by_day,
@@ -50,17 +59,22 @@ from .utils import (
     lock_schedule,
     notify_admin_of_request,
     notify_request_declined,
+    owner_booking_pets,
     paging_links,
-    picked_pet_initial,
+    pick_booking_time,
     problems_label,
     reschedule_by_owner,
     resolve_list_tab,
+    save_booking_draft,
     schedule_warning,
     search_walkin_owners,
     settings_tab,
     settings_tab_errors,
     slot_in_progress,
+    start_booking_draft,
+    step_one_initial,
     tab_counts,
+    time_label,
     unfinished_visits,
     visit_receipt_state,
     visits_on_date,
@@ -321,55 +335,160 @@ def owner_appointment_list(request):
 @owner_profile_required
 def owner_book_appointment(request):
     """
-    Pet Owner view — book a new appointment.
-    On GET: show the booking form.
-    On POST: validate and create the appointment as PENDING.
+    Pet Owner view — booking step 1, "Pet and reason". A plain GET starts a
+    fresh session draft (keeping ?pet=); ?back=1 keeps the draft. POST checks
+    the answers, stores them in the draft and goes to step 2. Nothing is
+    saved to the database before Send (step 3).
     """
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
     owner = request.owner
-
+    draft = get_booking_draft(request.session)
+    pets, services = owner_booking_pets(owner), bookable_services()
     if request.method == "POST":
-        form = AppointmentBookingForm(owner, request.POST)
+        form = OwnerBookingStepOneForm(owner, services, request.POST)
         if form.is_valid():
-            try:
-                appointment = create_owner_booking(owner, form.cleaned_data)
-            except SlotTaken:
-                # Taken since the form was checked: keep every value but the time
-                form = form_with_taken_time(
-                    AppointmentBookingForm,
-                    (owner,),
-                    request.POST,
-                    form.cleaned_data["time"],
-                )
-                messages.error(request, "Please correct the errors below.")
-            else:
-                notify_admin_of_request(appointment)
-                messages.success(
-                    request,
-                    "Appointment request submitted. "
-                    "You will be notified once it is confirmed.",
-                )
-                return redirect("owner_appointment_detail", pk=appointment.pk)
-        else:
-            messages.error(request, "Please correct the errors below.")
+            draft = draft or {}
+            data = form.cleaned_data
+            draft.update(
+                pet=data["pet"].pk, service=data["service"], note=data["reason"]
+            )
+            save_booking_draft(request.session, draft)
+            return redirect("owner_book_time")
     else:
-        # ?pet= starts the form with that pet (one of the owner's own)
-        form = AppointmentBookingForm(
-            owner, initial=picked_pet_initial(owner, request.GET.get("pet"))
+        if request.GET.get("back") != "1" or draft is None:
+            draft = start_booking_draft(request.session, owner, request.GET.get("pet"))
+        form = OwnerBookingStepOneForm(
+            owner, services, initial=step_one_initial(pets, draft)
         )
-
-    clinic = get_clinic_settings()
 
     return render(
         request,
-        "owner/appointments/book.html",
+        "owner/booking/step1.html",
         {
             "form": form,
-            "clinic": clinic,
+            "pets": pets,
+            "services": services,
+            "selected_pet": str(form["pet"].value() or ""),
+            "selected_service": str(form["service"].value() or ""),
+            "cancel_url": booking_cancel_url(draft),
         },
     )
+
+
+def _booking_back(request, draft, problem):
+    """Back to the step a draft problem names, with a plain flash, or with
+    the "was just taken" box (the time cleared, the day kept)."""
+    step, message, taken = problem
+    if taken:
+        draft["taken"] = taken
+        draft.pop("time", None)
+        save_booking_draft(request.session, draft)
+    elif message:
+        messages.warning(request, message)
+    if step == 1:
+        return redirect(f"{reverse('owner_book_appointment')}?back=1")
+    return redirect("owner_book_time")
+
+
+@login_required
+@owner_profile_required
+def owner_book_time(request):
+    """
+    Pet Owner view — booking step 2, "Date and time", without JavaScript:
+    ?month= and ?date= are plain links, the times are radio cards in a POST
+    form. Every visit checks the draft again; a problem goes back to the
+    step that needs it.
+    """
+    if request.user.role != "pet_owner":
+        return redirect("admin_dashboard")
+
+    owner = request.owner
+    now = timezone.localtime()  # the one read of the clock
+    today = now.date()
+    draft = get_booking_draft(request.session)
+    problem = booking_problem(owner, draft, 1, today, now)
+    if problem:
+        return _booking_back(request, draft, problem)
+
+    clinic = get_clinic_settings()  # read once, passed to every helper below
+    if request.method == "POST":
+        errors = pick_booking_time(draft, request.POST, today, now, clinic)
+        if not errors:
+            save_booking_draft(request.session, draft)
+            return redirect("owner_book_check")
+    else:
+        date = request.GET.get("date")
+        errors = {"date": apply_picked_date(draft, date, today, now, clinic)}
+    save_booking_draft(request.session, draft)
+
+    month = request.GET.get("month")
+    context = booking_time_context(draft, month, errors, today, now, clinic)
+    context.update(booking_summary(owner, draft))
+    context["back_url"] = f"{reverse('owner_book_appointment')}?back=1"
+    context["cancel_url"] = booking_cancel_url(draft)
+    return render(request, "owner/booking/step2.html", context)
+
+
+@login_required
+@owner_profile_required
+def owner_book_check(request):
+    """
+    Pet Owner view — booking step 3, "Check and send". GET shows the whole
+    request. POST sends it through the locked create (create_owner_booking):
+    a PENDING visit, the draft cleared, then the "Request sent" page. A POST
+    with no draft (a second tap) creates nothing.
+    """
+    if request.user.role != "pet_owner":
+        return redirect("admin_dashboard")
+
+    owner = request.owner
+    now = timezone.localtime()  # the one read of the clock
+    draft = get_booking_draft(request.session)
+    if request.method == "POST" and draft is None:
+        messages.info(request, "Your request was already sent. It's in your visits.")
+        return redirect("owner_appointments")
+    problem = booking_problem(owner, draft, 2, now.date(), now, get_clinic_settings())
+    if problem:
+        return _booking_back(request, draft, problem)
+    if request.method == "POST":
+        return _send_booking(request, owner, draft)
+
+    context = booking_summary(owner, draft)
+    context["back_url"] = f"{reverse('owner_book_time')}?back=1"
+    context["cancel_url"] = booking_cancel_url(draft)
+    return render(request, "owner/booking/step3.html", context)
+
+
+def _send_booking(request, owner, draft):
+    """Saves the draft as a PENDING visit under the schedule lock. A slot
+    taken meanwhile goes back to step 2 with the red box, nothing saved."""
+    data = booking_data(owner, draft)
+    try:
+        appointment = create_owner_booking(owner, data)
+    except SlotTaken:
+        return _booking_back(request, draft, (2, "", time_label(data["time"])))
+    # After the transaction has committed, never inside it
+    notify_admin_of_request(appointment)
+    clear_booking_draft(request.session)
+    return redirect("owner_book_sent", pk=appointment.pk)
+
+
+@login_required
+@owner_profile_required
+def owner_book_sent(request, pk):
+    """Pet Owner view — "Request sent": the owner's own visit only (404 for
+    anyone else's), with its status as it is now."""
+    if request.user.role != "pet_owner":
+        return redirect("admin_dashboard")
+
+    appointment = get_object_or_404(
+        Appointment.objects.select_related("pet", "service"),
+        pk=pk,
+        owner=request.owner,
+    )
+    return render(request, "owner/booking/sent.html", {"appointment": appointment})
 
 
 @login_required

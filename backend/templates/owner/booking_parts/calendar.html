@@ -1,0 +1,48 @@
+{% comment %}
+  Month calendar for picking a day, without JavaScript: the month arrows and
+  the open days are one-line links (?month=, ?date=). Needs calendar (from
+  booking_calendar: month_label, prev_month, next_month, cells) and
+  date_error. Reusable by the change-time page (8b-7): set date_url to the
+  page's own URL (default: the booking step 2).
+  Cell states: open = link (white, ring); selected = violet; full = gray with
+  a line through it; closed / past = plain gray number; today with no bookings
+  left = ring. Every cell has an aria-label from the helper.
+{% endcomment %}
+{% url 'owner_book_time' as default_url %}
+<section class="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm" aria-labelledby="calendar-month">
+  <div class="mb-3 flex items-center justify-between">
+    {% if calendar.prev_month %}<a href="{{ date_url|default:default_url }}?month={{ calendar.prev_month }}" aria-label="Previous month" class="grid size-11 place-content-center rounded-full text-gray-800 hover:bg-gray-100">{% include "components/icon.html" with name="chevron-left" class="size-6 shrink-0" %}</a>{% else %}<span aria-disabled="true" aria-label="Previous month, not available" class="grid size-11 place-content-center rounded-full text-gray-300">{% include "components/icon.html" with name="chevron-left" class="size-6 shrink-0" %}</span>{% endif %}
+    <p id="calendar-month" class="text-lg font-bold text-gray-900">{{ calendar.month_label }}</p>
+    {% if calendar.next_month %}<a href="{{ date_url|default:default_url }}?month={{ calendar.next_month }}" aria-label="Next month" class="grid size-11 place-content-center rounded-full text-gray-800 hover:bg-gray-100">{% include "components/icon.html" with name="chevron-right" class="size-6 shrink-0" %}</a>{% else %}<span aria-disabled="true" aria-label="Next month, not available" class="grid size-11 place-content-center rounded-full text-gray-300">{% include "components/icon.html" with name="chevron-right" class="size-6 shrink-0" %}</span>{% endif %}
+  </div>
+
+  <div class="grid grid-cols-7 gap-1 text-center text-sm font-semibold text-gray-600" aria-hidden="true">
+    <span class="py-1">Sun</span><span class="py-1">Mon</span><span class="py-1">Tue</span><span class="py-1">Wed</span><span class="py-1">Thu</span><span class="py-1">Fri</span><span class="py-1">Sat</span>
+  </div>
+
+  {# Days of the neighbouring months are left blank so the grid stays in whole weeks #}
+  <div class="mt-1 grid grid-cols-7 gap-1">
+    {% for cell in calendar.cells %}
+      {% if not cell.in_month %}
+        <span class="h-12" aria-hidden="true"></span>
+      {% elif cell.is_current %}
+        <span aria-label="{{ cell.aria_label }}, picked" aria-current="date" class="grid h-12 place-content-center rounded-xl bg-violet-600 text-lg font-semibold text-white">{{ cell.day }}</span>
+      {% elif cell.state == "open" %}
+        <a href="{{ date_url|default:default_url }}?date={{ cell.date.isoformat }}" aria-label="{{ cell.aria_label }}" class="grid h-12 place-content-center rounded-xl bg-white text-lg font-semibold text-gray-900 ring-1 ring-gray-200 hover:ring-violet-400">{{ cell.day }}</a>
+      {% elif cell.state == "full" and not cell.past_cutoff %}
+        <span aria-label="{{ cell.aria_label }}" class="grid h-12 place-content-center rounded-xl bg-gray-100 text-lg text-gray-500 line-through">{{ cell.day }}</span>
+      {% elif cell.is_today %}
+        <span aria-label="{{ cell.aria_label }}" class="grid h-12 place-content-center rounded-xl text-lg text-gray-400 ring-2 ring-gray-300">{{ cell.day }}</span>
+      {% else %}
+        <span aria-label="{{ cell.aria_label }}" class="grid h-12 place-content-center rounded-xl text-lg text-gray-400">{{ cell.day }}</span>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  <div class="mt-4 flex flex-wrap gap-x-4 gap-y-2 border-t border-gray-100 pt-3 text-base text-gray-700">
+    <span class="inline-flex items-center gap-2"><span class="size-4 rounded bg-white ring-1 ring-gray-300"></span>Open</span>
+    <span class="inline-flex items-center gap-2"><span class="size-4 rounded bg-gray-100"></span><span class="line-through">Full</span></span>
+    <span class="inline-flex items-center gap-2"><span class="text-gray-400">00</span>Closed</span>
+  </div>
+</section>
+{% if date_error %}{% include "owner/booking_parts/field_error.html" with message=date_error %}{% endif %}

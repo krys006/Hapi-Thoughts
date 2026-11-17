@@ -1,0 +1,34 @@
+{% extends "layouts/owner.html" %}
+
+{% block title %}Book a visit — Hapi Vet{% endblock %}
+
+{# Booking flow: step progress on top, Back / Next below, no bottom tabs #}
+{% block top_bar %}{% include "owner/booking_parts/top_bar.html" with step=1 step_label="Pet and reason" back_url=cancel_url %}{% endblock %}
+
+{% block content %}
+<h1 class="sr-only">Book a visit: pet and reason</h1>
+
+{% if pets %}
+  {# Without JavaScript this is a plain form; Next is always enabled and a missing answer comes back as a field error #}
+  <form id="booking-form" method="post" action="{% url 'owner_book_appointment' %}" class="space-y-6" novalidate>
+    {% csrf_token %}
+    {% include "owner/booking_parts/pet_cards.html" %}
+    {% include "owner/booking_parts/service_cards.html" %}
+    <section class="space-y-2">
+      <label for="booking-reason" class="block text-xl font-bold text-gray-900">Anything the vet should know? <span class="text-base font-normal text-gray-600">(optional)</span></label>
+      <textarea id="booking-reason" name="reason" rows="4" class="block w-full rounded-xl border border-gray-300 bg-white p-4 text-base text-gray-900 placeholder:text-gray-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200" placeholder="For example: not eating since yesterday, limping on the back leg">{{ form.reason.value|default:"" }}</textarea>
+      {% for error in form.reason.errors %}{% include "owner/booking_parts/field_error.html" with message=error %}{% endfor %}
+    </section>
+  </form>
+{% else %}
+  {% include "owner/booking_parts/no_pets.html" %}
+{% endif %}
+{% endblock %}
+
+{% block bottom_bar %}
+  {% if pets %}
+    {% include "owner/booking_parts/bottom_bar.html" with form_id="booking-form" next_label="Next" next_icon="arrow-right" %}
+  {% else %}
+    {% include "owner/booking_parts/bottom_bar.html" with disabled=True next_label="Next" next_icon="arrow-right" hint="Add a pet to continue" %}
+  {% endif %}
+{% endblock %}

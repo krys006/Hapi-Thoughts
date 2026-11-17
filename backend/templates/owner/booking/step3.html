@@ -1,0 +1,45 @@
+{% extends "layouts/owner.html" %}
+
+{% block title %}Check your request — Hapi Vet{% endblock %}
+
+{% block top_bar %}{% include "owner/booking_parts/top_bar.html" with step=3 step_label="Check and send" %}{% endblock %}
+
+{% block content %}
+<div class="space-y-5">
+  <h1 class="text-xl font-bold text-gray-900">Check your request</h1>
+
+  {# Every answer in one place, each with a Change link back to the step that holds it #}
+  <dl class="divide-y divide-gray-100 rounded-2xl border border-gray-200 bg-white px-4 shadow-sm">
+    <div class="flex items-start gap-3 py-3">
+      <div class="min-w-0 flex-1"><dt class="text-base text-gray-600">Pet</dt><dd class="text-lg font-semibold text-gray-900">{{ pet.name }}</dd></div>
+      <a href="{% url 'owner_book_appointment' %}?back=1" class="inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-base font-medium text-blue-600 hover:underline">{% include "components/icon.html" with name="pencil" class="size-4 shrink-0" %}Change<span class="sr-only"> pet</span></a>
+    </div>
+    <div class="flex items-start gap-3 py-3">
+      <div class="min-w-0 flex-1"><dt class="text-base text-gray-600">Visit for</dt><dd class="text-lg font-semibold text-gray-900">{% if service %}{{ service.service_name }}{% else %}Not sure yet{% endif %}</dd></div>
+      <a href="{% url 'owner_book_appointment' %}?back=1" class="inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-base font-medium text-blue-600 hover:underline">{% include "components/icon.html" with name="pencil" class="size-4 shrink-0" %}Change<span class="sr-only"> what the visit is for</span></a>
+    </div>
+    <div class="flex items-start gap-3 py-3">
+      <div class="min-w-0 flex-1"><dt class="text-base text-gray-600">Day and time</dt><dd class="text-lg font-semibold text-gray-900">{{ when }}</dd></div>
+      <a href="{% url 'owner_book_time' %}?back=1" class="inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-base font-medium text-blue-600 hover:underline">{% include "components/icon.html" with name="pencil" class="size-4 shrink-0" %}Change<span class="sr-only"> day and time</span></a>
+    </div>
+    {% if note %}
+      <div class="flex items-start gap-3 py-3">
+        <div class="min-w-0 flex-1"><dt class="text-base text-gray-600">Note for the vet</dt><dd class="whitespace-pre-line break-words text-lg font-semibold text-gray-900">{{ note }}</dd></div>
+        <a href="{% url 'owner_book_appointment' %}?back=1" class="inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-base font-medium text-blue-600 hover:underline">{% include "components/icon.html" with name="pencil" class="size-4 shrink-0" %}Change<span class="sr-only"> note</span></a>
+      </div>
+    {% endif %}
+  </dl>
+
+  <div class="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-4 text-blue-900">
+    {% include "components/icon.html" with name="info" class="mt-0.5 size-6 shrink-0" %}
+    <p class="text-base">This is a <b>request</b>. The clinic will confirm it, and you'll get a notification when they do.</p>
+  </div>
+
+  {# Nothing is saved until this is posted. A second tap finds no draft and makes nothing. #}
+  <form id="send-form" method="post" action="{% url 'owner_book_check' %}">
+    {% csrf_token %}
+  </form>
+</div>
+{% endblock %}
+
+{% block bottom_bar %}{% include "owner/booking_parts/bottom_bar.html" with form_id="send-form" next_label="Send request" next_icon="send" %}{% endblock %}

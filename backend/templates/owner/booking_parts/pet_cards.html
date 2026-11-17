@@ -1,0 +1,25 @@
+{% comment %}
+  "Which pet is this for?": one radio card per pet (photo or species tile,
+  name, "Species · Breed"), the picked pet checked, then "Add another pet".
+  Works without JavaScript: the checked card is styled with peer-checked.
+  Needs pets (own, not archived), selected_pet (pk as text) and form.pet.errors.
+{% endcomment %}
+<fieldset class="space-y-3">
+  <legend class="mb-3 text-xl font-bold text-gray-900">Which pet is this for?</legend>
+  {% for pet in pets %}
+    {# The radio stays inside the label. The card and the check circle are its siblings, styled with peer-checked, so the picked look needs no :has() #}
+    <label class="relative block cursor-pointer">
+      <input type="radio" name="pet" value="{{ pet.pk }}" class="peer sr-only"{% if selected_pet == pet.pk|stringformat:"s" %} checked{% endif %}>
+      <span class="flex min-h-14 items-center gap-3 rounded-2xl border border-gray-200 bg-white py-3 pl-4 pr-14 peer-checked:border-violet-500 peer-checked:bg-violet-50 peer-checked:ring-2 peer-checked:ring-violet-200 peer-focus-visible:ring-2 peer-focus-visible:ring-violet-600">
+        {% include "components/pet_avatar.html" with pet=pet size="lg" %}
+        <span class="min-w-0 flex-1">
+          <span class="block text-lg font-bold leading-6 text-gray-900">{{ pet.name }}</span>
+          <span class="block text-base text-gray-600">{{ pet.species }}{% if pet.breed %} · {{ pet.breed }}{% endif %}</span>
+        </span>
+      </span>
+      <span class="absolute right-4 top-1/2 grid size-6 -translate-y-1/2 place-content-center rounded-full border-2 border-gray-400 text-transparent peer-checked:border-violet-600 peer-checked:bg-violet-600 peer-checked:text-white" aria-hidden="true">{% include "components/icon.html" with name="check" class="size-4" %}</span>
+    </label>
+  {% endfor %}
+  {% for error in form.pet.errors %}{% include "owner/booking_parts/field_error.html" with message=error %}{% endfor %}
+  <a href="{% url 'owner_pet_add' %}?next=book" class="inline-flex min-h-11 items-center gap-1.5 text-base font-medium text-blue-600 hover:underline">{% include "components/icon.html" with name="plus" class="size-5 shrink-0" %}Add another pet</a>
+</fieldset>

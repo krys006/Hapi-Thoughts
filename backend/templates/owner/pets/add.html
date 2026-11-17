@@ -33,7 +33,12 @@
 
   {% include "owner/pet_form_parts/fields.html" %}
 
-  <button type="submit" class="flex min-h-14 w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700">{% include "components/icon.html" with name="plus" class="size-5 shrink-0" %}Add pet</button>
+  {# In booking mode the button says where it goes next #}
+  {% if next_value %}
+    <button type="submit" class="flex min-h-14 w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700">Save and continue{% include "components/icon.html" with name="arrow-right" class="size-5 shrink-0" %}</button>
+  {% else %}
+    <button type="submit" class="flex min-h-14 w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700">{% include "components/icon.html" with name="plus" class="size-5 shrink-0" %}Add pet</button>
+  {% endif %}
 </form>
 {% endblock %}
 

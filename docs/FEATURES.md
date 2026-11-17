@@ -219,6 +219,10 @@ Phase 7 — Dashboards & Polish
 | Booking lock: owner booking, owner reschedule, walk-in and admin move lock the ClinicSettings row, then check the slot again before saving (no migration; a DB constraint stays in the backlog). Slice 8a-1b | `complete` |
 | Clinic decline is stored as the `declined` cancellation reason (old declines stay `other`, not backfilled): backend done in 8a-1b. The owner wording "Declined by the clinic" vs "Cancelled by the clinic" on the redesigned visit pages comes with 8b | `complete` |
 | View appointment history and current status | `complete` |
+| Book a request in 3 steps (pet and reason, date and time, check and send), then a "Request sent" page; the choices wait in a session draft and nothing is saved until Send (always PENDING, through the locked save). Slice 8b-6 | `complete` |
+| Booking calendar shows open, full and closed days (month arrows, up to the booking limit); times are grouped Morning / Afternoon, taken times are shown but can't be picked. Slice 8b-6 | `complete` |
+| "Not sure yet" as the visit reason (saves no service) | `complete` |
+| No-pet path: step 1 sends the owner to Add a pet in booking mode and back with the new pet picked. Slice 8b-6 | `complete` |
 
 ### 3.3 Appointment Management (Admin)
 | Feature | Status |

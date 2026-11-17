@@ -22,6 +22,13 @@ from django.utils.dateformat import format as date_format
 from appointments.models import Appointment, BlockedDate, ClinicSettings
 from appointments.utils import (
     CLINIC_SETTINGS_DEFAULTS,
+    DAY_FULL_MESSAGE,
+    DAY_GONE_MESSAGE,
+    PET_GONE_MESSAGE,
+    PICK_AGAIN_MESSAGE,
+    SERVICE_GONE_MESSAGE,
+    SERVICE_MISSING_MESSAGE,
+    START_MESSAGE,
     clinic_hours_line,
     get_available_slots,
     get_clinic_settings,
@@ -1531,6 +1538,24 @@ def _manila(hour, minute=0, day=WALK_IN_DAY):
     return datetime.datetime(day.year, day.month, day.day, hour, minute, tzinfo=MANILA)
 
 
+def _book_through_the_steps(client, pet, day, time, reason="", service="none"):
+    """The owner booking in its three steps (Slice 8b-6): step 1 (pet,
+    service, note), the day and time on step 2, Send on step 3. Stops at the
+    first step that answers with a page instead of a redirect (an error) and
+    returns that response; time is "10:00:00"."""
+    response = client.post(
+        reverse("owner_book_appointment"),
+        {"pet": pet.pk, "service": service, "reason": reason},
+    )
+    if response.status_code == 302:
+        response = client.post(
+            reverse("owner_book_time"), {"date": day.isoformat(), "time": time}
+        )
+    if response.status_code == 302:
+        response = client.post(reverse("owner_book_check"))
+    return response
+
+
 class FrozenNowTestBase(AppointmentTestBase):
     """AppointmentTestBase with "now" fixed at NOW (Manila) for every test."""
 
@@ -1665,14 +1690,13 @@ class OwnerSameDayCutoffTests(FrozenNowTestBase):
         self.assertNotContains(response, 'value="09:00:00"')
 
     def _book(self, hour):
+        # Slice 8b-6: the booking is three steps now (was one POST)
         self.client.force_login(self.owner.user)
-        return self.client.post(
-            reverse("owner_book_appointment"),
-            {
-                "pet": self.pet.pk,
-                "date": WALK_IN_DAY.isoformat(),
-                "time": datetime.time(hour, 0).isoformat(),
-            },
+        return _book_through_the_steps(
+            self.client,
+            self.pet,
+            WALK_IN_DAY,
+            datetime.time(hour, 0).isoformat(),
         )
 
     def test_owner_can_book_a_slot_that_has_not_started(self):
@@ -5038,9 +5062,15 @@ class _OwnerRequestBase(AppointmentTestBase):
         return data
 
     def _owner_books(self, **overrides):
+        # Slice 8b-6: the booking is three steps now (was one POST)
         self.client.force_login(self.owner.user)
-        return self.client.post(
-            reverse("owner_book_appointment"), self._booking_data(**overrides)
+        data = self._booking_data(**overrides)
+        return _book_through_the_steps(
+            self.client,
+            self.pet,
+            datetime.date.fromisoformat(data["date"]),
+            data["time"],
+            reason=data["reason"],
         )
 
     def _owner_reschedules(self, appointment, **overrides):
@@ -5127,17 +5157,27 @@ class SlotTakenAtSaveTests(_OwnerRequestBase):
         return mock.patch("appointments.utils.is_slot_available", return_value=False)
 
     def test_owner_booking_comes_back_with_the_time_error(self):
+        # Slice 8b-6: Send comes back to step 2 with the red "was just taken"
+        # box (was: the one form again, with the error on its time field).
+        # Same behaviour: every value kept but the time, nothing saved, the
+        # admin not told.
         with self._taken():
             response = self._owner_books()
-        self.assertEqual(response.status_code, 200)
-        form = response.context["form"]
-        self.assertEqual(form.errors["time"], [self.MESSAGE])
-        self.assertEqual(form.errors.keys(), {"time"})
-        # Every value kept but the time
-        self.assertEqual(form.data["pet"], str(self.pet.pk))
-        self.assertEqual(form.data["date"], self.day.isoformat())
-        self.assertEqual(form.data["reason"], "Limping")
-        self.assertEqual(form.data["time"], "")
+        self.assertRedirects(
+            response, reverse("owner_book_time"), fetch_redirect_response=False
+        )
+        page = self.client.get(reverse("owner_book_time"))
+        self.assertContains(page, "10:00 AM was just taken")
+        self.assertContains(
+            page,
+            "Someone booked it a moment ago. Please pick another time. "
+            "Your other answers are kept.",
+        )
+        draft = self.client.session["owner_booking"]
+        self.assertEqual(draft["pet"], self.pet.pk)
+        self.assertEqual(draft["date"], self.day.isoformat())
+        self.assertEqual(draft["note"], "Limping")
+        self.assertNotIn("time", draft)
         self.assertFalse(Appointment.objects.exists())
         self.assertFalse(Notification.objects.filter(recipient=self.admin).exists())
 
@@ -5655,10 +5695,953 @@ class BookWithPetParamTests(JustAfterMidnightBase):
         self.assertIsNone(self._picked(theirs.pk))
 
     def test_an_archived_pet_is_ignored(self):
+        # Slice 8b-6: a lone pet is pre-picked now, so the owner gets one more
+        # active pet: two remain, and nothing is picked
+        Pet.objects.create(owner=self.owner, name="Choco", species="Dog")
         Pet.objects.filter(pk=self.second.pk).update(is_archived=True)
         self.assertIsNone(self._picked(self.second.pk))
+
+    def test_a_lone_pet_is_pre_picked_and_an_archived_one_never_is(self):
+        Pet.objects.filter(pk=self.second.pk).update(is_archived=True)
+        for value in (None, self.second.pk, "junk"):
+            with self.subTest(value=value):
+                params = {} if value is None else {"pet": value}
+                response = self.client.get(reverse("owner_book_appointment"), params)
+                self.assertEqual(response.context["form"]["pet"].value(), self.pet.pk)
 
     def test_junk_is_ignored(self):
         for value in ("abc", "", "-1", "0", "1.5", "99999999999999999999", "999999"):
             with self.subTest(value=value):
                 self.assertIsNone(self._picked(value))
+
+
+# ─── Slice 8b-6: owner booking in three steps ────────────────────────────────
+
+VIOLET_BUTTON = r"<(?:a|button)\b[^>]*\bbg-violet-600\b[^>]*>"
+# Tuesday, Nov 10, 2026: eight days after the frozen "today" (Mon, Nov 2)
+BOOK_DAY = datetime.date(2026, 11, 10)
+
+
+class _OwnerBookingBase(JustAfterMidnightBase):
+    """Mon, Nov 2, 2026 at 00:30 Manila; the clinic is open every day,
+    8:00-17:00 hourly, for 30 days. The owner is logged in and has one pet
+    (Bantay) and one Active service."""
+
+    def setUp(self):
+        super().setUp()
+        self._owner_logs_in()
+        self.service = Service.objects.create(
+            service_name="Consultation", status=Service.ACTIVE
+        )
+        self.step1 = reverse("owner_book_appointment")
+        self.step1_back = f"{self.step1}?back=1"
+        self.step2 = reverse("owner_book_time")
+        self.step3 = reverse("owner_book_check")
+
+    def _set_draft(self, **changes):
+        """Writes a full draft into the session (a key set to None is left
+        out) and returns it."""
+        draft = {
+            "pet": self.pet.pk,
+            "service": str(self.service.pk),
+            "note": "Limping",
+            "date": BOOK_DAY.isoformat(),
+            "time": "12:00:00",
+        }
+        draft.update(changes)
+        draft = {key: value for key, value in draft.items() if value is not None}
+        session = self.client.session
+        session["owner_booking"] = draft
+        session.save()
+        return draft
+
+    def _draft(self):
+        return self.client.session.get("owner_booking")
+
+    def _html(self, url, **params):
+        return self.client.get(url, params).content.decode()
+
+    def _other_owners_pet(self):
+        user = User.objects.create_user(
+            username="other",
+            email="other@example.com",
+            password="unused-pass-123",
+            role=User.PET_OWNER,
+            is_onboarded=True,
+        )
+        other = PetOwner.objects.create(user=user, first_name="Ben", last_name="Reyes")
+        return Pet.objects.create(owner=other, name="Rex", species="Dog")
+
+    def _hold(self, day, hours, status=Appointment.CONFIRMED):
+        """Visits (by the owner's pet) holding the slots of day at hours."""
+        for hour in hours:
+            Appointment.objects.create(
+                owner=self.owner,
+                pet=self.pet,
+                date=day,
+                time=datetime.time(hour, 0),
+                status=status,
+            )
+
+
+class OwnerBookingDraftTests(_OwnerBookingBase):
+    """The session draft: fresh on a plain GET of step 1, kept with ?back=1,
+    and every step checks the whole draft again."""
+
+    def _assert_back(self, response, url, message):
+        self.assertRedirects(response, url, fetch_redirect_response=False)
+        self.assertEqual(self._messages(response), [message])
+        # A page that shows the flash uses it up, so the next check starts clean
+        self.client.get(reverse("owner_dashboard"))
+
+    # ── Starting and keeping ────────────────────────────────────────────────
+
+    def test_a_plain_get_starts_a_fresh_draft(self):
+        self._set_draft()
+        self.client.get(self.step1)
+        self.assertEqual(self._draft(), {"pet": None, "from_pet": False})
+
+    def test_pet_param_picks_an_own_pet(self):
+        self.client.get(self.step1, {"pet": self.pet.pk})
+        self.assertEqual(self._draft(), {"pet": self.pet.pk, "from_pet": True})
+
+    def test_pet_param_of_another_owner_or_an_archived_pet_is_ignored(self):
+        theirs = self._other_owners_pet()
+        archived = Pet.objects.create(
+            owner=self.owner, name="Old", species="Cat", is_archived=True
+        )
+        for value in (theirs.pk, archived.pk, "junk"):
+            with self.subTest(value=value):
+                self.client.get(self.step1, {"pet": value})
+                self.assertEqual(self._draft(), {"pet": None, "from_pet": False})
+
+    def test_back_keeps_the_draft_and_the_form_shows_it(self):
+        draft = self._set_draft(note="Keep this")
+        response = self.client.get(self.step1, {"back": "1"})
+        self.assertEqual(self._draft(), draft)
+        form = response.context["form"]
+        self.assertEqual(form["pet"].value(), self.pet.pk)
+        self.assertEqual(form["service"].value(), str(self.service.pk))
+        self.assertEqual(form["reason"].value(), "Keep this")
+
+    def test_back_without_a_draft_starts_one(self):
+        self.client.get(self.step1, {"back": "1"})
+        self.assertEqual(self._draft(), {"pet": None, "from_pet": False})
+
+    def test_step_1_post_saves_the_answers_and_keeps_the_day_and_time(self):
+        self._set_draft()
+        response = self.client.post(
+            self.step1, {"pet": self.pet.pk, "service": "none", "reason": "New"}
+        )
+        self.assertRedirects(response, self.step2, fetch_redirect_response=False)
+        draft = self._draft()
+        self.assertEqual((draft["service"], draft["note"]), ("none", "New"))
+        self.assertEqual(draft["date"], BOOK_DAY.isoformat())
+        self.assertEqual(draft["time"], "12:00:00")
+        self.assertFalse(Appointment.objects.exists())
+
+    # ── Every step checks the whole draft again ─────────────────────────────
+
+    def test_no_draft_starts_at_step_1(self):
+        for url in (self.step2, self.step3):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self._assert_back(response, self.step1_back, START_MESSAGE)
+
+    def test_another_owners_pet_and_an_archived_pet_go_back_to_step_1(self):
+        archived = Pet.objects.create(
+            owner=self.owner, name="Old", species="Cat", is_archived=True
+        )
+        for pet in (self._other_owners_pet(), archived):
+            for url in (self.step2, self.step3):
+                with self.subTest(pet=pet.name, url=url):
+                    self._set_draft(pet=pet.pk)
+                    response = self.client.get(url)
+                    self._assert_back(response, self.step1_back, PET_GONE_MESSAGE)
+
+    def test_a_service_that_is_not_bookable_goes_back_to_step_1(self):
+        for status in (Service.DRAFT, Service.UNLISTED, Service.CLOSED):
+            Service.objects.filter(pk=self.service.pk).update(status=status)
+            for url in (self.step2, self.step3):
+                with self.subTest(status=status, url=url):
+                    self._set_draft()
+                    response = self.client.get(url)
+                    self._assert_back(response, self.step1_back, SERVICE_GONE_MESSAGE)
+
+    def test_no_service_answer_goes_back_to_step_1(self):
+        self._set_draft(service=None)
+        response = self.client.get(self.step2)
+        self._assert_back(response, self.step1_back, SERVICE_MISSING_MESSAGE)
+
+    def test_a_day_that_cannot_be_booked_goes_back_to_step_2(self):
+        ClinicSettings.objects.update(working_days=[0, 2, 3, 4, 5, 6])  # no Tuesday
+        closed = (BOOK_DAY.isoformat(), DAY_GONE_MESSAGE)
+        blocked_day = datetime.date(2026, 11, 11)
+        BlockedDate.objects.create(date=blocked_day)
+        full_day = datetime.date(2026, 11, 12)
+        self._hold(full_day, range(8, 17))
+        cases = {
+            "closed": closed,
+            "blocked": (blocked_day.isoformat(), DAY_GONE_MESSAGE),
+            "full": (full_day.isoformat(), DAY_FULL_MESSAGE),
+            "past": ("2026-11-01", DAY_GONE_MESSAGE),
+            "beyond the limit": ("2026-12-03", DAY_GONE_MESSAGE),
+            "not a date": ("junk", PICK_AGAIN_MESSAGE),
+        }
+        for name, (day, message) in cases.items():
+            with self.subTest(case=name):
+                self._set_draft(date=day)
+                self._assert_back(self.client.get(self.step3), self.step2, message)
+                self._assert_back(self.client.post(self.step3), self.step2, message)
+        self.assertFalse(Appointment.objects.filter(status="pending").exists())
+
+    def test_no_time_goes_back_to_step_2(self):
+        self._set_draft(time=None)
+        response = self.client.get(self.step3)
+        self._assert_back(response, self.step2, PICK_AGAIN_MESSAGE)
+
+    def test_a_taken_time_goes_back_to_step_2_with_the_red_box(self):
+        self._hold(BOOK_DAY, [12])
+        self._set_draft()
+        response = self.client.get(self.step3)
+        self.assertRedirects(response, self.step2, fetch_redirect_response=False)
+        self.assertEqual(self._messages(response), [])
+        draft = self._draft()
+        self.assertEqual(draft["taken"], "12:00 PM")
+        self.assertNotIn("time", draft)
+        self.assertContains(self.client.get(self.step2), "12:00 PM was just taken")
+
+    def test_a_time_that_is_not_a_slot_goes_back_to_step_2(self):
+        self._set_draft(time="12:17:00")
+        response = self.client.get(self.step3)
+        self.assertRedirects(response, self.step2, fetch_redirect_response=False)
+        self.assertEqual(len(self._messages(response)), 1)
+
+
+class OwnerBookingStepPagesTests(_OwnerBookingBase):
+    """The three step pages: the flow frame, step 1 cards, the calendar and
+    times, the check page, field errors, markup rules and query counts."""
+
+    def _bar(self, html):
+        return re.search(r'(?s)<header class="sticky.*?</header>', html).group(0)
+
+    def _pages(self):
+        """(name, html) for each booking page with a full draft."""
+        self._set_draft()
+        return [
+            ("step 1", self._html(self.step1, back="1")),
+            ("step 2", self._html(self.step2)),
+            ("step 3", self._html(self.step3)),
+        ]
+
+    # ── The flow frame ──────────────────────────────────────────────────────
+
+    def test_flow_bar_step_names_and_progress_values(self):
+        self._set_draft()
+        cases = [
+            (self.step1_back, 1, "Pet and reason"),
+            (self.step2, 2, "Date and time"),
+            (self.step3, 3, "Check and send"),
+        ]
+        for url, step, name in cases:
+            with self.subTest(step=step):
+                html = self.client.get(url).content.decode()
+                self.assertIn(f"Step {step} of 3</span> · {name}", html)
+                self.assertIn('role="progressbar"', html)
+                self.assertIn('aria-valuemin="1" aria-valuemax="3"', html)
+                self.assertIn(f'aria-valuenow="{step}"', html)
+                bar = re.search(r'(?s)role="progressbar".*?</div>', html).group(0)
+                self.assertEqual(bar.count("bg-violet-600"), step)
+
+    def test_back_and_cancel_links(self):
+        self._set_draft()
+        step1 = self._bar(self._html(self.step1, back="1"))
+        step2 = self._bar(self._html(self.step2))
+        step3 = self._bar(self._html(self.step3))
+        dashboard = reverse("owner_dashboard")
+        pet_page = reverse("owner_pet_detail", args=[self.pet.pk])
+        self.assertIn(f'<a href="{dashboard}" aria-label="Back"', step1)
+        self.assertIn(f'<a href="{self.step1_back}" aria-label="Back"', step2)
+        self.assertIn(f'<a href="{self.step2}?back=1" aria-label="Back"', step3)
+        for bar in (step1, step2, step3):
+            self.assertIn(f'<a href="{dashboard}" class=', bar)
+            self.assertIn(">Cancel</a>", bar)
+        # Started from a pet's page: Cancel goes back there
+        self._set_draft(from_pet=True)
+        bar = self._bar(self._html(self.step2))
+        self.assertIn(f'<a href="{pet_page}" class=', bar)
+        self.assertIn(">Cancel</a>", bar)
+
+    def test_the_bottom_bar_has_back_and_one_violet_next(self):
+        for name, html in self._pages()[1:]:
+            with self.subTest(page=name):
+                bar = re.search(r'(?s)<div class="fixed inset-x-0.*', html).group(0)
+                self.assertRegex(bar, r"(?s)<svg.*?</svg>\s*Back</a>")
+                self.assertEqual(len(re.findall(VIOLET_BUTTON, bar)), 1)
+
+    def test_no_bottom_tabs_during_the_flow(self):
+        self._set_draft()
+        urls = [self.step1_back, self.step2, self.step3]
+        for url in urls:
+            with self.subTest(url=url):
+                html = self.client.get(url).content.decode()
+                self.assertNotIn('<nav aria-label="Main"', html)
+                self.assertNotIn(reverse("owner_billing_list"), html)
+
+    def test_one_violet_button_on_every_page(self):
+        for name, html in self._pages():
+            with self.subTest(page=name):
+                self.assertEqual(len(re.findall(VIOLET_BUTTON, html)), 1)
+
+    def test_one_line_links_no_inline_script_no_htmx_attributes(self):
+        for name, html in self._pages():
+            with self.subTest(page=name):
+                self.assertIsNone(re.search(r"<a\b[^>]*\n", html))
+                for tag in re.findall(r"<script\b[^>]*>", html):
+                    self.assertIn(" src=", tag)
+                self.assertIsNone(re.search(r"\son[a-z]+=", html))
+                for word in ("hx-confirm", "hx-get", "hx-post", "hx-trigger"):
+                    self.assertNotIn(word, html)
+                self.assertNotIn("<!--", html)
+
+    # ── Step 1 ──────────────────────────────────────────────────────────────
+
+    def test_step_1_shows_each_pet_as_a_card_and_picks_one(self):
+        Pet.objects.filter(pk=self.pet.pk).update(breed="Aspin")
+        mingming = Pet.objects.create(owner=self.owner, name="Mingming", species="Cat")
+        archived = Pet.objects.create(
+            owner=self.owner, name="Ghostpet", species="Dog", is_archived=True
+        )
+        theirs = self._other_owners_pet()
+        html = self._html(self.step1, pet=mingming.pk)
+        self.assertIn("Which pet is this for?", html)
+        self.assertIn("Dog · Aspin", html)
+        self.assertIn("Cat</span>", html)
+        for pet in (archived, theirs):
+            self.assertNotIn(pet.name, html)
+        radios = re.findall(r'<input type="radio" name="pet"[^>]*>', html)
+        self.assertEqual(len(radios), 2)
+        checked = [r for r in radios if " checked" in r]
+        self.assertEqual(len(checked), 1)
+        self.assertIn(f'value="{mingming.pk}"', checked[0])
+        add_pet = f'<a href="{reverse("owner_pet_add")}?next=book"'
+        self.assertIn(add_pet, html)
+        self.assertIn("Add another pet</a>", html)
+
+    def test_with_one_pet_that_pet_is_picked_and_is_the_only_choice(self):
+        html = self._html(self.step1)
+        radios = re.findall(r'<input type="radio" name="pet"[^>]*>', html)
+        self.assertEqual(len(radios), 1)
+        self.assertIn(" checked", radios[0])
+
+    def test_with_no_pet_only_the_pet_question_and_a_disabled_next(self):
+        Pet.objects.all().delete()
+        html = self._html(self.step1)
+        self.assertIn("You haven't added a pet yet", html)
+        self.assertIn("Which pet is this for?", html)
+        self.assertNotIn("What is the visit for?", html)
+        self.assertNotIn('id="booking-form"', html)
+        add_pet = f'<a href="{reverse("owner_pet_add")}?next=book"'
+        found = re.findall(VIOLET_BUTTON, html)
+        self.assertEqual(len(found), 1)
+        self.assertIn(add_pet, found[0])
+        self.assertIn("Add a pet</a>", html)
+        self.assertRegex(html, r'<button type="button" disabled[^>]*>\s*Next')
+        self.assertIn("Add a pet to continue", html)
+        self.assertIn("The rest of the booking", html)
+
+    def test_step_1_lists_bookable_services_then_not_sure_yet(self):
+        for name, status in (
+            ("Grooming", Service.ACTIVE),
+            ("Secret draft", Service.DRAFT),
+            ("Unlisted one", Service.UNLISTED),
+            ("Closed one", Service.CLOSED),
+        ):
+            Service.objects.create(service_name=name, status=status)
+        html = self._html(self.step1)
+        names = re.findall(
+            r'<input type="radio" name="service" value="[^"]*"[^>]*>\s*'
+            r'<span class="flex min-h-14[^>]*>([^<]*)</span>',
+            html,
+        )
+        self.assertEqual(names, ["Consultation", "Grooming", "Not sure yet"])
+        self.assertIn('name="service" value="none"', html)
+        self.assertIn('Not sure? Pick "Not sure yet" and Dr. Aga will check.', html)
+
+    def test_step_1_has_the_optional_note(self):
+        html = self._html(self.step1)
+        self.assertIn("Anything the vet should know?", html)
+        self.assertIn("(optional)", html)
+        self.assertIn('<textarea id="booking-reason" name="reason"', html)
+        self.assertIn("For example: not eating since yesterday", html)
+
+    def test_missing_answers_are_field_errors_and_next_stays_enabled(self):
+        no_service = ["Choose what the visit is for."]
+        cases = [
+            ({}, ["Choose a pet.", "Choose what the visit is for."]),
+            ({"pet": self.pet.pk}, no_service),
+            ({"service": "none"}, ["Choose a pet."]),
+            ({"pet": self.pet.pk, "service": "999"}, no_service),
+        ]
+        for data, errors in cases:
+            with self.subTest(data=data):
+                response = self.client.post(self.step1, data)
+                self.assertEqual(response.status_code, 200)
+                html = response.content.decode()
+                for error in errors:
+                    self.assertContains(response, error)
+                self.assertEqual(html.count('role="alert"'), len(errors))
+                self.assertNotIn('<button type="button" disabled', html)
+                self.assertIn('form="booking-form"', html)
+        self.assertFalse(Appointment.objects.exists())
+
+    def test_another_owners_pet_cannot_be_posted(self):
+        theirs = self._other_owners_pet()
+        response = self.client.post(
+            self.step1, {"pet": theirs.pk, "service": "none", "reason": ""}
+        )
+        self.assertContains(response, "Choose a pet.")
+        self.assertNotEqual((self._draft() or {}).get("pet"), theirs.pk)
+
+    def test_a_long_note_is_refused(self):
+        response = self.client.post(
+            self.step1, {"pet": self.pet.pk, "service": "none", "reason": "x" * 1001}
+        )
+        self.assertContains(response, "Please keep the note short")
+
+    # ── Step 2 ──────────────────────────────────────────────────────────────
+
+    def _cell(self, html, day):
+        """The tag of one calendar day, found by its date in the aria-label."""
+        label = date_format(day, "l, F j")
+        return re.search(rf'<(?:a|span)\b[^>]*aria-label="{label}: [^"]*"[^>]*>', html)
+
+    def test_step_2_summary_and_the_pick_a_day_state(self):
+        self._set_draft(date=None, time=None, service="none")
+        html = self._html(self.step2)
+        self.assertIn("Bantay", html)
+        self.assertIn("Not sure yet", html)
+        self.assertIn("Pick a day", html)
+        self.assertIn("You can book up to 30 days ahead.", html)
+        self.assertIn("Pick a day to see the times.", html)
+        self.assertNotIn("Times on", html)
+
+    def test_calendar_days_by_state_with_their_labels(self):
+        ClinicSettings.objects.update(working_days=[0, 1, 2, 3, 4, 5])  # no Sunday
+        self._hold(datetime.date(2026, 11, 12), range(8, 17))
+        self._set_draft(date=None, time=None)
+        html = self._html(self.step2)
+        open_day = self._cell(html, datetime.date(2026, 11, 4)).group(0)
+        self.assertTrue(open_day.startswith("<a href="))
+        self.assertIn(f'href="{self.step2}?date=2026-11-04"', open_day)
+        self.assertIn('aria-label="Wednesday, November 4: open"', open_day)
+        full = self._cell(html, datetime.date(2026, 11, 12)).group(0)
+        self.assertTrue(full.startswith("<span"))
+        self.assertIn("bg-gray-100", full)
+        self.assertIn("line-through", full)
+        self.assertIn("Thursday, November 12: full", full)
+        for day, phrase in (
+            (datetime.date(2026, 11, 8), "clinic closed"),
+            (datetime.date(2026, 11, 1), "not available"),
+        ):
+            with self.subTest(day=day):
+                plain = self._cell(html, day).group(0)
+                self.assertTrue(plain.startswith("<span"))
+                self.assertIn(phrase, plain)
+                self.assertNotIn("href=", plain)
+        for word in ("Sun", "Mon", "Sat", "Open", "Full", "Closed"):
+            self.assertIn(word, html)
+
+    def test_today_past_the_cutoff_is_a_ring_not_a_link(self):
+        self.freeze(_manila(15, 30))
+        self._set_draft(date=None, time=None)
+        html = self._html(self.step2)
+        today = self._cell(html, WALK_IN_DAY).group(0)
+        self.assertTrue(today.startswith("<span"))
+        self.assertIn("ring-2", today)
+        self.assertNotIn("line-through", today)
+        self.assertIn("Monday, November 2: no more bookings today", today)
+
+    def test_the_picked_day_is_violet_and_not_a_link(self):
+        self._set_draft()
+        html = self._html(self.step2)
+        picked = self._cell(html, BOOK_DAY).group(0)
+        self.assertTrue(picked.startswith("<span"))
+        self.assertIn("bg-violet-600", picked)
+        self.assertIn('aria-current="date"', picked)
+
+    def test_month_arrows_are_links_with_disabled_spans_at_the_edges(self):
+        self._set_draft(date=None, time=None)
+        first = self._html(self.step2, month="2026-11")
+        self.assertIn(
+            f'<a href="{self.step2}?month=2026-12" aria-label="Next month"', first
+        )
+        disabled = r'<span aria-disabled="true" aria-label="'
+        self.assertRegex(first, disabled + "Previous month")
+        self.assertNotIn(f'<a href="{self.step2}?month=2026-10"', first)
+        self.assertIn("November 2026", first)
+        last = self._html(self.step2, month="2026-12")
+        self.assertIn(
+            f'<a href="{self.step2}?month=2026-11" aria-label="Previous month"', last
+        )
+        self.assertRegex(last, disabled + "Next month")
+        self.assertIn("December 2026", last)
+        # Before this month and past the limit are clamped, junk opens today's
+        self.assertIn("November 2026", self._html(self.step2, month="2026-01"))
+        self.assertIn("December 2026", self._html(self.step2, month="2030-05"))
+        self.assertIn("November 2026", self._html(self.step2, month="junk"))
+
+    def test_days_after_the_booking_limit_are_not_links(self):
+        self._set_draft(date=None, time=None)
+        html = self._html(self.step2, month="2026-12")
+        self.assertIn("?date=2026-12-02", html)
+        self.assertNotIn("?date=2026-12-03", html)
+        self.assertIn("Thursday, December 3: not available", html)
+
+    def test_times_grouped_morning_and_afternoon_with_taken_not_selectable(self):
+        self._hold(BOOK_DAY, [10])
+        self._set_draft(time="12:00:00")
+        html = self._html(self.step2)
+        self.assertIn("Times on Tue, Nov 10", html)
+        self.assertIn("Each visit is 1 hour.", html)
+        morning, afternoon = html.index("Morning"), html.index("Afternoon")
+        self.assertLess(morning, afternoon)
+        values = re.findall(r'<input type="radio" name="time" value="([^"]+)"', html)
+        self.assertEqual(
+            values,
+            [f"{h:02d}:00:00" for h in (8, 9, 11, 12, 13, 14, 15, 16)],
+        )
+        self.assertLess(html.index('value="11:00:00"'), afternoon)
+        self.assertGreater(html.index('value="12:00:00"'), afternoon)
+        taken = r'(?s)<span class="line-through">10:00 AM</span>.*?Taken'
+        self.assertRegex(html, taken)
+        self.assertNotIn('value="10:00:00"', html)
+        checked = re.findall(r'<input type="radio" name="time"[^>]*checked>', html)
+        self.assertEqual(len(checked), 1)
+        self.assertIn('value="12:00:00"', checked[0])
+        grid = re.findall(r'<div class="grid grid-cols-3 gap-2">', html)
+        self.assertEqual(len(grid), 2)
+
+    def test_the_slot_length_wording(self):
+        self._set_draft()
+        for minutes, phrase in ((60, "1 hour"), (30, "30 minutes"), (120, "2 hours")):
+            with self.subTest(minutes=minutes):
+                ClinicSettings.objects.update(slot_duration_minutes=minutes)
+                self.assertIn(f"Each visit is {phrase}.", self._html(self.step2))
+
+    def test_a_picked_day_goes_in_the_draft_and_clears_the_time(self):
+        self._set_draft()
+        other = datetime.date(2026, 11, 11)
+        html = self._html(self.step2, date=other.isoformat())
+        self.assertIn("Times on Wed, Nov 11", html)
+        draft = self._draft()
+        self.assertEqual(draft["date"], other.isoformat())
+        self.assertNotIn("time", draft)
+
+    def test_a_day_that_is_not_open_in_the_url_shows_the_calendar_and_an_error(self):
+        self._hold(datetime.date(2026, 11, 12), range(8, 17))
+        BlockedDate.objects.create(date=datetime.date(2026, 11, 13))
+        draft = self._set_draft()
+        for value in ("2026-11-01", "2026-11-12", "2026-11-13", "2026-12-03", "junk"):
+            with self.subTest(value=value):
+                response = self.client.get(self.step2, {"date": value})
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, "That day can&#x27;t be booked.")
+                self.assertContains(response, "November 2026")
+                self.assertEqual(self._draft(), draft)
+
+    def test_step_2_post_without_a_time_or_a_day_is_a_field_error(self):
+        self._set_draft(date=None, time=None)
+        response = self.client.post(self.step2, {"date": BOOK_DAY.isoformat()})
+        self.assertContains(response, "Pick a time.")
+        response = self.client.post(self.step2, {"time": "12:00:00"})
+        self.assertContains(response, "Pick a day first.")
+        self.assertIn('form="time-form"', response.content.decode())
+        self.assertNotIn("time", self._draft())
+
+    def test_step_2_post_saves_the_day_and_time_and_goes_to_step_3(self):
+        self._set_draft(date=None, time=None)
+        response = self.client.post(
+            self.step2, {"date": BOOK_DAY.isoformat(), "time": "09:00:00"}
+        )
+        self.assertRedirects(response, self.step3, fetch_redirect_response=False)
+        draft = self._draft()
+        self.assertEqual(draft["date"], BOOK_DAY.isoformat())
+        self.assertEqual(draft["time"], "09:00:00")
+        self.assertFalse(Appointment.objects.exists())
+
+    def test_step_2_post_of_a_taken_time_shows_the_box_and_keeps_the_day(self):
+        self._hold(BOOK_DAY, [9])
+        self._set_draft(time=None)
+        response = self.client.post(
+            self.step2, {"date": BOOK_DAY.isoformat(), "time": "09:00:00"}
+        )
+        self.assertContains(response, "9:00 AM was just taken")
+        self.assertContains(response, "Times on Tue, Nov 10")
+        self.assertNotIn("time", self._draft())
+
+    # ── Step 3 ──────────────────────────────────────────────────────────────
+
+    def test_step_3_rows_change_links_and_the_info_box(self):
+        self._set_draft()
+        html = self._html(self.step3)
+        self.assertIn("Check your request", html)
+        rows = re.findall(r"<dt[^>]*>([^<]*)</dt><dd[^>]*>([^<]*)</dd>", html)
+        self.assertEqual(
+            rows,
+            [
+                ("Pet", "Bantay"),
+                ("Visit for", "Consultation"),
+                ("Day and time", "Tue, Nov 10, 2026 at 12:00 PM"),
+                ("Note for the vet", "Limping"),
+            ],
+        )
+        page = f'<a href="{self.step1}?back=1"'
+        self.assertEqual(html.count(page), 3)  # pet, service, note
+        # Day and time, plus the two Back links
+        self.assertEqual(html.count(f'<a href="{self.step2}?back=1"'), 3)
+        self.assertEqual(html.count("Change<span"), 4)
+        self.assertIn("This is a <b>request</b>.", html)
+        self.assertIn("The clinic will confirm it", html)
+        self.assertIn('form="send-form"', html)
+        self.assertIn("Send request", html)
+
+    def test_step_3_not_sure_yet_and_no_note(self):
+        self._set_draft(service="none", note="")
+        html = self._html(self.step3)
+        rows = re.findall(r"<dt[^>]*>([^<]*)</dt><dd[^>]*>([^<]*)</dd>", html)
+        self.assertIn(("Visit for", "Not sure yet"), rows)
+        self.assertNotIn("Note for the vet", html)
+        self.assertEqual(html.count("Change<span"), 3)
+
+    # ── Query counts ────────────────────────────────────────────────────────
+
+    def _count(self, url, **params):
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(url, params)
+        self.assertEqual(response.status_code, 200)
+        return len(queries)
+
+    def test_every_step_has_a_flat_query_count(self):
+        self._set_draft()
+        urls = {
+            "step 1": (self.step1, {"back": "1"}),
+            "step 2": (self.step2, {"date": BOOK_DAY.isoformat()}),
+            "step 3": (self.step3, {}),
+        }
+        few = {name: self._count(url, **q) for name, (url, q) in urls.items()}
+        for number in range(6):
+            Pet.objects.create(owner=self.owner, name=f"Pet {number}", species="Cat")
+            Service.objects.create(service_name=f"S{number}", status=Service.ACTIVE)
+        self._hold(BOOK_DAY, [8, 9, 10, 14])
+        self._hold(datetime.date(2026, 11, 20), range(8, 17))
+        many = {name: self._count(url, **q) for name, (url, q) in urls.items()}
+        print(f"BOOKING QUERIES (whole request, flat): {many}")
+        self.assertEqual(few, many)
+
+
+class OwnerBookingFixesTests(_OwnerBookingBase):
+    """Fixes after the browser check: the picked look of the radio cards, the
+    room under <main> on every step, and a closed draft day on a step 2 POST."""
+
+    CARD = (
+        "peer-checked:border-violet-500",
+        "peer-checked:bg-violet-50",
+        "peer-checked:ring-2",
+        "peer-checked:ring-violet-200",
+        "peer-focus-visible:ring-2",
+        "peer-focus-visible:ring-violet-600",
+    )
+    CIRCLE = (
+        "peer-checked:border-violet-600",
+        "peer-checked:bg-violet-600",
+        "peer-checked:text-white",
+    )
+    TIME = (
+        "peer-checked:bg-violet-600",
+        "peer-checked:text-white",
+        "peer-checked:ring-violet-600",
+        "peer-focus-visible:ring-2",
+    )
+
+    def _card(self, html, name, value, checked=True):
+        """The classes of the card span that follows a radio inside its label
+        (the check circle's classes too, when it has one)."""
+        flag = " checked" if checked else ""
+        found = re.search(
+            rf'<label class="relative block cursor-pointer">\s*'
+            rf'<input type="radio" name="{name}" value="{value}" '
+            rf'class="peer sr-only"{flag}>\s*<span class="([^"]*)">'
+            rf"(?s:.*?)</label>",
+            html,
+        )
+        self.assertIsNotNone(found, (name, value, checked))
+        return found.group(1), found.group(0)
+
+    def _assert_all(self, classes, wanted):
+        for name in wanted:
+            self.assertIn(name, classes)
+
+    def test_a_server_checked_pet_and_service_are_picked_with_no_script(self):
+        self._set_draft()
+        html = self._html(self.step1, back="1")
+        pet, markup = self._card(html, "pet", self.pet.pk)
+        self._assert_all(pet, self.CARD)
+        self._assert_all(markup, self.CIRCLE)
+        service, markup = self._card(html, "service", self.service.pk)
+        self._assert_all(service, self.CARD)
+        self._assert_all(markup, self.CIRCLE)
+
+    def test_a_card_that_is_not_picked_has_no_checked_attribute(self):
+        mingming = Pet.objects.create(owner=self.owner, name="Mingming", species="Cat")
+        self._set_draft(service="none")
+        html = self._html(self.step1, back="1")
+        self._card(html, "pet", self.pet.pk)
+        self._card(html, "pet", mingming.pk, checked=False)
+        self._card(html, "service", self.service.pk, checked=False)
+        self._card(html, "service", "none")
+
+    def test_the_pet_in_the_url_shows_as_picked(self):
+        mingming = Pet.objects.create(owner=self.owner, name="Mingming", species="Cat")
+        html = self._html(self.step1, pet=mingming.pk)
+        classes, _markup = self._card(html, "pet", mingming.pk)
+        self._assert_all(classes, self.CARD)
+        self._card(html, "pet", self.pet.pk, checked=False)
+
+    def test_the_picked_time_is_filled_violet_and_the_others_are_not(self):
+        self._set_draft(time="12:00:00")
+        html = self._html(self.step2)
+        classes, _markup = self._card(html, "time", "12:00:00")
+        self._assert_all(classes, self.TIME)
+        self._card(html, "time", "13:00:00", checked=False)
+
+    def test_every_step_leaves_room_for_the_bottom_bar(self):
+        self._set_draft()
+        one = "group-has-[[data-bar=one]]/body:pb-[calc(8rem+env(safe-area-inset-bottom))]"
+        for url in (self.step1_back, self.step2, self.step3):
+            with self.subTest(url=url):
+                html = self._html(url)
+                main = re.search(r'<main id="main" class="([^"]*)"', html).group(1)
+                self.assertIn("pb-28", main)
+                self.assertIn(one, main)
+                self.assertRegex(html, r'<body class="group/body ')
+                self.assertRegex(
+                    html, r'<div class="fixed inset-x-0 [^"]*"[^>]*data-bar="one"'
+                )
+                self.assertNotRegex(main, r"\bpb-40\b")
+
+    def test_a_post_for_a_draft_day_that_has_since_closed_shows_the_not_open_error(
+        self,
+    ):
+        self._set_draft(time=None)
+        BlockedDate.objects.create(date=BOOK_DAY)
+        draft = self._draft()
+        cases = (
+            {"date": BOOK_DAY.isoformat()},
+            {"date": BOOK_DAY.isoformat(), "time": "12:00:00"},
+        )
+        for data in cases:
+            with self.subTest(data=data):
+                response = self.client.post(self.step2, data)
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, "That day can&#x27;t be booked.")
+                self.assertContains(response, "November 2026")
+                self.assertNotContains(response, "Pick a time.")
+                self.assertEqual(self._draft(), draft)
+
+    def test_a_post_without_a_time_on_an_open_day_still_says_pick_a_time(self):
+        self._set_draft(time=None)
+        response = self.client.post(self.step2, {"date": BOOK_DAY.isoformat()})
+        self.assertContains(response, "Pick a time.")
+        self.assertNotContains(response, "That day can&#x27;t be booked.")
+
+
+class OwnerBookingSendTests(_OwnerBookingBase):
+    """Send: one PENDING visit through the locked create, a taken slot comes
+    back to step 2, a second tap makes nothing, and the sent page."""
+
+    def _send(self):
+        return self.client.post(self.step3)
+
+    def test_send_creates_exactly_one_pending_visit_and_clears_the_draft(self):
+        self._set_draft()
+        response = self._send()
+        visit = Appointment.objects.get()
+        self.assertRedirects(
+            response,
+            reverse("owner_book_sent", args=[visit.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(visit.status, Appointment.PENDING)
+        self.assertEqual(visit.owner, self.owner)
+        self.assertEqual(visit.pet, self.pet)
+        self.assertEqual(visit.service, self.service)
+        self.assertEqual(visit.date, BOOK_DAY)
+        self.assertEqual(visit.time, datetime.time(12, 0))
+        self.assertEqual(visit.reason, "Limping")
+        self.assertFalse(visit.is_walk_in)
+        self.assertIsNone(self._draft())
+
+    def test_not_sure_yet_saves_no_service(self):
+        self._set_draft(service="none", note="")
+        self._send()
+        visit = Appointment.objects.get()
+        self.assertIsNone(visit.service)
+        self.assertEqual(visit.reason, "")
+
+    def test_the_admin_is_told_as_before(self):
+        self._set_draft()
+        self._send()
+        visit = Appointment.objects.get()
+        notice = Notification.objects.get(recipient=self.admin)
+        self.assertEqual(notice.related_appointment, visit)
+        self.assertEqual(
+            Notification.objects.filter(recipient=self.owner.user).count(), 0
+        )
+
+    def test_send_goes_through_the_lock_and_checks_the_slot_again(self):
+        self._set_draft()
+        real = is_slot_available
+        with mock.patch("appointments.utils.lock_schedule") as lock:
+            with mock.patch(
+                "appointments.utils.is_slot_available", side_effect=real
+            ) as check:
+                self._send()
+        lock.assert_called_once_with()
+        check.assert_called_once_with(BOOK_DAY, datetime.time(12, 0))
+        self.assertEqual(Appointment.objects.count(), 1)
+
+    def test_a_slot_taken_at_the_lock_goes_back_to_step_2_with_the_box(self):
+        self._set_draft()
+        with mock.patch("appointments.utils.is_slot_available", return_value=False):
+            response = self._send()
+        self.assertRedirects(response, self.step2, fetch_redirect_response=False)
+        self.assertFalse(Appointment.objects.exists())
+        self.assertFalse(Notification.objects.filter(recipient=self.admin).exists())
+        page = self.client.get(self.step2)
+        self.assertContains(page, "12:00 PM was just taken")
+        self.assertContains(page, "Times on Tue, Nov 10")
+        draft = self._draft()
+        self.assertNotIn("time", draft)
+        self.assertEqual(
+            (draft["pet"], draft["service"], draft["note"], draft["date"]),
+            (self.pet.pk, str(self.service.pk), "Limping", BOOK_DAY.isoformat()),
+        )
+
+    def test_a_slot_booked_by_someone_else_before_send_makes_nothing(self):
+        self._set_draft()
+        self._hold(BOOK_DAY, [12])
+        response = self._send()
+        self.assertRedirects(response, self.step2, fetch_redirect_response=False)
+        self.assertEqual(Appointment.objects.count(), 1)  # only theirs
+
+    def test_a_second_post_makes_no_second_visit(self):
+        self._set_draft()
+        self._send()
+        response = self._send()
+        self.assertRedirects(
+            response, reverse("owner_appointments"), fetch_redirect_response=False
+        )
+        self.assertEqual(
+            self._messages(response),
+            ["Your request was already sent. It's in your visits."],
+        )
+        self.assertEqual(Appointment.objects.count(), 1)
+
+    def test_a_stale_draft_sent_again_finds_its_own_slot_taken(self):
+        draft = self._set_draft()
+        self._send()
+        self._set_draft(**draft)  # the second tap read the draft before it went
+        response = self._send()
+        self.assertRedirects(response, self.step2, fetch_redirect_response=False)
+        self.assertEqual(Appointment.objects.count(), 1)
+
+    # ── The sent page ───────────────────────────────────────────────────────
+
+    def _visit(self, **fields):
+        data = {
+            "owner": self.owner,
+            "pet": self.pet,
+            "service": self.service,
+            "date": BOOK_DAY,
+            "time": datetime.time(12, 0),
+            "status": Appointment.PENDING,
+        }
+        data.update(fields)
+        return Appointment.objects.create(**data)
+
+    def test_the_sent_page(self):
+        visit = self._visit(notes="Internal: bite risk")
+        response = self.client.get(reverse("owner_book_sent", args=[visit.pk]))
+        html = response.content.decode()
+        self.assertContains(response, "Request sent")
+        self.assertIn("Bantay · Consultation", html)
+        self.assertIn('<b class="text-gray-900">Tue, Nov 10 at 12:00 PM</b>', html)
+        self.assertIn("bg-yellow-100 text-yellow-800", html)
+        self.assertIn("Waiting for approval", html)
+        self.assertIn("We'll let you know when the clinic confirms.", html)
+        found = re.findall(VIOLET_BUTTON, html)
+        self.assertEqual(len(found), 1)
+        self.assertIn(f'href="{reverse("owner_appointments")}"', found[0])
+        self.assertIn("See my visits</a>", html)
+        self.assertIn(f'<a href="{reverse("owner_dashboard")}"', html)
+        self.assertIn("Back to home</a>", html)
+        self.assertNotIn('<nav aria-label="Main"', html)
+        self.assertNotIn(">Back</a>", html)
+        self.assertNotIn('aria-label="Back"', html)
+        self.assertNotIn("Internal: bite risk", html)
+        self.assertIsNone(re.search(r"<a\b[^>]*\n", html))
+
+    def test_the_sent_page_without_a_service(self):
+        visit = self._visit(service=None)
+        html = self._html(reverse("owner_book_sent", args=[visit.pk]))
+        self.assertIn("Bantay · Not sure yet", html)
+
+    def test_the_sent_page_shows_the_status_it_has_now(self):
+        visit = self._visit()
+        url = reverse("owner_book_sent", args=[visit.pk])
+        cases = {
+            Appointment.CONFIRMED: ("Confirmed", "bg-blue-100"),
+            Appointment.CANCELLED: ("Cancelled", "bg-red-100"),
+            Appointment.COMPLETED: ("Completed", "bg-green-100"),
+            Appointment.NO_SHOW: ("Missed", "bg-gray-100"),
+        }
+        for status, (word, colour) in cases.items():
+            with self.subTest(status=status):
+                Appointment.objects.filter(pk=visit.pk).update(status=status)
+                html = self._html(url)
+                badge = rf'<span class="badge [^"]*{colour}[^"]*">{word}</span>'
+                self.assertRegex(html, badge)
+                self.assertNotIn("Waiting for approval", html)
+
+    def test_another_owners_visit_is_a_404(self):
+        theirs = self._other_owners_pet()
+        visit = self._visit(owner=theirs.owner, pet=theirs)
+        response = self.client.get(reverse("owner_book_sent", args=[visit.pk]))
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            self.client.get(reverse("owner_book_sent", args=[99999])).status_code, 404
+        )
+
+    def test_the_clinic_is_sent_to_its_own_dashboard(self):
+        visit = self._visit()
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("owner_book_sent", args=[visit.pk]))
+        self.assertRedirects(
+            response, reverse("admin_dashboard"), fetch_redirect_response=False
+        )
+
+    def test_the_sent_page_query_count_is_flat(self):
+        visit = self._visit()
+        url = reverse("owner_book_sent", args=[visit.pk])
+
+        def count():
+            with CaptureQueriesContext(connection) as queries:
+                self.client.get(url)
+            return len(queries)
+
+        few = count()
+        for number in range(6):
+            self._visit(time=datetime.time(8 + number, 0))
+        print(f"BOOKING QUERIES (sent page): {few}")
+        self.assertEqual(count(), few)

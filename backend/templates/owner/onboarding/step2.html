@@ -12,9 +12,6 @@
 {# Onboarding flow: no bell, no tabs. Step progress on top, the buttons below. #}
 {% block top_bar %}{% include "owner/onboarding_parts/top_bar.html" with step=2 step_label="Your first pet" %}{% endblock %}
 
-{# Room for the three-row button bar #}
-{% block main_padding %}pb-56{% endblock %}
-
 {% block content %}
 <h1 class="text-2xl font-bold text-gray-900">Add your first pet</h1>
 <p class="mt-1 text-base text-gray-700">Hi {{ pet_owner.first_name }}, you'll need a pet to book a visit. You can add more pets later, or skip this for now.</p>
@@ -33,7 +30,7 @@
 
 {# Add pet is the one violet button. Skip for now posts action=skip and is as big as the action. #}
 {% block bottom_bar %}
-<div class="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white pb-[env(safe-area-inset-bottom)]">
+<div class="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white pb-[env(safe-area-inset-bottom)]" data-bar="tall">
   <div class="mx-auto max-w-3xl space-y-3 px-4 pb-5 pt-3">
     <button type="submit" form="onboarding-form" class="flex min-h-14 w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700">{% include "components/icon.html" with name="check" class="size-5 shrink-0" %}Add pet</button>
     <div class="grid grid-cols-2 gap-3">

@@ -35,7 +35,7 @@
 
 {# The one violet button of the page; the first step has no Back #}
 {% block bottom_bar %}
-<div class="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white pb-[env(safe-area-inset-bottom)]">
+<div class="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white pb-[env(safe-area-inset-bottom)]" data-bar="one">
   <div class="mx-auto max-w-3xl px-4 pb-5 pt-3">
     <button type="submit" form="onboarding-form" class="flex min-h-14 w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700">Next{% include "components/icon.html" with name="arrow-right" class="size-5 shrink-0" %}</button>
   </div>

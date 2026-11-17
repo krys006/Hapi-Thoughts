@@ -8,6 +8,8 @@ from django.utils.dateformat import format as date_format
 
 from .models import ClinicSettings, BlockedDate, Appointment
 from .utils import (
+    BOOKING_NOTE_MAX,
+    NOT_SURE,
     SETTINGS_TAB_FIELDS,
     is_slot_available,
     get_available_slots,
@@ -315,6 +317,46 @@ class AppointmentBookingForm(forms.Form):
             )
 
         return date
+
+
+class OwnerBookingStepOneForm(forms.Form):
+    """
+    Booking step 1 (pet and reason): the pet, what the visit is for and an
+    optional note. A missing answer is a field error, never a disabled
+    button. The page draws the radio cards itself.
+    """
+
+    pet = forms.ModelChoiceField(
+        queryset=None,  # set in __init__: this owner's non-archived pets
+        error_messages={
+            "required": "Choose a pet.",
+            "invalid_choice": "Choose a pet.",
+        },
+    )
+    service = forms.ChoiceField(
+        choices=(),  # set in __init__: bookable services and "Not sure yet"
+        error_messages={
+            "required": "Choose what the visit is for.",
+            "invalid_choice": "Choose what the visit is for.",
+        },
+    )
+    reason = forms.CharField(
+        required=False,
+        max_length=BOOKING_NOTE_MAX,
+        widget=forms.Textarea(attrs={"rows": 4}),
+        error_messages={
+            "max_length": "Please keep the note short (1,000 characters at most)."
+        },
+    )
+
+    def __init__(self, owner, services, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from pets.models import Pet
+
+        self.fields["pet"].queryset = Pet.objects.filter(owner=owner, is_archived=False)
+        self.fields["service"].choices = [
+            (str(service.pk), service.service_name) for service in services
+        ] + [(NOT_SURE, "Not sure yet")]
 
 
 class AppointmentRescheduleForm(forms.Form):

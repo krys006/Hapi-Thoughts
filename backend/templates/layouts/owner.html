@@ -12,7 +12,8 @@
   {% block extra_head %}{% endblock %}
 </head>
 {# hx-headers: CSRF token for every HTMX request. Light only, flat, one centred column (max-w-3xl) on wide screens. #}
-<body class="min-h-screen bg-gray-50" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+{# group/body: <main> reads the pinned bar's data-bar size (see the padding note on <main>). #}
+<body class="group/body min-h-screen bg-gray-50"hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
   <a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:rounded-lg focus:bg-white focus:px-4 focus:py-3 focus:text-base focus:font-semibold focus:text-violet-800 focus:shadow-lg">Skip to content</a>
 
   {# Top bar: white, sticky, h-16. Detail pages replace it with the back bar (layouts/owner_parts/back_bar.html). #}
@@ -35,8 +36,12 @@
   </div>
   {% endblock %}
 
-  {# Bottom padding keeps the last line clear of the fixed tab bar (flows that drop the tabs can override main_padding) #}
-  <main id="main" class="mx-auto w-full max-w-3xl px-4 pt-5 {% block main_padding %}pb-28{% endblock %}">
+  {% comment %}
+    Bottom padding keeps the last line clear of the pinned bar. pb-28 fits the tabs. A page whose bar
+    says its size (one button row, or two or three rows, or Save bar + tabs) gets more room, plus the
+    phone's safe area, with no number on the page itself.
+  {% endcomment %}
+  <main id="main" class="mx-auto w-full max-w-3xl px-4 pt-5 {% block main_padding %}pb-28 group-has-[[data-bar=one]]/body:pb-[calc(8rem+env(safe-area-inset-bottom))] group-has-[[data-bar=tall]]/body:pb-[calc(12rem+env(safe-area-inset-bottom))]{% endblock %}">
     {% block content %}{% endblock %}
   </main>
 

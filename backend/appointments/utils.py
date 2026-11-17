@@ -5,6 +5,7 @@ from urllib.parse import urlencode
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Prefetch, Q
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
 from django.utils.dateformat import time_format
@@ -21,6 +22,7 @@ from dashboard.utils import (
     _month_value,
     booking_limit,
     resolve_month,
+    slot_minutes,
 )
 from notifications.utils import compact_message, notify, when_line
 from pets.models import Pet, PetOwner
@@ -1332,7 +1334,7 @@ def _owner_day_rows(days):
     return blocked, booked
 
 
-def owner_booking_calendar(month_value, today, now, current_date=None):
+def owner_booking_calendar(month_value, today, now, current_date=None, settings=None):
     """
     The month grid on the owner's booking and change-time pages (read-only).
     month_value is "YYYY-MM", clamped to the months from today to today +
@@ -1343,10 +1345,11 @@ def owner_booking_calendar(month_value, today, now, current_date=None):
     prev_month and next_month ("YYYY-MM", or None at the ends) and cells:
     35 or 42 dicts, Sunday first, each with date, day, in_month, state
     (past / closed / full / open), is_today, is_current (the date equal to
-    current_date) and aria_label. Three queries however long the month.
+    current_date) and aria_label. Three queries however long the month (two
+    when the caller passes the clinic settings it already has as settings).
     """
     now = timezone.localtime(now)
-    clinic = get_clinic_settings()
+    clinic = settings if settings is not None else get_clinic_settings()
     months = _owner_calendar_months(today, booking_limit(clinic))
     month = resolve_month(month_value, today, months)
     days = _owner_calendar_days(month)
@@ -1378,4 +1381,340 @@ def owner_booking_calendar(month_value, today, now, current_date=None):
             _month_value(months[index + 1]) if index + 1 < len(months) else None
         ),
         "cells": cells,
+    }
+
+
+# ── Owner booking flow: the session draft (Slice 8b-6) ───────────────────────
+
+# One session key holds the whole draft until Send: pet (pk), service ("none"
+# or a pk as text), note, date (ISO), time (ISO), from_pet (started from a pet's
+# page) and taken (a time someone else booked first, as text, for the red box).
+BOOKING_DRAFT_KEY = "owner_booking"
+NOT_SURE = "none"
+BOOKING_NOTE_MAX = 1000
+MORNING_ENDS = datetime.time(12, 0)
+
+START_MESSAGE = "Please start by choosing a pet."
+SERVICE_MISSING_MESSAGE = "Please choose what the visit is for."
+SERVICE_GONE_MESSAGE = "That service isn't offered any more. Please choose again."
+PET_GONE_MESSAGE = "That pet can't be booked any more. Please choose again."
+PICK_AGAIN_MESSAGE = "Please pick a day and a time."
+DAY_GONE_MESSAGE = "That day can't be booked any more. Please pick another day."
+DAY_FULL_MESSAGE = "That day is fully booked now. Please pick another day."
+TIME_GONE_MESSAGE = "That time isn't available. Please pick another time."
+DAY_NOT_OPEN_MESSAGE = "That day can't be booked. Please pick a day marked open."
+
+
+def get_booking_draft(session):
+    """The draft dict from the session, or None (never started, or sent)."""
+    draft = session.get(BOOKING_DRAFT_KEY)
+    return draft if isinstance(draft, dict) else None
+
+
+def save_booking_draft(session, draft):
+    """Puts the draft back, which marks the session as changed."""
+    session[BOOKING_DRAFT_KEY] = draft
+
+
+def clear_booking_draft(session):
+    session.pop(BOOKING_DRAFT_KEY, None)
+
+
+def start_booking_draft(session, owner, pet_value):
+    """A fresh draft (a plain visit to step 1), with the pet from ?pet= when
+    it is one of the owner's non-archived pets."""
+    pet = picked_pet_initial(owner, pet_value).get("pet")
+    draft = {"pet": pet, "from_pet": pet is not None}
+    save_booking_draft(session, draft)
+    return draft
+
+
+def owner_booking_pets(owner):
+    """The pets an owner can book for: their own, not archived, by name."""
+    return list(
+        Pet.objects.filter(owner=owner, is_archived=False).order_by("name", "pk")
+    )
+
+
+def bookable_services():
+    """The services shown on the booking page (Active only, by name)."""
+    from billing.models import Service
+
+    return list(Service.objects.filter(status=Service.ACTIVE))
+
+
+def draft_service(answer):
+    """The bookable Service for a draft answer (a pk as text), or None."""
+    from billing.models import Service
+
+    text = str(answer or "")
+    if not text.isdecimal() or len(text) > 9:
+        return None
+    return Service.objects.filter(pk=int(text), status=Service.ACTIVE).first()
+
+
+def draft_pet(owner, draft):
+    """The owner's non-archived pet named in the draft, or None."""
+    value = (draft or {}).get("pet")
+    if not isinstance(value, int) or isinstance(value, bool):
+        return None
+    return Pet.objects.filter(pk=value, owner=owner, is_archived=False).first()
+
+
+def _iso_date(value):
+    try:
+        return datetime.date.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _iso_time(value):
+    try:
+        return datetime.time.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def time_label(time):
+    """'2:00 PM'."""
+    return date_format(time, "g:i A")
+
+
+def owner_day_times(day, today, now, settings=None):
+    """
+    Every time the owner could pick on day, as (time, is_taken) pairs: the
+    clinic's slots with the same rules as get_available_slots (working day,
+    not blocked, inside the booking window, today's cutoff and slots that
+    already started). is_taken is True when a non-cancelled visit holds the
+    slot. Empty when the day can't be booked at all. now is aware (Manila).
+    settings is the clinic settings when the caller has them (saves a query).
+    """
+    clinic = settings if settings is not None else get_clinic_settings()
+    if clinic is None or day < today:
+        return []
+    if day > today + datetime.timedelta(days=clinic.booking_limit_days):
+        return []
+    if day.weekday() not in clinic.working_days:
+        return []
+    if BlockedDate.objects.filter(date=day).exists():
+        return []
+    slots = _day_slots(clinic, day)
+    if day == today:
+        slots = [s for s in slots if _slot_open_today(clinic, day, s, now)]
+    held = set(
+        Appointment.objects.filter(date=day)
+        .exclude(status=Appointment.CANCELLED)
+        .values_list("time", flat=True)
+    )
+    return [(slot, slot in held) for slot in slots]
+
+
+def _day_time_problem(draft, today, now, settings=None):
+    """(2, message, taken time) for a draft whose day or time is gone, else None."""
+    day, time = _iso_date(draft.get("date")), _iso_time(draft.get("time"))
+    if day is None or time is None:
+        return 2, PICK_AGAIN_MESSAGE, ""
+    times = owner_day_times(day, today, now, settings)
+    if not times:
+        return 2, DAY_GONE_MESSAGE, ""
+    if (time, False) in times:
+        return None
+    if all(taken for _time, taken in times):
+        return 2, DAY_FULL_MESSAGE, ""
+    if (time, True) in times:
+        return 2, "", time_label(time)
+    return 2, TIME_GONE_MESSAGE, ""
+
+
+def booking_problem(owner, draft, upto, today, now, settings=None):
+    """
+    Checks the whole draft up to a step again (nothing is trusted from an
+    earlier request): upto 1 = pet and service, upto 2 = also day and time.
+    Returns None when all is well, else (step, message, taken): the first
+    step that needs an answer, a plain message for it, and the time label
+    when the time was taken by someone else (then the message is empty and
+    the red box is shown instead).
+    """
+    if draft is None or draft.get("pet") is None:
+        return 1, START_MESSAGE, ""
+    if draft_pet(owner, draft) is None:
+        return 1, PET_GONE_MESSAGE, ""
+    answer = draft.get("service")
+    if answer is None:
+        return 1, SERVICE_MISSING_MESSAGE, ""
+    if answer != NOT_SURE and draft_service(answer) is None:
+        return 1, SERVICE_GONE_MESSAGE, ""
+    return None if upto < 2 else _day_time_problem(draft, today, now, settings)
+
+
+def step_one_initial(pets, draft):
+    """Step 1's starting values: the draft's pet when it is one of pets, or
+    the only pet; the draft's service and note."""
+    draft = draft or {}
+    ids = [pet.pk for pet in pets]
+    pet = draft.get("pet") if draft.get("pet") in ids else None
+    if pet is None and len(ids) == 1:
+        pet = ids[0]
+    return {
+        "pet": pet,
+        "service": draft.get("service"),
+        "reason": draft.get("note", ""),
+    }
+
+
+def booking_cancel_url(draft):
+    """Where Cancel goes: the pet's profile when the draft started from a
+    pet's page (?pet=), else the dashboard."""
+    if draft and draft.get("from_pet") and isinstance(draft.get("pet"), int):
+        return reverse("owner_pet_detail", args=[draft["pet"]])
+    return reverse("owner_dashboard")
+
+
+def slot_length_phrase(minutes):
+    """'1 hour', '2 hours' or 'N minutes' for the slot length."""
+    if minutes == 60:
+        return "1 hour"
+    if minutes % 60 == 0:
+        return f"{minutes // 60} hours"
+    return f"{minutes} minutes"
+
+
+def booking_calendar(month_value, today, now, current_date, settings=None):
+    """
+    owner_booking_calendar plus one flag for the booking page: past_cutoff is
+    True on today's cell when it is "full" only because today's slots are
+    over (the cutoff passed or every slot started), not because they are
+    booked. That cell gets a ring and its label says no more bookings today.
+    """
+    calendar = owner_booking_calendar(month_value, today, now, current_date, settings)
+    for cell in calendar["cells"]:
+        cell["past_cutoff"] = False
+        if cell["is_today"] and cell["state"] == "full":
+            clinic = settings if settings is not None else get_clinic_settings()
+            slots = _day_slots(clinic, today) if clinic else []
+            if not any(_slot_open_today(clinic, today, s, now) for s in slots):
+                cell["past_cutoff"] = True
+                cell["aria_label"] = (
+                    f"{date_format(today, 'l, F j')}: no more bookings today"
+                )
+    return calendar
+
+
+def time_groups(times, selected):
+    """The day's times as Morning / Afternoon groups of dicts (time, value,
+    label, taken, checked), empty groups left out. selected is a time."""
+    groups = []
+    for name, wanted in (("Morning", True), ("Afternoon", False)):
+        rows = [
+            {
+                "value": time.isoformat(),
+                "label": time_label(time),
+                "taken": taken,
+                "checked": time == selected and not taken,
+            }
+            for time, taken in times
+            if (time < MORNING_ENDS) == wanted
+        ]
+        if rows:
+            groups.append({"name": name, "times": rows})
+    return groups
+
+
+def apply_picked_date(draft, value, today, now, settings=None):
+    """
+    A picked day (?date= or the form's day). A day with a free time goes in
+    the draft; a new day clears the time and the "taken" note. Returns the
+    error line for any other day, and "" when the day is fine or none was
+    asked for.
+    """
+    if not value:
+        return ""
+    day = _iso_date(value)
+    if day is not None and day.isoformat() == draft.get("date"):
+        # The draft's own day was checked when it was stored; the page shows
+        # its times (or "no times left") anyway, so skip the second read
+        return ""
+    times = owner_day_times(day, today, now, settings) if day else []
+    if not any(not taken for _time, taken in times):
+        return DAY_NOT_OPEN_MESSAGE
+    draft["date"] = day.isoformat()
+    draft.pop("time", None)
+    draft.pop("taken", None)
+    return ""
+
+
+def pick_booking_time(draft, post, today, now, settings=None):
+    """
+    Step 2 POST: puts the day and time in the draft. Returns the errors as a
+    dict, empty when saved: date (no or a closed day), time ("Pick a time.")
+    or taken (the time label, when someone booked it a moment ago: the time
+    is cleared and the same day is kept).
+    """
+    date_error = apply_picked_date(draft, post.get("date") or "", today, now, settings)
+    if date_error or not post.get("date"):
+        return {"date": date_error or "Pick a day first."}
+    time = _iso_time(post.get("time"))
+    times = owner_day_times(_iso_date(post["date"]), today, now, settings)
+    if time is None:
+        if not any(not taken for _time, taken in times):
+            return {"date": DAY_NOT_OPEN_MESSAGE}
+        return {"time": "Pick a time."}
+    if (time, False) in times:
+        draft["time"] = time.isoformat()
+        draft.pop("taken", None)
+        return {}
+    draft.pop("time", None)
+    if (time, True) in times:
+        draft["taken"] = time_label(time)
+        return {"taken": draft["taken"]}
+    if not any(not taken for _time, taken in times):
+        # No free time at all (the day closed, or filled up, since it went in
+        # the draft): the same error as any closed day
+        return {"date": DAY_NOT_OPEN_MESSAGE}
+    return {"time": "Pick a time."}
+
+
+def booking_time_context(draft, month_value, errors, today, now, clinic):
+    """Step 2's calendar and times for the draft's day (see
+    booking_calendar, time_groups). month_value is ?month=; without it the
+    month of the picked day. clinic is the settings the view already read."""
+    day = _iso_date(draft.get("date"))
+    month_value = month_value or (_month_value(day.replace(day=1)) if day else "")
+    times = owner_day_times(day, today, now, clinic) if day else []
+    return {
+        "calendar": booking_calendar(month_value, today, now, day, clinic),
+        "picked_date": day,
+        "time_groups": time_groups(times, _iso_time(draft.get("time"))),
+        "date_error": errors.get("date", ""),
+        "time_error": errors.get("time", ""),
+        "taken_time": errors.get("taken") or draft.get("taken", ""),
+        "booking_limit_days": booking_limit(clinic),
+        "slot_length": slot_length_phrase(slot_minutes(clinic)),
+    }
+
+
+def booking_summary(owner, draft):
+    """The draft as the pages show it: pet, service (None for "Not sure
+    yet"), the day and time as one line, and the note."""
+    day, time = _iso_date(draft.get("date")), _iso_time(draft.get("time"))
+    when = ""
+    if day and time:
+        when = f"{date_format(day, 'D, M j, Y')} at {time_label(time)}"
+    return {
+        "pet": draft_pet(owner, draft),
+        "service": draft_service(draft.get("service")),
+        "when": when,
+        "note": draft.get("note", ""),
+    }
+
+
+def booking_data(owner, draft):
+    """The draft as the data create_owner_booking takes."""
+    summary = booking_summary(owner, draft)
+    return {
+        "pet": summary["pet"],
+        "service": summary["service"],
+        "date": _iso_date(draft.get("date")),
+        "time": _iso_time(draft.get("time")),
+        "reason": summary["note"],
     }
