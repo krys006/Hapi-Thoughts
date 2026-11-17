@@ -1,0 +1,2 @@
+{# One bottom tab. Needs url_name, label, icon, key; active_tab comes from tabs.html. Light violet when active. #}
+<a href="{% url url_name %}" class="flex min-h-14 flex-col items-center justify-center gap-0.5 px-1 text-sm font-medium {% if active_tab == key %}bg-violet-100 text-violet-800{% else %}text-gray-700 hover:bg-gray-50{% endif %}"{% if active_tab == key %} aria-current="page"{% endif %}>{% include "components/icon.html" with name=icon class="size-6 shrink-0" %}{{ label }}</a>

@@ -421,10 +421,11 @@ class TopbarSearchTests(ShellTestBase):
         self.assertIn('id="bell-button"', html)
 
     def test_layout_loads_dialogs_js(self):
+        # Slice 8b-1: dialogs.js moved to js/shared/ (was js/admin/)
         response = self.client.get(reverse("admin_dashboard"))
         self.assertRegex(
             response.content.decode(),
-            r'<script src="/static/js/admin/dialogs\.[0-9a-f]+\.js" defer></script>',
+            r'<script src="/static/js/shared/dialogs\.[0-9a-f]+\.js" defer></script>',
         )
 
 

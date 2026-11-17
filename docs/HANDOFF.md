@@ -282,6 +282,16 @@ to needs-approval) and the appointments list.
     - Tests added: accounts `VerificationPendingTests`, `ResendVerificationTests`, `LoginNotConfirmedTests`, `VerifyEmailGuardTests`.
     - Tests changed: medical `OwnerMedicalRecordPageTests.test_query_count_is_flat` (via `_counts`): page count now read straight after the page request (was read late, 5); flatness and the context assertion (5) unchanged.
     - **Slice 8a is complete.** Next: 8b-1 (owner layout).
+  - **Slice 8b-1 owner layout, components and error pages — 2026-11-17** (templates, two small JS files, two helpers; no migration, no model change). `app.css` needs a rebuild (new classes); two new static files, so collectstatic.
+    - 1 `layouts/owner.html` (top bar, flash block, `<main id="main">`, bottom tabs, skip link; blocks `title`, `extra_head`, `top_bar`, `flash`, `content`, `main_padding`, `bottom_bar`, `extra_js`) with `layouts/owner_parts/tabs.html`, `tab_link.html`, `back_bar.html`. The bell count and the clinic logo come from the existing `shell` context processor (`shell.unread_count`, `shell.clinic.logo`); the processor needed no change. New icon `user` (lucide-static 1.66.0). Tab mapping (`OWNER_TABS` / `owner_tab` in `accounts/utils.py`, read by the `owner_active_tab` tag in `accounts/templatetags/ui_helpers.py`): Home = owner_dashboard, owner_dashboard_refresh; Pets = owner_pet_list, owner_pet_add, owner_pet_detail, owner_pet_edit, owner_pet_delete_request, owner_pet_cancel_delete_request, owner_pet_medical_history, owner_medical_record, owner_vaccination_history; Visits = owner_appointments, owner_book_appointment, owner_appointment_detail, owner_appointment_cancel, owner_appointment_reschedule, owner_get_slots; Bills = owner_billing_list, owner_receipt_detail; Account = owner_account, owner_profile, owner_profile_edit, owner_notification_preferences, clinic_info, owner_health_article_list, owner_health_article_detail. `owner_notifications` (the bell's page) and unknown names: no tab lit.
+    - 2 `components/flash_messages.html` (admin, owner, admin login): colour + icon per level, bold first sentence for two or more (`flash_lead` filter), `role` status / alert, Close button (`data-flash-close`, x icon + sr-only "Close", 44 px) in `static/js/shared/flash.js`; no auto-hide. `layouts/auth.html` loads `flash.js` too.
+    - 3 `dialogs.js` moved to `static/js/shared/dialogs.js` (same code); `layouts/admin.html` and `layouts/owner.html` load it. Unused: `static/js/admin/dialogs.js` (Krys deletes it; also `staticfiles/js/admin/dialogs.*`).
+    - 4 `components/bottom_sheet.html` (native `<dialog>`, parameters: id, title, text, action_url, action_label, action_icon, keep_label).
+    - 5 Account page on `layouts/owner.html`, Account tab lit, plain markup kept; Log out opens the "Log out of Hapi Tutz?" sheet whose action is the POST form to `logout`.
+    - 6 `templates/404.html`, `403.html`, `500.html` (standalone, `app.css`, "Go to the home page" to "/"). No `handler40x` added: Django's defaults use these files. Note: a logged-out visitor only reaches the 404 page on public paths (the middleware redirects other missing URLs to log in first; unchanged).
+    - 7 CLAUDE.md: the fast-hasher and full-suite line.
+    - Tests added (accounts): `OwnerLayoutTests`, `BottomSheetTests`, `FlashComponentTests`, `DialogsMovedTests`, `ErrorPageTests`.
+    - Tests changed (on purpose): dashboard `TopbarSearchTests.test_layout_loads_dialogs_js` expects `/static/js/shared/dialogs.<hash>.js` (was `js/admin/`); billing services page `test_only_the_layouts_scripts_load` expects `htmx, dialogs.js, flash.js, auto_submit.js` (was without `flash.js`); accounts `OwnerAccountHubTests.test_log_out_is_a_post_form_with_a_csrf_token` now finds the form in the sheet (button "Yes, log out"; was a bare `Log out` submit button); health `TogglePublishTests.test_apostrophe_title_works_and_is_escaped_in_the_flash` (was `assertContains` of the whole two-sentence flash; now the lead sentence inside `<strong class="font-semibold">` followed by the rest; the `assertNotContains` below it unchanged). No assertion removed or loosened.
 - Slice 9 admin mobile pass (incl. dashboard schedule rows keep a 3-column grid that is tight at phone width), record detail tab order on phones, walk-in type-ahead live region, admin layout inline script → static JS file, `form_field.html` fieldset/legend branch
 - Open: `form_field.html` needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple form is migrated.
 - Notes for later slices:
@@ -423,7 +433,8 @@ deletes.
   compiled `static/css/app.css` (Tailwind v4, CONVENTIONS §11); redesigned
   ones use `templates/components/`, the others (e.g. receipt detail)
   import their old `static/css/admin/` file into the `legacy` layer via
-  `legacy_css`. Owner pages still use `base_dashboard.html` with the
+  `legacy_css`. Owner pages still use `base_dashboard.html` (only the Account
+  page is on `layouts/owner.html` since 8b-1) with the
   Tailwind CDN plus per-page CSS files in `static/css/owner|shared/`. Rebuild `app.css` before every
   frontend commit.
 - Keep views under about 50 lines and move shared logic to `utils.py`.

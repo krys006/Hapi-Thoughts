@@ -138,8 +138,13 @@ class TogglePublishTests(HealthTestBase):
         response = self.client.post(self.url(article), follow=True)
         article.refresh_from_db()
         self.assertTrue(article.is_published)
+        # Slice 8b-1: the first sentence is bold, so the message is split
+        # by the <strong> tag (was one string: "Published Dog&#x27;s cough.
+        # Pet owners can read it now.")
         self.assertContains(
-            response, "Published Dog&#x27;s cough. Pet owners can read it now."
+            response,
+            '<strong class="font-semibold">Published Dog&#x27;s cough.</strong> '
+            "Pet owners can read it now.",
         )
         self.assertNotContains(response, "Published Dog's cough")
 

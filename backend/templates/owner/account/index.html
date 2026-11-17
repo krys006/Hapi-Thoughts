@@ -1,4 +1,4 @@
-{% extends 'base_dashboard.html' %}
+{% extends 'layouts/owner.html' %}
 
 {% block title %}Account — Hapi Vet{% endblock %}
 
@@ -21,12 +21,12 @@
     </ul>
   </nav>
 
-  {# Logging out is a POST #}
-  <form method="post" action="{% url 'logout' %}">
-    {% csrf_token %}
-    <button type="submit">Log out</button>
-  </form>
+  {# Logging out asks first: this button opens the sheet, whose action is a POST form #}
+  <button type="button" class="btn btn-outline" data-dialog-open="logout-sheet">Log out</button>
 
 </section>
+
+{% url 'logout' as logout_url %}
+{% include "components/bottom_sheet.html" with id="logout-sheet" title="Log out of Hapi Tutz?" text="You'll need your email and password (or Google) to sign in again." action_url=logout_url action_label="Yes, log out" action_icon="log-out" keep_label="Stay logged in" %}
 
 {% endblock %}

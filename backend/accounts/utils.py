@@ -41,6 +41,52 @@ def owner_profile_required(view):
     return wrapper
 
 
+# Which bottom tab each owner page lights up, by URL name. The one place
+# for this mapping. owner_notifications (the bell's page) is on purpose in no
+# tab, and so is any name not listed.
+OWNER_TABS = {
+    "home": ["owner_dashboard", "owner_dashboard_refresh"],
+    "pets": [
+        "owner_pet_list",
+        "owner_pet_add",
+        "owner_pet_detail",
+        "owner_pet_edit",
+        "owner_pet_delete_request",
+        "owner_pet_cancel_delete_request",
+        "owner_pet_medical_history",
+        "owner_medical_record",
+        "owner_vaccination_history",
+    ],
+    "visits": [
+        "owner_appointments",
+        "owner_book_appointment",
+        "owner_appointment_detail",
+        "owner_appointment_cancel",
+        "owner_appointment_reschedule",
+        "owner_get_slots",
+    ],
+    "bills": ["owner_billing_list", "owner_receipt_detail"],
+    "account": [
+        "owner_account",
+        "owner_profile",
+        "owner_profile_edit",
+        "owner_notification_preferences",
+        "clinic_info",
+        "owner_health_article_list",
+        "owner_health_article_detail",
+    ],
+}
+OWNER_TAB_BY_URL_NAME = {
+    url_name: tab for tab, names in OWNER_TABS.items() for url_name in names
+}
+
+
+def owner_tab(url_name):
+    """The bottom tab key ("home", "pets", "visits", "bills", "account") for
+    a URL name, or "" when no tab should be active."""
+    return OWNER_TAB_BY_URL_NAME.get(url_name or "", "")
+
+
 RESEND_SECONDS = 120
 
 

@@ -1,5 +1,6 @@
 import datetime
 import re
+from pathlib import Path
 from unittest import mock
 
 from allauth.core.exceptions import ImmediateHttpResponse
@@ -7,12 +8,15 @@ from allauth.socialaccount.models import SocialAccount, SocialLogin
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
+from django.contrib.messages import constants as message_levels
 from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.cache import cache
 from django.db import connection
+from django.template import Context, Template, engines
+from django.template.loader import get_template
 from django.test import (
     Client,
     RequestFactory,
@@ -20,10 +24,11 @@ from django.test import (
     TransactionTestCase,
     override_settings,
 )
-from django.urls import resolve, reverse
+from django.urls import get_resolver, resolve, reverse
 from django.utils import timezone
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
+from django.views.defaults import permission_denied, server_error
 
 from accounts.adapters import (
     ADMIN_MESSAGE,
@@ -32,8 +37,9 @@ from accounts.adapters import (
     UNVERIFIED_MESSAGE,
     CustomSocialAccountAdapter,
 )
-from accounts.utils import verification_pending
+from accounts.utils import owner_tab, verification_pending
 from appointments.models import ClinicSettings
+from notifications.models import Notification
 from pets.models import Pet, PetOwner
 
 User = get_user_model()
@@ -980,10 +986,12 @@ class OwnerAccountHubTests(_LoggedInBase):
     def test_log_out_is_a_post_form_with_a_csrf_token(self):
         self.client.force_login(self.owner_user)
         html = self.client.get(self.url).content.decode()
+        # Slice 8b-1: the form now lives in the log out sheet (its button
+        # reads "Yes, log out"; the page's "Log out" button only opens it)
         form = (
             rf'<form method="post" action="{reverse("logout")}">\s*'
             r'<input type="hidden" name="csrfmiddlewaretoken" value="[^"]+">\s*'
-            r'<button type="submit">Log out</button>'
+            r'<button type="submit"[^>]*>(?s:.*?)Yes, log out\s*</button>'
         )
         self.assertRegex(html, form)
         self.assertNotIn(f'href="{reverse("logout")}"', html)
@@ -1349,3 +1357,494 @@ class VerifyEmailGuardTests(TestCase):
         self.assertTemplateUsed(response, "owner/verify_email_invalid.html")
         user.refresh_from_db()
         self.assertFalse(user.is_active)
+
+
+# ── Slice 8b-1: owner layout, flash component, bottom sheet, error pages ─────
+
+TEMPLATES_DIR = Path(settings.BASE_DIR) / "templates"
+LAYOUT_FILES = [
+    "layouts/owner.html",
+    "layouts/owner_parts/tabs.html",
+    "layouts/owner_parts/tab_link.html",
+    "layouts/owner_parts/back_bar.html",
+]
+
+
+def template_source(name):
+    return (TEMPLATES_DIR / name).read_text(encoding="utf-8")
+
+
+class OwnerLayoutTests(_LoggedInBase):
+    """The owner layout, seen on the Account page (the pilot page)."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.owner_user)
+        self.url = reverse("owner_account")
+
+    def _html(self):
+        return self.client.get(self.url).content.decode()
+
+    def _bell(self, html):
+        return re.search(rf'<a href="{reverse("owner_notifications")}"[^>]*>', html)
+
+    def _notify(self, user, count):
+        for number in range(count):
+            Notification.objects.create(
+                recipient=user,
+                notification_type=Notification.APPOINTMENT_APPROVED,
+                title=f"Title {number}",
+                message="Message",
+            )
+
+    def test_the_page_uses_the_owner_layout_only(self):
+        response = self.client.get(self.url)
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertTemplateNotUsed(response, "base_dashboard.html")
+        self.assertTemplateNotUsed(response, "shared/modals.html")
+
+    def test_loads_the_compiled_css_htmx_and_the_shared_scripts(self):
+        html = self._html()
+        for pattern in (
+            r'<link rel="stylesheet" href="/static/css/app\.[0-9a-f]+\.css">',
+            r'<script src="/static/vendor/htmx-2\.0\.11\.min\.[0-9a-f]+\.js" defer>',
+            r'<script src="/static/js/shared/dialogs\.[0-9a-f]+\.js" defer>',
+            r'<script src="/static/js/shared/flash\.[0-9a-f]+\.js" defer>',
+        ):
+            with self.subTest(pattern=pattern):
+                self.assertRegex(html, pattern)
+
+    def test_no_cdn_legacy_css_modals_or_font_import(self):
+        html = self._html()
+        for word in (
+            "cdn.tailwindcss.com",
+            "unpkg.com",
+            "css/owner/",
+            "css/shared/",
+            "confirm-modal",
+            "openConfirmModal",
+            "Poppins",
+            "fonts.googleapis",
+            "@import",
+        ):
+            with self.subTest(word=word):
+                self.assertNotIn(word, html)
+
+    def test_layout_and_parts_have_no_inline_script_or_handlers(self):
+        names = LAYOUT_FILES + [
+            "components/flash_messages.html",
+            "components/bottom_sheet.html",
+        ]
+        for name in names:
+            source = template_source(name)
+            with self.subTest(file=name):
+                self.assertNotIn("<script>", source)
+                self.assertIsNone(re.search(r"<script(?![^>]*\ssrc=)", source))
+                self.assertIsNone(re.search(r"\son[a-z]+\s*=", source))
+                self.assertNotIn("hx-confirm", source)
+                self.assertNotIn("<!--", source)
+
+    def test_every_link_in_the_layout_files_and_the_page_is_on_one_line(self):
+        names = LAYOUT_FILES + ["owner/account/index.html"]
+        for name in names:
+            for link in re.findall(r"(?s)<a\b.*?</a>", template_source(name)):
+                with self.subTest(file=name, link=link[:50]):
+                    self.assertNotIn("\n", link)
+
+    def test_skip_link_is_first_in_the_body_and_main_has_its_id(self):
+        html = self._html()
+        self.assertRegex(
+            html, r'<body[^>]*>\s*<a href="#main"[^>]*>Skip to content</a>'
+        )
+        self.assertRegex(html, r'<main id="main" class="[^"]*\bpb-28\b[^"]*">')
+
+    def test_top_bar_logo_links_home_and_has_the_clinic_name(self):
+        html = self._html()
+        home = reverse("owner_dashboard")
+        link = re.search(rf'(?s)<a href="{home}" class="[^"]*">(.*?)</a>', html)
+        self.assertIn("Hapi Tutz", link.group(1))
+        self.assertIn("<svg", link.group(1))  # the paw tile: no logo uploaded
+        self.assertRegex(html, r'<header class="sticky top-0 z-20[^"]*bg-white')
+        self.assertIn("h-16", html)
+
+    def test_bell_links_to_the_notifications_page_with_words(self):
+        html = self._html()
+        bell = self._bell(html)
+        self.assertIsNotNone(bell)
+        after = html.split(bell.group(0), 1)[1].split("</a>", 1)[0]
+        self.assertIn("<svg", after)
+        self.assertIn('<span class="sr-only">Notifications</span>', after)
+
+    def test_badge_is_hidden_at_zero_and_counts_at_three_and_caps_at_ten(self):
+        html = self._html()
+        self.assertIn('aria-label="Notifications"', self._bell(html).group(0))
+        self.assertNotIn("bg-red-600", html.split("</header>")[0])
+        self._notify(self.owner_user, 3)
+        html = self._html()
+        self.assertIn('aria-label="Notifications, 3 unread"', self._bell(html).group(0))
+        self.assertRegex(html, r'aria-hidden="true">3</span></a>')
+        self._notify(self.owner_user, 7)
+        html = self._html()
+        self.assertIn(
+            'aria-label="Notifications, 10 unread"', self._bell(html).group(0)
+        )
+        self.assertRegex(html, r'aria-hidden="true">9\+</span></a>')
+
+    def test_another_owners_unread_count_is_never_used(self):
+        other = User.objects.create_user(
+            username="ben",
+            email="ben@example.com",
+            password="pass-12345-x",
+            role=User.PET_OWNER,
+            is_onboarded=True,
+        )
+        self._notify(other, 4)
+        self._notify(self.admin, 2)
+        html = self._html()
+        self.assertIn('aria-label="Notifications"', self._bell(html).group(0))
+        self.assertNotIn("unread", html)
+
+    def test_five_tabs_in_order_with_icons_words_and_links(self):
+        html = self._html()
+        nav = re.search(r'(?s)<nav aria-label="Main"[^>]*>(.*?)</nav>', html)
+        self.assertIsNotNone(nav)
+        self.assertIn("pb-[env(safe-area-inset-bottom)]", nav.group(0))
+        self.assertIn("fixed inset-x-0 bottom-0", nav.group(0))
+        tabs = re.findall(r'(?s)<a href="([^"]+)"([^>]*)>(.*?)</a>', nav.group(1))
+        expected = [
+            ("owner_dashboard", "Home"),
+            ("owner_pet_list", "Pets"),
+            ("owner_appointments", "Visits"),
+            ("owner_billing_list", "Bills"),
+            ("owner_account", "Account"),
+        ]
+        self.assertEqual(len(tabs), 5)
+        for (href, attrs, inner), (name, word) in zip(tabs, expected):
+            with self.subTest(tab=word):
+                self.assertEqual(href, reverse(name))
+                self.assertIn("<svg", inner)
+                self.assertEqual(re.sub(r"(?s)<svg.*?</svg>|\s", "", inner), word)
+                self.assertIn("min-h-14", attrs)
+
+    def test_only_the_account_tab_is_current_and_light_violet(self):
+        html = self._html()
+        nav = re.search(r'(?s)<nav aria-label="Main"[^>]*>(.*?)</nav>', html).group(1)
+        self.assertEqual(nav.count('aria-current="page"'), 1)
+        self.assertEqual(nav.count("bg-violet-100 text-violet-800"), 1)
+        current = re.search(r'<a href="([^"]+)"[^>]*aria-current="page"', nav)
+        self.assertEqual(current.group(1), reverse("owner_account"))
+
+    def test_owner_tab_mapping(self):
+        expected = {
+            "home": ["owner_dashboard"],
+            "pets": [
+                "owner_pet_list",
+                "owner_pet_add",
+                "owner_pet_detail",
+                "owner_pet_edit",
+                "owner_pet_delete_request",
+                "owner_pet_cancel_delete_request",
+                "owner_pet_medical_history",
+                "owner_medical_record",
+                "owner_vaccination_history",
+            ],
+            "visits": [
+                "owner_appointments",
+                "owner_book_appointment",
+                "owner_appointment_detail",
+                "owner_appointment_cancel",
+                "owner_appointment_reschedule",
+            ],
+            "bills": ["owner_billing_list", "owner_receipt_detail"],
+            "account": [
+                "owner_account",
+                "owner_profile",
+                "owner_profile_edit",
+                "owner_notification_preferences",
+                "clinic_info",
+                "owner_health_article_list",
+                "owner_health_article_detail",
+            ],
+        }
+        for tab, names in expected.items():
+            for name in names:
+                with self.subTest(name=name):
+                    self.assertEqual(owner_tab(name), tab)
+        # The bell's page and anything unknown: no tab
+        for name in ("owner_notifications", "admin_dashboard", "", None):
+            with self.subTest(name=name):
+                self.assertEqual(owner_tab(name), "")
+
+    def test_every_mapped_name_is_a_real_url_name(self):
+        from accounts.utils import OWNER_TAB_BY_URL_NAME
+
+        known = get_resolver().reverse_dict
+        for name in OWNER_TAB_BY_URL_NAME:
+            with self.subTest(name=name):
+                self.assertTrue(known.getlist(name))
+
+    def test_blocks_are_all_there(self):
+        source = template_source("layouts/owner.html")
+        for block in (
+            "title",
+            "extra_head",
+            "top_bar",
+            "flash",
+            "content",
+            "bottom_bar",
+            "extra_js",
+        ):
+            with self.subTest(block=block):
+                self.assertIn("{% block " + block + " %}", source)
+
+    def test_back_bar_is_44px_with_the_label(self):
+        html = (
+            engines["django"]
+            .from_string(
+                '{% include "layouts/owner_parts/back_bar.html" with url="/x/" '
+                'label="Pets" %}'
+            )
+            .render({})
+        )
+        self.assertRegex(html, r'<a href="/x/" class="[^"]*\bmin-h-11\b[^"]*">')
+        self.assertIn("Back to Pets</a>", html)
+        self.assertIn("<svg", html)
+
+    def test_the_log_out_sheet(self):
+        html = self._html()
+        self.assertRegex(html, r'<dialog id="logout-sheet"[^>]*>')
+        self.assertIn('data-dialog-open="logout-sheet"', html)
+        self.assertIn("Log out of Hapi Tutz?", html)
+        form = re.search(
+            r'(?s)<form method="post" action="/logout/">(.*?)</form>', html
+        )
+        self.assertIsNotNone(form)
+        self.assertRegex(form.group(1), r'name="csrfmiddlewaretoken" value="[^"]+"')
+        self.assertIn("Yes, log out", form.group(1))
+        self.assertRegex(
+            html,
+            r'<button type="button"[^>]*data-dialog-close autofocus>Stay logged in',
+        )
+
+
+class BottomSheetTests(TestCase):
+    def _render(self):
+        return (
+            engines["django"]
+            .from_string(
+                '{% include "components/bottom_sheet.html" with id="s1" '
+                'title="Remove Bantay?" text="Plain words." action_url="/go/" '
+                'action_label="Yes, remove" action_icon="trash-2" '
+                'keep_label="Keep Bantay" %}'
+            )
+            .render({}, RequestFactory().get("/"))
+        )
+
+    def test_native_dialog_with_title_and_text(self):
+        html = self._render()
+        self.assertRegex(html, r'<dialog id="s1" aria-labelledby="s1-title"')
+        self.assertIn(
+            '<h2 id="s1-title" class="text-xl font-bold">Remove Bantay?', html
+        )
+        self.assertIn("Plain words.", html)
+
+    def test_phone_sheet_and_desktop_card_classes(self):
+        html = self._render()
+        for cls in (
+            "mt-auto",
+            "w-full",
+            "rounded-t-3xl",
+            "sm:m-auto",
+            "sm:max-w-md",
+            "sm:rounded-3xl",
+        ):
+            with self.subTest(cls=cls):
+                self.assertIn(cls, html.split(">", 1)[0])
+
+    def test_drag_handle_is_decorative(self):
+        self.assertRegex(
+            self._render(), r'<span class="[^"]*h-1\.5 w-12[^"]*" aria-hidden="true">'
+        )
+
+    def test_buttons_are_stacked_and_the_same_size(self):
+        html = self._render()
+        self.assertEqual(html.count("min-h-14 w-full"), 2)
+        self.assertRegex(html, r"data-dialog-close autofocus>Keep Bantay</button>")
+        action = re.search(r'(?s)<form method="post" action="/go/">(.*?)</form>', html)
+        self.assertIn("csrfmiddlewaretoken", action.group(1))
+        self.assertIn("Yes, remove", action.group(1))
+        self.assertIn("<svg", action.group(1))
+
+
+class FlashComponentTests(_LoggedInBase):
+    def _flash(self, level, text):
+        request = RequestFactory().get("/")
+        request.session = {}
+        request._messages = FallbackStorage(request)
+        request._messages.add(level, text)
+        return get_template("components/flash_messages.html").render(
+            {"messages": request._messages}, request
+        )
+
+    def _layout_html(self, layout, user, level, text):
+        request = RequestFactory().get("/")
+        request.user = user
+        request.session = {}
+        request._messages = FallbackStorage(request)
+        request._messages.add(level, text)
+        page = engines["django"].from_string(f'{{% extends "{layout}" %}}')
+        return page.render({}, request)
+
+    def test_each_level_has_its_colour_icon_and_role(self):
+        levels = message_levels
+        cases = (
+            (levels.SUCCESS, "bg-green-50 text-green-900", "m16 9-5.5", "status"),
+            (levels.INFO, "bg-blue-50 text-blue-900", "M12 16v-4", "status"),
+            (levels.WARNING, "bg-yellow-50 text-yellow-900", "m21.73 18", "status"),
+            (levels.ERROR, "bg-red-50 text-red-900", 'y1="8" y2="12"', "alert"),
+        )
+        for level, classes, icon_part, role in cases:
+            with self.subTest(level=level):
+                html = self._flash(level, "Done")
+                self.assertIn(classes, html)
+                self.assertIn(icon_part, html)
+                self.assertIn(f'role="{role}"', html)
+                self.assertNotIn("text-white", html)
+
+    def test_lead_sentence_is_bold_only_with_two_sentences(self):
+        two = self._flash(message_levels.SUCCESS, "Visit sent. We will confirm.")
+        self.assertIn(
+            '<strong class="font-semibold">Visit sent.</strong> We will confirm.',
+            two,
+        )
+        one = self._flash(message_levels.SUCCESS, "Visit sent.")
+        self.assertNotIn("<strong", one)
+        self.assertIn("Visit sent.", one)
+        self.assertNotIn("<strong", self._flash(message_levels.INFO, "Saved"))
+
+    def test_message_text_is_escaped(self):
+        html = self._flash(message_levels.INFO, "<b>x</b>. <i>y</i>")
+        self.assertNotIn("<i>y</i>", html)
+        self.assertIn("&lt;i&gt;y&lt;/i&gt;", html)
+
+    def test_flash_lead_filter(self):
+        from accounts.templatetags.ui_helpers import flash_lead
+
+        self.assertEqual(flash_lead("A. B. C"), ("A.", "B. C"))
+        self.assertEqual(flash_lead("Only one."), ("Only one.", ""))
+        self.assertEqual(flash_lead("No full stop"), ("No full stop", ""))
+
+    def test_close_button_has_an_icon_a_word_and_no_inline_handler(self):
+        html = self._flash(message_levels.SUCCESS, "Done")
+        button = re.search(
+            r"(?s)<button[^>]*data-flash-close[^>]*>(.*?)</button>", html
+        )
+        self.assertIsNotNone(button)
+        self.assertIn("<svg", button.group(1))
+        self.assertIn('<span class="sr-only">Close</span>', button.group(1))
+        self.assertIn("min-h-11 min-w-11", button.group(0))
+        self.assertNotIn("onclick", html)
+        self.assertNotIn(
+            "setTimeout", template_source("components/flash_messages.html")
+        )
+
+    def test_flash_js_closes_without_auto_hide(self):
+        source = (Path(settings.BASE_DIR) / "static/js/shared/flash.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("data-flash-close", source)
+        self.assertNotIn("setTimeout", source)
+
+    def test_both_layouts_render_it_and_load_flash_js(self):
+        for layout, user in (
+            ("layouts/admin.html", self.admin),
+            ("layouts/owner.html", self.owner_user),
+        ):
+            with self.subTest(layout=layout):
+                html = self._layout_html(
+                    layout, user, message_levels.SUCCESS, "Saved. All good."
+                )
+                self.assertIn("<div data-flash", html)
+                self.assertIn("data-flash-close", html)
+                self.assertRegex(html, r"/static/js/shared/flash\.[0-9a-f]+\.js")
+
+    def test_owner_flash_sits_between_the_top_bar_and_main(self):
+        html = self._layout_html(
+            "layouts/owner.html", self.owner_user, message_levels.INFO, "Hello"
+        )
+        self.assertLess(html.index("</header>"), html.index("<div data-flash"))
+        self.assertLess(html.index("<div data-flash"), html.index('<main id="main"'))
+
+
+class DialogsMovedTests(TestCase):
+    def test_old_dialogs_path_is_not_referenced_anywhere(self):
+        base = Path(settings.BASE_DIR)
+        for folder in ("templates", "static/js"):
+            for path in (base / folder).rglob("*"):
+                if path.suffix not in (".html", ".js", ".txt"):
+                    continue
+                with self.subTest(file=str(path.relative_to(base))):
+                    self.assertNotIn("admin/dialogs", path.read_text(encoding="utf-8"))
+
+    def test_shared_files_exist(self):
+        base = Path(settings.BASE_DIR) / "static/js/shared"
+        self.assertTrue((base / "dialogs.js").is_file())
+        self.assertTrue((base / "flash.js").is_file())
+
+
+@override_settings(DEBUG=False)
+class ErrorPageTests(_LoggedInBase):
+    def _assert_page(self, html, title):
+        self.assertIn(title, html)
+        self.assertIn("Hapi Tutz Vet", html)
+        self.assertIn('<a href="/"', html)
+        self.assertIn("Go to the home page", html)
+        self.assertRegex(html, r'<link rel="stylesheet" href="/static/css/app\.')
+        self.assertIn("<svg", html)
+
+    def test_a_missing_page_is_the_404_page_for_everyone(self):
+        # /accounts/ is public, so a logged-out visitor gets the 404 itself
+        # (any other missing URL sends them to log in first)
+        cases = (
+            (None, "/accounts/no-such-page/"),
+            (self.owner_user, "/no-such-page/"),
+            (self.admin, "/no-such-page/"),
+        )
+        for user, path in cases:
+            with self.subTest(user=getattr(user, "username", "logged out")):
+                self.client.logout()
+                if user:
+                    self.client.force_login(user)
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 404)
+                self.assertTemplateUsed(response, "404.html")
+                self._assert_page(response.content.decode(), "We can't find that page")
+
+    def test_403_page(self):
+        request = RequestFactory().get("/")
+        response = permission_denied(request, Exception("no"))
+        self.assertEqual(response.status_code, 403)
+        self._assert_page(response.content.decode(), "You can't open this page")
+
+    def test_500_page(self):
+        response = server_error(RequestFactory().get("/"))
+        self.assertEqual(response.status_code, 500)
+        self._assert_page(response.content.decode(), "Something went wrong on our side")
+
+    def test_500_renders_without_a_request_or_context(self):
+        source = template_source("500.html")
+        html = Template(source).render(Context())
+        self._assert_page(html, "Something went wrong on our side")
+        self._assert_page(get_template("500.html").render(), "Error 500")
+
+    def test_error_pages_are_standalone(self):
+        for name in ("404.html", "403.html", "500.html"):
+            source = template_source(name)
+            with self.subTest(name=name):
+                self.assertNotIn("{% extends", source)
+                self.assertNotIn("{% url", source)
+                self.assertNotIn("shell", source)
+                self.assertNotIn("request", source)
+                self.assertNotIn("<script", source)
+                self.assertIsNone(re.search(r"\son[a-z]+\s*=", source))
+                self.assertEqual(len(re.findall(r"btn-primary", source)), 1)

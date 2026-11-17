@@ -5606,7 +5606,8 @@ class ServicesListPageTests(FrozenBillingTestBase):
         scripts = re.findall(r'<script src="([^"]+)"', self._html())
         self.assertEqual(
             [s.rsplit("/", 1)[-1] for s in scripts],
-            ["htmx-2.0.11.min.js", "dialogs.js", "auto_submit.js"],
+            # Slice 8b-1: flash.js joined the layout's scripts
+            ["htmx-2.0.11.min.js", "dialogs.js", "flash.js", "auto_submit.js"],
         )
 
     def test_one_primary_button_add_service(self):

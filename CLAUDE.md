@@ -16,6 +16,7 @@ Read docs/HANDOFF.md before any task.
 
 ## Commands
 - Always run Python and manage.py commands with backend\venv\Scripts\python.exe (the project venv), never plain python.
+- Tests use a fast password hasher (settings, only under `manage.py test`). Krys runs the full suite from backend\ with `python manage.py test --parallel 4 --noinput --keepdb`.
 - Don't run the full test suite; Krys runs it. While working you may run the tests for the app you changed (backend\venv\Scripts\python.exe backend\manage.py test <app>).
 - Report exactly which test commands you ran and paste their real output. Never describe a result you didn't see, and never write a "task finished" or "background task" notice yourself.
 - Never loosen or remove an assertion to make a test pass. If a test fails, report why and propose a fix; say clearly if an assertion changed.
