@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 import environ
 
@@ -241,3 +242,8 @@ USE_TZ = True
 
 # ─── Default Primary Key ──────────────────────────────────────────────────────
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# ─── Test runner only ─────────────────────────────────────────────────────────
+# Tests only: a fast password hasher. The real site keeps Django's default hashers.
+if len(sys.argv) > 1 and sys.argv[1] == "test":
+    PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]

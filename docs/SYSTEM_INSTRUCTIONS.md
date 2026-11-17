@@ -214,6 +214,7 @@ For each feature built, suggest tests for critical business rules only:
 - Appointment status flow enforcement
 
 Use Django's built-in test framework (`python manage.py test`).
+Tests use a fast MD5 password hasher (set in `settings.py` only when the command is `test`; the real site keeps Django's default hashers). Krys runs the full suite from `backend\` with `python manage.py test --parallel 4 --noinput --keepdb`.
 Manual testing is sufficient for UI and flow verification.
 Always remind the developer to test in the browser after each feature.
 
