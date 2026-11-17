@@ -1,0 +1,15 @@
+{% comment %}
+  "Upcoming visits": the visits after the next one (at most 3, from the context),
+  one link per visit, plus "See all visits". Needs upcoming.
+{% endcomment %}
+<section aria-labelledby="upcoming-title">
+  <div class="mb-2 flex min-h-11 items-center justify-between gap-3">
+    <h2 id="upcoming-title" class="text-xl font-bold">Upcoming visits</h2>
+    <a href="{% url 'owner_appointments' %}" class="inline-flex min-h-11 items-center text-base font-medium text-blue-600 hover:underline">See all visits</a>
+  </div>
+  <ul class="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+    {% for visit in upcoming %}
+    <li><a href="{% url 'owner_appointment_detail' visit.pk %}" class="flex items-center gap-4 px-4 py-4 hover:bg-gray-50"><span class="grid w-14 shrink-0 place-content-center rounded-xl bg-gray-100 py-2 text-center"><span class="text-sm font-semibold uppercase text-gray-700">{{ visit.date|date:"M" }}</span><span class="text-xl font-bold leading-6">{{ visit.date|date:"j" }}</span></span><span class="min-w-0 flex-1"><span class="block text-base font-semibold">{{ visit.pet.name }}{% if visit.service %} · {{ visit.service.service_name }}{% endif %}</span><span class="block text-base text-gray-700">{{ visit.time|time:"g:i A" }}</span><span class="mt-1.5 inline-block">{% include "owner/dashboard_parts/visit_badge.html" %}</span></span>{% include "components/icon.html" with name="chevron-right" class="size-5 shrink-0 text-gray-500" %}</a></li>
+    {% endfor %}
+  </ul>
+</section>

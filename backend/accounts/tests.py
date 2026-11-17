@@ -818,7 +818,9 @@ class LogoutPostTests(_LoggedInBase):
 
     def test_every_logout_control_is_a_post_form_with_a_csrf_token(self):
         """The admin sidebar (every admin page) and the owner sidebar
-        (base_dashboard.html, every owner page)."""
+        (base_dashboard.html, every owner page still on it). The owner
+        dashboard and My Pets moved to layouts/owner.html in 8b-4, where the
+        only Log out is the sheet on the Account page (OwnerAccountHubTests)."""
         logout_url = reverse("logout")
         form = re.compile(
             rf'<form method="post" action="{logout_url}">\s*'
@@ -828,8 +830,6 @@ class LogoutPostTests(_LoggedInBase):
         pages = {
             self.admin: ["admin_dashboard", "admin_clinic_settings", "admin_pet_list"],
             self.owner_user: [
-                "owner_dashboard",
-                "owner_pet_list",
                 "owner_profile",
                 "owner_appointments",
                 "clinic_info",
@@ -843,6 +843,15 @@ class LogoutPostTests(_LoggedInBase):
                     self.assertRegex(html, form)
                     self.assertNotIn(f'href="{logout_url}"', html)
 
+    def test_owner_dashboard_and_my_pets_have_no_get_link_to_logout(self):
+        """Both moved to layouts/owner.html in 8b-4: their only Log out is the
+        sheet on the Account page, so they never link to the logout URL."""
+        self.client.force_login(self.owner_user)
+        for name in ("owner_dashboard", "owner_pet_list"):
+            with self.subTest(page=name):
+                response = self.client.get(reverse(name))
+                self.assertNotContains(response, f'href="{reverse("logout")}"')
+
     def test_the_log_out_button_keeps_its_text_and_classes(self):
         self.client.force_login(self.admin)
         html = self.client.get(reverse("admin_dashboard")).content.decode()
@@ -853,7 +862,9 @@ class LogoutPostTests(_LoggedInBase):
             r'hover:bg-violet-200/70">.*?Log out</button>',
         )
         self.client.force_login(self.owner_user)
-        html = self.client.get(reverse("owner_dashboard")).content.decode()
+        # (8b-4, re-anchored: the owner dashboard has no sidebar now, so the
+        # same check runs on the profile page, which is still on it)
+        html = self.client.get(reverse("owner_profile")).content.decode()
         self.assertIn(
             '<button type="submit" class="owner-sidebar-logout">Logout</button>', html
         )

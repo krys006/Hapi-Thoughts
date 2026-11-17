@@ -1,0 +1,6 @@
+{% comment %}
+  Status pill for one upcoming visit, in the owner's words (OWNER_MOCKUPS status
+  table): Pending is "Waiting for approval" (yellow), Confirmed is "Confirmed"
+  (blue). Needs visit.
+{% endcomment %}
+{% if visit.status == "pending" %}{% include "components/status_badge.html" with status="pending" label="Waiting for approval" %}{% else %}{% include "components/status_badge.html" with status="confirmed" label="Confirmed" %}{% endif %}

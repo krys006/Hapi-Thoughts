@@ -497,7 +497,8 @@ PENDING or CONFIRMED → CANCELLED
 | My pets summary | `complete` |
 | Recent notifications | `complete` |
 | Next visit and the visits after it, Pending or Confirmed only (never Completed or No show); unpaid bills count and total; new-owner state (backend context `owner_dashboard_context`, Slice 8a-2b; no 30-second polling, decision 13) | `complete` |
-| Next visit card, upcoming list, unpaid bills box and new-owner welcome card on the page (`owner_pages_v1.html` frames 1–2) | `planned` — page in 8b-4 |
+| Next visit card, upcoming list (max 3), unpaid bills box (only above 0, peso total) and new-owner welcome card on the page, with the violet band and the see-through top bar (`owner_pages_v1.html` frames 1–2; Slice 8b-4) | `complete` |
+| My Pets page: two-column photo grid, "Removal requested" tag, search by name and All / Dogs / Cats / Others chips (shown from 4 pets), empty states (`owner_my_pets_v2.html`; Slice 8b-4) | `complete` |
 | Quick book appointment button | `complete` |
 | Health Library quick access card | `complete` |
 | Clinic info quick access | `complete` |

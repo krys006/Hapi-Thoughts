@@ -46,6 +46,7 @@ from .utils import (
     owner_account_state,
     owner_detail_context,
     owner_list_context,
+    owner_pets_context,
     pet_detail_context,
     pet_archive_refusal,
     pet_list_context,
@@ -314,28 +315,9 @@ def owner_pet_list(request):
     if guard:
         return guard
 
-    pet_owner = request.owner
-
-    # Only show active (non-archived) pets
-    pets = Pet.objects.filter(owner=pet_owner, is_archived=False)
-
-    # Check which pets have a pending deletion request
-    # Used in template to show the "Pending deletion" badge
-    pending_deletion_pks = set(
-        PetDeletionRequest.objects.filter(
-            pet__in=pets,
-            status=PetDeletionRequest.PENDING,
-        ).values_list("pet_id", flat=True)
-    )
-
-    return render(
-        request,
-        "owner/pets/list.html",
-        {
-            "pets": pets,
-            "pending_deletion_pks": pending_deletion_pks,
-        },
-    )
+    # The owner's own non-archived pets, search and type filter (8b-4)
+    context = owner_pets_context(request.owner, request.GET)
+    return render(request, "owner/pets/list.html", context)
 
 
 # ---------------------------------------------------------------------------

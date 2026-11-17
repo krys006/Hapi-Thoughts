@@ -797,3 +797,93 @@ def pet_detail_context(pet, today):
         "archive_request": archive_request(pet),
         "show_archive_button": state == "active" and pending_deletion is None,
     }
+
+
+# ── Owner My Pets (Slice 8b-4) ───────────────────────────────────────────────
+
+# The type chips, in order: (key, label). "other" is any species that is not
+# Dog or Cat, including an empty one.
+OWNER_PET_TYPES = (
+    ("all", "All"),
+    ("dog", "Dogs"),
+    ("cat", "Cats"),
+    ("other", "Others"),
+)
+# The search box and chips show from this many pets up
+OWNER_PET_FILTERS_FROM = 4
+
+_PET_TYPE_FILTERS = {
+    "dog": Q(species__iexact="Dog"),
+    "cat": Q(species__iexact="Cat"),
+    "other": ~(Q(species__iexact="Dog") | Q(species__iexact="Cat")),
+}
+
+
+def _owner_pet_chips(counts, active_type, q):
+    """The chips to show: All, and every type the owner has (or has open).
+    Each link keeps the search text."""
+    chips = []
+    for key, label in OWNER_PET_TYPES:
+        if key != "all" and not counts[key] and key != active_type:
+            continue
+        query = {"type": "" if key == "all" else key, "q": q}
+        chips.append(
+            {
+                "key": key,
+                "label": label,
+                "count": counts[key],
+                "is_active": key == active_type,
+                "query": urlencode({k: v for k, v in query.items() if v}),
+            }
+        )
+    return chips
+
+
+def owner_pets_context(owner, params):
+    """
+    Context for the owner's My Pets page from the request's GET params: the
+    owner's own pets that are not archived, by name then pk. ?q= matches the
+    pet's name (icontains, spaces collapsed); ?type=all|dog|cat|other (default
+    and anything unknown: all). The chip counts cover all of the owner's pets
+    and ignore ?q=. Two queries however many pets: the counts and the list.
+    """
+    q = " ".join(params.get("q", "").split())
+    active_type = params.get("type")
+    if active_type not in _PET_TYPE_FILTERS:
+        active_type = "all"
+
+    own = Pet.objects.filter(owner=owner, is_archived=False)
+    totals = own.aggregate(
+        total=Count("pk"),
+        dog=Count("pk", filter=_PET_TYPE_FILTERS["dog"]),
+        cat=Count("pk", filter=_PET_TYPE_FILTERS["cat"]),
+        other=Count("pk", filter=_PET_TYPE_FILTERS["other"]),
+    )
+    counts = {
+        "all": totals["total"],
+        "dog": totals["dog"],
+        "cat": totals["cat"],
+        "other": totals["other"],
+    }
+
+    pets = own
+    if q:
+        pets = pets.filter(name__icontains=q)
+    if active_type != "all":
+        pets = pets.filter(_PET_TYPE_FILTERS[active_type])
+    waiting = PetDeletionRequest.objects.filter(
+        pet=OuterRef("pk"), status=PetDeletionRequest.PENDING
+    )
+    pets = list(
+        pets.annotate(has_pending_removal=Exists(waiting)).order_by("name", "pk")
+    )
+    return {
+        "pets": pets,
+        "total_count": counts["all"],
+        "counts": counts,
+        "chips": _owner_pet_chips(counts, active_type, q),
+        "show_filters": counts["all"] >= OWNER_PET_FILTERS_FROM,
+        "q": q,
+        "active_type": active_type,
+        "is_filtering": bool(q) or active_type != "all",
+    }

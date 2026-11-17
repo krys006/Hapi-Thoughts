@@ -137,12 +137,14 @@ def _run_global_search(query):
 def _get_owner_dashboard_context(request):
     """
     Builds the context for the pet owner dashboard: owner_dashboard_context
-    (the new keys) plus the keys the old template reads. The old
-    upcoming_appointments is now the next visit and the ones after it
+    (the new keys), the owner (for the greeting), and the old keys the tests
+    still read (the old page and its refresh partial are unused since 8b-4).
+    The old upcoming_appointments is the next visit and the ones after it
     (Pending or Confirmed only, so no Completed or No show visit shows).
     """
     now = timezone.localtime()  # one read of the clock (Manila)
     context = owner_dashboard_context(request.owner, now.date(), now)
+    context["owner"] = request.owner
     next_visit = context["next_visit"]
     context["upcoming_appointments"] = (
         [next_visit, *context["upcoming"]] if next_visit else []

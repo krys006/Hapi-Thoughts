@@ -12,6 +12,7 @@ from django.contrib.messages import get_messages
 from django.core import mail
 from django.db import connection
 from django.http import QueryDict
+from django.template import engines
 from django.template.loader import render_to_string
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
@@ -47,6 +48,7 @@ from pets.utils import (
     match_species,
     match_town,
     owner_list_context,
+    owner_pets_context,
     pet_list_context,
     psgc_marinduque,
     species_options,
@@ -6981,3 +6983,469 @@ class OwnerAddPetPageTests(TestCase):
                 self.assertIsNone(re.search(r"\son[a-z]+=", html))
                 for tag in re.findall(r"<a\b[^>]*>", html):
                     self.assertNotIn("\n", tag)
+
+
+# ── Slice 8b-4: owner My Pets ────────────────────────────────────────────────
+
+
+class OwnerPetsContextTests(TestCase):
+    """owner_pets_context(owner, params): order, search, type, counts."""
+
+    def setUp(self):
+        self.owner = _owner()
+
+    def _context(self, query="", owner=None):
+        return owner_pets_context(owner or self.owner, QueryDict(query))
+
+    def _names(self, query=""):
+        return [pet.name for pet in self._context(query)["pets"]]
+
+    def _mixed(self):
+        """Two dogs, a lower-case cat, a rabbit, a bird and a blank species."""
+        for name, species in (
+            ("Rex", "Dog"),
+            ("Bantay", "dog"),
+            ("Tom", "cat"),
+            ("Kiko", "Rabbit"),
+            ("Pip", "Bird"),
+            ("Blank", ""),
+        ):
+            _pet(self.owner, name, species)
+
+    def test_by_name_then_pk(self):
+        for name in ("Mingming", "Browny", "Choco"):
+            _pet(self.owner, name)
+        first = _pet(self.owner, "Max")
+        second = _pet(self.owner, "Max")
+        self.assertEqual(self._names(), ["Browny", "Choco", "Max", "Max", "Mingming"])
+        pets = self._context()["pets"]
+        self.assertEqual([p.pk for p in pets if p.name == "Max"], [first.pk, second.pk])
+        self.assertEqual(self._names()[2:4], ["Max", "Max"])
+
+    def test_search_matches_the_name_only(self):
+        _pet(self.owner, "Browny", "Dog", "Aspin")
+        _pet(self.owner, "Mini Mo", "Cat", "Puspin")
+        self.assertEqual(self._names("q=brow"), ["Browny"])
+        self.assertEqual(self._names("q=NY"), ["Browny"])
+        self.assertEqual(self._names("q=Aspin"), [])  # the breed
+        self.assertEqual(self._names("q=Cat"), [])  # the species
+        self.assertEqual(self._names("q=zzz"), [])
+
+    def test_search_collapses_spaces(self):
+        _pet(self.owner, "Mini Mo")
+        context = self._context("q=++mini+++mo+")
+        self.assertEqual(context["q"], "mini mo")
+        self.assertEqual([p.name for p in context["pets"]], ["Mini Mo"])
+        self.assertEqual(self._context("q=+++")["q"], "")
+
+    def test_each_type(self):
+        self._mixed()
+        self.assertEqual(self._names("type=dog"), ["Bantay", "Rex"])
+        self.assertEqual(self._names("type=cat"), ["Tom"])
+        # Everything that is not a Dog or a Cat, an empty species too
+        self.assertEqual(self._names("type=other"), ["Blank", "Kiko", "Pip"])
+        self.assertEqual(len(self._names("type=all")), 6)
+
+    def test_default_and_unknown_types_are_all(self):
+        self._mixed()
+        for query in ("", "type=all", "type=wolf", "type=", "type=DOG"):
+            with self.subTest(query=query):
+                context = self._context(query)
+                self.assertEqual(context["active_type"], "all")
+                self.assertEqual(len(context["pets"]), 6)
+                self.assertIs(context["is_filtering"], False)
+
+    def test_type_and_search_work_together(self):
+        self._mixed()
+        self.assertEqual(self._names("type=dog&q=rex"), ["Rex"])
+        self.assertEqual(self._names("type=cat&q=rex"), [])
+
+    def test_counts_cover_every_pet_and_ignore_the_search(self):
+        self._mixed()
+        everything = {"all": 6, "dog": 2, "cat": 1, "other": 3}
+        for query in ("", "q=rex", "type=cat", "type=cat&q=zzz"):
+            with self.subTest(query=query):
+                context = self._context(query)
+                self.assertEqual(context["counts"], everything)
+                self.assertEqual(context["total_count"], 6)
+        chips = self._context("q=rex")["chips"]
+        self.assertEqual([c["count"] for c in chips], [6, 2, 1, 3])
+
+    def test_chips_keep_the_search_and_hide_empty_types(self):
+        _pet(self.owner, "Rex", "Dog")
+        _pet(self.owner, "Tom", "Cat")
+        chips = self._context("q=ma")["chips"]
+        self.assertEqual([c["key"] for c in chips], ["all", "dog", "cat"])
+        self.assertEqual(
+            [c["query"] for c in chips], ["q=ma", "type=dog&q=ma", "type=cat&q=ma"]
+        )
+        self.assertEqual([c["is_active"] for c in chips], [True, False, False])
+        # An open type stays, even when it has no pet
+        chips = self._context("type=other")["chips"]
+        self.assertEqual([c["key"] for c in chips], ["all", "dog", "cat", "other"])
+        self.assertEqual([c["is_active"] for c in chips], [False, False, False, True])
+
+    def test_filters_show_from_four_pets(self):
+        for number in range(3):
+            _pet(self.owner, f"Pet{number}")
+        self.assertIs(self._context()["show_filters"], False)
+        _pet(self.owner, "Pet3")
+        self.assertIs(self._context()["show_filters"], True)
+
+    def test_archived_pets_are_left_out_of_everything(self):
+        for number in range(3):
+            _pet(self.owner, f"Pet{number}", "Cat")
+        _pet(self.owner, "Gone", "Dog", is_archived=True)
+        context = self._context("type=dog")
+        self.assertEqual(context["pets"], [])
+        self.assertEqual(context["counts"]["dog"], 0)
+        self.assertEqual(context["total_count"], 3)
+        self.assertIs(context["show_filters"], False)  # 3 pets, not 4
+
+    def test_another_owners_pets_are_never_shown_or_counted(self):
+        mine = _pet(self.owner, "Mine", "Dog")
+        other = _owner(first="Ben", last="Reyes", email="ben@example.com")
+        _pet(other, "Theirs", "Dog")
+        context = self._context()
+        self.assertEqual(context["pets"], [mine])
+        self.assertEqual(context["counts"]["all"], 1)
+        self.assertEqual(self._names("q=theirs"), [])
+        theirs = self._context(owner=other)["pets"]
+        self.assertEqual([p.name for p in theirs], ["Theirs"])
+
+    def test_pending_removal_flag(self):
+        waiting = _pet(self.owner, "Waiting")
+        _request(waiting, PetDeletionRequest.PENDING)
+        for name, status in (
+            ("Approved", PetDeletionRequest.APPROVED),
+            ("Rejected", PetDeletionRequest.REJECTED),
+            ("TakenBack", PetDeletionRequest.CANCELLED),
+        ):
+            _request(_pet(self.owner, name), status)
+        _pet(self.owner, "Plain")
+        flags = {p.name: p.has_pending_removal for p in self._context()["pets"]}
+        self.assertEqual(
+            flags,
+            {
+                "Waiting": True,
+                "Approved": False,
+                "Rejected": False,
+                "TakenBack": False,
+                "Plain": False,
+            },
+        )
+
+    def test_queries_are_flat(self):
+        def count():
+            with CaptureQueriesContext(connection) as queries:
+                context = self._context("type=dog")
+                list(context["pets"])
+            return len(queries)
+
+        for number in range(3):
+            _request(_pet(self.owner, f"Few{number}", "Dog"))
+        few = count()
+        for number in range(27):
+            _request(_pet(self.owner, f"Many{number}", "Dog"))
+        self.assertEqual(count(), few)
+        self.assertEqual(few, 2)  # the counts and the list
+
+
+class OwnerPetsPageTests(TestCase):
+    """owner_pet_list on layouts/owner.html, Pets tab, white bar."""
+
+    PARTS = (
+        "owner/pets/list.html",
+        "owner/pets_parts/header.html",
+        "owner/pets_parts/filters.html",
+        "owner/pets_parts/pet_card.html",
+        "owner/pets_parts/no_results.html",
+        "owner/pets_parts/no_pets.html",
+    )
+
+    def setUp(self):
+        self.owner = _login_owner(self)
+        self.owner.user.is_onboarded = True
+        self.owner.user.save()
+        self.url = reverse("owner_pet_list")
+
+    def _html(self, query=""):
+        response = self.client.get(f"{self.url}{query}")
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _pets(self, *names):
+        return [_pet(self.owner, name) for name in names]
+
+    def _card(self, html, pet):
+        detail = reverse("owner_pet_detail", args=[pet.pk])
+        found = re.search(
+            rf'(?s)<a href="{detail}" class="flex w-full flex-col.*?</a>', html
+        )
+        self.assertIsNotNone(found, pet.name)
+        return found.group(0)
+
+    def _chips(self, html):
+        nav = re.search(
+            r'(?s)<nav aria-label="Show pets by type"[^>]*>(.*?)</nav>', html
+        )
+        self.assertIsNotNone(nav)
+        return nav.group(1)
+
+    def test_layout_the_pets_tab_and_the_white_bar(self):
+        self._pets("Bantay")
+        response = self.client.get(self.url)
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertTemplateUsed(response, "owner/pets/list.html")
+        self.assertTemplateNotUsed(response, "base_dashboard.html")
+        html = response.content.decode()
+        nav = re.search(r'(?s)<nav aria-label="Main"[^>]*>(.*?)</nav>', html).group(1)
+        self.assertEqual(nav.count('aria-current="page"'), 1)
+        current = re.search(r'<a href="([^"]+)"[^>]*aria-current="page"', nav)
+        self.assertEqual(current.group(1), self.url)
+        # The normal white bar, no violet band
+        self.assertRegex(html, r'<header class="sticky top-0 z-20[^"]*bg-white')
+        self.assertNotIn("data-dashboard-band", html)
+        # (the Add a pet button has hover:bg-violet-700, so match the plain class)
+        self.assertNotRegex(html, r'"[^"]*\sbg-violet-700\b')
+
+    def test_add_a_pet_is_the_one_primary_button(self):
+        add = reverse("owner_pet_add")
+        self._pets("A", "B", "C", "D")
+        for query in ("", "?q=zzz", "?type=cat"):
+            with self.subTest(query=query):
+                found = re.findall(VIOLET_BUTTON, self._html(query))
+                self.assertEqual(len(found), 1)
+                self.assertIn(f'href="{add}"', found[0])
+        self.assertIn("Add a pet</a>", self._html())
+
+    def test_the_count_line(self):
+        self._pets("A")
+        self.assertIn("1 pet</p>", self._html())
+        self._pets("B")
+        self.assertIn("2 pets</p>", self._html())
+
+    def test_search_and_chips_only_from_four_pets(self):
+        self._pets("A", "B", "C")
+        html = self._html()
+        self.assertNotIn("Search your pets", html)
+        self.assertNotIn('role="search"', html)
+        self.assertNotIn("Show pets by type", html)
+        self._pets("D")
+        html = self._html()
+        self.assertIn(f'<form method="get" action="{self.url}" role="search"', html)
+        self.assertIn(
+            '<label for="pet-search" class="sr-only">Search your pets</label>', html
+        )
+        self.assertIn('placeholder="Search your pets by name"', html)
+        self.assertIn('<input type="hidden" name="type" value="all">', html)
+        self.assertIn('type="search" name="q"', html)
+        self.assertIn(
+            '<button type="submit" class="btn btn-outline min-h-12">Search</button>',
+            html,
+        )
+
+    def test_the_search_form_keeps_the_type_and_the_text(self):
+        for name, species in (("Rex", "Dog"), ("Max", "Dog"), ("Tom", "Cat")):
+            _pet(self.owner, name, species)
+        _pet(self.owner, "Kiko", "Rabbit")
+        html = self._html("?type=dog&q=ma")
+        self.assertIn('<input type="hidden" name="type" value="dog">', html)
+        self.assertIn('value="ma"', html)
+        self.assertIn(">Max<", self._card(html, Pet.objects.get(name="Max")))
+        self.assertNotIn("Rex", html)
+
+    def test_chip_links_keep_the_search(self):
+        for name, species in (("Rex", "Dog"), ("Max", "Dog"), ("Tom", "Cat")):
+            _pet(self.owner, name, species)
+        _pet(self.owner, "Kiko", "Rabbit")
+        chips = self._chips(self._html("?q=ma"))
+        hrefs = re.findall(r'<a href="([^"]+)"', chips)
+        self.assertEqual(
+            hrefs,
+            [
+                f"{self.url}?q=ma",
+                f"{self.url}?type=dog&amp;q=ma",
+                f"{self.url}?type=cat&amp;q=ma",
+                f"{self.url}?type=other&amp;q=ma",
+                self.url,  # Clear
+            ],
+        )
+        self.assertIn("All (4)", chips)
+        self.assertIn("Dogs (2)", chips)
+        self.assertIn("Cats (1)", chips)
+        self.assertIn("Others (1)", chips)
+
+    def test_the_selected_chip_has_aria_current_and_light_violet(self):
+        for name, species in (("Rex", "Dog"), ("Max", "Dog"), ("Tom", "Cat")):
+            _pet(self.owner, name, species)
+        _pet(self.owner, "Kiko", "Rabbit")
+        for query, label in (
+            ("", "All"),
+            ("?type=cat", "Cats"),
+            ("?type=dog", "Dogs"),
+        ):
+            with self.subTest(query=query):
+                chips = self._chips(self._html(query))
+                self.assertEqual(chips.count('aria-current="true"'), 1)
+                current = re.search(
+                    r'<a [^>]*aria-current="true"[^>]*>([^<]*)</a>', chips
+                )
+                self.assertTrue(current.group(1).startswith(label))
+                self.assertIn("bg-violet-100", current.group(0))
+                self.assertIn("text-violet-800", current.group(0))
+        # Every chip is a 44 px link
+        for tag in re.findall(r"<a [^>]*>", self._chips(self._html())):
+            self.assertIn("min-h-11", tag)
+
+    def test_clear_only_shows_while_filtering(self):
+        self._pets("A", "B", "C", "D")
+        self.assertNotIn(">Clear</a>", self._html())
+        for query in ("?q=a", "?type=dog"):
+            with self.subTest(query=query):
+                chips = self._chips(self._html(query))
+                clear = re.search(r'<a href="([^"]+)" class="([^"]*)">Clear<', chips)
+                self.assertIsNotNone(clear)
+                self.assertEqual(clear.group(1), self.url)
+                self.assertIn("min-h-11", clear.group(2))
+
+    def test_cards_link_to_the_pet_page_in_two_columns(self):
+        pets = self._pets("Bantay", "Choco", "Mingming")
+        html = self._html()
+        self.assertIn('<ul class="grid grid-cols-2 gap-3">', html)
+        for pet in pets:
+            with self.subTest(pet=pet.name):
+                detail = reverse("owner_pet_detail", args=[pet.pk])
+                self.assertEqual(html.count(f'<a href="{detail}"'), 1)
+                self.assertIn("text-lg font-semibold", self._card(html, pet))
+                self.assertIn(pet.name, self._card(html, pet))
+        self.assertLess(html.index("Bantay"), html.index("Choco"))
+        self.assertLess(html.index("Choco"), html.index("Mingming"))
+
+    def test_species_and_breed_line_leaves_out_empty_parts(self):
+        both = _pet(self.owner, "Both", "Dog", "Aspin")
+        species = _pet(self.owner, "Species", "Rabbit")
+        breed = _pet(self.owner, "Breed", "", "Aspin")
+        html = self._html()
+        self.assertIn("Dog · Aspin</span>", self._card(html, both))
+        card = self._card(html, species)
+        self.assertIn(">Rabbit</span>", card)
+        self.assertNotIn("·", card)
+        card = self._card(html, breed)
+        self.assertIn(">Aspin</span>", card)
+        self.assertNotIn("·", card)
+
+    def test_photo_or_the_species_icon_on_a_light_violet_tile(self):
+        photo = _pet(self.owner, "Bantay", "Dog", photo="pets/bantay.jpg")
+        cat = _pet(self.owner, "Tom", "cat")
+        rabbit = _pet(self.owner, "Kiko", "Rabbit")
+        blank = _pet(self.owner, "Blank", "")
+        html = self._html()
+        card = self._card(html, photo)
+        self.assertRegex(
+            card,
+            r'<img src="[^"]*pets/bantay\.jpg" alt="Photo of Bantay" loading="lazy"',
+        )
+        self.assertNotIn('role="img"', card)
+        for pet, shape in (
+            (cat, "M12 5c.67 0 1.35.09 2 .26"),
+            (rabbit, "M13 16a3 3 0 0 1 2.24 5"),
+            (blank, '<circle cx="11" cy="4" r="2"'),
+        ):
+            with self.subTest(pet=pet.name):
+                card = self._card(html, pet)
+                self.assertIn("bg-violet-50 text-violet-600", card)
+                self.assertIn(f'aria-label="No photo of {pet.name} yet"', card)
+                self.assertIn(shape, card)
+                self.assertNotIn("<img", card)
+
+    def test_removal_tag_only_while_a_request_is_waiting(self):
+        waiting, plain, taken_back = self._pets("Waiting", "Plain", "TakenBack")
+        _request(waiting, PetDeletionRequest.PENDING)
+        _request(taken_back, PetDeletionRequest.CANCELLED)
+        html = self._html()
+        tag = (
+            '<span class="mt-2 inline-flex rounded-full bg-yellow-100 px-2.5 py-1 '
+            'text-sm font-medium text-yellow-800">Removal requested</span>'
+        )
+        self.assertIn(tag, self._card(html, waiting))
+        self.assertNotIn("Removal requested", self._card(html, plain))
+        self.assertNotIn("Removal requested", self._card(html, taken_back))
+        self.assertEqual(html.count("Removal requested"), 1)
+        self.assertNotIn("Pending Deletion", html)
+
+    def test_one_pet_is_still_the_grid(self):
+        (bantay,) = self._pets("Bantay")
+        html = self._html()
+        self.assertIn('<ul class="grid grid-cols-2 gap-3">', html)
+        self.assertIn("Bantay", self._card(html, bantay))
+        self.assertNotIn('role="search"', html)
+
+    def test_no_results_says_what_was_searched_and_clears(self):
+        self._pets("A", "B", "C", "D")
+        html = self._html("?q=zzz")
+        self.assertIn('No pet matches "zzz"', html)
+        self.assertIn('role="status"', html)
+        clear = f'<a href="{self.url}" class="btn btn-outline mt-4">Clear</a>'
+        self.assertIn(clear, html)
+        self.assertNotIn("grid-cols-2", html)
+        self.assertIn("4 pets", html)  # the header and its Add a pet stay
+        html = self._html("?type=cat")
+        self.assertIn("No pet matches this filter", html)
+        self.assertIn("Clear the filter to see all your pets.", html)
+
+    def test_no_pets_is_the_empty_state_with_add_a_pet(self):
+        html = self._html()
+        self.assertIn("added a pet yet", html)
+        self.assertIn("Add your pet so you can book visits", html)
+        found = re.findall(VIOLET_BUTTON, html)
+        self.assertEqual(len(found), 1)
+        self.assertIn(f'href="{reverse("owner_pet_add")}"', found[0])
+        self.assertIn("Add a pet</a>", html)
+        self.assertNotIn('role="search"', html)
+        self.assertNotIn("grid-cols-2", html)
+        # Filtering words do not turn it into "no results"
+        self.assertNotIn("No pet matches", self._html("?q=zzz"))
+
+    def test_only_the_owners_own_active_pets_are_shown(self):
+        self._pets("Mine")
+        _pet(self.owner, "Gone", is_archived=True)
+        _pet(_owner(first="Ben", last="Reyes"), "Theirs")
+        html = self._html()
+        self.assertIn("Mine", html)
+        self.assertNotIn("Gone", html)
+        self.assertNotIn("Theirs", html)
+        self.assertIn("1 pet</p>", html)
+
+    def test_page_queries_are_flat(self):
+        def count():
+            with CaptureQueriesContext(connection) as queries:
+                self.assertEqual(self.client.get(self.url).status_code, 200)
+            return len(queries)
+
+        for number in range(4):
+            _request(_pet(self.owner, f"Few{number}", "Dog"))
+        few = count()
+        for number in range(26):
+            _request(_pet(self.owner, f"Many{number}", "Cat"))
+        self.assertEqual(count(), few)
+        # (printed so the page total can be written in HANDOFF)
+        print(f"\nowner My Pets page queries: {few}")
+
+    def test_no_inline_script_handler_or_one_line_break_in_a_link(self):
+        _request(_pet(self.owner, "Bantay"))
+        self._pets("B", "C", "D")
+        for query in ("", "?q=zzz", "?type=dog"):
+            with self.subTest(query=query):
+                html = self._html(query)
+                self.assertEqual(re.findall(INLINE_SCRIPT, html), [])
+                self.assertIsNone(re.search(r"\son[a-z]+\s*=", html))
+                self.assertNotIn("hx-confirm", html)
+                for tag in re.findall(r"<a\b[^>]*>", html):
+                    self.assertNotIn("\n", tag)
+        for name in self.PARTS:
+            source = engines["django"].get_template(name).template.source
+            with self.subTest(file=name):
+                self.assertNotIn("<!--", source)
+                for link in re.findall(r"(?s)<a\b.*?</a>", source):
+                    self.assertNotIn("\n", link)
