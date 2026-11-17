@@ -1,7 +1,7 @@
 {% comment %}
   About the pet: Name, Sex, Species, Breed. The Species select loads the
-  Breed options over HTMX (attributes set in AdminPetForm). The boxes not
-  in use are hidden; pet_form.js switches them, and without JavaScript
+  Breed options over HTMX (attributes set in SpeciesBreedFieldsMixin). The
+  boxes not in use are hidden; shared/pet_form.js switches them, and without JavaScript
   every box shows (the <noscript> style in pet_form.html):
   - [data-species-other]: "Type the species", only for species Other;
   - [data-breed-pick]: the Breed select, hidden for species Other;
