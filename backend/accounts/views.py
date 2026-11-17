@@ -30,6 +30,11 @@ from accounts.utils import (
     WALKIN_NO_EMAIL_TAKEN,
     WALKIN_SAVE_FAILED,
     create_walkin_owner,
+    find_pending_owner,
+    has_archived_owner,
+    is_unconfirmed_login,
+    owner_profile_required,
+    resend_allowed,
     send_claim_email,
 )
 from appointments.utils import get_clinic_settings
@@ -43,6 +48,12 @@ VERIFICATION_EMAIL_FAILED = (
     "Your account was created, but we couldn't send the email just now. "
     "Please contact the clinic so they can help."
 )
+
+RESEND_REPLY = (
+    "If that email has an account waiting to be confirmed, we sent the link "
+    "again. It may take a minute. Check Spam too."
+)
+ACCOUNT_CLOSED_MESSAGE = "This account is closed. Please contact the clinic."
 
 # ─── Role-based redirect helper ───────────────────────────────────────────────
 
@@ -70,6 +81,7 @@ def owner_login(request):
 
         User = get_user_model()
 
+        user_obj = None
         try:
             user_obj = User.objects.get(email=email)
             user = authenticate(request, username=user_obj.username, password=password)
@@ -77,6 +89,11 @@ def owner_login(request):
             user = None
 
         if user is None:
+            # Right password on an owner who hasn't confirmed the email yet:
+            # the only case that gets the "not confirmed" box (never logged in)
+            if is_unconfirmed_login(user_obj, password):
+                context = {"email": email, "unconfirmed_email": user_obj.email}
+                return render(request, "owner/login.html", context)
             messages.error(request, "Invalid email or password.")
             return render(request, "owner/login.html", {"email": email})
 
@@ -241,6 +258,31 @@ def owner_register_pending(request):
     return render(request, "owner/register_pending.html")
 
 
+def owner_resend_verification(request):
+    """
+    POST: sends the verification link again to an owner who is still waiting
+    to confirm. The reply is always the same (one message, one page) whether
+    or not an account matched, was throttled, was sent or failed, so the
+    page never tells anyone which emails have accounts. A GET sends nothing.
+    """
+    if request.method != "POST":
+        return redirect("owner_login")
+
+    user = find_pending_owner(request.POST.get("email", ""))
+    if user is not None and resend_allowed(user):
+        try:
+            _send_verification_email(request, user)
+        except Exception as error:
+            # Class name only: the message could hold the address or link
+            logger.error(
+                "Verification email not resent to user %s (%s)",
+                user.pk,
+                type(error).__name__,
+            )
+    messages.info(request, RESEND_REPLY)
+    return redirect("owner_register_pending")
+
+
 def owner_verify_email(request, uidb64, token):
     """
     Handles the email verification link.
@@ -256,7 +298,14 @@ def owner_verify_email(request, uidb64, token):
     except (TypeError, ValueError, OverflowError, User.DoesNotExist):
         user = None
 
+    if user is not None and user.role != User.PET_OWNER:
+        user = None  # only pet owners verify here: same as an invalid link
+
     if user is not None and default_token_generator.check_token(user, token):
+        if has_archived_owner(user):
+            # Archived on purpose: a valid link must not turn the account on
+            messages.error(request, ACCOUNT_CLOSED_MESSAGE)
+            return redirect("owner_login")
         user.is_active = True
         user.save()
         messages.success(
@@ -328,6 +377,20 @@ def user_logout(request):
     logout(request)
     messages.success(request, "You have been logged out.")
     return redirect("admin_login" if was_admin else "owner_login")
+
+
+@login_required
+@owner_profile_required
+def owner_account(request):
+    """
+    Pet Owner view — the account hub: the owner's name and email, links to
+    My details, Email notifications, Clinic info and the Health library, and
+    the Log out form. The template lists the links, so none are passed here.
+    (The unread count comes from the shell's context processor, not here.)
+    """
+    if request.user.role != User.PET_OWNER:
+        return redirect("admin_dashboard")
+    return render(request, "owner/account/index.html", {"owner": request.owner})
 
 
 @login_required

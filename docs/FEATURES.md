@@ -58,7 +58,7 @@ Phase 7 — Dashboards & Polish
 | Login page with both options (email/password + Google) | `complete` |
 | Logout | `complete` |
 | Logout is a POST (a GET never logs out: a logged-in user goes to their dashboard, a logged-out visitor to the owner login); every logout control is a POST form with a CSRF token. The log-out confirmation sheet comes with the 8b pages. Slice 8a-1b | `complete` |
-| Resend the verification link ("Send the link again" on Check your email and on login for an unverified account; at most one send per 2 minutes per account) | `planned` |
+| Resend the verification link ("Send the link again" on Check your email and on login for an unverified account; at most one send per 2 minutes per account) | `complete` (backend, 2026-11-17; page design in 8b-2) |
 | `/accounts/signup/` and `/accounts/login/` redirect to the owner register and login pages (the Google provider and callback URLs keep working) | `complete` |
 | Forgot password / reset password via email | `complete` |
 | Redirect to onboarding flow after first login | `complete` |
@@ -105,7 +105,8 @@ Phase 7 — Dashboards & Polish
 |---|---|
 | View own profile | `complete` |
 | Edit profile (name, address, contact number) | `complete` |
-| Email is changed only by the clinic (My details shows it read-only: "To change your email, contact the clinic.") | `planned` |
+| Email is changed only by the clinic (My details shows it read-only: "To change your email, contact the clinic."; the profile form has no email field and a posted email changes nothing) | `complete` (8a-2c; restyled in 8b-9) |
+| Account hub: name, email, links to My details, Email notifications, Clinic info and Health library, and a POST Log out form (`/owner/account/`) | `planned` — backend and plain page done in 8a-2c; the page design is in 8b-9 |
 | Edit contact links (Facebook, other socials) | `complete` |
 | Profile photo upload (optional) | `complete` |
 | Auto-generated initials avatar if no photo uploaded | `complete` |
@@ -295,6 +296,7 @@ PENDING or CONFIRMED → CANCELLED
 | View prescription details | `complete` |
 | View test results (text only, no file access) | `complete` |
 | View vaccination records per pet | `complete` |
+| Open one medical record (`/owner/pets/<pet>/medical/<record>/`): follow-up (booked or "Book a visit"), medicines, what we found, the clinic's note, test results as text only, doses given at the visit ("Corrected by the clinic", never the correction note), the visit and its bill (never a cancelled one); no private notes, no print | `planned` — backend and plain page done in 8a-2c; the page design is in 8b-8 |
 
 ### 4.3 Vaccination Tracking
 | Feature | Status |
@@ -584,7 +586,7 @@ These features will NOT be built in v1 under any circumstances:
 | Public health library | Remove login requirement to make articles publicly accessible |
 | Keep the original visit until an owner reschedule is approved | Today the current visit is cancelled and a new PENDING request is made in one transaction |
 | Limit open requests per owner | Not in v1 |
-| Owner email change | Today only the clinic changes an owner's email |
+| Owner email change | Today only the clinic changes an owner's email (decision 3); My details shows it read-only |
 | Late-cancellation approval | Also planned in 3.2 |
 | Owner calendar page | Admin calendar page is planned separately |
 | Split dashboard loading | Load dashboard parts separately (`owner_dashboard_loading_v1.html`) only if real users find the single page slow |

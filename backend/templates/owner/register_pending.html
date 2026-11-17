@@ -52,13 +52,24 @@
                 </ul>
             </div>
 
+            {% if messages %}
+                <div class="auth-messages">
+                    {% for message in messages %}
+                        <div class="auth-message">{{ message }}</div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            {# Resend form: this page doesn't know the address, so the owner types it (8b-2 designs it) #}
+            <form method="post" action="{% url 'owner_resend_verification' %}" class="auth-form">
+                {% csrf_token %}
+                <label for="resend-email">Email address</label>
+                <input type="email" id="resend-email" name="email" required class="auth-input">
+                <button type="submit" class="auth-button">Send the link again</button>
+            </form>
+
             <div class="mt-6">
-                <a
-                    href="{% url 'owner_login' %}"
-                    class="auth-button block text-center"
-                >
-                    Go to Login
-                </a>
+                <a href="{% url 'owner_login' %}" class="auth-button block text-center">Go to Login</a>
             </div>
 
             <div class="auth-footer-text">

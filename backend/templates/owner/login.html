@@ -51,6 +51,19 @@
                 </div>
             {% endif %}
 
+            {# Shown only for the right password on an owner who hasn't confirmed the email yet (8b-2 designs it) #}
+            {% if unconfirmed_email %}
+                <div class="auth-info-box" role="status">
+                    <p><strong>Please confirm your email first</strong></p>
+                    <p>We sent a link to {{ unconfirmed_email }} when you signed up. Open it, then log in here.</p>
+                    <form method="post" action="{% url 'owner_resend_verification' %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="email" value="{{ unconfirmed_email }}">
+                        <button type="submit" class="auth-button">Send the link again</button>
+                    </form>
+                </div>
+            {% endif %}
+
             <form method="POST" action="{% url 'owner_login' %}" class="auth-form">
                 {% csrf_token %}
 

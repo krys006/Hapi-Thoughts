@@ -40,6 +40,10 @@ Nothing is linked (connect()) until every check has passed.
         model default (pet_owner) and allauth redirects to
         ACCOUNT_SIGNUP_REDIRECT_URL (/owner/onboarding/).
 
+Google sign-ups never get the login's "not confirmed" box or a resent
+verification link (they have no usable password; `verification_pending` in
+accounts/utils.py is False for them) - added 2026-11-17.
+
 "Verified" means Google's own extra_data["email_verified"] (or the older
 "verified_email" key) is True or the string "true". Missing or anything else
 means not verified. We do not use sociallogin.email_addresses[].verified,

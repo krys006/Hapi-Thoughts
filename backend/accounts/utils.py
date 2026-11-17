@@ -3,6 +3,7 @@ from functools import wraps
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
+from django.core.cache import cache
 from django.core.mail import send_mail
 from django.http import HttpResponse
 from django.shortcuts import redirect
@@ -38,6 +39,56 @@ def owner_profile_required(view):
         return view(request, *args, **kwargs)
 
     return wrapper
+
+
+RESEND_SECONDS = 120
+
+
+def verification_pending(user):
+    """
+    True only for an owner who registered with a password and has not
+    confirmed the email yet: pet_owner, inactive, never logged in, a usable
+    password, and no archived PetOwner row. Google sign-ups, walk-ins and
+    clinic-made owners have no usable password; archived owners are inactive
+    on purpose. None of them qualify.
+    """
+    if user.role != User.PET_OWNER or user.is_active:
+        return False
+    if user.last_login is not None or not user.has_usable_password():
+        return False
+    return not has_archived_owner(user)
+
+
+def has_archived_owner(user):
+    """True when the user's PetOwner row exists and is archived."""
+    return PetOwner.objects.filter(user=user, is_archived=True).exists()
+
+
+def is_unconfirmed_login(user, password):
+    """True when this login attempt is the right password on a pending owner."""
+    return (
+        user is not None
+        and verification_pending(user)
+        and user.check_password(password)
+    )
+
+
+def find_pending_owner(email):
+    """The one pending owner with this email (any case, spaces ignored), or
+    None. Zero or several matches both give None."""
+    email = (email or "").strip().lower()
+    if not email:
+        return None
+    users = list(User.objects.filter(email__iexact=email)[:2])
+    if len(users) != 1 or not verification_pending(users[0]):
+        return None
+    return users[0]
+
+
+def resend_allowed(user):
+    """One resend per 2 minutes per account. The cache is per worker process
+    (default locmem), so with several workers the limit is per worker."""
+    return cache.add(f"resend-verification:{user.pk}", 1, RESEND_SECONDS)
 
 
 def send_claim_email(request, user):

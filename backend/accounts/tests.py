@@ -6,10 +6,12 @@ from allauth.core.exceptions import ImmediateHttpResponse
 from allauth.socialaccount.models import SocialAccount, SocialLogin
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.tokens import default_token_generator
 from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
+from django.core.cache import cache
 from django.db import connection
 from django.test import (
     Client,
@@ -19,6 +21,9 @@ from django.test import (
     override_settings,
 )
 from django.urls import resolve, reverse
+from django.utils import timezone
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
 
 from accounts.adapters import (
     ADMIN_MESSAGE,
@@ -27,6 +32,7 @@ from accounts.adapters import (
     UNVERIFIED_MESSAGE,
     CustomSocialAccountAdapter,
 )
+from accounts.utils import verification_pending
 from appointments.models import ClinicSettings
 from pets.models import Pet, PetOwner
 
@@ -908,3 +914,438 @@ class AllauthSideDoorTests(_LoggedInBase):
         self.assertEqual(reverse("google_login"), "/accounts/google/login/")
         self.assertEqual(reverse("google_callback"), "/accounts/google/login/callback/")
         self.assertEqual(self.client.get(reverse("google_login")).status_code, 200)
+
+
+class OwnerAccountHubTests(_LoggedInBase):
+    """Slice 8a-2c: /owner/account/, the account hub (plain markup; the design
+    comes with 8b-9)."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("owner_account")
+
+    def test_the_url(self):
+        self.assertEqual(self.url, "/owner/account/")
+
+    def test_anonymous_is_sent_to_log_in(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertNotEqual(response.url, self.url)
+
+    def test_admin_is_sent_to_the_admin_dashboard(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertRedirects(
+            response, reverse("admin_dashboard"), fetch_redirect_response=False
+        )
+
+    def test_owner_without_a_row_goes_to_onboarding(self):
+        PetOwner.objects.filter(user=self.owner_user).delete()
+        self.client.force_login(self.owner_user)
+        response = self.client.get(self.url)
+        self.assertRedirects(
+            response, reverse("owner_onboarding_step1"), fetch_redirect_response=False
+        )
+
+    def test_owner_sees_name_email_and_the_links(self):
+        self.client.force_login(self.owner_user)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "owner/account/index.html")
+        self.assertEqual(response.context["owner"].user, self.owner_user)
+        self.assertContains(response, "<h1>Account</h1>", html=True)
+        self.assertContains(response, "Ana Cruz")
+        self.assertContains(response, "ana@example.com")
+        for name, text in (
+            ("owner_profile_edit", "My details"),
+            ("owner_notification_preferences", "Email notifications"),
+            ("clinic_info", "Clinic info"),
+            ("owner_health_article_list", "Health library"),
+        ):
+            with self.subTest(link=name):
+                self.assertContains(
+                    response, f'<a href="{reverse(name)}">{text}</a>', html=True
+                )
+
+    def test_every_link_is_on_one_line(self):
+        self.client.force_login(self.owner_user)
+        html = self.client.get(self.url).content.decode()
+        # Only this page's own markup (the shell has older multi-line tags)
+        page = html.split("<h1>Account</h1>")[1].split("</section>")[0]
+        for line in page.splitlines():
+            if "<a " in line or "<a>" in line:
+                with self.subTest(line=line.strip()):
+                    self.assertIn("</a>", line)
+
+    def test_log_out_is_a_post_form_with_a_csrf_token(self):
+        self.client.force_login(self.owner_user)
+        html = self.client.get(self.url).content.decode()
+        form = (
+            rf'<form method="post" action="{reverse("logout")}">\s*'
+            r'<input type="hidden" name="csrfmiddlewaretoken" value="[^"]+">\s*'
+            r'<button type="submit">Log out</button>'
+        )
+        self.assertRegex(html, form)
+        self.assertNotIn(f'href="{reverse("logout")}"', html)
+
+    def test_a_get_of_logout_still_never_logs_out(self):
+        self.client.force_login(self.owner_user)
+        self.client.get(self.url)
+        response = self.client.get(reverse("logout"))
+        self.assertRedirects(
+            response, reverse("owner_dashboard"), fetch_redirect_response=False
+        )
+        self.assertTrue(self._is_logged_in())
+
+
+# ── Slice 8a-2d: resend verification, not-confirmed login, verify guard ──────
+
+PENDING_PASSWORD = "Str0ng-pass-123"
+RESEND_REPLY_TEXT = (
+    "If that email has an account waiting to be confirmed, we sent the link "
+    "again. It may take a minute. Check Spam too."
+)
+GENERIC_LOGIN_ERROR = "Invalid email or password."
+CLOSED_TEXT = "This account is closed. Please contact the clinic."
+
+
+def make_owner(email, **extra):
+    """An owner User (pending by default: inactive, usable password, no login
+    yet, no PetOwner row)."""
+    fields = {"is_active": False, "role": User.PET_OWNER, "password": PENDING_PASSWORD}
+    fields.update(extra)
+    return User.objects.create_user(username=email.split("@")[0], email=email, **fields)
+
+
+def archive_owner(user):
+    return PetOwner.objects.create(
+        user=user, first_name="Old", last_name="Owner", is_archived=True
+    )
+
+
+def verify_path(user):
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    token = default_token_generator.make_token(user)
+    return reverse("owner_verify_email", kwargs={"uidb64": uid, "token": token})
+
+
+def reply_of(response):
+    """What a visitor can see of a reply: status, target, messages."""
+    found = [(m.level_tag, str(m)) for m in get_messages(response.wsgi_request)]
+    return response.status_code, response.url, found
+
+
+class VerificationPendingTests(TestCase):
+    """Slice 8a-2d: the one rule for who may get the link again."""
+
+    def test_true_for_a_freshly_registered_owner(self):
+        data = {
+            "email": "fresh@example.com",
+            "password1": PENDING_PASSWORD,
+            "password2": PENDING_PASSWORD,
+        }
+        self.client.post(reverse("owner_register"), data)
+        user = User.objects.get(email="fresh@example.com")
+        self.assertTrue(verification_pending(user))
+
+    def test_true_with_no_pet_owner_row_yet(self):
+        user = make_owner("norow@example.com")
+        self.assertFalse(PetOwner.objects.filter(user=user).exists())
+        self.assertTrue(verification_pending(user))
+
+    def test_true_with_a_pet_owner_row_that_is_not_archived(self):
+        user = make_owner("row@example.com")
+        PetOwner.objects.create(user=user, first_name="A", last_name="B")
+        self.assertTrue(verification_pending(user))
+
+    def test_false_when_active(self):
+        user = make_owner("a@example.com", is_active=True)
+        self.assertFalse(verification_pending(user))
+
+    def test_false_when_logged_in_before(self):
+        user = make_owner("b@example.com", last_login=timezone.now())
+        self.assertFalse(verification_pending(user))
+
+    def test_false_without_a_usable_password(self):
+        # Walk-in, clinic-made and Google sign-ups have no usable password
+        walk_in = make_owner("c@example.com", password=None)
+        self.assertFalse(walk_in.has_usable_password())
+        self.assertFalse(verification_pending(walk_in))
+
+    def test_false_for_an_admin(self):
+        user = make_owner("d@example.com", role=User.ADMIN)
+        self.assertFalse(verification_pending(user))
+
+    def test_false_for_an_archived_owner(self):
+        user = make_owner("e@example.com")
+        archive_owner(user)
+        self.assertFalse(verification_pending(user))
+
+
+class ResendVerificationTests(TestCase):
+    """Slice 8a-2d: POST /resend-verification/. Always the same reply."""
+
+    def setUp(self):
+        cache.clear()
+        self.url = reverse("owner_resend_verification")
+        self.user = make_owner("waiting@example.com")
+
+    def _post(self, email="waiting@example.com", client=None):
+        return (client or self.client).post(self.url, {"email": email})
+
+    def _link_path(self, message):
+        return re.search(r"https?://[^/\s]+(/verify-email/\S+)", message.body).group(1)
+
+    def test_the_url(self):
+        self.assertEqual(self.url, "/resend-verification/")
+
+    def test_get_sends_nothing_and_goes_to_login(self):
+        response = self.client.get(self.url)
+        self.assertRedirects(
+            response, reverse("owner_login"), fetch_redirect_response=False
+        )
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_post_sends_one_email_with_a_working_link(self):
+        response = self._post()
+        self.assertRedirects(
+            response, reverse("owner_register_pending"), fetch_redirect_response=False
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["waiting@example.com"])
+        self.client.get(self._link_path(mail.outbox[0]))
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.is_active)
+
+    def test_email_case_and_spaces_are_ignored(self):
+        self._post("  WAITING@Example.COM ")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["waiting@example.com"])
+
+    def test_a_second_post_within_two_minutes_sends_nothing(self):
+        self._post()
+        self._post()
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_the_throttle_is_one_send_per_120_seconds_per_account(self):
+        with mock.patch("accounts.utils.cache.add", return_value=True) as add:
+            self._post()
+        add.assert_called_once_with(f"resend-verification:{self.user.pk}", 1, 120)
+
+    def test_sends_again_after_the_key_expires(self):
+        self._post()
+        cache.delete(f"resend-verification:{self.user.pk}")
+        self._post()
+        self.assertEqual(len(mail.outbox), 2)
+
+    def test_another_account_is_not_throttled_by_this_one(self):
+        make_owner("other@example.com")
+        self._post()
+        self._post("other@example.com")
+        self.assertEqual(len(mail.outbox), 2)
+
+    def test_the_reply_is_identical_for_every_case(self):
+        make_owner("active@example.com", is_active=True)
+        archive_owner(make_owner("closed@example.com"))
+        make_owner("google@example.com", password=None)
+        make_owner("busy@example.com")
+        self._post("busy@example.com")  # the next post is throttled
+        cases = {
+            "pending": "waiting@example.com",
+            "unknown": "nobody@example.com",
+            "active": "active@example.com",
+            "archived": "closed@example.com",
+            "google": "google@example.com",
+            "throttled": "busy@example.com",
+            "empty": "",
+        }
+        expected = (
+            302,
+            reverse("owner_register_pending"),
+            [("info", RESEND_REPLY_TEXT)],
+        )
+        for name, email in cases.items():
+            with self.subTest(case=name):
+                # A new client each time: unread messages would pile up
+                response = self._post(email, client=Client())
+                self.assertEqual(reply_of(response), expected)
+        # Only the pending owner and the first "busy" post got an email
+        self.assertEqual(len(mail.outbox), 2)
+
+    def test_a_send_error_gives_the_same_reply_and_is_logged_quietly(self):
+        boom = Exception("boom secret detail waiting@example.com")
+        with mock.patch("accounts.views.send_mail", side_effect=boom):
+            with self.assertLogs("accounts.views", level="ERROR") as logs:
+                response = self._post()
+        self.assertEqual(
+            reply_of(response),
+            (302, reverse("owner_register_pending"), [("info", RESEND_REPLY_TEXT)]),
+        )
+        text = "\n".join(logs.output)
+        for secret in ("boom secret", "waiting@example.com", "verify-email"):
+            self.assertNotIn(secret, text)
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.is_active)
+
+    def test_csrf_is_enforced(self):
+        client = Client(enforce_csrf_checks=True)
+        response = client.post(self.url, {"email": "waiting@example.com"})
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_works_logged_out_and_the_reply_is_shown_on_the_page(self):
+        response = self.client.post(self.url, {"email": "x@example.com"}, follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, RESEND_REPLY_TEXT)
+
+    def test_the_check_your_email_page_has_the_resend_form(self):
+        response = self.client.get(reverse("owner_register_pending"))
+        self.assertContains(response, f'action="{self.url}"')
+        self.assertContains(response, 'name="email"')
+        self.assertContains(response, "Email address")
+        self.assertContains(response, "Send the link again")
+        self.assertContains(response, "csrfmiddlewaretoken")
+
+
+class LoginNotConfirmedTests(TestCase):
+    """Slice 8a-2d: the "Please confirm your email first" box on the login."""
+
+    BOX = "Please confirm your email first"
+
+    def setUp(self):
+        cache.clear()
+        self.url = reverse("owner_login")
+
+    def _login(self, email, password=PENDING_PASSWORD):
+        return self.client.post(self.url, {"email": email, "password": password})
+
+    def _assert_generic(self, response):
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, GENERIC_LOGIN_ERROR)
+        self.assertNotContains(response, self.BOX)
+        self.assertNotContains(response, "Send the link again")
+        self.assertIsNone(response.context.get("unconfirmed_email"))
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_right_password_on_a_pending_owner_shows_the_box(self):
+        user = make_owner("waiting@example.com")
+        response = self._login("waiting@example.com")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["unconfirmed_email"], "waiting@example.com")
+        self.assertContains(response, self.BOX)
+        self.assertContains(
+            response,
+            "We sent a link to waiting@example.com when you signed up. "
+            "Open it, then log in here.",
+        )
+        self.assertContains(response, 'name="email" value="waiting@example.com"')
+        resend_url = reverse("owner_resend_verification")
+        self.assertContains(response, f'action="{resend_url}"')
+        self.assertContains(response, "Send the link again")
+        self.assertNotContains(response, GENERIC_LOGIN_ERROR)
+        self.assertNotIn("_auth_user_id", self.client.session)
+        user.refresh_from_db()
+        self.assertFalse(user.is_active)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_the_box_email_is_typed_case_insensitively(self):
+        make_owner("waiting@example.com")
+        response = self._login("  Waiting@Example.com ")
+        self.assertContains(response, self.BOX)
+
+    def test_the_resend_form_in_the_box_sends_the_link(self):
+        make_owner("waiting@example.com")
+        self._login("waiting@example.com")
+        resend_url = reverse("owner_resend_verification")
+        self.client.post(resend_url, {"email": "waiting@example.com"})
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_wrong_password_shows_the_generic_error(self):
+        make_owner("waiting@example.com")
+        self._assert_generic(self._login("waiting@example.com", "wrong-password-1"))
+
+    def test_unknown_email_shows_the_generic_error(self):
+        self._assert_generic(self._login("nobody@example.com"))
+
+    def test_archived_owner_with_the_right_password_shows_the_generic_error(self):
+        archive_owner(make_owner("closed@example.com"))
+        self._assert_generic(self._login("closed@example.com"))
+
+    def test_google_and_walk_in_users_show_the_generic_error(self):
+        make_owner("google@example.com", password=None)
+        self._assert_generic(self._login("google@example.com"))
+        self._assert_generic(self._login("google@example.com", ""))
+
+    def test_an_inactive_admin_shows_the_generic_error(self):
+        make_owner("boss@example.com", role=User.ADMIN)
+        self._assert_generic(self._login("boss@example.com"))
+
+    def test_an_active_admin_never_sees_the_box(self):
+        make_owner("boss@example.com", role=User.ADMIN, is_active=True)
+        response = self._login("boss@example.com")
+        self.assertNotContains(response, self.BOX)
+        self.assertContains(response, "Please use the admin login page.")
+
+    def test_an_owner_who_logged_in_before_shows_the_generic_error(self):
+        make_owner("back@example.com", last_login=timezone.now())
+        self._assert_generic(self._login("back@example.com"))
+
+    def test_a_normal_active_owner_still_logs_in(self):
+        make_owner("ana@example.com", is_active=True, is_onboarded=True)
+        response = self._login("ana@example.com")
+        self.assertRedirects(
+            response, reverse("owner_dashboard"), fetch_redirect_response=False
+        )
+        self.assertIn("_auth_user_id", self.client.session)
+
+
+class VerifyEmailGuardTests(TestCase):
+    """Slice 8a-2d: the verification link only turns on a normal owner."""
+
+    def test_a_pending_owners_link_activates_the_account(self):
+        user = make_owner("waiting@example.com")
+        response = self.client.get(verify_path(user))
+        self.assertRedirects(
+            response, reverse("owner_login"), fetch_redirect_response=False
+        )
+        self.assertEqual(
+            [(m.level_tag, str(m)) for m in get_messages(response.wsgi_request)],
+            [("success", "Email verified successfully. You can now log in.")],
+        )
+        user.refresh_from_db()
+        self.assertTrue(user.is_active)
+
+    def test_an_archived_owners_link_does_not_activate(self):
+        user = make_owner("closed@example.com")
+        archive_owner(user)
+        response = self.client.get(verify_path(user), follow=True)
+        self.assertRedirects(response, reverse("owner_login"))
+        self.assertContains(response, CLOSED_TEXT)
+        user.refresh_from_db()
+        self.assertFalse(user.is_active)
+
+    def test_a_non_owners_link_does_not_activate(self):
+        user = make_owner("boss@example.com", role=User.ADMIN)
+        response = self.client.get(verify_path(user))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "owner/verify_email_invalid.html")
+        user.refresh_from_db()
+        self.assertFalse(user.is_active)
+
+    def test_an_already_active_owner_keeps_todays_behaviour(self):
+        user = make_owner("ana@example.com", is_active=True)
+        response = self.client.get(verify_path(user))
+        self.assertRedirects(
+            response, reverse("owner_login"), fetch_redirect_response=False
+        )
+        user.refresh_from_db()
+        self.assertTrue(user.is_active)
+
+    def test_a_bad_token_is_still_the_invalid_page(self):
+        user = make_owner("waiting@example.com")
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        path = reverse("owner_verify_email", kwargs={"uidb64": uid, "token": "x-y"})
+        response = self.client.get(path)
+        self.assertTemplateUsed(response, "owner/verify_email_invalid.html")
+        user.refresh_from_db()
+        self.assertFalse(user.is_active)

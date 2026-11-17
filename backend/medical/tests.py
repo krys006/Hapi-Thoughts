@@ -10,7 +10,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
 from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.db import connection
+from django.db import connection, reset_queries
 from django.http import QueryDict
 from django.template import Context, Template
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -19,6 +19,7 @@ from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
 from appointments.models import Appointment, ClinicSettings
+from billing.models import BillingReceipt
 from dashboard.templatetags.friendly_dates import friendly_date_on
 from notifications.models import Notification, NotificationPreference
 from pets.models import Pet, PetOwner
@@ -38,6 +39,7 @@ from .utils import (
     last_reminder,
     last_reminders,
     medical_history_context,
+    owner_record_context,
     record_list_context,
     save_vaccination_edit,
     vaccination_history_context,
@@ -6693,3 +6695,431 @@ class FollowUpVisitTests(FrozenMedicalTestBase):
         with CaptureQueriesContext(connection) as queries:
             follow_up_visit(record)
         self.assertEqual(len(queries), 1)
+
+
+class OwnerMedicalRecordPageTests(FrozenMedicalTestBase):
+    """Slice 8a-2c: the owner's read-only record page. Time frozen at 00:30
+    Manila on Tue, Nov 3, 2026 (still Nov 2 in UTC)."""
+
+    HEADINGS = [
+        "Follow-up",
+        "Medicines",
+        "What we found",
+        "Note from the clinic",
+        "Test results",
+        "Vaccinations",
+        "The visit",
+        "Bill",
+    ]
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.owner_user)
+        self.record = self._record(diagnosis="Skin allergy")
+
+    def _url(self, record=None, pet=None):
+        record, pet = record or self.record, pet or self.pet
+        return reverse("owner_medical_record", args=[pet.pk, record.pk])
+
+    def _other_owner_pet(self):
+        user = User.objects.create_user(
+            username="ben", email="ben@example.com", role=User.PET_OWNER
+        )
+        owner = PetOwner.objects.create(user=user, first_name="Ben", last_name="Reyes")
+        pet = Pet.objects.create(owner=owner, name="Rex", species="Dog")
+        record = MedicalRecord.objects.create(pet=pet, record_date=TODAY)
+        return pet, record
+
+    def _visit(self, day=TODAY, hour=9, status=Appointment.COMPLETED):
+        return Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=day,
+            time=datetime.time(hour, 0),
+            status=status,
+        )
+
+    def _receipt(self, visit, status):
+        return BillingReceipt.objects.create(
+            receipt_number=BillingReceipt.generate_receipt_number(),
+            owner=self.owner,
+            pet=self.pet,
+            appointment=visit,
+            payment_status=status,
+        )
+
+    def _article(self, response):
+        """The page's own markup (the shell is not part of this slice)."""
+        html = response.content.decode()
+        return html.split("<article>")[1].split("</article>")[0]
+
+    def _headings(self, response):
+        return re.findall(r"<h2[^>]*>(.*?)</h2>", self._article(response))
+
+    # ── Who can open it ─────────────────────────────────────────────────────
+
+    def test_the_url(self):
+        self.assertEqual(
+            self._url(), f"/owner/pets/{self.pet.pk}/medical/{self.record.pk}/"
+        )
+
+    def test_owner_sees_it(self):
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "owner/medical/record.html")
+        self.assertContains(response, "Visit record · Tue, Nov 3, 2026")
+
+    def test_admin_is_redirected(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(self._url())
+        self.assertRedirects(
+            response, reverse("admin_dashboard"), fetch_redirect_response=False
+        )
+
+    def test_anonymous_is_sent_to_log_in(self):
+        self.client.logout()
+        self.assertEqual(self.client.get(self._url()).status_code, 302)
+
+    def test_owner_with_no_pet_owner_row_goes_to_onboarding(self):
+        user = User.objects.create_user(
+            username="newbie", email="newbie@example.com", role=User.PET_OWNER
+        )
+        self.client.force_login(user)
+        response = self.client.get(self._url())
+        self.assertRedirects(
+            response, reverse("owner_onboarding_step1"), fetch_redirect_response=False
+        )
+
+    def test_another_owners_pet_is_a_404(self):
+        pet, record = self._other_owner_pet()
+        self.assertEqual(self.client.get(self._url(record, pet)).status_code, 404)
+
+    def test_another_owners_record_on_my_pet_is_a_404(self):
+        _pet, record = self._other_owner_pet()
+        self.assertEqual(self.client.get(self._url(record, self.pet)).status_code, 404)
+
+    def test_another_pets_record_is_a_404(self):
+        muning = Pet.objects.create(owner=self.owner, name="Muning", species="Cat")
+        record = MedicalRecord.objects.create(pet=muning, record_date=TODAY)
+        self.assertEqual(self.client.get(self._url(record, self.pet)).status_code, 404)
+        self.assertEqual(self.client.get(self._url(record, muning)).status_code, 200)
+
+    def test_an_archived_pet_is_a_404(self):
+        Pet.objects.filter(pk=self.pet.pk).update(is_archived=True)
+        self.assertEqual(self.client.get(self._url()).status_code, 404)
+
+    # ── What is and is not shown ────────────────────────────────────────────
+
+    def test_private_notes_are_deferred_and_never_shown(self):
+        MedicalRecord.objects.filter(pk=self.record.pk).update(
+            private_notes="PRIVATE-NOTE-XYZ", public_notes="Give food slowly"
+        )
+        response = self.client.get(self._url())
+        record = response.context["record"]
+        self.assertIn("private_notes", record.get_deferred_fields())
+        self.assertNotContains(response, "PRIVATE-NOTE-XYZ")
+        self.assertNotContains(response, "Private notes")
+        self.assertContains(response, "Give food slowly")
+
+    def test_the_context_keys(self):
+        response = self.client.get(self._url())
+        for key in (
+            "record",
+            "medicines",
+            "test_files",
+            "vaccinations",
+            "follow_up",
+            "visit",
+            "receipt",
+            "pet",
+            "today",
+        ):
+            with self.subTest(key=key):
+                self.assertIn(key, response.context)
+        self.assertEqual(response.context["pet"], self.pet)
+        self.assertEqual(response.context["today"], TODAY)
+
+    def test_medicines_in_order_with_their_fields(self):
+        second = PrescriptionItem.objects.create(
+            record=self.record, medicine_name="Cetirizine", dosage="1 tablet"
+        )
+        first = PrescriptionItem.objects.create(
+            record=self.record,
+            medicine_name="Amoxicillin",
+            dosage="5 ml",
+            frequency="Twice a day",
+            duration="7 days",
+            notes="Give with food",
+        )
+        PrescriptionItem.objects.filter(pk=first.pk).update(
+            created_at=self.now - datetime.timedelta(hours=1)
+        )
+        response = self.client.get(self._url())
+        self.assertEqual(response.context["medicines"], [first, second])
+        for text in ("Amoxicillin", "5 ml", "Twice a day", "7 days", "Give with food"):
+            self.assertContains(response, text)
+
+    def test_what_we_found_and_the_note(self):
+        MedicalRecord.objects.filter(pk=self.record.pk).update(
+            symptoms="Itching",
+            treatment_given="Medicated bath",
+            public_notes="Call if it gets worse",
+        )
+        response = self.client.get(self._url())
+        for text in ("Itching", "Skin allergy", "Medicated bath", "Call if it gets"):
+            self.assertContains(response, text)
+
+    # ── Vaccinations: "Corrected by the clinic", never the note ─────────────
+
+    def test_a_correction_note_never_shows_but_the_label_does(self):
+        Vaccination.objects.create(
+            pet=self.pet,
+            medical_record=self.record,
+            vaccine_name=Vaccination.ANTI_RABIES,
+            date_administered=TODAY,
+            next_due_date=datetime.date(2027, 11, 3),
+            is_corrected=True,
+            correction_note="Tue, Nov 3, 2026: SECRET-CORRECTION-TEXT",
+        )
+        Vaccination.objects.create(
+            pet=self.pet,
+            medical_record=self.record,
+            vaccine_name=Vaccination.DEWORMING,
+            date_administered=TODAY - datetime.timedelta(days=1),
+        )
+        response = self.client.get(self._url())
+        self.assertNotContains(response, "SECRET-CORRECTION-TEXT")
+        self.assertContains(response, "Corrected by the clinic", count=1)
+        self.assertContains(response, "Anti-rabies")
+        self.assertContains(response, "Next one due Nov 3, 2027")
+        doses = response.context["vaccinations"]
+        # Newest first, and the note is never loaded
+        self.assertEqual([d.vaccine_name for d in doses], ["Anti-rabies", "Deworming"])
+        for dose in doses:
+            self.assertIn("correction_note", dose.get_deferred_fields())
+
+    def test_only_doses_of_this_record_show(self):
+        Vaccination.objects.create(
+            pet=self.pet,
+            vaccine_name=Vaccination.BORDETELLA,
+            date_administered=TODAY,
+        )
+        response = self.client.get(self._url())
+        self.assertEqual(list(response.context["vaccinations"]), [])
+        self.assertNotContains(response, "Bordetella")
+
+    # ── Test files: text only ───────────────────────────────────────────────
+
+    def test_archived_files_are_not_listed(self):
+        TestResultFile.objects.create(
+            record=self.record,
+            file="test_results/blood.pdf",
+            description="Blood panel",
+        )
+        TestResultFile.objects.create(
+            record=self.record,
+            file="test_results/wrong.pdf",
+            description="Wrong upload",
+            is_archived=True,
+        )
+        response = self.client.get(self._url())
+        self.assertContains(response, "Blood panel")
+        self.assertNotContains(response, "Wrong upload")
+        self.assertContains(response, "On file. Ask the clinic for a copy.", count=1)
+
+    def test_files_are_text_only(self):
+        TestResultFile.objects.create(
+            record=self.record,
+            file="test_results/zq-unique-77.pdf",
+            description="Blood panel",
+        )
+        TestResultFile.objects.create(
+            record=self.record, file="test_results/zq-unique-88.png"
+        )
+        response = self.client.get(self._url())
+        files = response.context["test_files"]
+        self.assertEqual(
+            files,
+            [
+                {"title": "Blood panel", "added": TODAY},
+                # No description: the file's base name, never its folder
+                {"title": "zq-unique-88.png", "added": TODAY},
+            ],
+        )
+        # The Manila date, not the UTC one (still Nov 2 in UTC at 00:30)
+        self.assertEqual(files[0]["added"], datetime.date(2026, 11, 3))
+        article = self._article(response)
+        self.assertNotIn("zq-unique-77", response.content.decode())
+        self.assertNotIn("test_results", article)
+        self.assertNotIn(".pdf", article)
+        self.assertNotIn("/media/", article)
+        self.assertNotRegex(article, r'<a [^>]*href="[^"]*(pdf|png)')
+
+    # ── Follow-up ───────────────────────────────────────────────────────────
+
+    def _follow_up_record(self, **fields):
+        fields.setdefault("follow_up_required", True)
+        fields.setdefault("follow_up_date", datetime.date(2026, 11, 10))
+        return self._record(record_date=TODAY - datetime.timedelta(days=1), **fields)
+
+    def test_no_follow_up_when_it_is_not_needed(self):
+        record = self._follow_up_record(follow_up_required=False)
+        response = self.client.get(self._url(record))
+        self.assertIsNone(response.context["follow_up"])
+        self.assertNotIn("Follow-up", self._headings(response))
+        self.assertNotContains(response, "Book a visit for")
+
+    def test_follow_up_with_a_booked_visit_links_to_it(self):
+        record = self._follow_up_record()
+        booked = self._visit(
+            day=datetime.date(2026, 11, 11), status=Appointment.CONFIRMED
+        )
+        response = self.client.get(self._url(record))
+        follow_up = response.context["follow_up"]
+        self.assertEqual(follow_up["date"], datetime.date(2026, 11, 10))
+        self.assertEqual(follow_up["days"], 7)
+        self.assertEqual(follow_up["visit"], booked)
+        self.assertEqual(self._headings(response)[0], "Follow-up")
+        self.assertContains(
+            response,
+            f'href="{reverse("owner_appointment_detail", args=[booked.pk])}"',
+        )
+        self.assertNotContains(response, "Book a visit for")
+
+    def test_follow_up_not_booked_links_to_booking_with_the_pet(self):
+        record = self._follow_up_record()
+        response = self.client.get(self._url(record))
+        self.assertIsNone(response.context["follow_up"]["visit"])
+        book = f'{reverse("owner_book_appointment")}?pet={self.pet.pk}'
+        self.assertContains(response, f'<a href="{book}">Book a visit for Bantay</a>')
+
+    # ── The visit and the bill ──────────────────────────────────────────────
+
+    def test_the_visit_links_to_its_page(self):
+        visit = self._visit()
+        MedicalRecord.objects.filter(pk=self.record.pk).update(appointment=visit)
+        response = self.client.get(self._url())
+        self.assertEqual(response.context["visit"], visit)
+        self.assertIn("The visit", self._headings(response))
+        link = reverse("owner_appointment_detail", args=[visit.pk])
+        self.assertContains(response, f'href="{link}"')
+
+    def test_a_pending_or_paid_receipt_is_shown(self):
+        visit = self._visit()
+        MedicalRecord.objects.filter(pk=self.record.pk).update(appointment=visit)
+        receipt = self._receipt(visit, BillingReceipt.PENDING)
+        for status in (BillingReceipt.PENDING, BillingReceipt.PAID):
+            with self.subTest(status=status):
+                BillingReceipt.objects.filter(pk=receipt.pk).update(
+                    payment_status=status
+                )
+                response = self.client.get(self._url())
+                self.assertEqual(response.context["receipt"], receipt)
+                self.assertIn("Bill", self._headings(response))
+                link = reverse("owner_receipt_detail", args=[receipt.pk])
+                self.assertContains(response, f'href="{link}"')
+
+    def test_a_cancelled_receipt_is_never_shown(self):
+        visit = self._visit()
+        MedicalRecord.objects.filter(pk=self.record.pk).update(appointment=visit)
+        receipt = self._receipt(visit, BillingReceipt.CANCELLED)
+        response = self.client.get(self._url())
+        self.assertIsNone(response.context["receipt"])
+        self.assertNotIn("Bill", self._headings(response))
+        self.assertNotContains(response, receipt.receipt_number)
+
+    # ── Layout rules ────────────────────────────────────────────────────────
+
+    def test_empty_sections_are_left_out(self):
+        record = self._record(record_date=TODAY - datetime.timedelta(days=2))
+        response = self.client.get(self._url(record))
+        self.assertEqual(self._headings(response), [])
+
+    def test_every_section_in_order_when_there_is_something_in_each(self):
+        visit = self._visit()
+        record = self._follow_up_record(
+            symptoms="Itching", public_notes="Call us", appointment=visit
+        )
+        PrescriptionItem.objects.create(record=record, medicine_name="Amox")
+        TestResultFile.objects.create(record=record, file="test_results/a.pdf")
+        Vaccination.objects.create(
+            pet=self.pet,
+            medical_record=record,
+            vaccine_name=Vaccination.DEWORMING,
+            date_administered=TODAY,
+        )
+        self._receipt(visit, BillingReceipt.PENDING)
+        response = self.client.get(self._url(record))
+        self.assertEqual(self._headings(response), self.HEADINGS)
+
+    def test_no_print_button(self):
+        record = self._follow_up_record(symptoms="Itching")
+        response = self.client.get(self._url(record))
+        self.assertNotIn("Print", self._article(response))
+        self.assertNotIn("window.print", response.content.decode())
+
+    def test_every_link_is_on_one_line(self):
+        record = self._follow_up_record(symptoms="Itching")
+        article = self._article(self.client.get(self._url(record)))
+        for line in article.splitlines():
+            if "<a " in line or "<a>" in line:
+                with self.subTest(line=line.strip()):
+                    self.assertIn("</a>", line)
+
+    def test_no_comment_or_inline_script_in_the_page(self):
+        article = self._article(self.client.get(self._url()))
+        for text in ("<!--", "onclick", "<script", "hx-confirm"):
+            self.assertNotIn(text, article)
+
+    def test_the_history_page_links_to_each_record(self):
+        other = self._record(record_date=TODAY - datetime.timedelta(days=9))
+        response = self.client.get(
+            reverse("owner_pet_medical_history", args=[self.pet.pk])
+        )
+        for record in (self.record, other):
+            link = reverse("owner_medical_record", args=[self.pet.pk, record.pk])
+            self.assertContains(response, f'<a href="{link}"')
+
+    # ── Query count ─────────────────────────────────────────────────────────
+
+    def _fill(self, count, record):
+        for i in range(count):
+            PrescriptionItem.objects.create(record=record, medicine_name=f"M{i}")
+            TestResultFile.objects.create(
+                record=record, file=f"test_results/f{i}.pdf", description=f"F{i}"
+            )
+            Vaccination.objects.create(
+                pet=self.pet,
+                medical_record=record,
+                vaccine_name=Vaccination.DEWORMING,
+                date_administered=TODAY - datetime.timedelta(days=i),
+            )
+
+    def _counts(self, record):
+        url = self._url(record)
+        # A request clears the query log when it starts, so start from an
+        # empty log; otherwise the capture slices off that many queries
+        reset_queries()
+        with CaptureQueriesContext(connection) as page:
+            self.assertEqual(self.client.get(url).status_code, 200)
+        # Count now: the capture slices the live log when read, and the next
+        # request clears that log, so a late len(page) would count the wrong rows
+        page_count = len(page)
+        response = self.client.get(url)
+        with CaptureQueriesContext(connection) as context_only:
+            owner_record_context(response.context["record"], TODAY)
+        return page_count, len(context_only)
+
+    def test_query_count_is_flat(self):
+        visit = self._visit()
+        record = self._follow_up_record(appointment=visit)
+        self._receipt(visit, BillingReceipt.PAID)
+        self._visit(day=datetime.date(2026, 11, 12), status=Appointment.CONFIRMED)
+        self._fill(3, record)
+        few = self._counts(record)
+        self._fill(27, record)
+        many = self._counts(record)
+        print(f"owner_medical_record: page {few[0]} queries, context {few[1]}")
+        self.assertEqual(few, many)
+        # medicines, files, doses, the follow-up visit and the receipt
+        self.assertEqual(many[1], 5)
