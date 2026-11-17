@@ -3220,7 +3220,12 @@ class ReceiptPaidNotificationTests(FrozenBillingTestBase):
         self.assertEqual(notification.related_billing, receipt)
         self.assertEqual(notification.related_pet, self.pet)
         self.assertEqual(len(mail.outbox), 1)
-        self.assertEqual(mail.outbox[0].subject, f"{title} — Hapi Vet")
+        # 8a-2c: the subject names the receipt and the pet again (8a-2b:
+        # f"{title} — Hapi Vet", i.e. "Bill paid: ₱1,250.00 — Hapi Vet")
+        self.assertEqual(
+            mail.outbox[0].subject,
+            f"Receipt {receipt.receipt_number} for Bantay — Hapi Vet",
+        )
         self.assertEqual(
             mail.outbox[0].body,
             "Paid ₱1,250.00 on Sat, Nov 7. You can view or print it in Billing.",
@@ -3240,7 +3245,11 @@ class ReceiptPaidNotificationTests(FrozenBillingTestBase):
             notification.message, f"{receipt.receipt_number}. Paid on Sat, Nov 7."
         )
         self.assertIsNone(notification.related_pet)
-        self.assertEqual(mail.outbox[0].subject, "Bill paid: ₱100.00 — Hapi Vet")
+        # 8a-2c: the subject is back to the receipt number (8a-2b: "Bill paid:
+        # ₱100.00 — Hapi Vet")
+        self.assertEqual(
+            mail.outbox[0].subject, f"Receipt {receipt.receipt_number} — Hapi Vet"
+        )
 
     def test_the_year_shows_when_it_isnt_this_year(self):
         receipt = self._receipt(BillingReceipt.PAID)

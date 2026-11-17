@@ -355,6 +355,10 @@
 
                     {% endif %}
 
+                    <p class="record-field">
+                        <a href="{% url 'owner_medical_record' pet.pk record.pk %}" class="btn-link">See the full record</a>
+                    </p>
+
                 </li>
 
             {% endfor %}

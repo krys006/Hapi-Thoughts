@@ -1,7 +1,6 @@
 # notifications/utils.py
 
 from django.core.mail import send_mail
-from django.conf import settings
 from django.core.paginator import Paginator
 from django.urls import reverse
 from django.utils import timezone

@@ -19,6 +19,8 @@ from .utils import (
     new_vaccination_initial,
     next_dose_help,
     notify_record_created,
+    owner_record_context,
+    owner_record_queryset,
     record_detail_context,
     record_for_vaccination,
     record_form_context,
@@ -547,6 +549,29 @@ def owner_pet_medical_history(request, pk):
             "pet": pet,
             "records": records,
         },
+    )
+
+
+@login_required
+@owner_profile_required
+def owner_medical_record(request, pet_pk, pk):
+    """
+    Pet Owner view — one medical record, read-only. The pet must be the
+    owner's own and not archived, and the record must be that pet's (never
+    a lookup by record pk alone). private_notes is never loaded.
+    """
+    if request.user.role != "pet_owner":
+        return redirect("admin_dashboard")
+
+    from pets.models import Pet
+
+    pet = get_object_or_404(Pet, pk=pet_pk, owner=request.owner, is_archived=False)
+    record = get_object_or_404(owner_record_queryset(), pk=pk, pet=pet)
+    today = timezone.localdate()
+    return render(
+        request,
+        "owner/medical/record.html",
+        owner_record_context(record, today),
     )
 
 

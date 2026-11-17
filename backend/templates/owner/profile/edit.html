@@ -360,6 +360,13 @@ input[type="file"]{
 
       </div>
 
+      {# Decision 3: only the clinic changes an owner's email, so it is text here, not a field #}
+      <div class="form-section">
+        <p class="form-label">Email</p>
+        <p class="form-hint" id="owner-email">{{ user.email }}</p>
+        <p class="form-hint">To change your email, contact the clinic.</p>
+      </div>
+
       <div class="form-section">
         <label class="form-label" for="{{ profile_form.contact_number.id_for_label }}">
           Contact Number <span class="optional-tag">(optional)</span>

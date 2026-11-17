@@ -567,14 +567,26 @@ def notify_deletion_answer(pet, approved):
             f"The clinic kept {pet.name} on your account. If you still want it "
             "removed, please contact the clinic."
         )
+    # The email subject names the pet; the in-app title stays short
+    subject = (
+        f"{pet.name} was removed — Hapi Vet"
+        if approved
+        else f"{pet.name} stays on your account — Hapi Vet"
+    )
     _send_removal_notice(
-        pet, title, message, email_body, related_pet=None if approved else pet
+        pet,
+        title,
+        message,
+        email_body,
+        related_pet=None if approved else pet,
+        subject=subject,
     )
 
 
-def _send_removal_notice(pet, title, message, email_body, related_pet):
+def _send_removal_notice(pet, title, message, email_body, related_pet, subject):
     """notify() the pet's owner (PET_DELETION_ANSWERED): a short title and
-    compact message in the app, the full sentence in the email. Never raises."""
+    compact message in the app, the full sentence in the email, whose subject
+    names the pet. Never raises."""
     try:
         notify(
             recipient=pet.owner.user,
@@ -582,7 +594,7 @@ def _send_removal_notice(pet, title, message, email_body, related_pet):
             title=title,
             message=message,
             related_pet=related_pet,
-            email_subject=f"{title} — Hapi Vet",
+            email_subject=subject,
             email_body=email_body,
         )
     except Exception:
@@ -632,6 +644,7 @@ def archive_pet_directly(pet, admin, reason, reason_detail):
         compact_message(pet.name, f"Removed by the clinic ({reason_label})."),
         f"The clinic removed {pet.name} from your account (reason: {reason_label}).",
         related_pet=None,
+        subject=f"{pet.name} was removed — Hapi Vet",
     )
     return deletion_request
 

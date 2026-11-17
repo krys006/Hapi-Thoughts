@@ -822,7 +822,8 @@ class OwnerNotificationTextTests(FrozenRemindersTestBase):
             mail.outbox[0].body,
             "The clinic removed Bantay from your account, as you asked.",
         )
-        self.assertEqual(mail.outbox[0].subject, "Pet removed — Hapi Vet")
+        # 8a-2c: the subject names the pet (8a-2b: "Pet removed — Hapi Vet")
+        self.assertEqual(mail.outbox[0].subject, "Bantay was removed — Hapi Vet")
         notify_deletion_answer(self.pet, False)
         kept = self._owner_notice(related_pet=self.pet)
         self.assertEqual(kept.title, "Pet stays on your account")
@@ -834,6 +835,10 @@ class OwnerNotificationTextTests(FrozenRemindersTestBase):
             mail.outbox[1].body,
             "The clinic kept Bantay on your account. If you still want it "
             "removed, please contact the clinic.",
+        )
+        # 8a-2c (added check): the subject names the pet
+        self.assertEqual(
+            mail.outbox[1].subject, "Bantay stays on your account — Hapi Vet"
         )
 
     def test_bill_paid(self):
@@ -854,7 +859,11 @@ class OwnerNotificationTextTests(FrozenRemindersTestBase):
             mail.outbox[0].body,
             "Paid ₱1,350.00 on Tue, Nov 3. You can view or print it in Billing.",
         )
-        self.assertEqual(mail.outbox[0].subject, "Bill paid: ₱1,350.00 — Hapi Vet")
+        # 8a-2c: the subject names the receipt and the pet (8a-2b: "Bill paid:
+        # ₱1,350.00 — Hapi Vet")
+        self.assertEqual(
+            mail.outbox[0].subject, "Receipt HV-2026-0004 for Bantay — Hapi Vet"
+        )
 
     def test_notifications_to_the_admin_are_unchanged(self):
         from appointments.utils import notify_admin_of_request

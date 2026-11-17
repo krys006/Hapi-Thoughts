@@ -1,0 +1,32 @@
+{% extends 'base_dashboard.html' %}
+
+{% block title %}Account — Hapi Vet{% endblock %}
+
+{% block content %}
+
+{# The account hub. Plain markup: the design comes with 8b-9. #}
+<section>
+
+  <h1>Account</h1>
+
+  <p><strong>{{ owner.full_name }}</strong></p>
+  <p>{{ user.email }}</p>
+
+  <nav aria-label="Account">
+    <ul>
+      <li><a href="{% url 'owner_profile_edit' %}">My details</a></li>
+      <li><a href="{% url 'owner_notification_preferences' %}">Email notifications</a></li>
+      <li><a href="{% url 'clinic_info' %}">Clinic info</a></li>
+      <li><a href="{% url 'owner_health_article_list' %}">Health library</a></li>
+    </ul>
+  </nav>
+
+  {# Logging out is a POST #}
+  <form method="post" action="{% url 'logout' %}">
+    {% csrf_token %}
+    <button type="submit">Log out</button>
+  </form>
+
+</section>
+
+{% endblock %}

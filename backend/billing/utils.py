@@ -143,6 +143,13 @@ def receipt_paid_message(receipt, today):
     )
 
 
+def receipt_paid_subject(receipt):
+    """The email subject, which names the pet: "Receipt HV-2026-0012 for
+    Bantay — Hapi Vet" ("Receipt HV-2026-0012 — Hapi Vet" with no pet)."""
+    for_pet = f" for {receipt.pet.name}" if receipt.pet else ""
+    return f"Receipt {receipt.receipt_number}{for_pet} — Hapi Vet"
+
+
 def notify_receipt_paid(receipt):
     """The owner's one billing notification, sent when a receipt is marked
     paid (rule 24; nothing is sent on create). Call after the commit."""
@@ -157,7 +164,7 @@ def notify_receipt_paid(receipt):
         message=receipt_paid_compact(receipt, today),
         related_billing=receipt,
         related_pet=receipt.pet,
-        email_subject=f"{title} — Hapi Vet",
+        email_subject=receipt_paid_subject(receipt),
         email_body=receipt_paid_message(receipt, today),
     )
 

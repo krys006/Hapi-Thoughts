@@ -2697,6 +2697,8 @@ class AnswerDeletionTests(TestCase):
             mail.outbox[0].body,
             "The clinic removed Bantay from your account, as you asked.",
         )
+        # 8a-2c (added check): the in-app title stays, the subject names the pet
+        self.assertEqual(mail.outbox[0].subject, "Bantay was removed — Hapi Vet")
 
     def test_keep_notification_links_the_pet(self):
         self._post(approve=False)
@@ -2714,6 +2716,10 @@ class AnswerDeletionTests(TestCase):
             "The clinic kept Bantay on your account. If you still want it "
             "removed, please contact the clinic.",
         )
+        # 8a-2c (added check): the subject names the pet, the title stays short
+        self.assertEqual(
+            mail.outbox[0].subject, "Bantay stays on your account — Hapi Vet"
+        )
 
     def test_email_sent_when_the_owner_has_one_whatever_the_preferences(self):
         self.owner.user.notification_preference.__class__.objects.filter(
@@ -2728,8 +2734,8 @@ class AnswerDeletionTests(TestCase):
         self._post()
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["ana@example.com"])
-        # 8a-2b: the subject follows the new title (was "Bantay was removed")
-        self.assertEqual(mail.outbox[0].subject, "Pet removed — Hapi Vet")
+        # 8a-2c: the subject names the pet again (8a-2b: "Pet removed — Hapi Vet")
+        self.assertEqual(mail.outbox[0].subject, "Bantay was removed — Hapi Vet")
         self.assertTrue(self._answers().get().email_sent)
 
     def test_no_email_still_notifies_in_app(self):
@@ -3045,8 +3051,8 @@ class DirectArchiveTests(TestCase):
         self._post()
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["ana@example.com"])
-        # 8a-2b: the subject follows the new title (was "Bantay was removed")
-        self.assertEqual(mail.outbox[0].subject, "Pet removed — Hapi Vet")
+        # 8a-2c: the subject names the pet again (8a-2b: "Pet removed — Hapi Vet")
+        self.assertEqual(mail.outbox[0].subject, "Bantay was removed — Hapi Vet")
 
     def test_no_email_still_notifies_in_app(self):
         owner = _owner(first="Lito", last="Reyes")
@@ -6021,3 +6027,58 @@ class AddPetNextBookTests(TestCase):
         again = self.client.post(self.url, {**self.POST, "next": "book"})
         pet = Pet.objects.get(owner=self.owner)
         self.assertRedirects(again, self._book_url(pet), fetch_redirect_response=False)
+
+
+class OwnerProfileEmailReadOnlyTests(TestCase):
+    """Slice 8a-2c (decision 3): only the clinic changes an owner's email.
+    My details shows it as text; a posted email changes nothing."""
+
+    SENTENCE = "To change your email, contact the clinic."
+
+    def setUp(self):
+        self.owner = _login_owner(self)
+        self.owner.user.is_onboarded = True
+        self.owner.user.save()
+        self.url = reverse("owner_profile_edit")
+
+    def _post(self, **changes):
+        data = {"first_name": "Ana", "last_name": "Cruz", **changes}
+        data.update(_links_post())
+        return self.client.post(self.url, data)
+
+    def test_the_form_has_no_email_field(self):
+        response = self.client.get(self.url)
+        self.assertNotIn("email", response.context["profile_form"].fields)
+
+    def test_email_is_shown_as_text_with_the_sentence(self):
+        response = self.client.get(self.url)
+        self.assertContains(response, "ana@example.com")
+        self.assertContains(response, self.SENTENCE)
+        self.assertNotRegex(response.content.decode(), r'name="email"')
+
+    def test_a_posted_email_changes_nothing(self):
+        for posted in ("new@example.com", "ANA@EXAMPLE.COM", ""):
+            with self.subTest(posted=posted):
+                response = self._post(email=posted)
+                self.assertRedirects(
+                    response, reverse("owner_profile"), fetch_redirect_response=False
+                )
+                self.owner.user.refresh_from_db()
+                self.assertEqual(self.owner.user.email, "ana@example.com")
+                self.assertFalse(
+                    User.objects.filter(email__iexact="new@example.com").exists()
+                )
+
+    def test_the_rest_still_saves_beside_a_posted_email(self):
+        response = self._post(
+            first_name="Anita",
+            contact_number="09171234567",
+            email="new@example.com",
+        )
+        self.assertRedirects(
+            response, reverse("owner_profile"), fetch_redirect_response=False
+        )
+        self.owner.refresh_from_db()
+        self.assertEqual(self.owner.first_name, "Anita")
+        self.assertEqual(self.owner.contact_number, "09171234567")
+        self.assertEqual(self.owner.user.email, "ana@example.com")

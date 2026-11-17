@@ -825,6 +825,85 @@ def record_detail_context(record, today):
     }
 
 
+# ── Owner's record page (Slice 8a-2c) ────────────────────────────────────────
+
+
+def owner_record_queryset():
+    """Records for the owner's page: the pet and the visit loaded, and
+    private_notes never read (so no page can show it)."""
+    return MedicalRecord.objects.select_related("pet", "appointment").defer(
+        "private_notes"
+    )
+
+
+def owner_test_files(record):
+    """The record's files that are not archived, as text only (decision 8):
+    dicts with title (the description, else the file's base name) and added
+    (the Manila date it was added). No file object, URL or path leaves here."""
+    files = record.test_result_files.filter(is_archived=False).order_by(
+        "uploaded_at", "pk"
+    )
+    return [
+        {
+            "title": row.description or os.path.basename(row.file.name),
+            "added": timezone.localtime(row.uploaded_at).date(),
+        }
+        for row in files
+    ]
+
+
+def owner_follow_up(record, today):
+    """None unless a follow-up is required; else the date, the days from
+    today (None with no date) and the visit that answers it (or None)."""
+    if not record.follow_up_required:
+        return None
+    return {
+        "date": record.follow_up_date,
+        "days": _follow_up_days(record, today),
+        "visit": follow_up_visit(record),
+    }
+
+
+def owner_visit_receipt(record):
+    """The receipt of the record's visit when the owner may see it (Unpaid or
+    Paid, never Cancelled), else None."""
+    if record.appointment_id is None:
+        return None
+    # Imported here: billing.utils imports this module
+    from billing.utils import owner_receipts
+
+    return (
+        owner_receipts(record.pet.owner_id)
+        .filter(appointment_id=record.appointment_id)
+        .first()
+    )
+
+
+def owner_record_context(record, today):
+    """
+    Context for the owner's medical record page. record comes from
+    owner_record_queryset() (pet and visit loaded, private_notes deferred).
+    Query count is flat: medicines, files, doses, the follow-up visit and the
+    receipt are one query each however many rows there are. Doses are loaded
+    without correction_note: owners only see "Corrected by the clinic".
+    """
+    return {
+        "record": record,
+        "pet": record.pet,
+        "medicines": list(record.prescription_items.order_by("created_at", "pk")),
+        "test_files": owner_test_files(record),
+        "vaccinations": list(
+            record.vaccinations.defer("correction_note").order_by(
+                "-date_administered", "-pk"
+            )
+        ),
+        "follow_up": owner_follow_up(record, today),
+        "visit": record.appointment,
+        "receipt": owner_visit_receipt(record),
+        "today": today,
+    }
+
+
 # ── New vaccination ──────────────────────────────────────────────────────────
 
 

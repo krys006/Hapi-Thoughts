@@ -1,0 +1,142 @@
+{% extends 'base_dashboard.html' %}
+
+{% block title %}Visit record — {{ pet.name }} — Hapi Vet{% endblock %}
+
+{% block content %}
+
+{# Read-only. Sections with nothing in them are left out (mockup rule). #}
+{# The view never loads private_notes or correction_note, and test files   #}
+{# arrive as text only (no link while files are public URLs, decision 8).  #}
+<article>
+
+  <p><a href="{% url 'owner_pet_medical_history' pet.pk %}">Back to {{ pet.name }}'s medical history</a></p>
+
+  <h1>Visit record · {{ record.record_date|date:"D, M j, Y" }}</h1>
+  <p>{{ pet.name }}</p>
+
+  {% if follow_up %}
+    <section aria-labelledby="record-follow-up">
+      <h2 id="record-follow-up">Follow-up</h2>
+      {% if follow_up.date %}
+        <p>The clinic wants to see {{ pet.name }} again around {{ follow_up.date|date:"D, M j, Y" }}.</p>
+      {% else %}
+        <p>The clinic wants to see {{ pet.name }} again.</p>
+      {% endif %}
+      {% if follow_up.visit %}
+        <p>Follow-up booked: <a href="{% url 'owner_appointment_detail' follow_up.visit.pk %}">{{ follow_up.visit.date|date:"D, M j, Y" }}</a></p>
+      {% else %}
+        <p><a href="{% url 'owner_book_appointment' %}?pet={{ pet.pk }}">Book a visit for {{ pet.name }}</a></p>
+      {% endif %}
+    </section>
+  {% endif %}
+
+  {% if medicines %}
+    <section aria-labelledby="record-medicines">
+      <h2 id="record-medicines">Medicines</h2>
+      <ul>
+        {% for medicine in medicines %}
+          <li>
+            <strong>{{ medicine.medicine_name }}</strong>
+            <dl>
+              {% if medicine.dosage %}
+                <dt>How much</dt>
+                <dd>{{ medicine.dosage }}</dd>
+              {% endif %}
+              {% if medicine.frequency %}
+                <dt>How often</dt>
+                <dd>{{ medicine.frequency }}</dd>
+              {% endif %}
+              {% if medicine.duration %}
+                <dt>How long</dt>
+                <dd>{{ medicine.duration }}</dd>
+              {% endif %}
+              {% if medicine.notes %}
+                <dt>Instructions</dt>
+                <dd>{{ medicine.notes }}</dd>
+              {% endif %}
+            </dl>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  {% if record.symptoms or record.diagnosis or record.treatment_given %}
+    <section aria-labelledby="record-found">
+      <h2 id="record-found">What we found</h2>
+      <dl>
+        {% if record.symptoms %}
+          <dt>Symptoms</dt>
+          <dd>{{ record.symptoms|linebreaksbr }}</dd>
+        {% endif %}
+        {% if record.diagnosis %}
+          <dt>Diagnosis</dt>
+          <dd>{{ record.diagnosis|linebreaksbr }}</dd>
+        {% endif %}
+        {% if record.treatment_given %}
+          <dt>Treatment</dt>
+          <dd>{{ record.treatment_given|linebreaksbr }}</dd>
+        {% endif %}
+      </dl>
+    </section>
+  {% endif %}
+
+  {% if record.public_notes %}
+    <section aria-labelledby="record-note">
+      <h2 id="record-note">Note from the clinic</h2>
+      <p>{{ record.public_notes|linebreaksbr }}</p>
+    </section>
+  {% endif %}
+
+  {% if test_files %}
+    <section aria-labelledby="record-tests">
+      <h2 id="record-tests">Test results</h2>
+      <ul>
+        {% for test_file in test_files %}
+          <li>
+            <strong>{{ test_file.title }}</strong>
+            <span>Added {{ test_file.added|date:"M j, Y" }}</span>
+            <p>On file. Ask the clinic for a copy.</p>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  {% if vaccinations %}
+    <section aria-labelledby="record-vaccinations">
+      <h2 id="record-vaccinations">Vaccinations</h2>
+      <ul>
+        {% for vaccination in vaccinations %}
+          <li>
+            <strong>{{ vaccination.display_vaccine_name }}</strong>
+            <span>Given {{ vaccination.date_administered|date:"M j, Y" }}</span>
+            {% if vaccination.next_due_date %}
+              <span>Next one due {{ vaccination.next_due_date|date:"M j, Y" }}</span>
+            {% endif %}
+            {% if vaccination.is_corrected %}
+              <span>Corrected by the clinic</span>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  {% if visit %}
+    <section aria-labelledby="record-visit">
+      <h2 id="record-visit">The visit</h2>
+      <p><a href="{% url 'owner_appointment_detail' visit.pk %}">See the visit on {{ visit.date|date:"D, M j, Y" }}</a></p>
+    </section>
+  {% endif %}
+
+  {% if receipt %}
+    <section aria-labelledby="record-bill">
+      <h2 id="record-bill">Bill</h2>
+      <p><a href="{% url 'owner_receipt_detail' receipt.pk %}">See bill {{ receipt.receipt_number }}</a></p>
+    </section>
+  {% endif %}
+
+</article>
+
+{% endblock %}

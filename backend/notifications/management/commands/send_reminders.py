@@ -1,6 +1,5 @@
 # notifications/management/commands/send_reminders.py
 
-import datetime
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
@@ -130,7 +129,7 @@ class Command(BaseCommand):
                     message=message,
                     related_appointment=appointment,
                     related_pet=appointment.pet,
-                    email_subject=f"Appointment Reminder — Hapi Vet",
+                    email_subject="Appointment Reminder — Hapi Vet",
                     email_body=email_body,
                 )
                 self.stdout.write(
@@ -202,7 +201,8 @@ class Command(BaseCommand):
                 title = "Vaccine due today"
                 email_body = (
                     f"{vaccination.pet.name}'s {vaccine_display} vaccination "
-                    f"is due today. Please contact the clinic to schedule an appointment."
+                    "is due today. Please contact the clinic to schedule an "
+                    "appointment."
                 )
             else:
                 title = "Vaccine due soon"
@@ -225,7 +225,7 @@ class Command(BaseCommand):
                     title=title,
                     message=message,
                     related_pet=vaccination.pet,
-                    email_subject=f"Vaccination Reminder — Hapi Vet",
+                    email_subject="Vaccination Reminder — Hapi Vet",
                     email_body=email_body,
                 )
                 self.stdout.write(
@@ -309,7 +309,7 @@ class Command(BaseCommand):
                     message=message,
                     related_appointment=record.appointment,
                     related_pet=record.pet,
-                    email_subject=f"Follow-up Reminder — Hapi Vet",
+                    email_subject="Follow-up Reminder — Hapi Vet",
                     email_body=email_body,
                 )
                 self.stdout.write(
