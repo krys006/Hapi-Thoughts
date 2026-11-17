@@ -1,0 +1,18 @@
+{% extends "layouts/owner_auth.html" %}
+
+{# Overrides allauth's Google confirmation page (a GET to the Google login URL lands here; SOCIALACCOUNT_LOGIN_ON_GET is off). The form posts back to this same URL. #}
+{% block title %}Continue with Google? — Hapi Vet{% endblock %}
+
+{% block card_title %}Continue with Google?{% endblock %}
+{% block card_subtitle %}<p class="mt-1 text-base text-gray-700">Tap Continue to log in with your Google account.</p>{% endblock %}
+
+{% block content %}
+  <form method="post">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary min-h-12 w-full text-lg font-semibold">Continue</button>
+  </form>
+{% endblock %}
+
+{% block below_card %}
+  <p class="mt-4 text-center"><a href="{% url 'owner_login' %}" class="inline-flex min-h-11 items-center gap-1.5 text-base font-medium text-blue-600">{% include "components/icon.html" with name="arrow-left" %}Back to log in</a></p>
+{% endblock %}

@@ -953,6 +953,23 @@ Loads compiled `app.css`, vendored HTMX, `js/shared/dialogs.js` and
   only sees the 404 on public paths (the middleware sends them to log in
   first on any other missing URL).
 
+### Owner sign-in layout (`layouts/owner_auth.html`, since Slice 8b-2)
+For every logged-out owner page (log in, create account, check your email,
+forgot / new password, done, the allauth Google pages in
+`templates/socialaccount/`). Not for the admin login (`layouts/auth.html`).
+Loads `app.css`, `js/shared/flash.js` and `js/shared/password_toggle.js`
+(no HTMX). A violet band (`bg-violet-700`) with the clinic logo in a white
+tile (the paw tile when the shell has no logo) and "Hapi Tutz Vet", and a
+white `max-w-md` card overlapping it; flash messages sit at the card's top.
+No bottom tabs, no staff link. Blocks: `title`, `card_title`, `card_subtitle`
+(write the whole `<p>`), `content`, `below_card` (footer links).
+- Shared parts in `templates/owner/auth_parts/` (plain includes with
+  parameters): `email_field.html`, `password_field.html` (eye button inside
+  the box, `data-password-toggle`; `rules=True` adds `password_rules.html`;
+  `forgot_url` adds the link), `google_button.html` (POST form, official look,
+  `img/google_g.svg`), `or_line.html`, `alert_box.html` (red / blue / green).
+- One violet button per page; Terms and Privacy only on Create account.
+
 ### Dialogs (admin and owner layouts)
 Both layouts load `static/js/shared/dialogs.js` (deferred; moved from
 `static/js/admin/` in Slice 8b-1) on every page. Use a native `<dialog>` with

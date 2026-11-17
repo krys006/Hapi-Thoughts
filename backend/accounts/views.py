@@ -53,6 +53,7 @@ RESEND_REPLY = (
     "If that email has an account waiting to be confirmed, we sent the link "
     "again. It may take a minute. Check Spam too."
 )
+REMEMBER_ME_SECONDS = 60 * 60 * 24 * 30  # 30 days, as before this redesign
 ACCOUNT_CLOSED_MESSAGE = "This account is closed. Please contact the clinic."
 
 # ─── Role-based redirect helper ───────────────────────────────────────────────
@@ -73,57 +74,42 @@ def owner_login(request):
     if request.user.is_authenticated:
         return redirect_by_role(request.user)
 
-    if request.method == "POST":
-        email = request.POST.get("email", "").strip().lower()
-        password = request.POST.get("password", "")
+    if request.method != "POST":
+        # "Keep me logged in" starts unticked
+        return render(request, "owner/login.html", {"remember": False})
 
-        from django.contrib.auth import get_user_model
+    email = request.POST.get("email", "").strip().lower()
+    password = request.POST.get("password", "")
+    remember = bool(request.POST.get("remember"))
+    context = {"email": email, "remember": remember}
 
-        User = get_user_model()
+    user_obj = User.objects.filter(email=email).first()
+    user = None
+    if user_obj is not None:
+        user = authenticate(request, username=user_obj.username, password=password)
 
-        user_obj = None
-        try:
-            user_obj = User.objects.get(email=email)
-            user = authenticate(request, username=user_obj.username, password=password)
-        except User.DoesNotExist:
-            user = None
-
-        if user is None:
-            # Right password on an owner who hasn't confirmed the email yet:
-            # the only case that gets the "not confirmed" box (never logged in)
-            if is_unconfirmed_login(user_obj, password):
-                context = {"email": email, "unconfirmed_email": user_obj.email}
-                return render(request, "owner/login.html", context)
-            messages.error(request, "Invalid email or password.")
-            return render(request, "owner/login.html", {"email": email})
-
-        if user.role != "pet_owner":
-            messages.error(request, "Please use the admin login page.")
-            return render(request, "owner/login.html", {"email": email})
-
-        if not user.is_active:
-            messages.error(
-                request,
-                "Your account is not verified yet. Please check your email for the verification link.",
-            )
-            return render(request, "owner/login.html", {"email": email})
-
-        login(request, user)
-
-        # Remember Me
-        if request.POST.get("remember_me"):
-            # Stay logged in for 30 days
-            request.session.set_expiry(60 * 60 * 24 * 30)
+    if user is None:
+        # Right password on an owner who hasn't confirmed the email yet: the
+        # only case that gets the "not confirmed" box (never logged in).
+        # Every other failure gets the one generic box.
+        if is_unconfirmed_login(user_obj, password):
+            context["unconfirmed_email"] = user_obj.email
         else:
-            # Session expires when browser closes
-            request.session.set_expiry(0)
+            context["login_failed"] = True
+        return render(request, "owner/login.html", context)
 
-        if not user.is_onboarded:
-            return redirect("owner_onboarding")
+    if user.role != "pet_owner":
+        messages.error(request, "Please use the admin login page.")
+        return render(request, "owner/login.html", context)
 
-        return redirect("owner_dashboard")
+    login(request, user)
+    # Ticked: 30 days, as before. Unticked: the session
+    # ends when the browser closes.
+    request.session.set_expiry(REMEMBER_ME_SECONDS if remember else 0)
 
-    return render(request, "owner/login.html")
+    if not user.is_onboarded:
+        return redirect("owner_onboarding")
+    return redirect("owner_dashboard")
 
 
 # ─── allauth pages → our own pages ───────────────────────────────────────────
@@ -241,6 +227,8 @@ def owner_register(request):
             # The account stays; the error goes to the log, never the page
             logger.exception("Verification email not sent to user %s", user.pk)
             messages.warning(request, VERIFICATION_EMAIL_FAILED)
+        # Only the address, so "Check your email" can show it
+        request.session["pending_email"] = user.email
         return redirect("owner_register_pending")
 
     context = {
@@ -255,7 +243,8 @@ def owner_register_pending(request):
     """
     Shown after registration — tells user to check their email.
     """
-    return render(request, "owner/register_pending.html")
+    context = {"pending_email": request.session.get("pending_email", "")}
+    return render(request, "owner/register_pending.html", context)
 
 
 def owner_resend_verification(request):
@@ -375,7 +364,7 @@ def user_logout(request):
     # Read the role first: logout() replaces request.user with AnonymousUser
     was_admin = request.user.is_admin
     logout(request)
-    messages.success(request, "You have been logged out.")
+    messages.success(request, "You're logged out.")
     return redirect("admin_login" if was_admin else "owner_login")
 
 

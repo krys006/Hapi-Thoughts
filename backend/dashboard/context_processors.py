@@ -43,9 +43,19 @@ class Shell:
         ).count()
 
 
+class AuthShell:
+    """What logged-out pages may show: the clinic (for the logo). Read only
+    when a template asks, then cached; never creates a ClinicSettings row."""
+
+    @cached_property
+    def clinic(self):
+        return get_clinic_settings()
+
+
 def shell(request):
-    """Adds `shell` for logged-in users only (nothing for anonymous pages)."""
+    """Adds `shell` for logged-in users. Anonymous pages get no `shell`, only
+    `auth_shell` (the clinic, one lazy query)."""
     user = getattr(request, "user", None)
     if user is None or not user.is_authenticated:
-        return {}
+        return {"auth_shell": AuthShell()}
     return {"shell": Shell(user)}

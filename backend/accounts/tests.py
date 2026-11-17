@@ -787,7 +787,7 @@ class LogoutPostTests(_LoggedInBase):
                 self.assertFalse(self._is_logged_in())
                 found = [str(m) for m in get_messages(response.wsgi_request)]
                 # (the first subtest's message may still be waiting in the cookie)
-                self.assertEqual(found[-1], "You have been logged out.")
+                self.assertEqual(found[-1], "You're logged out.")
 
     def test_get_keeps_the_user_logged_in_and_goes_to_their_dashboard(self):
         for user, dashboard in (
@@ -1013,7 +1013,7 @@ RESEND_REPLY_TEXT = (
     "If that email has an account waiting to be confirmed, we sent the link "
     "again. It may take a minute. Check Spam too."
 )
-GENERIC_LOGIN_ERROR = "Invalid email or password."
+GENERIC_LOGIN_ERROR = "That email and password don't match"
 CLOSED_TEXT = "This account is closed. Please contact the clinic."
 
 
@@ -1204,7 +1204,11 @@ class ResendVerificationTests(TestCase):
     def test_works_logged_out_and_the_reply_is_shown_on_the_page(self):
         response = self.client.post(self.url, {"email": "x@example.com"}, follow=True)
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, RESEND_REPLY_TEXT)
+        # The shared flash component shows the first sentence in bold
+        lead, rest = RESEND_REPLY_TEXT.split(". ", 1)
+        self.assertContains(
+            response, f'<strong class="font-semibold">{lead}.</strong> {rest}'
+        )
 
     def test_the_check_your_email_page_has_the_resend_form(self):
         response = self.client.get(reverse("owner_register_pending"))
@@ -1328,7 +1332,11 @@ class VerifyEmailGuardTests(TestCase):
         archive_owner(user)
         response = self.client.get(verify_path(user), follow=True)
         self.assertRedirects(response, reverse("owner_login"))
-        self.assertContains(response, CLOSED_TEXT)
+        # The shared flash component shows the first sentence in bold
+        lead, rest = CLOSED_TEXT.split(". ", 1)
+        self.assertContains(
+            response, f'<strong class="font-semibold">{lead}.</strong> {rest}'
+        )
         user.refresh_from_db()
         self.assertFalse(user.is_active)
 
@@ -1848,3 +1856,807 @@ class ErrorPageTests(_LoggedInBase):
                 self.assertNotIn("<script", source)
                 self.assertIsNone(re.search(r"\son[a-z]+\s*=", source))
                 self.assertEqual(len(re.findall(r"btn-primary", source)), 1)
+
+
+# ── Slice 8b-2: owner auth pages ─────────────────────────────────────────────
+
+AUTH_SOURCES = [
+    "layouts/owner_auth.html",
+    "owner/login.html",
+    "owner/register.html",
+    "owner/register_pending.html",
+    "owner/forgot_password.html",
+    "owner/forgot_password_sent.html",
+    "owner/reset_password.html",
+    "owner/reset_password_complete.html",
+    "owner/verify_email_invalid.html",
+    "owner/auth_parts/alert_box.html",
+    "owner/auth_parts/email_field.html",
+    "owner/auth_parts/google_button.html",
+    "owner/auth_parts/or_line.html",
+    "owner/auth_parts/password_field.html",
+    "owner/auth_parts/password_rules.html",
+    "socialaccount/login.html",
+    "socialaccount/authentication_error.html",
+    "socialaccount/login_cancelled.html",
+]
+BACK_TO_LOGIN = "Back to log in"
+FORGOT_HINT = "Check for typos, or tap “Forgot password?” to make a new one."
+
+
+def reset_urls(user):
+    """The emailed reset link and the set-password page it redirects to."""
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    token = default_token_generator.make_token(user)
+    return (
+        f"/reset-password/{uid}/{token}/",
+        f"/reset-password/{uid}/set-password/",
+    )
+
+
+class AuthPagesBase(TestCase):
+    """Every owner auth page, as (name, url, count of violet buttons)."""
+
+    def setUp(self):
+        cache.clear()
+        self.user = make_owner("ana@example.com", is_active=True)
+        link, _ = reset_urls(self.user)
+        self.pages = [
+            ("login", reverse("owner_login"), 1),
+            ("register", reverse("owner_register"), 1),
+            ("check email", reverse("owner_register_pending"), 0),
+            ("forgot", reverse("forgot_password"), 1),
+            ("forgot sent", reverse("password_reset_done"), 0),
+            ("new password", link, 1),
+            ("bad link", "/reset-password/bad/bad/", 1),
+            ("done", reverse("password_reset_complete"), 1),
+            ("bad verification link", "/verify-email/bad/bad/", 1),
+            ("google confirm", reverse("google_login"), 1),
+            ("google error", reverse("socialaccount_login_error"), 1),
+            ("google cancelled", reverse("socialaccount_login_cancelled"), 1),
+        ]
+
+    def html(self, url):
+        return self.client.get(url, follow=True).content.decode()
+
+
+class OwnerAuthLayoutTests(AuthPagesBase):
+    def test_every_page_extends_the_owner_auth_layout(self):
+        for name, url, _ in self.pages:
+            with self.subTest(page=name):
+                response = self.client.get(url, follow=True)
+                # allauth answers its error page with 401
+                expected = 401 if name == "google error" else 200
+                self.assertEqual(response.status_code, expected)
+                self.assertTemplateUsed(response, "layouts/owner_auth.html")
+                self.assertTemplateNotUsed(response, "base.html")
+                self.assertTemplateNotUsed(response, "layouts/auth.html")
+
+    def test_loads_app_css_flash_and_password_toggle_only(self):
+        for name, url, _ in self.pages:
+            html = self.html(url)
+            with self.subTest(page=name):
+                for pattern in (
+                    r'<link rel="stylesheet" href="/static/css/app\.[0-9a-f]+\.css">',
+                    r'<script src="/static/js/shared/flash\.[0-9a-f]+\.js" defer>',
+                    r'<script src="/static/js/shared/password_toggle\.[0-9a-f]+\.js" '
+                    r"defer>",
+                ):
+                    self.assertRegex(html, pattern)
+                self.assertEqual(len(re.findall(r"<script", html)), 2)
+
+    def test_no_cdn_font_import_or_legacy_css(self):
+        for name, url, _ in self.pages:
+            html = self.html(url)
+            with self.subTest(page=name):
+                for word in (
+                    "cdn.tailwindcss.com",
+                    "Poppins",
+                    "fonts.googleapis",
+                    "@import",
+                    "css/owner/",
+                    "css/shared/",
+                    "layer(legacy)",
+                    "auth-page",
+                ):
+                    self.assertNotIn(word, html)
+
+    def test_violet_band_with_the_logo_tile_and_the_card(self):
+        for name, url, _ in self.pages:
+            html = self.html(url)
+            with self.subTest(page=name):
+                self.assertIn("bg-violet-700", html)
+                self.assertIn("Hapi Tutz Vet", html)
+                self.assertRegex(html, r'rounded-2xl bg-white[^"]*">\s*<svg')
+                self.assertIn("max-w-md", html)
+                self.assertNotIn("<nav", html)  # no bottom tabs
+
+    def test_no_staff_or_admin_link(self):
+        for name, url, _ in self.pages:
+            html = self.html(url)
+            with self.subTest(page=name):
+                self.assertNotIn(reverse("admin_login"), html)
+                self.assertNotIn("/admin", html)
+
+    def test_at_most_one_violet_button_per_page(self):
+        for name, url, count in self.pages:
+            with self.subTest(page=name):
+                self.assertEqual(self.html(url).count("btn-primary"), count)
+
+    def test_no_inline_script_or_handlers_in_pages_or_sources(self):
+        for name, url, _ in self.pages:
+            html = self.html(url)
+            with self.subTest(page=name):
+                self.assertIsNone(re.search(r"<script(?![^>]*\ssrc=)", html))
+        for name in AUTH_SOURCES:
+            source = template_source(name)
+            with self.subTest(file=name):
+                self.assertIsNone(re.search(r"\son[a-z]+\s*=", source))
+                self.assertNotIn("hx-confirm", source)
+                self.assertNotIn("<!--", source)
+
+    def test_every_link_in_the_sources_is_on_one_line(self):
+        for name in AUTH_SOURCES:
+            for link in re.findall(r"(?s)<a\b.*?</a>", template_source(name)):
+                with self.subTest(file=name, link=link[:40]):
+                    self.assertNotIn("\n", link)
+
+    def test_the_admin_login_still_uses_its_own_layout(self):
+        response = self.client.get(reverse("admin_login"))
+        self.assertTemplateUsed(response, "layouts/auth.html")
+        self.assertTemplateNotUsed(response, "layouts/owner_auth.html")
+
+
+class LoginPageStatesTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.url = reverse("owner_login")
+
+    def _login(self, email, password=PENDING_PASSWORD):
+        return self.client.post(self.url, {"email": email, "password": password})
+
+    def test_logged_out_box_after_a_post_logout_for_owner_and_admin(self):
+        owner = make_owner("ana@example.com", is_active=True)
+        admin = make_owner("boss@example.com", is_active=True, role=User.ADMIN)
+        for user, page in ((owner, "owner_login"), (admin, "admin_login")):
+            with self.subTest(user=user.email):
+                self.client.force_login(user)
+                response = self.client.post(reverse("logout"), follow=True)
+                self.assertRedirects(response, reverse(page))
+                self.assertContains(response, "You&#x27;re logged out.")
+                self.assertContains(response, "border-green-200")
+
+    def test_the_owner_login_shows_the_logged_out_box_as_a_status(self):
+        make_owner("ana@example.com", is_active=True)
+        self.client.force_login(User.objects.get(email="ana@example.com"))
+        response = self.client.post(reverse("logout"), follow=True)
+        self.assertRegex(
+            response.content.decode(),
+            r'(?s)role="status"[^>]*>.*?You&#x27;re logged out\.',
+        )
+        self.assertNotContains(response, GENERIC_LOGIN_ERROR)
+
+    def test_the_wrong_box_for_every_generic_failure_keeps_the_email(self):
+        make_owner("pending@example.com")
+        archive_owner(make_owner("closed@example.com"))
+        make_owner("google@example.com", password=None)
+        make_owner("back@example.com", last_login=timezone.now())
+        make_owner("boss@example.com", role=User.ADMIN)
+        make_owner("ana@example.com", is_active=True)
+        cases = {
+            "unknown email": ("nobody@example.com", PENDING_PASSWORD),
+            "wrong password": ("ana@example.com", "wrong-password-1"),
+            "inactive, wrong password": ("pending@example.com", "wrong-password-1"),
+            "archived": ("closed@example.com", PENDING_PASSWORD),
+            "walk-in or Google": ("google@example.com", PENDING_PASSWORD),
+            "not pending": ("back@example.com", PENDING_PASSWORD),
+            "inactive admin": ("boss@example.com", PENDING_PASSWORD),
+        }
+        for name, (email, password) in cases.items():
+            with self.subTest(case=name):
+                response = self._login(email, password)
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, GENERIC_LOGIN_ERROR)
+                self.assertContains(response, FORGOT_HINT)
+                self.assertContains(response, 'role="alert"')
+                self.assertContains(response, "border-red-200")
+                self.assertContains(response, f'value="{email}"')
+                self.assertNotContains(response, "Please confirm your email first")
+                self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_the_failure_is_a_box_not_a_flash_message(self):
+        response = self._login("nobody@example.com")
+        self.assertEqual(list(get_messages(response.wsgi_request)), [])
+        self.assertTrue(response.context["login_failed"])
+
+    def test_not_confirmed_box_only_for_pending_owner_and_right_password(self):
+        make_owner("pending@example.com")
+        archive_owner(make_owner("closed@example.com"))
+        right = self._login("pending@example.com")
+        self.assertContains(right, "Please confirm your email first")
+        self.assertContains(right, "border-blue-200")
+        self.assertContains(right, "Send the link again")
+        self.assertContains(
+            right,
+            "We sent a link to pending@example.com when you signed up. "
+            "Open it, then log in here.",
+        )
+        self.assertNotContains(right, GENERIC_LOGIN_ERROR)
+        for email, password in (
+            ("pending@example.com", "wrong-password-1"),
+            ("closed@example.com", PENDING_PASSWORD),
+            ("nobody@example.com", PENDING_PASSWORD),
+        ):
+            with self.subTest(email=email):
+                response = self._login(email, password)
+                self.assertNotContains(response, "Please confirm your email first")
+                self.assertNotContains(response, "Send the link again")
+
+    def test_the_admin_message_is_unchanged(self):
+        make_owner("boss@example.com", role=User.ADMIN, is_active=True)
+        response = self._login("boss@example.com")
+        self.assertContains(response, "Please use the admin login page.")
+        self.assertContains(response, 'value="boss@example.com"')
+        self.assertNotContains(response, GENERIC_LOGIN_ERROR)
+
+    def test_the_page_has_its_parts_and_no_staff_link(self):
+        html = self.client.get(self.url).content.decode()
+        for text in (
+            "Welcome back",
+            "Log in to see your pets, visits and bills.",
+            "Email address",
+            "Forgot password?",
+            "Keep me logged in",
+            "Continue with Google",
+            "New here?",
+            "Create an account",
+        ):
+            with self.subTest(text=text):
+                self.assertIn(text, html)
+        self.assertNotIn("Privacy Policy", html)
+        self.assertNotIn("Terms", html)
+
+    def test_the_unreachable_not_verified_branch_is_gone(self):
+        source = (Path(settings.BASE_DIR) / "accounts" / "views.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("not verified yet", source)
+        self.assertNotIn("Invalid email or password", source)
+        self.assertNotIn("remember_me", source)
+
+
+class KeepMeLoggedInTests(TestCase):
+    def setUp(self):
+        self.user = make_owner("ana@example.com", is_active=True, is_onboarded=True)
+        self.url = reverse("owner_login")
+
+    def _login(self, **extra):
+        data = {"email": "ana@example.com", "password": PENDING_PASSWORD}
+        data.update(extra)
+        return self.client.post(self.url, data)
+
+    def test_unticked_ends_the_session_when_the_browser_closes(self):
+        response = self._login()
+        self.assertRedirects(
+            response, reverse("owner_dashboard"), fetch_redirect_response=False
+        )
+        self.assertTrue(self.client.session.get_expire_at_browser_close())
+
+    def test_ticked_keeps_the_session_for_30_days_as_the_old_remember_me(self):
+        self._login(remember="on")
+        self.assertIn("_auth_user_id", self.client.session)
+        self.assertFalse(self.client.session.get_expire_at_browser_close())
+        age = self.client.session.get_expiry_age()
+        self.assertAlmostEqual(age, 60 * 60 * 24 * 30, delta=5)
+
+    def test_the_box_starts_unticked(self):
+        response = self.client.get(self.url)
+        html = response.content.decode()
+        self.assertRegex(html, r'<input type="checkbox" name="remember"[^>]*>')
+        self.assertNotRegex(html, r'name="remember"[^>]* checked')
+        self.assertFalse(response.context["remember"])
+
+    def test_a_failed_login_keeps_the_choice(self):
+        data = {"email": "ana@example.com", "password": "wrong-password-1"}
+        unticked = self.client.post(self.url, data).content.decode()
+        self.assertNotRegex(unticked, r'name="remember"[^>]* checked')
+        ticked = self.client.post(self.url, {**data, "remember": "on"})
+        self.assertRegex(ticked.content.decode(), r'name="remember"[^>]* checked')
+
+
+class PasswordFieldTests(AuthPagesBase):
+    def _boxes(self, url):
+        html = self.html(url)
+        return html, re.findall(r'<input type="password" id="([^"]+)"', html)
+
+    def test_every_password_box_has_the_eye_button_inside_it(self):
+        pages = {
+            "login": (reverse("owner_login"), 1),
+            "register": (reverse("owner_register"), 2),
+            "new password": (self.pages[5][1], 2),
+        }
+        for name, (url, count) in pages.items():
+            html, ids = self._boxes(url)
+            with self.subTest(page=name):
+                self.assertEqual(len(ids), count)
+                for box in ids:
+                    button = re.search(
+                        r'(?s)<button type="button" data-password-toggle '
+                        rf'aria-controls="{box}" aria-pressed="false" '
+                        r'class="([^"]*)">(.*?)</button>',
+                        html,
+                    )
+                    self.assertIsNotNone(button, box)
+                    self.assertIn("size-11", button.group(1))
+                    self.assertIn("absolute", button.group(1))
+                    inner = button.group(2)
+                    self.assertEqual(inner.count("<svg"), 2)
+                    self.assertIn("data-label>Show password</span>", inner)
+                    self.assertIn('class="sr-only"', inner)
+                    self.assertIn('data-icon-hide class="hidden"', inner)
+
+    def test_each_box_has_a_label_and_the_lock_icon(self):
+        html, ids = self._boxes(reverse("owner_register"))
+        for box in ids:
+            with self.subTest(box=box):
+                self.assertIn(f'<label for="{box}"', html)
+
+    def test_errors_show_under_the_box_with_the_alert_icon(self):
+        response = self.client.post(
+            reverse("owner_register"),
+            {"email": "x@example.com", "password1": "1234", "password2": "12345"},
+        )
+        html = response.content.decode()
+        self.assertRegex(
+            html, r'(?s)id="id_password1-errors">\s*<p class="[^"]*text-red-700'
+        )
+        self.assertIn('aria-invalid="true"', html)
+        self.assertIn("Passwords do not match.", html)
+
+    def test_the_script_toggles_only_the_password_boxes(self):
+        path = Path(settings.BASE_DIR) / "static/js/shared/password_toggle.js"
+        source = path.read_text(encoding="utf-8")
+        for text in ("data-password-toggle", "Hide password", "Show password"):
+            self.assertIn(text, source)
+        self.assertNotIn("onclick", source)
+        self.assertNotIn("fetch(", source)
+        field = template_source("owner/auth_parts/password_field.html")
+        self.assertIn("eye-off", field)
+
+
+class GoogleButtonTests(AuthPagesBase):
+    def _form(self, url):
+        action = re.escape(reverse("google_login"))
+        html = self.html(url)
+        found = re.search(
+            rf'<form method="post" action="{action}"[^>]*>(.*?)</form>', html, re.S
+        )
+        self.assertIsNotNone(found, "Google POST form not found")
+        return found.group(1)
+
+    def test_post_form_with_csrf_the_svg_and_the_wording(self):
+        cases = (
+            (reverse("owner_login"), "Continue with Google", "Sign up with Google"),
+            (reverse("owner_register"), "Sign up with Google", "Continue with Google"),
+        )
+        for url, shown, hidden in cases:
+            form = self._form(url)
+            with self.subTest(page=url):
+                self.assertIn('name="csrfmiddlewaretoken"', form)
+                self.assertRegex(
+                    form, r'<img src="/static/img/google_g\.[0-9a-f]+\.svg" alt=""'
+                )
+                self.assertIn(f"<span>{shown}</span>", form)
+                self.assertNotIn(hidden, self.html(url))
+                self.assertIn("border-[#747775]", form)
+                self.assertIn("bg-white", form)
+
+    def test_it_is_never_a_link(self):
+        for url in (reverse("owner_login"), reverse("owner_register")):
+            self.assertNotIn(f'href="{reverse("google_login")}"', self.html(url))
+
+    def test_the_svg_keeps_only_the_coloured_g(self):
+        path = Path(settings.BASE_DIR) / "static/img/google_g.svg"
+        source = path.read_text(encoding="utf-8")
+        self.assertIn('viewBox="10 10 20 20"', source)
+        self.assertNotIn('fill="white"', source)
+        self.assertNotIn('stroke="#747775"', source)
+        self.assertNotIn("H36C37.933", source)
+        self.assertIn('mask id="mask0_1298_12516"', source)
+        self.assertIn("conic-gradient", source)
+
+    def test_the_old_google_files_are_not_loaded(self):
+        for url in (reverse("owner_login"), reverse("owner_register")):
+            self.assertNotIn("gsi-material-button", self.html(url))
+            self.assertNotIn("google-button.css", self.html(url))
+
+
+class RegisterPageTests(TestCase):
+    def setUp(self):
+        self.url = reverse("owner_register")
+
+    def test_fields_hints_and_the_footer(self):
+        html = self.client.get(self.url).content.decode()
+        for name in ("email", "password1", "password2"):
+            self.assertIn(f'name="{name}"', html)
+        for text in (
+            "Create an account",
+            "For pet owners of Hapi Tutz. It's free.",
+            "Email address",
+            "Type the password again",
+            "At least 8 characters",
+            "Not only numbers",
+            'Not too common (like "password123")',
+            "Already have an account?",
+            ">Log in</a>",
+            ">Create account</button>",
+        ):
+            with self.subTest(text=text):
+                self.assertIn(text, html)
+        self.assertIn('<ul class="mt-2 list-disc', html)
+        self.assertEqual(html.count("At least 8 characters"), 1)
+
+    def test_google_comes_first_then_the_or_line_then_the_form(self):
+        html = self.client.get(self.url).content.decode()
+        google = html.index("Sign up with Google")
+        self.assertLess(google, html.index(">or<"))
+        self.assertLess(html.index(">or<"), html.index('name="email"'))
+
+    def test_terms_and_privacy_open_in_a_new_tab_with_the_settings_urls(self):
+        with override_settings(
+            TERMS_URL="https://example.test/terms",
+            PRIVACY_URL="https://example.test/privacy",
+        ):
+            html = self.client.get(self.url).content.decode()
+        for href, label in (
+            ("https://example.test/terms", "Terms"),
+            ("https://example.test/privacy", "Privacy Policy"),
+        ):
+            with self.subTest(label=label):
+                self.assertIn(
+                    f'<a href="{href}" target="_blank" rel="noopener" '
+                    f'class="font-medium text-blue-600 underline underline-offset-2">'
+                    f'{label}<span class="sr-only"> (opens in a new tab)</span></a>',
+                    html,
+                )
+
+    def test_terms_are_on_this_page_only(self):
+        for name in (
+            "owner_login",
+            "owner_register_pending",
+            "forgot_password",
+            "password_reset_done",
+            "password_reset_complete",
+            "socialaccount_login_error",
+        ):
+            html = self.client.get(reverse(name)).content.decode()
+            with self.subTest(page=name):
+                self.assertNotIn(settings.TERMS_URL, html)
+                self.assertNotIn(settings.PRIVACY_URL, html)
+                self.assertNotIn("Privacy Policy", html)
+
+    def test_errors_show_under_each_field_and_the_email_is_kept(self):
+        make_owner("taken@example.com")
+        response = self.client.post(
+            self.url,
+            {
+                "email": "taken@example.com",
+                "password1": "Str0ng-pass-123",
+                "password2": "Different-pass-9",
+            },
+        )
+        html = response.content.decode()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('value="taken@example.com"', html)
+        email_part = html.split('id="id_email-errors"')[1].split("</div>")[0]
+        self.assertIn("An account with this email already exists.", email_part)
+        part = html.split('id="id_password2-errors"')[1].split("</div>")[0]
+        self.assertIn("Passwords do not match.", part)
+        self.assertEqual(User.objects.filter(email="taken@example.com").count(), 1)
+
+    def test_a_good_post_still_registers_and_sends_the_email(self):
+        data = {
+            "email": "New.Owner@Example.com",
+            "password1": PENDING_PASSWORD,
+            "password2": PENDING_PASSWORD,
+        }
+        response = self.client.post(self.url, data)
+        self.assertRedirects(
+            response, reverse("owner_register_pending"), fetch_redirect_response=False
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertFalse(User.objects.get(email="new.owner@example.com").is_active)
+
+
+class CheckEmailPageTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.url = reverse("owner_register_pending")
+
+    def _register(self, email="new.owner@example.com"):
+        return self.client.post(
+            reverse("owner_register"),
+            {
+                "email": email,
+                "password1": PENDING_PASSWORD,
+                "password2": PENDING_PASSWORD,
+            },
+        )
+
+    def test_registering_stores_only_the_address_in_the_session(self):
+        self._register("New.Owner@Example.com")
+        self.assertEqual(self.client.session["pending_email"], "new.owner@example.com")
+        self.assertNotIn(PENDING_PASSWORD, str(dict(self.client.session)))
+
+    def test_the_address_is_shown_bold_with_a_hidden_resend_email(self):
+        self._register()
+        html = self.client.get(self.url).content.decode()
+        self.assertIn("We sent a link to</p>", html)
+        self.assertIn(
+            '<p class="break-all text-lg font-bold text-gray-900">'
+            "new.owner@example.com</p>",
+            html,
+        )
+        hidden = '<input type="hidden" name="email" value="new.owner@example.com">'
+        self.assertIn(hidden, html)
+        self.assertNotIn('type="email"', html)
+        self.assertIn("Open the email and tap the link", html)
+        self.assertIn("Check Spam too.", html)
+
+    def test_without_the_session_a_visible_email_field_is_shown(self):
+        html = self.client.get(self.url).content.decode()
+        self.assertIn('type="email" id="resend-email" name="email"', html)
+        self.assertIn(">Email address</label>", html)
+        self.assertNotIn('type="hidden" name="email"', html)
+
+    def test_the_footer_and_the_resend_button(self):
+        html = self.client.get(self.url).content.decode()
+        self.assertIn("Wrong email?", html)
+        self.assertIn(f'href="{reverse("owner_register")}"', html)
+        self.assertIn(">Sign up again</a>", html)
+        self.assertIn("Send the link again", html)
+        self.assertIn(f'action="{reverse("owner_resend_verification")}"', html)
+        self.assertIn("csrfmiddlewaretoken", html)
+
+    def test_the_resend_reply_is_unchanged_with_and_without_the_session(self):
+        make_owner("waiting@example.com")
+        expected = (302, self.url, [("info", RESEND_REPLY_TEXT)])
+        post = {"email": "waiting@example.com"}
+        url = reverse("owner_resend_verification")
+        self.assertEqual(reply_of(self.client.post(url, post)), expected)
+        other = self.client_class()
+        reply = other.post(url, {"email": "nobody@example.com"})
+        self.assertEqual(reply_of(reply), expected)
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_the_reply_message_shows_in_the_card(self):
+        self._register()
+        response = self.client.post(
+            reverse("owner_resend_verification"),
+            {"email": "new.owner@example.com"},
+            follow=True,
+        )
+        self.assertContains(response, 'role="status"')
+        self.assertContains(response, "new.owner@example.com")
+
+
+class ResetPagesTests(TestCase):
+    def setUp(self):
+        self.user = make_owner("ana@example.com", is_active=True)
+
+    def test_forgot_password_wording_and_back_link(self):
+        response = self.client.get(reverse("forgot_password"))
+        self.assertTemplateUsed(response, "layouts/owner_auth.html")
+        html = response.content.decode()
+        for text in (
+            "Forgot your password?",
+            "Type your email and we'll send you a link to make a new one.",
+            "Email address",
+            ">Send me a link</button>",
+            "Back to log in</a>",
+        ):
+            with self.subTest(text=text):
+                self.assertIn(text, html)
+        self.assertRegex(html, rf'<a href="{reverse("owner_login")}"[^>]*>\s*<svg')
+
+    def test_forgot_password_still_sends_and_goes_to_the_sent_page(self):
+        response = self.client.post(
+            reverse("forgot_password"), {"email": "ana@example.com"}
+        )
+        self.assertRedirects(
+            response, reverse("password_reset_done"), fetch_redirect_response=False
+        )
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_a_bad_email_shows_the_error_under_the_box(self):
+        response = self.client.post(reverse("forgot_password"), {"email": "nope"})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="id_email-errors"')
+        self.assertContains(response, 'value="nope"')
+
+    def test_the_sent_page(self):
+        response = self.client.get(reverse("password_reset_done"))
+        self.assertTemplateUsed(response, "layouts/owner_auth.html")
+        for text in ("Check your email", "If that email has an account", BACK_TO_LOGIN):
+            self.assertContains(response, text)
+
+    def test_new_password_page_and_the_whole_reset(self):
+        link, set_url = reset_urls(self.user)
+        response = self.client.get(link, follow=True)
+        self.assertRedirects(response, set_url)
+        self.assertTemplateUsed(response, "layouts/owner_auth.html")
+        html = response.content.decode()
+        for text in (
+            "Make a new password",
+            "For ana@example.com",
+            "New password",
+            "Type it again",
+            "At least 8 characters",
+            ">Save new password</button>",
+        ):
+            with self.subTest(text=text):
+                self.assertIn(text, html)
+        self.assertEqual(len(re.findall(r'<input type="password"', html)), 2)
+        new = "Br4nd-new-pass-77"
+        done = self.client.post(set_url, {"new_password1": new, "new_password2": new})
+        self.assertRedirects(
+            done, reverse("password_reset_complete"), fetch_redirect_response=False
+        )
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(new))
+
+    def test_new_password_errors_show_under_the_boxes(self):
+        link, set_url = reset_urls(self.user)
+        self.client.get(link)
+        # Django's form puts both the mismatch and the weak-password errors
+        # on the second box
+        for first, second in (("1234", "5678"), ("1234", "1234")):
+            with self.subTest(first=first, second=second):
+                response = self.client.post(
+                    set_url, {"new_password1": first, "new_password2": second}
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, 'id="id_new_password2-errors"')
+                self.assertContains(response, 'aria-invalid="true"')
+
+    def test_a_bad_link_shows_no_address(self):
+        response = self.client.get("/reset-password/bad/bad/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "This link doesn't work")
+        self.assertContains(response, "Ask for a new link")
+        self.assertNotContains(response, "ana@example.com")
+
+    def test_the_done_page(self):
+        response = self.client.get(reverse("password_reset_complete"))
+        self.assertTemplateUsed(response, "layouts/owner_auth.html")
+        self.assertContains(response, "Password changed")
+        self.assertContains(response, "You can now log in with your new password.")
+        self.assertContains(response, ">Go to log in</a>")
+        self.assertContains(response, f'href="{reverse("owner_login")}"')
+
+
+class InvalidVerificationLinkPageTests(TestCase):
+    def test_the_page_is_on_the_auth_layout_with_plain_words(self):
+        response = self.client.get("/verify-email/bad/bad/")
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "owner/verify_email_invalid.html")
+        self.assertTemplateUsed(response, "layouts/owner_auth.html")
+        for text in (
+            "This link doesn't work",
+            "This confirmation link can't be used.",
+            "It may have been used already, be too old, or be copied wrongly.",
+            "Register again</a>",
+            BACK_TO_LOGIN,
+        ):
+            with self.subTest(text=text):
+                self.assertContains(response, text)
+        self.assertContains(response, 'role="alert"')
+        self.assertContains(response, f'href="{reverse("owner_register")}"')
+        self.assertContains(response, f'href="{reverse("owner_login")}"')
+        self.assertNotContains(response, "auth-page")
+
+
+class AuthLogoTests(TestCase):
+    """The clinic logo on logged-out pages comes from the context processor."""
+
+    PAW = r'rounded-2xl bg-white[^"]*">\s*<svg'
+
+    def _clinic(self, logo=""):
+        from appointments.utils import CLINIC_SETTINGS_DEFAULTS
+
+        clinic = ClinicSettings.objects.create(**CLINIC_SETTINGS_DEFAULTS)
+        if logo:
+            ClinicSettings.objects.filter(pk=clinic.pk).update(logo=logo)
+        return ClinicSettings.objects.get(pk=clinic.pk)
+
+    def test_the_logo_shows_in_the_white_tile_when_there_is_one(self):
+        clinic = self._clinic("clinic/logo.png")
+        html = self.client.get(reverse("owner_login")).content.decode()
+        self.assertIn(
+            f'<img src="{clinic.logo.url}" alt="" class="size-12 object-contain">',
+            html,
+        )
+        self.assertNotRegex(html, self.PAW)
+
+    def test_the_paw_tile_when_the_clinic_has_no_logo_or_no_row(self):
+        for make_row in (True, False):
+            with self.subTest(row=make_row):
+                ClinicSettings.objects.all().delete()
+                if make_row:
+                    self._clinic()
+                html = self.client.get(reverse("owner_login")).content.decode()
+                self.assertRegex(html, self.PAW)
+                self.assertNotIn("size-12 object-contain", html)
+
+    def test_one_query_and_no_row_is_ever_created(self):
+        from django.test.utils import CaptureQueriesContext
+
+        table = ClinicSettings._meta.db_table
+        with CaptureQueriesContext(connection) as queries:
+            self.client.get(reverse("owner_login"))
+        asked = [q for q in queries if f'FROM "{table}"' in q["sql"]]
+        self.assertEqual(len(asked), 1)
+        self.assertEqual(ClinicSettings.objects.count(), 0)
+
+    def test_only_logged_out_pages_get_auth_shell(self):
+        response = self.client.get(reverse("owner_login"))
+        self.assertIn("auth_shell", response.context)
+        self.assertNotIn("shell", response.context)
+        user = make_owner("ana@example.com", is_active=True, is_onboarded=True)
+        PetOwner.objects.create(user=user, first_name="Ana", last_name="Cruz")
+        self.client.force_login(user)
+        response = self.client.get(reverse("owner_account"))
+        self.assertIn("shell", response.context)
+        self.assertNotIn("auth_shell", response.context)
+
+    def test_the_admin_login_and_owner_layout_do_not_change(self):
+        clinic = self._clinic("clinic/logo.png")
+        response = self.client.get(reverse("admin_login"))
+        self.assertTemplateUsed(response, "layouts/auth.html")
+        self.assertTemplateNotUsed(response, "layouts/owner_auth.html")
+        user = make_owner("ana@example.com", is_active=True, is_onboarded=True)
+        PetOwner.objects.create(user=user, first_name="Ana", last_name="Cruz")
+        self.client.force_login(user)
+        response = self.client.get(reverse("owner_account"))
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertContains(response, f'<img src="{clinic.logo.url}" alt=""')
+
+
+class SocialaccountTemplateTests(TestCase):
+    def test_the_confirmation_page(self):
+        response = self.client.get(reverse("google_login"))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "socialaccount/login.html")
+        self.assertTemplateUsed(response, "layouts/owner_auth.html")
+        html = response.content.decode()
+        self.assertIn("Continue with Google?", html)
+        self.assertIn(BACK_TO_LOGIN, html)
+        form = re.search(r'(?s)<form method="post">(.*?)</form>', html)
+        self.assertIsNotNone(form)
+        self.assertIn('name="csrfmiddlewaretoken"', form.group(1))
+        self.assertIn(">Continue</button>", form.group(1))
+        self.assertNotIn('method="get"', html)
+
+    def test_the_authentication_error_page(self):
+        response = self.client.get(reverse("socialaccount_login_error"))
+        self.assertTemplateUsed(response, "socialaccount/authentication_error.html")
+        self.assertTemplateUsed(response, "layouts/owner_auth.html")
+        # allauth itself answers this page with HTTP 401
+        found = {"status_code": 401}
+        self.assertContains(response, "Google sign-in didn't work.", **found)
+        self.assertContains(
+            response, "Please try again, or log in with your email.", **found
+        )
+        self.assertContains(response, 'role="alert"', **found)
+        self.assertContains(response, BACK_TO_LOGIN, **found)
+        self.assertNotContains(response, "Third-Party", **found)
+
+    def test_the_login_cancelled_page(self):
+        response = self.client.get(reverse("socialaccount_login_cancelled"))
+        self.assertTemplateUsed(response, "socialaccount/login_cancelled.html")
+        self.assertTemplateUsed(response, "layouts/owner_auth.html")
+        self.assertContains(response, "You cancelled Google sign-in.")
+        self.assertContains(response, 'role="status"')
+        self.assertContains(response, "border-blue-200")
+        self.assertContains(response, BACK_TO_LOGIN)
+        self.assertNotContains(response, "Login Cancelled")

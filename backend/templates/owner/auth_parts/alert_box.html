@@ -1,0 +1,21 @@
+{% comment %}
+  Coloured box with an icon, a bold title and one sentence.
+  Parameters: tone ("red", "blue" or "green"), title, text (optional),
+  icon (optional; default triangle-alert / info / circle-check by tone).
+  Red is announced as an alert, the others as a status.
+{% endcomment %}
+<div role="{% if tone == 'red' %}alert{% else %}status{% endif %}" class="flex items-start gap-3 rounded-xl border px-4 py-3 {% if tone == 'red' %}border-red-200 bg-red-50 text-red-900{% elif tone == 'blue' %}border-blue-200 bg-blue-50 text-blue-900{% else %}border-green-200 bg-green-50 text-green-900{% endif %}">
+  {% if icon %}
+    {% include "components/icon.html" with name=icon class="mt-0.5 size-5 shrink-0" %}
+  {% elif tone == 'red' %}
+    {% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0" %}
+  {% elif tone == 'blue' %}
+    {% include "components/icon.html" with name="info" class="mt-0.5 size-5 shrink-0" %}
+  {% else %}
+    {% include "components/icon.html" with name="circle-check" class="mt-0.5 size-5 shrink-0" %}
+  {% endif %}
+  <div>
+    <p class="text-base font-semibold">{{ title }}</p>
+    {% if text %}<p class="text-base">{{ text }}</p>{% endif %}
+  </div>
+</div>
