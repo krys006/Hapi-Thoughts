@@ -5921,3 +5921,88 @@ class TakeBackRemovalTests(TestCase):
         taken_back.refresh_from_db()
         self.assertEqual(taken_back.status, PetDeletionRequest.CANCELLED)
         self.assertFalse(Pet.objects.get(pk=self.pet.pk).is_archived)
+
+
+class AddPetNextBookTests(TestCase):
+    """Slice 8a-2a: owner_pet_add ?next=book goes on to the booking page with
+    the new pet picked. "book" is a fixed choice, never a URL."""
+
+    POST = {"name": "Bantay", "species": "Dog", "gender": "unknown"}
+
+    def setUp(self):
+        self.owner = _login_owner(self)
+        self.owner.user.is_onboarded = True
+        self.owner.user.save()
+        self.url = reverse("owner_pet_add")
+
+    def _book_url(self, pet):
+        return f"{reverse('owner_book_appointment')}?pet={pet.pk}"
+
+    def test_next_book_goes_to_booking_with_the_new_pet(self):
+        response = self.client.post(f"{self.url}?next=book", self.POST)
+        pet = Pet.objects.get(owner=self.owner)
+        self.assertRedirects(
+            response, self._book_url(pet), fetch_redirect_response=False
+        )
+        self.assertEqual(_messages(response), ["Bantay has been added."])
+
+    def test_the_hidden_field_also_counts(self):
+        response = self.client.post(self.url, {**self.POST, "next": "book"})
+        pet = Pet.objects.get(owner=self.owner)
+        self.assertRedirects(
+            response, self._book_url(pet), fetch_redirect_response=False
+        )
+
+    def test_the_booking_page_starts_with_that_pet(self):
+        response = self.client.post(f"{self.url}?next=book", self.POST, follow=True)
+        pet = Pet.objects.get(owner=self.owner)
+        self.assertEqual(response.context["form"]["pet"].value(), pet.pk)
+
+    def test_without_it_or_with_junk_the_pet_page(self):
+        queries = (
+            "",
+            "?next=",
+            "?next=https://example.com/",
+            "?next=/dashboard/",
+            "?next=BOOK",
+        )
+        for query in queries:
+            with self.subTest(query=query):
+                Pet.objects.all().delete()
+                response = self.client.post(f"{self.url}{query}", self.POST)
+                pet = Pet.objects.get(owner=self.owner)
+                self.assertRedirects(
+                    response,
+                    reverse("owner_pet_detail", args=[pet.pk]),
+                    fetch_redirect_response=False,
+                )
+
+    def test_a_junk_hidden_field_is_ignored(self):
+        response = self.client.post(self.url, {**self.POST, "next": "https://x.test/"})
+        pet = Pet.objects.get(owner=self.owner)
+        self.assertRedirects(
+            response,
+            reverse("owner_pet_detail", args=[pet.pk]),
+            fetch_redirect_response=False,
+        )
+
+    def test_the_form_carries_next_only_when_it_is_set(self):
+        with_next = self.client.get(f"{self.url}?next=book")
+        self.assertEqual(with_next.context["next_value"], "book")
+        self.assertContains(with_next, '<input type="hidden" name="next" value="book">')
+        for query in ("", "?next=https://example.com/"):
+            with self.subTest(query=query):
+                response = self.client.get(f"{self.url}{query}")
+                self.assertEqual(response.context["next_value"], "")
+                self.assertNotContains(response, 'name="next"')
+
+    def test_kept_through_a_failed_post(self):
+        response = self.client.post(f"{self.url}?next=book", {"species": "Dog"})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Pet.objects.exists())
+        self.assertContains(response, '<input type="hidden" name="next" value="book">')
+        # The pet form has no action: the next POST goes to the same URL.
+        # The hidden field alone also carries it.
+        again = self.client.post(self.url, {**self.POST, "next": "book"})
+        pet = Pet.objects.get(owner=self.owner)
+        self.assertRedirects(again, self._book_url(pet), fetch_redirect_response=False)

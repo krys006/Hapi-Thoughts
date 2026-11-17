@@ -1025,6 +1025,8 @@ Admin dates are in Manila time (`timezone.localdate()`).
   `friendly_date_on(value, today, style=None)` (same output as
   `long_date` / `friendly_date`), e.g. `resolve_period` in
   `appointments/utils.py`.
+- Calendar weeks: the owner booking calendar (`owner_booking_calendar`) starts
+  on Sunday; the admin calendars start on Monday.
 - Templates whose wording must follow the view's `today` (not the clock)
   use the same functions as tags: `{% friendly_date_on value today %}`,
   `{% long_date_on value today "mid" %}`, or `{% friendly_date_on due_until today as until %}`

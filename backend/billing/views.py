@@ -27,6 +27,7 @@ from .utils import (
     mark_receipt_paid,
     notify_receipt_paid,
     owner_for_receipt,
+    owner_bills_context,
     owner_receipts,
     receipt_detail_context,
     receipt_for_page,
@@ -368,17 +369,8 @@ def owner_billing_list(request):
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
-    receipts = (
-        owner_receipts(request.owner)
-        .select_related("pet")
-        .order_by("-billing_date", "-created_at")
-    )
-
-    return render(
-        request,
-        "owner/billing/list.html",
-        {"receipts": receipts},
-    )
+    context = owner_bills_context(request.owner, request.GET, timezone.localdate())
+    return render(request, "owner/billing/list.html", context)
 
 
 @login_required

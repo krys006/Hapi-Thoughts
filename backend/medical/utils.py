@@ -129,6 +129,34 @@ def followups_due(today, days=DUE_DAYS):
     )
 
 
+# A visit in one of these states counts as "follow-up booked"
+FOLLOW_UP_VISIT_STATUSES = (
+    Appointment.PENDING,
+    Appointment.CONFIRMED,
+    Appointment.COMPLETED,
+)
+
+
+def follow_up_visit(record):
+    """
+    The visit that answers a record's follow-up: the earliest appointment for
+    the record's pet dated on or after follow_up_date that is Pending,
+    Confirmed or Completed (by date, time, pk), or None. None too when the
+    record needs no follow-up or has no date. One query.
+    """
+    if not (record.follow_up_required and record.follow_up_date):
+        return None
+    return (
+        Appointment.objects.filter(
+            pet_id=record.pet_id,
+            date__gte=record.follow_up_date,
+            status__in=FOLLOW_UP_VISIT_STATUSES,
+        )
+        .order_by("date", "time", "pk")
+        .first()
+    )
+
+
 def vaccination_reminder_refusal(vaccination):
     """Why the Send reminder button can't remind about this dose, or None.
     (Archived pets and owners are refused before this.)"""

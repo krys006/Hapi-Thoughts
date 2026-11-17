@@ -381,6 +381,10 @@ def owner_pet_add(request):
         return guard
 
     pet_owner = request.owner
+    # ?next=book (or the hidden field after a failed save) is a fixed choice,
+    # never a URL: anything else is ignored.
+    next_value = request.POST.get("next") or request.GET.get("next")
+    back_to_booking = next_value == "book"
 
     if request.method == "POST":
         form = PetForm(request.POST, request.FILES)
@@ -389,6 +393,9 @@ def owner_pet_add(request):
             pet.owner = pet_owner
             pet.save()
             messages.success(request, f"{pet.name} has been added.")
+            if back_to_booking:
+                book_url = reverse("owner_book_appointment")
+                return redirect(f"{book_url}?pet={pet.pk}")
             return redirect("owner_pet_detail", pk=pet.pk)
 
     else:
@@ -399,6 +406,7 @@ def owner_pet_add(request):
         "owner/pets/add.html",
         {
             "form": form,
+            "next_value": "book" if back_to_booking else "",
         },
     )
 

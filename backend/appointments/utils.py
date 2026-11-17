@@ -14,6 +14,13 @@ from dashboard.templatetags.friendly_dates import (
     friendly_date_on,
     long_date_on,
 )
+from dashboard.utils import (
+    _add_months,
+    _last_day,
+    _month_value,
+    booking_limit,
+    resolve_month,
+)
 from notifications.utils import notify
 from pets.models import Pet, PetOwner
 from .models import ClinicSettings, BlockedDate, Appointment
@@ -378,6 +385,24 @@ def is_slot_available(date, time, exclude_appointment_pk=None, move=False):
         conflict_qs = conflict_qs.exclude(pk=exclude_appointment_pk)
 
     return not conflict_qs.exists()
+
+
+# ── Late note (Slice 8a-2a) ──────────────────────────────────────────────────
+
+LATE_NOTE_HOURS = 24
+
+
+def is_within_24h(appointment, now):
+    """
+    True when the visit's start (date + time, Manila) is less than 24 hours
+    after now, including a start that has already passed. Exactly 24 hours
+    away is not within. now is an aware datetime. One rule for the late note
+    on Cancel and Change time, and for Appointment.is_cancellable_freely.
+    """
+    start = timezone.make_aware(
+        datetime.datetime.combine(appointment.date, appointment.time)
+    )
+    return start - now < datetime.timedelta(hours=LATE_NOTE_HOURS)
 
 
 # ── Booking lock (Slice 8a-1b) ───────────────────────────────────────────────
@@ -1187,3 +1212,135 @@ def create_walkin_appointment(owner, cleaned_data):
         email_subject="Visit booked — Hapi Vet",
     )
     return appointment
+
+
+# ── Owner booking: pet picked first (Slice 8a-2a) ────────────────────────────
+
+
+def picked_pet_initial(owner, value):
+    """
+    Initial data for the booking form from ?pet=: {"pet": pk} when value is
+    the pk of one of the owner's non-archived pets, else {} (never an error).
+    """
+    text = str(value or "")
+    # The length keeps a huge number away from the integer lookup
+    if not text.isdecimal() or len(text) > 9:
+        return {}
+    is_theirs = Pet.objects.filter(pk=int(text), owner=owner, is_archived=False)
+    return {"pet": int(text)} if is_theirs.exists() else {}
+
+
+# ── Owner booking calendar (Slice 8a-2a) ─────────────────────────────────────
+
+# Five weeks at least, six when the month needs them (weeks start on Sunday)
+OWNER_CALENDAR_MIN_CELLS = 35
+OWNER_DAY_PHRASES = {
+    "open": "open",
+    "full": "full",
+    "closed": "clinic closed",
+    "past": "not available",
+}
+
+
+def _owner_calendar_months(today, limit_days):
+    """Month-first dates from today's month to the month of the last
+    bookable day (today + limit_days)."""
+    last = (today + datetime.timedelta(days=limit_days)).replace(day=1)
+    months = [today.replace(day=1)]
+    while months[-1] < last:
+        months.append(_add_months(months[-1], 1))
+    return months
+
+
+def _owner_calendar_days(month_first):
+    """Every date of the grid: whole weeks, Sunday first, 35 or 42 days."""
+    lead = (month_first.weekday() + 1) % 7  # weekday() is 0 = Monday
+    needed = lead + _last_day(month_first).day
+    cells = max(OWNER_CALENDAR_MIN_CELLS, -(-needed // 7) * 7)
+    start = month_first - datetime.timedelta(days=lead)
+    return [start + datetime.timedelta(days=n) for n in range(cells)]
+
+
+def _owner_day_state(day, today, now, clinic, blocked, booked):
+    """
+    past / closed / full / open for one day, by the rules of
+    get_available_slots (owner defaults). blocked is a set of dates; booked
+    maps a date to the slot times held by non-cancelled visits.
+    """
+    if clinic is None:
+        return "past" if day < today else "closed"
+    if day < today or day > today + datetime.timedelta(days=clinic.booking_limit_days):
+        return "past"
+    if day.weekday() not in clinic.working_days or day in blocked:
+        return "closed"
+    slots = _day_slots(clinic, day)
+    if day == today:
+        slots = [s for s in slots if _slot_open_today(clinic, day, s, now)]
+    taken = booked.get(day, ())
+    return "open" if any(slot not in taken for slot in slots) else "full"
+
+
+def _owner_day_rows(days):
+    """(blocked dates, {date: slot times held}) for the grid: two queries."""
+    window = (days[0], days[-1])
+    blocked = set(
+        BlockedDate.objects.filter(date__range=window).values_list("date", flat=True)
+    )
+    booked = {}
+    held = (
+        Appointment.objects.filter(date__range=window)
+        .exclude(status=Appointment.CANCELLED)
+        .values_list("date", "time")
+    )
+    for day, time in held:
+        booked.setdefault(day, set()).add(time)
+    return blocked, booked
+
+
+def owner_booking_calendar(month_value, today, now, current_date=None):
+    """
+    The month grid on the owner's booking and change-time pages (read-only).
+    month_value is "YYYY-MM", clamped to the months from today to today +
+    booking_limit_days; missing or bad gives today's month. today and now
+    (aware, Manila) are arguments, so the view reads the clock once.
+
+    Returns month (first day), month_value, month_label ("November 2026"),
+    prev_month and next_month ("YYYY-MM", or None at the ends) and cells:
+    35 or 42 dicts, Sunday first, each with date, day, in_month, state
+    (past / closed / full / open), is_today, is_current (the date equal to
+    current_date) and aria_label. Three queries however long the month.
+    """
+    now = timezone.localtime(now)
+    clinic = get_clinic_settings()
+    months = _owner_calendar_months(today, booking_limit(clinic))
+    month = resolve_month(month_value, today, months)
+    days = _owner_calendar_days(month)
+    blocked, booked = _owner_day_rows(days)
+
+    cells = []
+    for day in days:
+        state = _owner_day_state(day, today, now, clinic, blocked, booked)
+        cells.append(
+            {
+                "date": day,
+                "day": day.day,
+                "in_month": day.month == month.month,
+                "state": state,
+                "is_today": day == today,
+                "is_current": day == current_date,
+                "aria_label": (
+                    f"{date_format(day, 'l, F j')}: {OWNER_DAY_PHRASES[state]}"
+                ),
+            }
+        )
+    index = months.index(month)
+    return {
+        "month": month,
+        "month_value": _month_value(month),
+        "month_label": date_format(month, "F Y"),
+        "prev_month": _month_value(months[index - 1]) if index else None,
+        "next_month": (
+            _month_value(months[index + 1]) if index + 1 < len(months) else None
+        ),
+        "cells": cells,
+    }

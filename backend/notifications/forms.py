@@ -3,8 +3,34 @@
 from django import forms
 from .models import NotificationPreference
 
+# Fixed reminder timings (the fields stay IntegerFields on the model)
+APPOINTMENT_REMINDER_DAYS = (0, 1, 2, 3)
+VACCINATION_REMINDER_DAYS = (3, 7, 14, 30)
+CHOOSE_ONE_MESSAGE = "Choose one of the options."
+
+
+def reminder_days_label(days):
+    """ "On the same day", "1 day before", "2 days before"."""
+    if days == 0:
+        return "On the same day"
+    return f"{days} day{'' if days == 1 else 's'} before"
+
+
+def _choice_field(days_options):
+    return forms.TypedChoiceField(
+        choices=[(days, reminder_days_label(days)) for days in days_options],
+        coerce=int,
+        error_messages={
+            "required": CHOOSE_ONE_MESSAGE,
+            "invalid_choice": CHOOSE_ONE_MESSAGE,
+        },
+    )
+
 
 class NotificationPreferenceForm(forms.ModelForm):
+    appointment_reminder_days = _choice_field(APPOINTMENT_REMINDER_DAYS)
+    vaccination_reminder_days = _choice_field(VACCINATION_REMINDER_DAYS)
+
     class Meta:
         model = NotificationPreference
         fields = [
@@ -16,23 +42,15 @@ class NotificationPreferenceForm(forms.ModelForm):
             "appointment_reminder_days",
             "vaccination_reminder_days",
         ]
-        widgets = {
-            "appointment_reminder_days": forms.NumberInput(
-                attrs={"min": 1, "max": 7, "step": 1}
-            ),
-            "vaccination_reminder_days": forms.NumberInput(
-                attrs={"min": 1, "max": 30, "step": 1}
-            ),
-        }
 
-    def clean_appointment_reminder_days(self):
-        value = self.cleaned_data.get("appointment_reminder_days")
-        if value < 1 or value > 7:
-            raise forms.ValidationError("Must be between 1 and 7 days.")
-        return value
-
-    def clean_vaccination_reminder_days(self):
-        value = self.cleaned_data.get("vaccination_reminder_days")
-        if value < 1 or value > 30:
-            raise forms.ValidationError("Must be between 1 and 30 days.")
-        return value
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # A saved value outside the list stays selectable as one extra
+        # choice, so saving the page never changes it silently.
+        for name in ("appointment_reminder_days", "vaccination_reminder_days"):
+            field = self.fields[name]
+            saved = getattr(self.instance, name, None)
+            if saved is None or saved in dict(field.choices):
+                continue
+            label = f"{reminder_days_label(saved)} (your earlier choice)"
+            field.choices = [*field.choices, (saved, label)]

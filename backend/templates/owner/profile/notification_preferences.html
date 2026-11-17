@@ -325,7 +325,6 @@
       <div class="preferences-timing-row">
         <label class="preferences-timing-label" for="{{ form.appointment_reminder_days.id_for_label }}">Send appointment reminder</label>
         {{ form.appointment_reminder_days }}
-        <span class="preferences-timing-unit">day(s) before</span>
         {% if form.appointment_reminder_days.errors %}
           <p class="preferences-field-error">{{ form.appointment_reminder_days.errors.0 }}</p>
         {% endif %}
@@ -334,7 +333,6 @@
       <div class="preferences-timing-row">
         <label class="preferences-timing-label" for="{{ form.vaccination_reminder_days.id_for_label }}">Send vaccination reminder</label>
         {{ form.vaccination_reminder_days }}
-        <span class="preferences-timing-unit">day(s) before</span>
         {% if form.vaccination_reminder_days.errors %}
           <p class="preferences-field-error">{{ form.vaccination_reminder_days.errors.0 }}</p>
         {% endif %}

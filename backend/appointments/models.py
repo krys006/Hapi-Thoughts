@@ -187,17 +187,22 @@ class Appointment(models.Model):
         return self.date >= timezone.localdate()
 
     @property
-    def is_cancellable_freely(self):
+    def is_within_24h(self):
         """
-        True if the appointment is more than 24 hours away. Only drives the
-        late-cancellation warning on the owner page; owners can still cancel
-        at any time (Admin approval for late cancellations isn't built).
+        True when the start is less than 24 hours away (or has passed).
+        The one rule is appointments.utils.is_within_24h.
         """
         from django.utils import timezone
-        import datetime
+        from appointments.utils import is_within_24h
 
-        appointment_datetime = timezone.make_aware(
-            datetime.datetime.combine(self.date, self.time)
-        )
-        hours_until = (appointment_datetime - timezone.now()).total_seconds() / 3600
-        return hours_until > 24
+        return is_within_24h(self, timezone.now())
+
+    @property
+    def is_cancellable_freely(self):
+        """
+        True if the appointment is 24 hours or more away: the opposite of
+        is_within_24h. Only drives the late-cancellation warning on the owner
+        page; owners can still cancel at any time (Admin approval for late
+        cancellations isn't built).
+        """
+        return not self.is_within_24h

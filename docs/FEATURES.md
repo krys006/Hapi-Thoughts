@@ -110,8 +110,8 @@ Phase 7 — Dashboards & Polish
 | Profile photo upload (optional) | `complete` |
 | Auto-generated initials avatar if no photo uploaded | `complete` |
 | Notification preferences settings | `complete` |
-| Appointment reminder timing preference | `complete` |
-| Vaccination reminder timing preference (days in advance) | `complete` |
+| Appointment reminder timing preference (fixed choices: on the same day, 1, 2 or 3 days before) | `complete` |
+| Vaccination reminder timing preference (fixed choices: 3, 7, 14 or 30 days before) | `complete` |
 | Per-type email notification toggles (on/off) | `complete` |
 
 ### 2.3 Pet Management (Pet Owner)
@@ -438,8 +438,8 @@ PENDING or CONFIRMED → CANCELLED
 | Pet Owner per-type email toggle ("Email when a receipt is paid." on/off) | `complete` |
 | Pet Owner per-type email toggle (vaccination reminders on/off) | `complete` |
 | Pet Owner per-type email toggle (follow-up reminders on/off) | `complete` |
-| Pet Owner appointment reminder timing preference (days before) | `complete` |
-| Pet Owner vaccination reminder timing preference (days before) | `complete` |
+| Pet Owner appointment reminder timing preference (fixed choices: same day, 1, 2 or 3 days before; an earlier saved value stays selectable) | `complete` |
+| Pet Owner vaccination reminder timing preference (fixed choices: 3, 7, 14 or 30 days before; an earlier saved value stays selectable) | `complete` |
 | Admin per-type email toggles (all on by default) | `complete` |
 
 ### 6.4 Reminder System

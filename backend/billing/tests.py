@@ -30,6 +30,7 @@ from billing.utils import (
     RECEIPT_EXISTS,
     RECEIPT_TABS,
     notify_receipt_paid,
+    owner_bills_context,
     receipt_paid_message,
     save_new_receipt,
     services_list_context,
@@ -3079,7 +3080,9 @@ class ReceiptDialogTests(FrozenBillingTestBase):
 
 # ── Slice 6a-4: owner side, notification, services ──────────────────────────
 
-OWNER_LIST_QUERIES = 5
+# 5 until 8a-2a; the Bills page now also loads the unpaid list and the paid
+# History (a count and a page): 3 more, still flat
+OWNER_LIST_QUERIES = 8
 # 7 until 6b-1; the shared Billing tabs add the receipt counts (one aggregate)
 SERVICES_LIST_QUERIES = 7
 
@@ -6540,3 +6543,311 @@ class ServiceFormPageTests(FrozenBillingTestBase):
         bad = ServiceForm(self._data(pricing_type="nonsense"))
         self.assertEqual(bad.pricing_shown, "fixed")
         self.assertTrue(ServiceForm(instance=self.closed).is_closed)
+
+
+class OwnerBillsContextTests(FrozenBillingTestBase):
+    """Slice 8a-2a: owner_bills_context on Sat, Nov 7, 2026 (00:30 Manila,
+    still Nov 6 in UTC). to_pay is never filtered; history is paid only."""
+
+    def setUp(self):
+        super().setUp()
+        self.number = 0
+        self.mingming = Pet.objects.create(
+            owner=self.owner, name="Mingming", species="Cat"
+        )
+
+    def _bill(self, status, paid=None, billed=None, pet=None, item="Consultation"):
+        """A receipt with one item (100.00) in the given status. paid is the
+        payment date (paid receipts), billed the billing date."""
+        self.number += 1
+        receipt = BillingReceipt.objects.create(
+            receipt_number=f"HV-2026-{self.number:04d}",
+            owner=self.owner,
+            pet=pet or self.pet,
+            payment_status=status,
+            payment_date=paid,
+            billing_date=billed or paid or TODAY,
+        )
+        self._item(receipt, "100.00", description=item)
+        receipt.calculate_totals()
+        return receipt
+
+    def _paid(self, paid, **fields):
+        return self._bill(BillingReceipt.PAID, paid=paid, **fields)
+
+    def _unpaid(self, billed=TODAY, **fields):
+        return self._bill(BillingReceipt.PENDING, billed=billed, **fields)
+
+    def _context(self, **params):
+        return owner_bills_context(self.owner, params, TODAY)
+
+    def _history(self, **params):
+        return [r.pk for r in self._context(**params)["history"]]
+
+    def _days(self, n):
+        return TODAY + datetime.timedelta(days=n)
+
+    # ─── To pay ───────────────────────────────────────────────────────────────
+
+    def test_to_pay_is_every_unpaid_receipt_oldest_first_and_never_filtered(self):
+        newer = self._unpaid(billed=self._days(-2))
+        older = self._unpaid(billed=self._days(-20))
+        newest = self._unpaid(billed=self._days(0), pet=self.mingming)
+        self._paid(self._days(-1))
+        for params in ({}, {"q": "nothing matches this", "period": "last_year"}):
+            with self.subTest(params=params):
+                context = self._context(**params)
+                self.assertEqual(
+                    [r.pk for r in context["to_pay"]],
+                    [older.pk, newer.pk, newest.pk],
+                )
+                self.assertEqual(context["to_pay_count"], 3)
+                self.assertEqual(context["to_pay_total"], Decimal("300.00"))
+
+    def test_to_pay_is_empty_with_nothing_unpaid(self):
+        self._paid(TODAY)
+        context = self._context()
+        self.assertEqual(context["to_pay"], [])
+        self.assertEqual(context["to_pay_count"], 0)
+        self.assertEqual(context["to_pay_total"], Decimal("0"))
+
+    # ─── History ──────────────────────────────────────────────────────────────
+
+    def test_history_is_paid_only_newest_paid_first(self):
+        old = self._paid(self._days(-40))
+        new = self._paid(self._days(-1))
+        mid = self._paid(self._days(-10))
+        self._unpaid()
+        self._bill(BillingReceipt.CANCELLED, billed=TODAY)
+        self.assertEqual(self._history(), [new.pk, mid.pk, old.pk])
+
+    def test_a_cancelled_receipt_is_nowhere(self):
+        cancelled = self._bill(BillingReceipt.CANCELLED, paid=TODAY)
+        self._paid(TODAY)
+        self._unpaid()
+        context = self._context(q=cancelled.receipt_number)
+        every_pk = (
+            [r.pk for r in context["to_pay"]]
+            + [r.pk for r in context["history"]]
+            + [r.pk for r in context["receipts"]]
+        )
+        self.assertNotIn(cancelled.pk, every_pk)
+        self.assertEqual(context["history"], [])
+
+    def test_another_owners_receipts_are_never_listed(self):
+        other_user = User.objects.create_user(
+            username="other",
+            email="other@example.com",
+            password="unused-pass-123",
+            role=User.PET_OWNER,
+            is_onboarded=True,
+        )
+        other = PetOwner.objects.create(
+            user=other_user, first_name="Ben", last_name="Reyes"
+        )
+        BillingReceipt.objects.create(
+            receipt_number="HV-2026-9001", owner=other, payment_status="paid"
+        )
+        BillingReceipt.objects.create(receipt_number="HV-2026-9002", owner=other)
+        context = self._context()
+        self.assertEqual((context["to_pay"], context["history"]), ([], []))
+
+    # ─── Search ───────────────────────────────────────────────────────────────
+
+    def test_search_by_number_part_pet_and_item(self):
+        by_number = self._paid(TODAY, item="Checkup")  # HV-2026-0001
+        by_pet = self._paid(TODAY, pet=self.mingming, item="Checkup")
+        by_item = self._paid(TODAY, item="Deworming tablets")
+        cases = {
+            "0001": [by_number],
+            "hv-2026-0001": [by_number],
+            "mingming": [by_pet],
+            "MINGMING": [by_pet],
+            "deworm": [by_item],
+            "  deworming   ": [by_item],
+            "nothing": [],
+        }
+        for q, expected in cases.items():
+            with self.subTest(q=q):
+                self.assertEqual(self._history(q=q), [r.pk for r in expected])
+
+    def test_every_word_must_match(self):
+        both = self._paid(TODAY, item="Vaccine shot")
+        self._paid(TODAY, pet=self.mingming, item="Vaccine shot")
+        self._paid(TODAY, item="Checkup")
+        self.assertEqual(self._history(q="bantay vaccine"), [both.pk])
+        self.assertEqual(self._history(q="bantay mingming"), [])
+
+    def test_a_receipt_with_two_matching_items_is_listed_once(self):
+        receipt = self._paid(TODAY, item="Vaccine A")
+        self._item(receipt, "50.00", description="Vaccine B")
+        self.assertEqual(self._history(q="vaccine"), [receipt.pk])
+        self.assertEqual(self._context(q="vaccine")["page_obj"].paginator.count, 1)
+
+    def test_search_never_narrows_to_pay(self):
+        unpaid = self._unpaid(item="Vaccine")
+        self._paid(TODAY, item="Checkup")
+        context = self._context(q="checkup")
+        self.assertEqual([r.pk for r in context["to_pay"]], [unpaid.pk])
+
+    # ─── Period ───────────────────────────────────────────────────────────────
+
+    def test_each_period_and_its_edges(self):
+        # Today is Nov 7, 2026
+        dates = {
+            "nov_1": datetime.date(2026, 11, 1),
+            "oct_31": datetime.date(2026, 10, 31),
+            "aug_8": datetime.date(2026, 8, 8),
+            "aug_7": datetime.date(2026, 8, 7),
+            "jan_1": datetime.date(2026, 1, 1),
+            "dec_31_2025": datetime.date(2025, 12, 31),
+            "jan_1_2025": datetime.date(2025, 1, 1),
+            "dec_31_2024": datetime.date(2024, 12, 31),
+        }
+        pks = {key: self._paid(day).pk for key, day in dates.items()}
+        expected = {
+            "all": set(dates),
+            "month": {"nov_1"},
+            # after Aug 7: the day three months back itself is out
+            "3m": {"nov_1", "oct_31", "aug_8"},
+            "year": {"nov_1", "oct_31", "aug_8", "aug_7", "jan_1"},
+            "last_year": {"dec_31_2025", "jan_1_2025"},
+        }
+        for period, keys in expected.items():
+            with self.subTest(period=period):
+                self.assertEqual(
+                    set(self._history(period=period)), {pks[key] for key in keys}
+                )
+
+    def test_a_missing_or_unknown_period_is_all_time(self):
+        self._paid(datetime.date(2020, 1, 1))
+        for params in ({}, {"period": ""}, {"period": "decade"}, {"period": "2025"}):
+            with self.subTest(params=params):
+                context = self._context(**params)
+                self.assertEqual(context["period"], "all")
+                self.assertEqual(len(context["history"]), 1)
+                self.assertFalse(context["is_filtering"])
+
+    def test_the_three_month_edge_is_cut_to_the_month_length(self):
+        # May 31 minus 3 months is Feb 28
+        today = datetime.date(2026, 5, 31)
+        on_edge = self._paid(datetime.date(2026, 2, 28))
+        after = self._paid(datetime.date(2026, 3, 1))
+        context = owner_bills_context(self.owner, {"period": "3m"}, today)
+        self.assertEqual([r.pk for r in context["history"]], [after.pk])
+        self.assertNotIn(on_edge.pk, [r.pk for r in context["history"]])
+
+    def test_a_paid_receipt_without_a_payment_date_uses_its_billing_date(self):
+        receipt = self._bill(BillingReceipt.PAID, billed=TODAY)
+        self.assertEqual(self._history(period="month"), [receipt.pk])
+
+    def test_period_options_and_labels(self):
+        context = self._context()
+        self.assertEqual(
+            context["period_options"],
+            [
+                ("all", "All time"),
+                ("month", "This month"),
+                ("3m", "Last 3 months"),
+                ("year", "This year (2026)"),
+                ("last_year", "Last year (2025)"),
+            ],
+        )
+
+    # ─── Keys, paging ─────────────────────────────────────────────────────────
+
+    def test_the_keys_and_is_filtering(self):
+        context = self._context(q="  bantay ", period="month")
+        for key in (
+            "receipts",
+            "to_pay",
+            "to_pay_count",
+            "to_pay_total",
+            "history",
+            "q",
+            "period",
+            "period_options",
+            "is_filtering",
+            "page_obj",
+            "prev_page_query",
+            "next_page_query",
+            "today",
+        ):
+            with self.subTest(key=key):
+                self.assertIn(key, context)
+        self.assertEqual((context["q"], context["period"]), ("bantay", "month"))
+        self.assertEqual(context["today"], TODAY)
+        self.assertTrue(context["is_filtering"])
+        self.assertTrue(self._context(q="x")["is_filtering"])
+        self.assertTrue(self._context(period="year")["is_filtering"])
+        self.assertFalse(self._context()["is_filtering"])
+
+    def test_25_a_page_and_the_links_keep_q_and_period(self):
+        for _ in range(30):
+            self._paid(TODAY)
+        first = self._context(q="consultation", period="year")
+        self.assertEqual(len(first["history"]), 25)
+        self.assertEqual(first["prev_page_query"], "")
+        self.assertEqual(first["next_page_query"], "?q=consultation&period=year&page=2")
+        second = self._context(q="consultation", period="year", page="2")
+        self.assertEqual(len(second["history"]), 5)
+        self.assertEqual(
+            second["prev_page_query"], "?q=consultation&period=year&page=1"
+        )
+        self.assertEqual(second["next_page_query"], "")
+        self.assertEqual(
+            {r.pk for r in first["history"]} & {r.pk for r in second["history"]},
+            set(),
+        )
+
+    def test_the_links_without_a_filter_and_with_a_bad_page(self):
+        for _ in range(30):
+            self._paid(TODAY)
+        self.assertEqual(self._context()["next_page_query"], "?page=2")
+        # period only, or q only
+        self.assertEqual(
+            self._context(period="month")["next_page_query"], "?period=month&page=2"
+        )
+        self.assertEqual(
+            self._context(q="bantay")["next_page_query"], "?q=bantay&page=2"
+        )
+        # A bad or too-high page falls back like Paginator.get_page
+        for page in ("abc", "0", "99"):
+            with self.subTest(page=page):
+                self.assertTrue(self._context(page=page)["history"])
+
+    # ─── The page, query count ────────────────────────────────────────────────
+
+    def test_the_old_page_still_renders(self):
+        paid = self._paid(TODAY)
+        unpaid = self._unpaid()
+        cancelled = self._bill(BillingReceipt.CANCELLED, billed=TODAY)
+        self.client.force_login(self.owner.user)
+        for query in ("", "?q=bantay&period=month", "?period=nonsense&page=9"):
+            with self.subTest(query=query):
+                response = self.client.get(reverse("owner_billing_list") + query)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(
+                    {r.pk for r in response.context["receipts"]},
+                    {paid.pk, unpaid.pk},
+                )
+                self.assertContains(response, paid.receipt_number)
+                self.assertContains(response, unpaid.receipt_number)
+                self.assertNotContains(response, cancelled.receipt_number)
+
+    def _helper_queries(self, count):
+        BillingReceipt.objects.all().delete()
+        for _ in range(count):
+            self._paid(TODAY)
+        for _ in range(2):
+            self._unpaid()
+        self._bill(BillingReceipt.CANCELLED, billed=TODAY)
+        with CaptureQueriesContext(connection) as queries:
+            self._context(q="consultation", period="year")
+        return len(queries)
+
+    def test_query_count_is_flat(self):
+        three, thirty = self._helper_queries(3), self._helper_queries(30)
+        self.assertEqual(three, thirty)
+        # The unpaid list, the History count, the History page
+        self.assertEqual(thirty, 3)

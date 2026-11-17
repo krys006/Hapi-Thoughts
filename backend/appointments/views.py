@@ -43,12 +43,14 @@ from .utils import (
     group_by_day,
     is_owner_results_swap,
     is_slot_available,
+    is_within_24h,
     list_links,
     list_period,
     list_tabs,
     lock_schedule,
     notify_admin_of_request,
     paging_links,
+    picked_pet_initial,
     problems_label,
     reschedule_by_owner,
     resolve_list_tab,
@@ -352,7 +354,10 @@ def owner_book_appointment(request):
         else:
             messages.error(request, "Please correct the errors below.")
     else:
-        form = AppointmentBookingForm(owner)
+        # ?pet= starts the form with that pet (one of the owner's own)
+        form = AppointmentBookingForm(
+            owner, initial=picked_pet_initial(owner, request.GET.get("pet"))
+        )
 
     clinic = get_clinic_settings()
 
@@ -399,6 +404,7 @@ def owner_appointment_cancel(request, pk):
         return redirect("admin_dashboard")
 
     owner = request.owner
+    now = timezone.now()  # one read of the clock, for the late note
     appointment = get_object_or_404(Appointment, pk=pk, owner=owner)
 
     # Only pending or confirmed appointments can be cancelled
@@ -453,6 +459,7 @@ def owner_appointment_cancel(request, pk):
             "appointment": appointment,
             "cancellation_form": form,
             "show_cancel_form": True,
+            "is_late": is_within_24h(appointment, now),
         },
     )
 
@@ -470,6 +477,7 @@ def owner_appointment_reschedule(request, pk):
         return redirect("admin_dashboard")
 
     owner = request.owner
+    now = timezone.now()  # one read of the clock, for the late note
     appointment = get_object_or_404(Appointment, pk=pk, owner=owner)
 
     if appointment.status not in [Appointment.PENDING, Appointment.CONFIRMED]:
@@ -495,6 +503,7 @@ def owner_appointment_reschedule(request, pk):
             "reschedule_form": form,
             "show_reschedule_form": True,
             "clinic": get_clinic_settings(),
+            "is_late": is_within_24h(appointment, now),
         },
     )
 

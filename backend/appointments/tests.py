@@ -26,8 +26,10 @@ from appointments.utils import (
     get_available_slots,
     get_clinic_settings,
     is_slot_available,
+    is_within_24h,
     list_period,
     lock_schedule,
+    owner_booking_calendar,
     paging_links,
     reschedule_by_owner,
     resolve_period,
@@ -5332,3 +5334,313 @@ class DeclinedReasonInUseTests(_OwnerRequestBase):
                 )
                 self.assertNotContains(response, "Declined by the clinic")
                 self.assertContains(response, "Other")
+
+
+# ─── Slice 8a-2a: owner late note, booking calendar, pet picked ──────────────
+
+# 00:30 Manila on Mon, Nov 2, 2026: still Sun, Nov 1 in UTC
+JUST_AFTER_MIDNIGHT = _manila(0, 30)
+
+
+class JustAfterMidnightBase(FrozenNowTestBase):
+    NOW = JUST_AFTER_MIDNIGHT
+
+    def _owner_logs_in(self):
+        self.client.force_login(self.owner.user)
+
+
+class IsWithin24hTests(JustAfterMidnightBase):
+    """The one late rule: a start less than 24 hours after now (or already
+    passed) is within; exactly 24 hours away is not."""
+
+    def _visit(self, minutes_from_now):
+        start = JUST_AFTER_MIDNIGHT + datetime.timedelta(minutes=minutes_from_now)
+        return Appointment(
+            owner=self.owner, pet=self.pet, date=start.date(), time=start.time()
+        )
+
+    def test_the_edges(self):
+        cases = [
+            (24 * 60 - 1, True),  # 23:59 away
+            (24 * 60, False),  # 24:00 away
+            (24 * 60 + 1, False),  # 24:01 away
+            (0, True),  # starts right now
+            (-30, True),  # already started
+            (-3 * 24 * 60, True),  # days ago
+        ]
+        for minutes, expected in cases:
+            with self.subTest(minutes=minutes):
+                visit = self._visit(minutes)
+                self.assertIs(is_within_24h(visit, timezone.now()), expected)
+
+    def test_the_property_and_is_cancellable_freely_agree(self):
+        for minutes in (24 * 60 - 1, 24 * 60, 24 * 60 + 1, -30):
+            with self.subTest(minutes=minutes):
+                visit = self._visit(minutes)
+                expected = is_within_24h(visit, timezone.now())
+                self.assertIs(visit.is_within_24h, expected)
+                self.assertIs(visit.is_cancellable_freely, not expected)
+
+    def _is_late(self, url_name, appointment, **post):
+        self._owner_logs_in()
+        url = reverse(url_name, args=[appointment.pk])
+        if post:
+            return self.client.post(url, post["data"]).context["is_late"]
+        return self.client.get(url).context["is_late"]
+
+    def test_cancel_and_reschedule_pass_is_late_on_get(self):
+        soon = self._appointment(Appointment.CONFIRMED, days_from_today=0, hour=9)
+        far = self._appointment(Appointment.CONFIRMED, days_from_today=3, hour=9)
+        for name in ("owner_appointment_cancel", "owner_appointment_reschedule"):
+            with self.subTest(view=name):
+                self.assertIs(self._is_late(name, soon), True)
+                self.assertIs(self._is_late(name, far), False)
+
+    def test_cancel_and_reschedule_pass_is_late_on_a_failed_post(self):
+        soon = self._appointment(Appointment.CONFIRMED, days_from_today=0, hour=9)
+        far = self._appointment(Appointment.CONFIRMED, days_from_today=3, hour=9)
+        for name in ("owner_appointment_cancel", "owner_appointment_reschedule"):
+            with self.subTest(view=name):
+                self.assertIs(self._is_late(name, soon, data={}), True)
+                self.assertIs(self._is_late(name, far, data={}), False)
+
+
+class OwnerBookingCalendarTests(JustAfterMidnightBase):
+    """owner_booking_calendar on Mon, Nov 2, 2026 at 00:30 Manila. The clinic
+    is open every day 8:00-17:00 (hourly), cutoff 15:00, window 30 days."""
+
+    def _cal(self, month="2026-11", current=None):
+        return owner_booking_calendar(
+            month, timezone.localdate(), timezone.localtime(), current
+        )
+
+    def _cell(self, calendar, day):
+        return next(c for c in calendar["cells"] if c["date"] == day)
+
+    def _state(self, day, month="2026-11"):
+        return self._cell(self._cal(month), day)["state"]
+
+    def _fill(self, day, status=Appointment.CONFIRMED, hours=range(8, 17)):
+        for hour in hours:
+            Appointment.objects.create(
+                owner=self.owner,
+                pet=self.pet,
+                date=day,
+                time=datetime.time(hour, 0),
+                status=status,
+            )
+
+    def test_weeks_start_on_sunday(self):
+        for month in ("2026-11", "2026-12"):
+            with self.subTest(month=month):
+                cells = self._cal(month)["cells"]
+                self.assertEqual(cells[0]["date"].weekday(), 6)
+                self.assertEqual(len(cells) % 7, 0)
+        # Nov 1, 2026 is a Sunday: the grid opens on the 1st
+        self.assertEqual(self._cal()["cells"][0]["date"], datetime.date(2026, 11, 1))
+        # Dec 1 is a Tuesday: the grid opens on Sun, Nov 29, out of the month
+        first = self._cal("2026-12")["cells"][0]
+        self.assertEqual(first["date"], datetime.date(2026, 11, 29))
+        self.assertFalse(first["in_month"])
+
+    def test_35_or_42_cells(self):
+        ClinicSettings.objects.update(booking_limit_days=365)
+        sizes = {
+            month: len(self._cal(month)["cells"])
+            for month in ("2026-11", "2026-12", "2027-01", "2027-02")
+        }
+        # Jan 2027 starts on a Friday and has 31 days: six weeks
+        self.assertEqual(
+            sizes, {"2026-11": 35, "2026-12": 35, "2027-01": 42, "2027-02": 35}
+        )
+
+    def test_cell_keys_and_month_label(self):
+        calendar = self._cal()
+        self.assertEqual(calendar["month_label"], "November 2026")
+        self.assertEqual(calendar["month_value"], "2026-11")
+        cell = self._cell(calendar, datetime.date(2026, 11, 4))
+        self.assertEqual(
+            set(cell),
+            {
+                "date",
+                "day",
+                "in_month",
+                "state",
+                "is_today",
+                "is_current",
+                "aria_label",
+            },
+        )
+        self.assertTrue(cell["in_month"])
+
+    def test_past_days_and_days_after_the_window(self):
+        self.assertEqual(self._state(datetime.date(2026, 11, 1)), "past")
+        self.assertEqual(self._state(datetime.date(2026, 12, 2), "2026-12"), "open")
+        self.assertEqual(self._state(datetime.date(2026, 12, 3), "2026-12"), "past")
+
+    def test_closed_for_a_day_off_and_a_blocked_date(self):
+        ClinicSettings.objects.update(working_days=[0, 1, 2, 3, 4, 5])  # no Sunday
+        BlockedDate.objects.create(date=datetime.date(2026, 11, 10))
+        self.assertEqual(self._state(datetime.date(2026, 11, 8)), "closed")
+        self.assertEqual(self._state(datetime.date(2026, 11, 10)), "closed")
+        self.assertEqual(self._state(datetime.date(2026, 11, 9)), "open")
+
+    def test_full_when_every_slot_is_held(self):
+        day = datetime.date(2026, 11, 12)
+        self._fill(day, Appointment.PENDING, hours=range(8, 16))
+        self.assertEqual(self._state(day), "open")  # the 16:00 slot is free
+        self._fill(day, Appointment.PENDING, hours=[16])
+        self.assertEqual(self._state(day), "full")
+
+    def test_a_cancelled_visit_frees_its_slot(self):
+        day = datetime.date(2026, 11, 12)
+        self._fill(day)
+        Appointment.objects.filter(date=day, time=datetime.time(10, 0)).update(
+            status=Appointment.CANCELLED
+        )
+        self.assertEqual(self._state(day), "open")
+
+    def test_today_follows_the_same_day_cutoff(self):
+        today = datetime.date(2026, 11, 2)
+        self.assertEqual(self._state(today), "open")
+        self.freeze(_manila(14, 30))  # slots at 15:00 and 16:00 still start later
+        self.assertEqual(self._state(today), "open")
+        self.freeze(_manila(15, 0))  # the cutoff
+        self.assertEqual(self._state(today), "full")
+
+    def test_today_is_full_when_every_slot_has_started(self):
+        ClinicSettings.objects.update(same_day_cutoff_time=datetime.time(17, 0))
+        self.freeze(_manila(16, 30))
+        self.assertEqual(self._state(datetime.date(2026, 11, 2)), "full")
+
+    def test_aria_labels(self):
+        ClinicSettings.objects.update(working_days=[0, 1, 2, 3, 4, 5])
+        self._fill(datetime.date(2026, 11, 12))
+        calendar = self._cal()
+        expected = {
+            datetime.date(2026, 11, 12): "Thursday, November 12: full",
+            datetime.date(2026, 11, 8): "Sunday, November 8: clinic closed",
+            datetime.date(2026, 11, 4): "Wednesday, November 4: open",
+        }
+        for day, label in expected.items():
+            with self.subTest(day=day):
+                self.assertEqual(self._cell(calendar, day)["aria_label"], label)
+
+    def test_is_today_and_is_current(self):
+        calendar = self._cal(current=datetime.date(2026, 11, 12))
+        self.assertEqual(
+            [c["date"] for c in calendar["cells"] if c["is_current"]],
+            [datetime.date(2026, 11, 12)],
+        )
+        self.assertEqual(
+            [c["date"] for c in calendar["cells"] if c["is_today"]],
+            [datetime.date(2026, 11, 2)],
+        )
+        self.assertFalse(any(c["is_current"] for c in self._cal()["cells"]))
+
+    def test_the_month_is_clamped_and_bad_values_open_today_s_month(self):
+        cases = {
+            "2026-11": "2026-11",
+            "2026-12": "2026-12",
+            "2026-01": "2026-11",  # before today's month
+            "2030-05": "2026-12",  # after the last bookable month
+            "2026-13": "2026-11",
+            "2026-00": "2026-11",
+            "0000-01": "2026-11",
+            "2026-1": "2026-11",
+            " 2026-12": "2026-11",
+            "garbage": "2026-11",
+            "": "2026-11",
+            None: "2026-11",
+        }
+        for value, expected in cases.items():
+            with self.subTest(value=value):
+                self.assertEqual(self._cal(value)["month_value"], expected)
+
+    def test_prev_and_next_are_none_at_the_ends(self):
+        first, last = self._cal("2026-11"), self._cal("2026-12")
+        self.assertIsNone(first["prev_month"])
+        self.assertEqual(first["next_month"], "2026-12")
+        self.assertEqual(last["prev_month"], "2026-11")
+        self.assertIsNone(last["next_month"])
+        ClinicSettings.objects.update(booking_limit_days=120)
+        middle = self._cal("2026-12")
+        self.assertEqual(
+            (middle["prev_month"], middle["next_month"]), ("2026-11", "2027-01")
+        )
+
+    def test_every_day_agrees_with_get_available_slots(self):
+        ClinicSettings.objects.update(working_days=[0, 1, 2, 3, 4, 5])
+        BlockedDate.objects.create(date=datetime.date(2026, 11, 10))
+        self._fill(datetime.date(2026, 11, 12))
+        self._fill(datetime.date(2026, 11, 13), Appointment.CANCELLED)
+        self._fill(datetime.date(2026, 11, 14), Appointment.PENDING, hours=range(8, 16))
+        self._fill(datetime.date(2026, 11, 2), hours=range(10, 17))
+        for now in (_manila(0, 30), _manila(9, 30), _manila(14, 59), _manila(15, 30)):
+            self.freeze(now)
+            for month in ("2026-11", "2026-12"):
+                for cell in self._cal(month)["cells"]:
+                    with self.subTest(now=now.time(), day=cell["date"]):
+                        has_slots = bool(get_available_slots(cell["date"]))
+                        self.assertEqual(cell["state"] == "open", has_slots)
+
+    def test_the_query_count_is_flat(self):
+        def queries():
+            with CaptureQueriesContext(connection) as captured:
+                self._cal()
+            return len(captured)
+
+        empty = queries()
+        for day in range(2, 28):
+            self._fill(datetime.date(2026, 11, day))
+        BlockedDate.objects.create(date=datetime.date(2026, 11, 30))
+        self.assertEqual(queries(), empty)
+        self.assertEqual(empty, 3)  # settings, blocked dates, held slots
+
+
+class BookWithPetParamTests(JustAfterMidnightBase):
+    """owner_book_appointment starts the form with ?pet= when it is one of
+    the owner's non-archived pets; anything else is ignored."""
+
+    def setUp(self):
+        super().setUp()
+        self.second = Pet.objects.create(
+            owner=self.owner, name="Mingming", species="Cat"
+        )
+        self._owner_logs_in()
+
+    def _picked(self, value):
+        response = self.client.get(reverse("owner_book_appointment"), {"pet": value})
+        self.assertEqual(response.status_code, 200)
+        return response.context["form"]["pet"].value()
+
+    def test_own_pet_is_picked(self):
+        self.assertEqual(self._picked(self.second.pk), self.second.pk)
+
+    def test_without_the_parameter_no_pet_is_picked(self):
+        response = self.client.get(reverse("owner_book_appointment"))
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context["form"]["pet"].value())
+
+    def test_another_owners_pet_is_ignored(self):
+        other_user = User.objects.create_user(
+            username="other",
+            email="other@example.com",
+            password="unused-pass-123",
+            role=User.PET_OWNER,
+            is_onboarded=True,
+        )
+        other = PetOwner.objects.create(
+            user=other_user, first_name="Ben", last_name="Reyes"
+        )
+        theirs = Pet.objects.create(owner=other, name="Rex", species="Dog")
+        self.assertIsNone(self._picked(theirs.pk))
+
+    def test_an_archived_pet_is_ignored(self):
+        Pet.objects.filter(pk=self.second.pk).update(is_archived=True)
+        self.assertIsNone(self._picked(self.second.pk))
+
+    def test_junk_is_ignored(self):
+        for value in ("abc", "", "-1", "0", "1.5", "99999999999999999999", "999999"):
+            with self.subTest(value=value):
+                self.assertIsNone(self._picked(value))

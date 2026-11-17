@@ -32,6 +32,7 @@ from .forms import (
 from .models import MedicalRecord, PrescriptionItem, TestResultFile, Vaccination
 from .utils import (
     can_remove_medicines,
+    follow_up_visit,
     followups_due,
     is_superseded,
     last_reminder,
@@ -6603,3 +6604,84 @@ class PetVaccinationsPageTests(PetHealthPageChecks, FrozenMedicalTestBase):
         # (later dose annotated, record selected), the last reminder,
         # 3 sidebar counts, clinic settings
         self.assertEqual(many, 10)
+
+
+class FollowUpVisitTests(FrozenMedicalTestBase):
+    """Slice 8a-2a: follow_up_visit(record) is the earliest Pending,
+    Confirmed or Completed visit for the pet on or after the follow-up date."""
+
+    FOLLOW_UP = datetime.date(2026, 11, 10)
+
+    def _follow_up_record(self, **fields):
+        fields.setdefault("follow_up_required", True)
+        fields.setdefault("follow_up_date", self.FOLLOW_UP)
+        return self._record(**fields)
+
+    def _visit(self, day, hour=9, status=Appointment.CONFIRMED, pet=None):
+        return Appointment.objects.create(
+            owner=self.owner,
+            pet=pet or self.pet,
+            date=day,
+            time=datetime.time(hour, 0),
+            status=status,
+        )
+
+    def test_none_when_no_follow_up_is_required(self):
+        self._visit(self.FOLLOW_UP)
+        record = self._follow_up_record(follow_up_required=False)
+        self.assertIsNone(follow_up_visit(record))
+
+    def test_none_when_there_is_no_date(self):
+        self._visit(self.FOLLOW_UP)
+        record = self._follow_up_record(follow_up_date=None)
+        self.assertIsNone(follow_up_visit(record))
+
+    def test_none_when_no_visit_is_booked(self):
+        self.assertIsNone(follow_up_visit(self._follow_up_record()))
+
+    def test_the_earliest_on_or_after_the_date(self):
+        later = self._visit(self.FOLLOW_UP + datetime.timedelta(days=5))
+        on_the_day_late = self._visit(self.FOLLOW_UP, hour=14)
+        on_the_day = self._visit(self.FOLLOW_UP, hour=9)
+        record = self._follow_up_record()
+        self.assertEqual(follow_up_visit(record), on_the_day)
+        on_the_day.delete()
+        self.assertEqual(follow_up_visit(record), on_the_day_late)
+        on_the_day_late.delete()
+        self.assertEqual(follow_up_visit(record), later)
+
+    def test_pending_confirmed_and_completed_count(self):
+        record = self._follow_up_record()
+        for status in (
+            Appointment.PENDING,
+            Appointment.CONFIRMED,
+            Appointment.COMPLETED,
+        ):
+            with self.subTest(status=status):
+                Appointment.objects.all().delete()
+                visit = self._visit(self.FOLLOW_UP, status=status)
+                self.assertEqual(follow_up_visit(record), visit)
+
+    def test_a_visit_before_the_date_does_not_count(self):
+        self._visit(self.FOLLOW_UP - datetime.timedelta(days=1))
+        self.assertIsNone(follow_up_visit(self._follow_up_record()))
+
+    def test_cancelled_and_no_show_do_not_count(self):
+        record = self._follow_up_record()
+        self._visit(self.FOLLOW_UP, hour=9, status=Appointment.CANCELLED)
+        self._visit(self.FOLLOW_UP, hour=10, status=Appointment.NO_SHOW)
+        self.assertIsNone(follow_up_visit(record))
+        counted = self._visit(self.FOLLOW_UP, hour=11, status=Appointment.PENDING)
+        self.assertEqual(follow_up_visit(record), counted)
+
+    def test_another_pets_visit_does_not_count(self):
+        muning = Pet.objects.create(owner=self.owner, name="Muning", species="Cat")
+        self._visit(self.FOLLOW_UP, pet=muning)
+        self.assertIsNone(follow_up_visit(self._follow_up_record()))
+
+    def test_one_query(self):
+        self._visit(self.FOLLOW_UP)
+        record = self._follow_up_record()
+        with CaptureQueriesContext(connection) as queries:
+            follow_up_visit(record)
+        self.assertEqual(len(queries), 1)

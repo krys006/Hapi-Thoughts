@@ -1,5 +1,7 @@
 """Shared billing logic for the receipt views (Slice 6)."""
 
+import calendar
+import datetime
 from decimal import Decimal
 from urllib.parse import urlencode
 
@@ -7,7 +9,7 @@ from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
-from django.db.models.functions import Lower
+from django.db.models.functions import Coalesce, Lower
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
@@ -157,6 +159,111 @@ def owner_receipts(owner):
     return BillingReceipt.objects.filter(
         owner=owner, payment_status__in=OWNER_RECEIPT_STATUSES
     )
+
+
+# ── Owner bills page (Slice 8a-2a) ───────────────────────────────────────────
+
+OWNER_BILLS_PAGE_SIZE = 25
+
+
+def owner_period_options(today):
+    """The History "Show" options as (value, label), All time first."""
+    return [
+        ("all", "All time"),
+        ("month", "This month"),
+        ("3m", "Last 3 months"),
+        ("year", f"This year ({today.year})"),
+        ("last_year", f"Last year ({today.year - 1})"),
+    ]
+
+
+def _months_ago(day, months):
+    """The date `months` calendar months before day (the day number is cut to
+    the month's length: May 31 minus 3 months is Feb 28)."""
+    year, month_index = divmod(day.year * 12 + day.month - 1 - months, 12)
+    last = calendar.monthrange(year, month_index + 1)[1]
+    return datetime.date(year, month_index + 1, min(day.day, last))
+
+
+def _paid_period_filter(period, today):
+    """A Q on paid_on for one period value ("all" keeps everything)."""
+    if period == "month":
+        first = today.replace(day=1)
+        last = first.replace(day=calendar.monthrange(first.year, first.month)[1])
+        return Q(paid_on__range=(first, last))
+    if period == "3m":
+        return Q(paid_on__gt=_months_ago(today, 3))
+    if period in ("year", "last_year"):
+        year = today.year - (period == "last_year")
+        first, last = datetime.date(year, 1, 1), datetime.date(year, 12, 31)
+        return Q(paid_on__range=(first, last))
+    return Q()
+
+
+def _bills_history(owner, q, period, today):
+    """Paid receipts, newest paid first, narrowed by search and period.
+    Every word in q must match the receipt number, the pet's name or one of
+    the items' descriptions (case-insensitive)."""
+    rows = (
+        owner_receipts(owner)
+        .filter(payment_status=BillingReceipt.PAID)
+        .select_related("pet")
+        # Paid date; the billing date for a receipt with no payment date
+        .annotate(paid_on=Coalesce("payment_date", "billing_date"))
+        .filter(_paid_period_filter(period, today))
+    )
+    for word in q.split():
+        # A subquery (not a join on items) keeps one row per receipt
+        with_item = BillingItem.objects.filter(description__icontains=word)
+        rows = rows.filter(
+            Q(receipt_number__icontains=word)
+            | Q(pet__name__icontains=word)
+            | Q(pk__in=with_item.values("receipt_id"))
+        )
+    return rows.order_by("-paid_on", "-pk")
+
+
+def owner_bills_context(owner, params, today):
+    """
+    Context for the owner's Bills page. to_pay is every unpaid receipt, oldest
+    first, never filtered (with to_pay_count and to_pay_total). history is the
+    page of paid receipts, newest paid first, narrowed by ?q= and ?period=
+    (unknown period → all), 25 a page. receipts (every visible receipt, as
+    the old page reads it) stays. Cancelled receipts appear nowhere. Three
+    queries however many receipts: unpaid, history count, history page.
+    """
+    q = params.get("q", "").strip()
+    period = params.get("period")
+    if period not in {value for value, _ in owner_period_options(today)}:
+        period = "all"
+
+    to_pay = list(
+        owner_receipts(owner)
+        .filter(payment_status=BillingReceipt.PENDING)
+        .select_related("pet")
+        .order_by("billing_date", "created_at", "pk")
+    )
+    page_obj = Paginator(
+        _bills_history(owner, q, period, today), OWNER_BILLS_PAGE_SIZE
+    ).get_page(params.get("page"))
+    kept = {"q": q, "period": "" if period == "all" else period}
+    page_query = urlencode({name: v for name, v in kept.items() if v})
+    return {
+        "receipts": owner_receipts(owner)
+        .select_related("pet")
+        .order_by("-billing_date", "-created_at"),
+        "to_pay": to_pay,
+        "to_pay_count": len(to_pay),
+        "to_pay_total": sum((r.total_amount for r in to_pay), Decimal("0")),
+        "history": list(page_obj),
+        "page_obj": page_obj,
+        "q": q,
+        "period": period,
+        "period_options": owner_period_options(today),
+        "is_filtering": bool(q) or period != "all",
+        "today": today,
+        **paging_links(page_obj, page_query),
+    }
 
 
 def _save_with_new_number(receipt):

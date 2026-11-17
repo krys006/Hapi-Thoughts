@@ -221,6 +221,8 @@
 
   <form method="post" enctype="multipart/form-data" class="pet-form">
     {% csrf_token %}
+    {# Coming from the booking page: keep next=book if the save fails #}
+    {% if next_value %}<input type="hidden" name="next" value="{{ next_value }}">{% endif %}
 
     <!-- Pet photo -->
     <div class="form-section">
