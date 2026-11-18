@@ -2,8 +2,12 @@
   Month calendar for picking a day, without JavaScript: the month arrows and
   the open days are one-line links (?month=, ?date=). Needs calendar (from
   booking_calendar: month_label, prev_month, next_month, cells) and
-  date_error. Reusable by the change-time page (8b-7): set date_url to the
-  page's own URL (default: the booking step 2).
+  date_error. Reusable by the change-time page (8b-7b): set date_url to the
+  page's own URL (default: the booking step 2). With current_day=True (that
+  page; needs picked_date too) the visit's own day (is_current) gets a dashed
+  gray outline, "your current day", and is a link when open; the picked day is
+  the violet one; day links keep ?month= and month links keep ?date=; the
+  legend adds "Your current day". Without it nothing changes.
   Cell states: open = link (white, ring); selected = violet; full = gray with
   a line through it; closed / past = plain gray number; today with no bookings
   left = ring. Every cell has an aria-label from the helper.
@@ -11,9 +15,9 @@
 {% url 'owner_book_time' as default_url %}
 <section class="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm" aria-labelledby="calendar-month">
   <div class="mb-3 flex items-center justify-between">
-    {% if calendar.prev_month %}<a href="{{ date_url|default:default_url }}?month={{ calendar.prev_month }}" aria-label="Previous month" class="grid size-11 place-content-center rounded-full text-gray-800 hover:bg-gray-100">{% include "components/icon.html" with name="chevron-left" class="size-6 shrink-0" %}</a>{% else %}<span aria-disabled="true" aria-label="Previous month, not available" class="grid size-11 place-content-center rounded-full text-gray-300">{% include "components/icon.html" with name="chevron-left" class="size-6 shrink-0" %}</span>{% endif %}
+    {% if calendar.prev_month %}<a href="{{ date_url|default:default_url }}?month={{ calendar.prev_month }}{% if current_day and picked_date %}&amp;date={{ picked_date.isoformat }}{% endif %}" aria-label="Previous month" class="grid size-11 place-content-center rounded-full text-gray-800 hover:bg-gray-100">{% include "components/icon.html" with name="chevron-left" class="size-6 shrink-0" %}</a>{% else %}<span aria-disabled="true" aria-label="Previous month, not available" class="grid size-11 place-content-center rounded-full text-gray-300">{% include "components/icon.html" with name="chevron-left" class="size-6 shrink-0" %}</span>{% endif %}
     <p id="calendar-month" class="text-lg font-bold text-gray-900">{{ calendar.month_label }}</p>
-    {% if calendar.next_month %}<a href="{{ date_url|default:default_url }}?month={{ calendar.next_month }}" aria-label="Next month" class="grid size-11 place-content-center rounded-full text-gray-800 hover:bg-gray-100">{% include "components/icon.html" with name="chevron-right" class="size-6 shrink-0" %}</a>{% else %}<span aria-disabled="true" aria-label="Next month, not available" class="grid size-11 place-content-center rounded-full text-gray-300">{% include "components/icon.html" with name="chevron-right" class="size-6 shrink-0" %}</span>{% endif %}
+    {% if calendar.next_month %}<a href="{{ date_url|default:default_url }}?month={{ calendar.next_month }}{% if current_day and picked_date %}&amp;date={{ picked_date.isoformat }}{% endif %}" aria-label="Next month" class="grid size-11 place-content-center rounded-full text-gray-800 hover:bg-gray-100">{% include "components/icon.html" with name="chevron-right" class="size-6 shrink-0" %}</a>{% else %}<span aria-disabled="true" aria-label="Next month, not available" class="grid size-11 place-content-center rounded-full text-gray-300">{% include "components/icon.html" with name="chevron-right" class="size-6 shrink-0" %}</span>{% endif %}
   </div>
 
   <div class="grid grid-cols-7 gap-1 text-center text-sm font-semibold text-gray-600" aria-hidden="true">
@@ -25,10 +29,16 @@
     {% for cell in calendar.cells %}
       {% if not cell.in_month %}
         <span class="h-12" aria-hidden="true"></span>
-      {% elif cell.is_current %}
+      {% elif current_day and cell.date == picked_date %}
+        <span aria-label="{{ cell.aria_label }}, picked" aria-current="date" class="grid h-12 place-content-center rounded-xl bg-violet-600 text-lg font-semibold text-white">{{ cell.day }}</span>
+      {% elif current_day and cell.is_current and cell.state == "open" %}
+        <a href="{{ date_url|default:default_url }}?date={{ cell.date.isoformat }}&amp;month={{ calendar.month_value }}" aria-label="{{ cell.date|date:'M j' }}, your current day" class="grid h-12 place-content-center rounded-xl bg-white text-lg font-semibold text-gray-500 outline-2 outline-dashed outline-gray-400 -outline-offset-2">{{ cell.day }}</a>
+      {% elif current_day and cell.is_current %}
+        <span aria-label="{{ cell.date|date:'M j' }}, your current day" class="grid h-12 place-content-center rounded-xl text-lg font-semibold text-gray-500 outline-2 outline-dashed outline-gray-400 -outline-offset-2">{{ cell.day }}</span>
+      {% elif cell.is_current and not current_day %}
         <span aria-label="{{ cell.aria_label }}, picked" aria-current="date" class="grid h-12 place-content-center rounded-xl bg-violet-600 text-lg font-semibold text-white">{{ cell.day }}</span>
       {% elif cell.state == "open" %}
-        <a href="{{ date_url|default:default_url }}?date={{ cell.date.isoformat }}" aria-label="{{ cell.aria_label }}" class="grid h-12 place-content-center rounded-xl bg-white text-lg font-semibold text-gray-900 ring-1 ring-gray-200 hover:ring-violet-400">{{ cell.day }}</a>
+        <a href="{{ date_url|default:default_url }}?date={{ cell.date.isoformat }}{% if current_day %}&amp;month={{ calendar.month_value }}{% endif %}" aria-label="{{ cell.aria_label }}" class="grid h-12 place-content-center rounded-xl bg-white text-lg font-semibold text-gray-900 ring-1 ring-gray-200 hover:ring-violet-400">{{ cell.day }}</a>
       {% elif cell.state == "full" and not cell.past_cutoff %}
         <span aria-label="{{ cell.aria_label }}" class="grid h-12 place-content-center rounded-xl bg-gray-100 text-lg text-gray-500 line-through">{{ cell.day }}</span>
       {% elif cell.is_today %}
@@ -43,6 +53,7 @@
     <span class="inline-flex items-center gap-2"><span class="size-4 rounded bg-white ring-1 ring-gray-300"></span>Open</span>
     <span class="inline-flex items-center gap-2"><span class="size-4 rounded bg-gray-100"></span><span class="line-through">Full</span></span>
     <span class="inline-flex items-center gap-2"><span class="text-gray-400">00</span>Closed</span>
+    {% if current_day %}<span class="inline-flex items-center gap-2"><span class="size-4 rounded outline-2 outline-dashed outline-gray-400 -outline-offset-2"></span>Your current day</span>{% endif %}
   </div>
 </section>
 {% if date_error %}{% include "owner/booking_parts/field_error.html" with message=date_error %}{% endif %}

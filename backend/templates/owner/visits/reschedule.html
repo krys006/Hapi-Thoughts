@@ -1,0 +1,74 @@
+{% extends "layouts/owner.html" %}
+
+{% block title %}Change day or time — Hapi Vet{% endblock %}
+
+{# Flow frame: Back to the visit on top, Keep old time / Send new time at the bottom, no tabs #}
+{% block top_bar %}{% url 'owner_appointment_detail' appointment.pk as visit_url %}{% include "layouts/owner_parts/back_bar.html" with url=visit_url label="Visit" %}{% endblock %}
+
+{# One page: pick the day (links, no JavaScript), then the times, the reason and Send are one POST form #}
+{% block content %}
+{% url 'owner_appointment_reschedule' appointment.pk as reschedule_url %}
+<div class="space-y-5">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">Change day or time</h1>
+    <p class="mt-1 text-base text-gray-700">{{ pet.name }} · {{ service_words }}</p>
+  </div>
+
+  {% if taken_time %}{% include "owner/booking_parts/taken_box.html" with note_kept=True %}{% endif %}
+
+  {% if is_late %}
+  <div class="flex items-start gap-3 rounded-xl border border-orange-300 bg-orange-50 px-4 py-3 text-orange-900">
+    {% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0" %}
+    <p class="text-base">Your visit is less than 24 hours away, so the clinic will see this as a late change.{% if phone %} If you can, <strong class="font-semibold">call them instead</strong>: <a href="tel:{{ phone|cut:' ' }}" class="font-semibold underline underline-offset-2">{{ phone }}</a>.{% endif %}</p>
+  </div>
+  {% endif %}
+
+  <div class="grid grid-cols-2 gap-3">
+    <div class="rounded-2xl border border-gray-200 bg-white p-3">
+      <p class="text-base text-gray-600">Now</p>
+      <p class="text-base font-semibold text-gray-500 line-through">{{ now_line }}</p>
+    </div>
+    <div class="rounded-2xl border-2 border-violet-500 bg-violet-50 p-3">
+      <p class="text-base text-violet-800">New</p>
+      {% if new_line %}
+      <p class="text-base font-bold text-gray-900">{{ new_line }}<br>{% if new_time %}{{ new_time }}{% else %}<span class="font-normal text-gray-700">Pick a time below</span>{% endif %}</p>
+      {% else %}
+      <p class="text-base font-bold text-gray-900">Pick a day</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <h2 class="text-xl font-bold text-gray-900">Pick a new day</h2>
+  {% include "owner/booking_parts/calendar.html" with date_url=reschedule_url current_day=True %}
+
+  {# Picking another day is a GET (the links above), so the reason comes after the times #}
+  <form id="reschedule-form" method="post" action="{{ reschedule_url }}" class="space-y-5" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="date" value="{% if picked_date %}{{ picked_date.isoformat }}{% endif %}">
+    {% include "owner/booking_parts/times.html" %}
+
+    <div>
+      <label for="reschedule-reason" class="block text-lg font-bold text-gray-900">Why the change?</label>
+      <p id="reschedule-reason-help" class="text-base text-gray-600">Needed. A few words are fine. The clinic reads it.</p>
+      <textarea id="reschedule-reason" name="reschedule_reason" rows="3" aria-describedby="reschedule-reason-help" placeholder="e.g. I have work on that day" class="mt-1.5 block w-full rounded-xl border border-gray-300 bg-white p-4 text-base text-gray-900 placeholder:text-gray-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200">{{ reason_text }}</textarea>
+      {% if reason_error %}<div class="mt-2">{% include "owner/booking_parts/field_error.html" with message=reason_error %}</div>{% endif %}
+    </div>
+  </form>
+
+  <div class="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-blue-900">
+    {% include "components/icon.html" with name="info" class="mt-0.5 size-5 shrink-0" %}
+    <p class="text-base">Your {{ now_line }} time is given up. The new time waits for the clinic to confirm.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block bottom_bar %}
+<div class="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white pb-[env(safe-area-inset-bottom)]" data-bar="one">
+  <div class="mx-auto max-w-3xl px-4 pb-5 pt-3">
+    <div class="flex gap-3">
+      <a href="{% url 'owner_appointment_detail' appointment.pk %}" class="inline-flex min-h-14 items-center justify-center rounded-2xl border border-gray-300 bg-white px-5 text-lg font-medium text-gray-800 hover:bg-gray-50">Keep old time</a>
+      <button type="submit" form="reschedule-form" class="flex min-h-14 flex-1 cursor-pointer items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700">{% include "components/icon.html" with name="check" class="size-5 shrink-0" %}Send new time</button>
+    </div>
+  </div>
+</div>
+{% endblock %}

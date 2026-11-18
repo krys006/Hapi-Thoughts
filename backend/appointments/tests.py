@@ -13,6 +13,7 @@ from django.contrib.messages import get_messages
 from django.core import mail
 from django.db import DatabaseError, connection, transaction
 from django.core.paginator import Paginator
+from django.http import Http404
 from django.templatetags.static import static
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -23,14 +24,20 @@ from django.utils.dateformat import format as date_format
 
 from appointments.models import Appointment, BlockedDate, ClinicSettings
 from appointments.utils import (
+    CANNOT_CHANGE_MESSAGE,
     CLINIC_SETTINGS_DEFAULTS,
     DAY_FULL_MESSAGE,
     DAY_GONE_MESSAGE,
+    DAY_NOT_OPEN_MESSAGE,
     PET_GONE_MESSAGE,
     PICK_AGAIN_MESSAGE,
+    PICK_DAY_FIRST_MESSAGE,
+    PICK_NEW_TIME_MESSAGE,
+    RESCHEDULE_SENT_MESSAGE,
     SERVICE_GONE_MESSAGE,
     SERVICE_MISSING_MESSAGE,
     START_MESSAGE,
+    WHY_MISSING_MESSAGE,
     clinic_hours_line,
     get_available_slots,
     get_clinic_settings,
@@ -39,12 +46,15 @@ from appointments.utils import (
     list_period,
     lock_schedule,
     owner_booking_calendar,
+    owner_can_change,
+    owner_reschedule_context,
     owner_visit_note,
     owner_visits_context,
     paging_links,
     reschedule_by_owner,
     resolve_period,
     slot_in_progress,
+    time_groups,
 )
 from billing.models import BillingReceipt, Service
 from dashboard.templatetags.friendly_dates import friendly_date, long_date
@@ -5189,12 +5199,17 @@ class SlotTakenAtSaveTests(_OwnerRequestBase):
         original = self._appointment(Appointment.CONFIRMED)
         with self._taken():
             response = self._owner_reschedules(original)
+        # Slice 8b-7b: the page has no Django form any more. Was: the form's
+        # time error was the long MESSAGE and its data held the day, the text
+        # and an empty time. Now: the red "was just taken" box, the day kept,
+        # the note kept and no time picked. Same behaviour.
         self.assertEqual(response.status_code, 200)
-        form = response.context["reschedule_form"]
-        self.assertEqual(form.errors["time"], [self.MESSAGE])
-        self.assertEqual(form.data["date"], self.day.isoformat())
-        self.assertEqual(form.data["reschedule_reason"], "Need to move it")
-        self.assertEqual(form.data["time"], "")
+        self.assertEqual(response.context["taken_time"], "10:00 AM")
+        self.assertContains(response, "10:00 AM was just taken")
+        self.assertContains(response, "Your note is kept.")
+        self.assertEqual(response.context["picked_date"], self.day)
+        self.assertEqual(response.context["reason_text"], "Need to move it")
+        self.assertEqual(response.context["new_time"], "")
         # The original is untouched, and nothing new exists
         self._assert_status(original, Appointment.CONFIRMED)
         self.assertEqual(original.cancellation_reason, "")
@@ -5256,10 +5271,9 @@ class OwnerRescheduleAtomicTests(_OwnerRequestBase):
         self.assertEqual(new.rescheduled_from, original)
         self.assertEqual(
             self._messages(response),
-            [
-                "Reschedule request submitted. "
-                "You will be notified once it is confirmed."
-            ],
+            # Slice 8b-7b: was "Reschedule request submitted. You will be
+            # notified once it is confirmed."
+            ["New time sent. The clinic will confirm it soon."],
         )
         self.assertTrue(
             Notification.objects.filter(
@@ -7927,3 +7941,583 @@ class OwnerCancelSheetPostTests(_OwnerVisitsBase):
             response, reverse("admin_dashboard"), fetch_redirect_response=False
         )
         self._assert_untouched(visit, Appointment.CONFIRMED)
+
+
+# ─── Slice 8b-7b: owner Change day or time ───────────────────────────────────
+
+# Thu, Nov 12, 2026: ten days after the frozen "today" (Mon, Nov 2)
+CHANGE_DAY = datetime.date(2026, 11, 12)
+
+
+class _OwnerRescheduleBase(_OwnerVisitsBase):
+    """Mon, Nov 2, 2026 at 9:30 Manila. The owner's Confirmed visit is Tue,
+    Nov 10 at 12:00 PM (self.visit); the day the tests move it to is Thu,
+    Nov 12. The clinic is open every day 8:00-17:00, hourly."""
+
+    def setUp(self):
+        super().setUp()
+        self.visit = self._visit(days=8, hour=12)
+        self.url = reverse("owner_appointment_reschedule", args=[self.visit.pk])
+        self.detail = reverse("owner_appointment_detail", args=[self.visit.pk])
+
+    def _loaded(self, visit):
+        return Appointment.objects.select_related("pet", "service").get(pk=visit.pk)
+
+    def _hold(self, day, hours):
+        """Visits (the owner's pet) holding the slots of day at hours."""
+        for hour in hours:
+            self._visit(days=(day - self.today).days, hour=hour)
+
+    def _rows(self, context):
+        return [row for group in context["time_groups"] for row in group["times"]]
+
+
+class OwnerRescheduleContextTests(_OwnerRescheduleBase):
+    """owner_reschedule_context: the calendar, the picked day, its times."""
+
+    def _context(self, visit=None, **params):
+        visit = self._loaded(visit or self.visit)
+        return owner_reschedule_context(
+            self.owner, visit, params, self.today, timezone.now()
+        )
+
+    def test_the_calendar_marks_the_visits_own_day(self):
+        cells = self._context()["calendar"]["cells"]
+        self.assertEqual([c["date"] for c in cells if c["is_current"]], [BOOK_DAY])
+
+    def test_the_month_follows_month_then_date_then_the_visit(self):
+        self.assertEqual(self._context()["calendar"]["month_value"], "2026-11")
+        context = self._context(month="2026-12")
+        self.assertEqual(context["calendar"]["month_value"], "2026-12")
+        context = self._context(date="2026-12-01")
+        self.assertEqual(context["calendar"]["month_value"], "2026-12")
+        self.assertEqual(context["picked_date"], datetime.date(2026, 12, 1))
+
+    def test_an_open_day_is_picked_with_its_times(self):
+        context = self._context(date=CHANGE_DAY.isoformat())
+        self.assertEqual(context["picked_date"], CHANGE_DAY)
+        self.assertEqual(context["date_error"], "")
+        self.assertEqual(context["new_line"], "Thu, Nov 12")
+        names = [group["name"] for group in context["time_groups"]]
+        self.assertEqual(names, ["Morning", "Afternoon"])
+        self.assertEqual(len(self._rows(context)), 9)
+
+    def test_no_day_asked_for_is_no_error(self):
+        context = self._context()
+        self.assertIsNone(context["picked_date"])
+        self.assertIsNone(context["new_line"])
+        self.assertEqual(context["time_groups"], [])
+        self.assertEqual(context["date_error"], "")
+
+    def test_a_day_that_is_not_open_is_none_with_an_error(self):
+        BlockedDate.objects.create(date=CHANGE_DAY, reason="Holiday")
+        full = CHANGE_DAY + datetime.timedelta(days=1)
+        self._hold(full, range(8, 17))
+        cases = {
+            "closed": CHANGE_DAY.isoformat(),
+            "full": full.isoformat(),
+            "past": "2026-11-01",
+            "beyond the limit": "2026-12-03",
+            "garbage": "nonsense",
+            "not a date": "2026-13-45",
+        }
+        for name, value in cases.items():
+            with self.subTest(case=name):
+                context = self._context(date=value)
+                self.assertIsNone(context["picked_date"])
+                self.assertIsNone(context["new_line"])
+                self.assertEqual(context["time_groups"], [])
+                self.assertEqual(context["date_error"], DAY_NOT_OPEN_MESSAGE)
+
+    def test_the_own_slot_is_is_own_on_its_own_day_only(self):
+        self._hold(BOOK_DAY, [10])  # someone else holds 10:00 that day
+        rows = self._rows(self._context(date=BOOK_DAY.isoformat()))
+        own = [row for row in rows if row.get("is_own")]
+        self.assertEqual([row["label"] for row in own], ["12:00 PM"])
+        self.assertFalse(own[0]["taken"])
+        ten = next(row for row in rows if row["label"] == "10:00 AM")
+        self.assertTrue(ten["taken"])
+        self.assertFalse(ten["is_own"])
+        other = self._rows(self._context(date=CHANGE_DAY.isoformat()))
+        self.assertFalse(any(row.get("is_own") for row in other))
+
+    def test_time_groups_only_add_is_own_when_asked(self):
+        times = [(datetime.time(9, 0), False), (datetime.time(12, 0), True)]
+        plain = time_groups(times, None)
+        self.assertTrue(all("is_own" not in r for g in plain for r in g["times"]))
+        marked = time_groups(times, None, own=datetime.time(12, 0))
+        rows = [row for group in marked for row in group["times"]]
+        self.assertEqual([r["is_own"] for r in rows], [False, True])
+        self.assertEqual([r["taken"] for r in rows], [False, False])
+
+    def test_is_late_inside_24_hours_and_not_beyond(self):
+        soon = self._visit(days=0, hour=15)  # five and a half hours away
+        far = self._visit(days=3, hour=9)
+        self.assertIs(self._context(soon)["is_late"], True)
+        self.assertIs(self._context(far)["is_late"], False)
+        self.assertIs(self._context()["is_late"], False)
+
+    def test_the_lines_and_the_phone(self):
+        context = self._context()
+        self.assertEqual(context["now_line"], "Tue, Nov 10 at 12:00 PM")
+        self.assertEqual(context["phone"], PHONE)
+        self.assertEqual(context["service_words"], "Consultation")
+
+    def test_a_posted_time_is_kept_unless_it_was_taken(self):
+        post = {"date": CHANGE_DAY.isoformat(), "time": "09:00:00"}
+        visit = self._loaded(self.visit)
+        now = timezone.now()
+        kept = owner_reschedule_context(self.owner, visit, post, self.today, now)
+        self.assertEqual(kept["new_time"], "9:00 AM")
+        taken = owner_reschedule_context(
+            self.owner, visit, post, self.today, now, {"taken": "9:00 AM"}
+        )
+        self.assertEqual(taken["new_time"], "")
+        self.assertEqual(taken["taken_time"], "9:00 AM")
+
+    def test_another_owners_visit_is_never_given(self):
+        other, theirs = self._other_owner()
+        visit = Appointment.objects.create(
+            owner=other,
+            pet=theirs,
+            date=BOOK_DAY,
+            time=datetime.time(9, 0),
+            status=Appointment.CONFIRMED,
+        )
+        with self.assertRaises(Http404):
+            owner_reschedule_context(
+                self.owner, self._loaded(visit), {}, self.today, timezone.now()
+            )
+
+    def test_who_can_change_a_visit(self):
+        now = timezone.now()
+        self.assertTrue(owner_can_change(self.visit, now))
+        pending = self._visit(days=8, status=Appointment.PENDING)
+        self.assertTrue(owner_can_change(pending, now))
+        started = self._visit(days=0, hour=9)  # 9:00 began at 9:00, it is 9:30
+        self.assertFalse(owner_can_change(started, now))
+        for status in (
+            Appointment.CANCELLED,
+            Appointment.COMPLETED,
+            Appointment.NO_SHOW,
+        ):
+            with self.subTest(status=status):
+                visit = self._visit(days=8, status=status)
+                self.assertFalse(owner_can_change(visit, now))
+
+    def test_queries_are_flat_for_3_and_30_visits(self):
+        def counts():
+            found = {}
+            visit = self._loaded(self.visit)
+            for name, params in (("no day", {}), ("a day", {"date": "2026-11-12"})):
+                with CaptureQueriesContext(connection) as queries:
+                    owner_reschedule_context(
+                        self.owner, visit, params, self.today, timezone.now()
+                    )
+                found[name] = len(queries)
+            return found
+
+        for i in range(2):
+            self._visit(days=12 + i, hour=10)
+        few = counts()
+        for i in range(27):
+            self._visit(days=12 + i % 15, hour=8 + i % 9)
+        self.assertEqual(Appointment.objects.count(), 30)
+        self.assertEqual(counts(), few)
+        # settings + the calendar's two + (with a day) the day's two
+        self.assertEqual(few, {"no day": 3, "a day": 5})
+
+
+class OwnerReschedulePageTests(_OwnerRescheduleBase):
+    """The Change day or time page (GET) on layouts/owner.html."""
+
+    def _page(self, visit=None, **params):
+        visit = visit or self.visit
+        return self._html("owner_appointment_reschedule", [visit.pk], **params)
+
+    def test_flow_frame_back_to_the_visit_and_no_bottom_tabs(self):
+        html = self._page()
+        back = rf'<a href="{self.detail}"[^>]*>(?s:.*?)Back to Visit</a>'
+        self.assertRegex(html, back)
+        self.assertNotIn('<nav aria-label="Main"', html)
+        self.assertIn('data-bar="one"', html)
+
+    def test_exactly_one_violet_button(self):
+        for params in ({}, {"date": CHANGE_DAY.isoformat()}):
+            with self.subTest(params=params):
+                violet = self._violet(self._page(**params))
+                self.assertEqual(len(violet), 1)
+                self.assertIn('form="reschedule-form"', violet[0])
+
+    def test_title_and_the_pet_line(self):
+        html = self._page()
+        title = '<h1 class="text-2xl font-bold text-gray-900">Change day or time</h1>'
+        self.assertIn(title, html)
+        self.assertIn("Bantay · Consultation", html)
+        visit = self._visit(days=8, hour=13, service=None)
+        self.assertIn("Bantay · Not sure yet", self._page(visit))
+
+    def test_the_late_note_only_within_24_hours(self):
+        soon = self._visit(days=0, hour=15)
+        far = self._page()
+        self.assertNotIn("late change", far)
+        html = self._page(soon)
+        line = "Your visit is less than 24 hours away, so the clinic will see this"
+        self.assertIn(line + " as a late change.", html)
+        self.assertIn('<strong class="font-semibold">call them instead</strong>', html)
+        self.assertIn('href="tel:09542889774"', html)
+
+    def test_the_late_note_without_a_phone_ends_after_late_change(self):
+        ClinicSettings.objects.update(contact_number="")
+        html = self._page(self._visit(days=0, hour=15))
+        self.assertIn("as a late change.</p>", html)
+        self.assertNotIn("call them instead", html)
+        self.assertNotIn("tel:", html)
+
+    def test_now_is_crossed_out(self):
+        html = self._page()
+        self.assertIn(
+            '<p class="text-base font-semibold text-gray-500 line-through">'
+            "Tue, Nov 10 at 12:00 PM</p>",
+            html,
+        )
+
+    def test_the_new_box_states(self):
+        new = r'(?s)<p class="text-base text-violet-800">New</p>\s*(<p.*?</p>)'
+        found = re.search(new, self._page()).group(1)
+        self.assertIn(">Pick a day</p>", found)
+        found = re.search(new, self._page(date=CHANGE_DAY.isoformat())).group(1)
+        self.assertIn("Thu, Nov 12<br>", found)
+        self.assertIn("Pick a time below", found)
+
+    def test_the_current_day_is_dashed_with_a_legend_and_a_link(self):
+        html = self._page()
+        dashed = "outline-2 outline-dashed outline-gray-400 -outline-offset-2"
+        self.assertIn(dashed, html)
+        self.assertIn("Your current day</span>", html)
+        url = re.escape(self.url)
+        link = rf'<a href="{url}\?date=2026-11-10&month=2026-11" '
+        self.assertRegex(html, link + r'aria-label="Nov 10, your current day"')
+
+    def test_day_links_keep_the_month_and_month_links_keep_the_day(self):
+        html = self._page(date=CHANGE_DAY.isoformat())
+        self.assertIn(f"{self.url}?date=2026-11-11&month=2026-11", html)
+        self.assertIn(f"{self.url}?month=2026-12&date=2026-11-12", html)
+
+    def test_the_picked_day_is_the_violet_cell(self):
+        html = self._page(date=CHANGE_DAY.isoformat())
+        picked = r'<span aria-label="[^"]*, picked" aria-current="date" '
+        self.assertRegex(html, picked + r'class="[^"]*">12</span>')
+        self.assertEqual(html.count(", picked"), 1)
+
+    def test_your_time_is_text_not_an_input(self):
+        html = self._page(date=BOOK_DAY.isoformat())
+        self.assertIn(">Your time</span>", html)
+        self.assertNotIn('name="time" value="12:00:00"', html)
+        self.assertIn('name="time" value="13:00:00"', html)
+        other = self._page(date=CHANGE_DAY.isoformat())
+        self.assertNotIn("Your time", other)
+
+    def test_a_taken_time_is_gray_text_and_not_an_input(self):
+        self._hold(CHANGE_DAY, [10])
+        html = self._page(date=CHANGE_DAY.isoformat())
+        taken = '<span class="line-through">10:00 AM</span>'
+        self.assertIn(taken + '<span class="text-sm">Taken</span>', html)
+        self.assertNotIn('name="time" value="10:00:00"', html)
+
+    def test_no_day_and_a_bad_day(self):
+        self.assertIn("Pick a day to see the times.", self._page())
+        html = self._page(date="nonsense")
+        self.assertIn(DAY_NOT_OPEN_MESSAGE, html)
+        self.assertIn("Pick a day to see the times.", html)
+
+    def test_the_reason_box_and_the_blue_note(self):
+        html = self._page(date=CHANGE_DAY.isoformat())
+        self.assertIn(">Why the change?</label>", html)
+        self.assertIn(
+            '<textarea id="reschedule-reason" name="reschedule_reason" rows="3"', html
+        )
+        self.assertIn('placeholder="e.g. I have work on that day"', html)
+        self.assertIn("Needed.", html)
+        self.assertIn(
+            "Your Tue, Nov 10 at 12:00 PM time is given up. "
+            "The new time waits for the clinic to confirm.",
+            html,
+        )
+        # The textarea comes after the times (pick day, then time, then why)
+        times_at = html.index("Times on Thu, Nov 12")
+        self.assertLess(times_at, html.index('id="reschedule-reason"'))
+
+    def test_the_form_posts_the_picked_day(self):
+        html = self._page(date=CHANGE_DAY.isoformat())
+        form = re.search(r'(?s)<form id="reschedule-form".*?</form>', html).group(0)
+        self.assertIn('method="post"', form)
+        self.assertIn('name="date" value="2026-11-12"', form)
+        self.assertIn("csrfmiddlewaretoken", form)
+
+    def test_keep_old_time_is_an_outline_link_to_the_visit(self):
+        html = self._page()
+        keep = rf'<a href="{self.detail}"[^>]*border-gray-300[^>]*>Keep old time</a>'
+        self.assertRegex(html, keep)
+        self.assertIn("Send new time</button>", html)
+
+    def test_a_pending_visit_can_be_changed_too(self):
+        pending = self._visit(days=8, status=Appointment.PENDING)
+        url = reverse("owner_appointment_reschedule", args=[pending.pk])
+        self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_another_owners_visit_is_a_404(self):
+        other, theirs = self._other_owner()
+        visit = Appointment.objects.create(
+            owner=other,
+            pet=theirs,
+            date=BOOK_DAY,
+            time=datetime.time(9, 0),
+            status=Appointment.CONFIRMED,
+        )
+        url = reverse("owner_appointment_reschedule", args=[visit.pk])
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.assertEqual(self.client.post(url, {}).status_code, 404)
+
+    def test_a_visit_that_cannot_be_changed_goes_to_its_page_with_the_flash(self):
+        cases = {
+            "cancelled": self._visit(days=8, status=Appointment.CANCELLED),
+            "completed": self._visit(days=8, status=Appointment.COMPLETED),
+            "no show": self._visit(days=8, status=Appointment.NO_SHOW),
+            "started": self._visit(days=0, hour=9),
+        }
+        for name, visit in cases.items():
+            url = reverse("owner_appointment_reschedule", args=[visit.pk])
+            detail = reverse("owner_appointment_detail", args=[visit.pk])
+            for method in (self.client.get, self.client.post):
+                with self.subTest(case=name, method=method.__name__):
+                    # Show a page first so an earlier flash is used up
+                    self.client.get(reverse("owner_appointments"))
+                    response = method(url)
+                    self.assertRedirects(
+                        response, detail, fetch_redirect_response=False
+                    )
+                    self.assertEqual(self._messages(response), [CANNOT_CHANGE_MESSAGE])
+
+    def test_markup_rules(self):
+        response = self.client.get(self.url, {"date": CHANGE_DAY.isoformat()})
+        html = response.content.decode()
+        self.assertEqual(re.findall(r"<a\b[^>]*$", html, re.M), [])
+        self.assertEqual(re.findall(r"<script(?![^>]*\bsrc=)", html), [])
+        self.assertEqual(re.findall(r"\son[a-z]+=", html), [])
+        self.assertNotIn("hx-confirm", html)
+        self.assertNotIn("<!--", html)
+
+    def test_query_total_is_flat_for_3_and_30_visits(self):
+        # Whole request, measured: 7 without a day, 9 with one (the context
+        # alone is 3 and 5)
+        expected = (({}, 7), ({"date": "2026-11-12"}, 9))
+
+        def check():
+            for params, count in expected:
+                with self.subTest(params=params):
+                    with self.assertNumQueries(count):
+                        response = self.client.get(self.url, params)
+                    self.assertEqual(response.status_code, 200)
+
+        for i in range(2):
+            self._visit(days=12 + i, hour=10)
+        check()
+        for i in range(27):
+            self._visit(days=12 + i % 15, hour=8 + i % 9)
+        self.assertEqual(Appointment.objects.count(), 30)
+        check()
+
+
+class OwnerReschedulePostTests(_OwnerRescheduleBase):
+    """The page's POST: the locked reschedule_by_owner, or the page again."""
+
+    def _send(self, visit=None, **changes):
+        data = {
+            "date": CHANGE_DAY.isoformat(),
+            "time": "09:00:00",
+            "reschedule_reason": "I have work that day",
+        }
+        data.update(changes)
+        url = reverse("owner_appointment_reschedule", args=[(visit or self.visit).pk])
+        # Show a page first so flashes left by an earlier request are used up
+        self.client.get(reverse("owner_appointments"))
+        return self.client.post(url, data)
+
+    def _admin_notices(self):
+        return Notification.objects.filter(
+            recipient=self.admin, title="Appointment Reschedule Request"
+        )
+
+    def _assert_nothing_changed(self):
+        self.visit.refresh_from_db()
+        self.assertEqual(self.visit.status, Appointment.CONFIRMED)
+        self.assertEqual(self.visit.cancellation_reason, "")
+        self.assertIsNone(self.visit.cancelled_by)
+        self.assertEqual(Appointment.objects.count(), 1)
+        self.assertFalse(self._admin_notices().exists())
+
+    def test_no_time_is_a_field_error_and_the_day_and_text_are_kept(self):
+        response = self._send(time="")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["time_error"], PICK_NEW_TIME_MESSAGE)
+        self.assertEqual(response.context["picked_date"], CHANGE_DAY)
+        self.assertEqual(response.context["reason_text"], "I have work that day")
+        html = unescape(response.content.decode())
+        self.assertIn(PICK_NEW_TIME_MESSAGE, html)
+        self.assertIn(">I have work that day</textarea>", html)
+        self._assert_nothing_changed()
+
+    def test_no_reason_is_a_field_error_and_the_time_is_kept(self):
+        for text in ("", "   "):
+            with self.subTest(text=text):
+                response = self._send(reschedule_reason=text)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.context["reason_error"], WHY_MISSING_MESSAGE)
+                self.assertEqual(response.context["new_time"], "9:00 AM")
+                self._assert_nothing_changed()
+
+    def test_a_day_that_is_not_open_shows_the_date_error(self):
+        BlockedDate.objects.create(date=CHANGE_DAY, reason="Holiday")
+        past = (self.today - datetime.timedelta(days=1)).isoformat()
+        for value in (CHANGE_DAY.isoformat(), past, "nonsense", "2026-12-03"):
+            with self.subTest(date=value):
+                response = self._send(date=value)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.context["date_error"], DAY_NOT_OPEN_MESSAGE)
+                self.assertIsNone(response.context["picked_date"])
+                self._assert_nothing_changed()
+
+    def test_no_day_at_all(self):
+        response = self._send(date="")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["date_error"], PICK_DAY_FIRST_MESSAGE)
+        self._assert_nothing_changed()
+
+    def test_the_visits_own_time_is_not_a_new_time(self):
+        response = self._send(date=BOOK_DAY.isoformat(), time="12:00:00")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["time_error"], PICK_NEW_TIME_MESSAGE)
+        self._assert_nothing_changed()
+
+    def test_a_time_taken_at_save_shows_the_red_box(self):
+        with mock.patch("appointments.utils.is_slot_available", return_value=False):
+            response = self._send()
+        self.assertEqual(response.status_code, 200)
+        html = unescape(response.content.decode())
+        self.assertIn("9:00 AM was just taken", html)
+        self.assertIn(
+            "Someone booked it a moment ago. Please pick another time. "
+            "Your note is kept.",
+            html,
+        )
+        self.assertEqual(response.context["picked_date"], CHANGE_DAY)
+        self.assertEqual(response.context["new_time"], "")
+        self.assertNotIn(" checked", html)
+        self.assertIn(">I have work that day</textarea>", html)
+        self._assert_nothing_changed()
+
+    def test_a_time_taken_before_the_post_shows_the_red_box_too(self):
+        self._hold(CHANGE_DAY, [9])
+        response = self._send()
+        self.assertEqual(response.context["taken_time"], "9:00 AM")
+        self.assertContains(response, "9:00 AM was just taken")
+        self.visit.refresh_from_db()
+        self.assertEqual(self.visit.status, Appointment.CONFIRMED)
+        self.assertFalse(self._admin_notices().exists())
+
+    def test_a_valid_send_cancels_the_original_and_makes_a_pending_visit(self):
+        self.visit.reason = "Itchy skin"
+        self.visit.save()
+        response = self._send()
+        new = Appointment.objects.exclude(pk=self.visit.pk).get()
+        self.assertRedirects(
+            response,
+            reverse("owner_appointment_detail", args=[new.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(self._messages(response), [RESCHEDULE_SENT_MESSAGE])
+        self.visit.refresh_from_db()
+        self.assertEqual(self.visit.status, Appointment.CANCELLED)
+        self.assertEqual(self.visit.cancellation_reason, Appointment.OTHER)
+        self.assertEqual(self.visit.cancellation_detail, "Rescheduled by pet owner.")
+        self.assertEqual(self.visit.cancelled_by, self.owner.user)
+        self.assertEqual(new.status, Appointment.PENDING)
+        self.assertEqual(new.rescheduled_from, self.visit)
+        self.assertEqual(new.owner, self.owner)
+        self.assertEqual(new.pet, self.pet)
+        self.assertEqual(new.service, self.service)
+        self.assertEqual((new.date, new.time), (CHANGE_DAY, datetime.time(9, 0)))
+        self.assertEqual(new.reason, "Itchy skin")
+        self.assertEqual(new.reschedule_reason, "I have work that day")
+
+    def test_the_admin_is_told_as_before(self):
+        self._send()
+        new = Appointment.objects.exclude(pk=self.visit.pk).get()
+        notice = self._admin_notices().get()
+        self.assertEqual(notice.related_appointment, new)
+        self.assertIn("has requested to reschedule their appointment", notice.message)
+
+    def test_the_send_goes_through_the_lock_once(self):
+        with mock.patch("appointments.utils.lock_schedule") as lock:
+            self._send()
+        lock.assert_called_once_with()
+        self.assertEqual(Appointment.objects.count(), 2)
+
+    def test_the_new_visit_page_shows_the_flash_and_the_old_time(self):
+        self.client.get(reverse("owner_appointments"))
+        response = self.client.post(
+            self.url,
+            {
+                "date": CHANGE_DAY.isoformat(),
+                "time": "09:00:00",
+                "reschedule_reason": "x",
+            },
+            follow=True,
+        )
+        html = unescape(response.content.decode())
+        # The flash's bold first sentence, then the rest
+        self.assertIn("New time sent.", html)
+        self.assertIn("The clinic will confirm it soon.", html)
+        self.assertIn("You changed the time. Was Tue, Nov 10 at 12:00 PM.", html)
+
+    def test_a_second_post_changes_nothing_and_goes_to_the_original(self):
+        self._send()
+        response = self._send()
+        self.assertRedirects(response, self.detail, fetch_redirect_response=False)
+        self.assertEqual(self._messages(response), [CANNOT_CHANGE_MESSAGE])
+        self.assertEqual(Appointment.objects.count(), 2)
+        self.assertEqual(self._admin_notices().count(), 1)
+
+    def test_an_original_cancelled_meanwhile_changes_nothing(self):
+        def cancelled_by_someone_else():
+            Appointment.objects.filter(pk=self.visit.pk).update(
+                status=Appointment.CANCELLED
+            )
+
+        with mock.patch(
+            "appointments.utils.lock_schedule", side_effect=cancelled_by_someone_else
+        ):
+            response = self._send()
+        self.assertRedirects(response, self.detail, fetch_redirect_response=False)
+        self.assertEqual(self._messages(response), [CANNOT_CHANGE_MESSAGE])
+        self.assertEqual(Appointment.objects.count(), 1)
+        self.assertFalse(self._admin_notices().exists())
+
+    def test_not_own_is_a_404_and_unchanged(self):
+        other, theirs = self._other_owner()
+        visit = Appointment.objects.create(
+            owner=other,
+            pet=theirs,
+            date=BOOK_DAY,
+            time=datetime.time(10, 0),
+            status=Appointment.CONFIRMED,
+        )
+        self.assertEqual(self._send(visit).status_code, 404)
+        visit.refresh_from_db()
+        self.assertEqual(visit.status, Appointment.CONFIRMED)
+        self.assertEqual(Appointment.objects.count(), 2)
+
+    def test_the_session_has_no_booking_draft_to_clash_with(self):
+        self._send()
+        self.assertNotIn("owner_booking", self.client.session)

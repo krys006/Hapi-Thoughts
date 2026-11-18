@@ -15,7 +15,6 @@ from .forms import (
     ClinicSettingsForm,
     BlockedDateForm,
     OwnerBookingStepOneForm,
-    AppointmentRescheduleForm,
     AdminAppointmentNotesForm,
     AdminAppointmentCancelForm,
     AdminAppointmentRescheduleForm,
@@ -23,7 +22,9 @@ from .forms import (
 )
 
 from .utils import (
+    CANNOT_CHANGE_MESSAGE,
     LIST_PAGE_SIZE,
+    RESCHEDULE_SENT_MESSAGE,
     SETTINGS_TAB_FIELDS,
     SLOT_NO_LONGER_AVAILABLE,
     WALKIN_PAGE_SIZE,
@@ -43,7 +44,6 @@ from .utils import (
     create_walkin_appointment,
     filter_appointments,
     first_error_tab,
-    form_with_taken_time,
     get_admin_calendar_context,
     get_available_slots,
     get_booking_draft,
@@ -52,7 +52,6 @@ from .utils import (
     group_by_day,
     is_owner_results_swap,
     is_slot_available,
-    is_within_24h,
     list_links,
     list_period,
     list_tabs,
@@ -60,12 +59,14 @@ from .utils import (
     notify_admin_of_request,
     notify_request_declined,
     owner_booking_pets,
+    owner_can_change,
+    owner_reschedule_context,
     owner_visit_detail_context,
     owner_visits_context,
     paging_links,
     pick_booking_time,
     problems_label,
-    reschedule_by_owner,
+    reschedule_attempt,
     resolve_list_tab,
     save_booking_draft,
     schedule_warning,
@@ -517,76 +518,46 @@ def owner_appointment_cancel(request, pk):
 @owner_profile_required
 def owner_appointment_reschedule(request, pk):
     """
-    Pet Owner view — request a reschedule.
-    Creates a new PENDING appointment linked to the original.
-    Original appointment is cancelled and replaced by the new one.
-    Only PENDING or CONFIRMED appointments can be rescheduled.
+    Pet Owner view — Change day or time, one page. A GET shows the calendar
+    (?date= picks the day, ?month= the month) and, for that day, the times,
+    the "Why" box and Send. A POST sends the new time: reschedule_attempt
+    (the locked reschedule_by_owner) cancels the original and makes a new
+    PENDING visit; the page comes back with the problem when there is one.
+    Only the owner's own Pending / Confirmed visit whose slot hasn't started.
     """
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
-    owner = request.owner
-    now = timezone.now()  # one read of the clock, for the late note
-    appointment = get_object_or_404(Appointment, pk=pk, owner=owner)
-
-    if appointment.status not in [Appointment.PENDING, Appointment.CONFIRMED]:
-        messages.error(request, "This appointment cannot be rescheduled.")
+    now = timezone.now()  # the one read of the clock
+    today = timezone.localdate(now)
+    appointment = get_object_or_404(
+        Appointment.objects.select_related("pet", "service"),
+        pk=pk,
+        owner=request.owner,
+    )
+    if not owner_can_change(appointment, now):
+        messages.error(request, CANNOT_CHANGE_MESSAGE)
         return redirect("owner_appointment_detail", pk=pk)
 
+    params, errors = request.GET, None
     if request.method == "POST":
-        form = AppointmentRescheduleForm(appointment, request.POST)
-        if form.is_valid():
-            response, form = _submit_owner_reschedule(request, appointment, form)
-            if response:
-                return response
-        else:
-            messages.error(request, "Please correct the errors below.")
-    else:
-        form = AppointmentRescheduleForm(appointment)
-
-    return render(
-        request,
-        "owner/appointments/detail.html",
-        {
-            "appointment": appointment,
-            "reschedule_form": form,
-            "show_reschedule_form": True,
-            "clinic": get_clinic_settings(),
-            "is_late": is_within_24h(appointment, now),
-        },
-    )
-
-
-def _submit_owner_reschedule(request, appointment, form):
-    """
-    Saves a valid owner reschedule form (see reschedule_by_owner).
-    Returns (redirect, form): a redirect when the visit page is next, else
-    None and the form to show again (the time taken meanwhile).
-    """
-    try:
-        new_appointment = reschedule_by_owner(
-            request.user, request.owner, appointment.pk, form.cleaned_data
+        params = request.POST
+        kind, value = reschedule_attempt(
+            request.user, request.owner, appointment, params, today, now
         )
-    except SlotTaken:
-        # Taken since the form was checked: keep every value but the time
-        messages.error(request, "Please correct the errors below.")
-        again = form_with_taken_time(
-            AppointmentRescheduleForm,
-            (appointment,),
-            request.POST,
-            form.cleaned_data["time"],
-        )
-        return None, again
-    if new_appointment is None:
-        messages.error(request, "This visit can't be changed any more.")
-        return redirect("owner_appointment_detail", pk=appointment.pk), form
-    # After the transaction has committed, never inside it
-    notify_admin_of_request(new_appointment, reschedule=True)
-    messages.success(
-        request,
-        "Reschedule request submitted. You will be notified once it is confirmed.",
+        if kind == "gone":
+            messages.error(request, CANNOT_CHANGE_MESSAGE)
+            return redirect("owner_appointment_detail", pk=pk)
+        if kind == "sent":
+            # After the transaction has committed, never inside it
+            notify_admin_of_request(value, reschedule=True)
+            messages.success(request, RESCHEDULE_SENT_MESSAGE)
+            return redirect("owner_appointment_detail", pk=value.pk)
+        errors = value
+    context = owner_reschedule_context(
+        request.owner, appointment, params, today, now, errors
     )
-    return redirect("owner_appointment_detail", pk=new_appointment.pk), form
+    return render(request, "owner/visits/reschedule.html", context)
 
 
 @login_required

@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Prefetch, Q
+from django.http import Http404
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
@@ -1602,9 +1603,11 @@ def booking_calendar(month_value, today, now, current_date, settings=None):
     return calendar
 
 
-def time_groups(times, selected):
-    """The day's times as Morning / Afternoon groups of dicts (time, value,
-    label, taken, checked), empty groups left out. selected is a time."""
+def time_groups(times, selected, own=None):
+    """The day's times as Morning / Afternoon groups of dicts (value, label,
+    taken, checked), empty groups left out. selected is a time. own is the
+    visit's own time on the change-time page: that row gets is_own (shown
+    "Your time", not taken, never an input); without own no row has the key."""
     groups = []
     for name, wanted in (("Morning", True), ("Afternoon", False)):
         rows = [
@@ -1617,6 +1620,10 @@ def time_groups(times, selected):
             for time, taken in times
             if (time < MORNING_ENDS) == wanted
         ]
+        if own is not None:
+            for row in rows:
+                row["is_own"] = row["value"] == own.isoformat()
+                row["taken"] = row["taken"] and not row["is_own"]
         if rows:
             groups.append({"name": name, "times": rows})
     return groups
@@ -2253,3 +2260,118 @@ def cancel_by_owner(user, appointment, post):
     appointment.save()
     _notify_admin_of_owner_cancel(appointment)
     return True, "Request cancelled." if pending else "Visit cancelled."
+
+
+# ── Owner change day or time (Slice 8b-7b) ───────────────────────────────────
+
+CANNOT_CHANGE_MESSAGE = "This visit can't be changed any more."
+PICK_NEW_TIME_MESSAGE = "Pick a new time."
+PICK_DAY_FIRST_MESSAGE = "Pick a day first."
+WHY_MISSING_MESSAGE = "Tell us why you're changing it."
+RESCHEDULE_SENT_MESSAGE = "New time sent. The clinic will confirm it soon."
+
+
+def owner_can_change(appointment, now):
+    """True for a Pending or Confirmed visit whose slot hasn't started: the
+    only visits an owner may change. now is aware."""
+    live = appointment.status in OWNER_LIVE_STATUSES
+    return live and _slot_end(appointment, 0) > now
+
+
+def _reschedule_month(params, day, appointment):
+    """The month ('YYYY-MM') the calendar opens on: ?month=, else the month
+    of the day asked for, else the month of the visit itself."""
+    anchor = day or _iso_date(params.get("date")) or appointment.date
+    return params.get("month") or _month_value(anchor.replace(day=1))
+
+
+def _has_free_time(times):
+    return any(not taken for _time, taken in times)
+
+
+def owner_reschedule_context(owner, appointment, params, today, now, errors=None):
+    """
+    Context for the owner's Change day or time page. params is ?month= and
+    ?date= (a GET) or the posted form (after a failed POST); errors holds the
+    POST's errors: date, time, taken (a time label), reason. Raises Http404
+    for a visit that isn't the owner's. The picked day is only an open day
+    (anything else: None, and date_error when one was asked for). Its times
+    are grouped as booking does, the visit's own slot on its own day shown as
+    is_own ("Your time"). Five queries however many visits the owner has.
+    """
+    if appointment.owner_id != owner.pk:
+        raise Http404("Not your visit")
+    errors = errors or {}
+    clinic = get_clinic_settings()
+    asked = params.get("date") or ""
+    day = _iso_date(asked)
+    times = owner_day_times(day, today, now, clinic) if day else []
+    if not _has_free_time(times):
+        day, times = None, []
+    own = appointment.time if day == appointment.date else None
+    chosen = None if "taken" in errors else _iso_time(params.get("time"))
+    if not any(time == chosen and not taken for time, taken in times):
+        chosen = None
+    month = _reschedule_month(params, day, appointment)
+    not_open = DAY_NOT_OPEN_MESSAGE if asked and not day else ""
+    return {
+        "appointment": appointment,
+        "pet": appointment.pet,
+        "service_words": _service_words(appointment),
+        "calendar": booking_calendar(month, today, now, appointment.date, clinic),
+        "picked_date": day,
+        "time_groups": time_groups(times, chosen, own),
+        "date_error": errors.get("date") or not_open,
+        "time_error": errors.get("time", ""),
+        "taken_time": errors.get("taken", ""),
+        "reason_error": errors.get("reason", ""),
+        "reason_text": params.get("reschedule_reason", ""),
+        "slot_length": slot_length_phrase(slot_minutes(clinic)),
+        "is_late": is_within_24h(appointment, now),
+        "phone": clinic.contact_number if clinic else "",
+        "now_line": when_line(appointment.date, appointment.time, today),
+        "new_line": when_line(day, None, today) if day else None,
+        "new_time": time_label(chosen) if chosen else "",
+    }
+
+
+def _reschedule_post_errors(appointment, post, today, now, clinic):
+    """(data, errors) for the posted day, time and reason. The visit's own
+    slot is never a new time. errors is empty when all is well."""
+    day, time = _iso_date(post.get("date")), _iso_time(post.get("time"))
+    times = dict(owner_day_times(day, today, now, clinic)) if day else {}
+    errors = {}
+    if not post.get("date"):
+        errors["date"] = PICK_DAY_FIRST_MESSAGE
+    elif not _has_free_time(times.items()):
+        errors["date"] = DAY_NOT_OPEN_MESSAGE
+    elif time is None or time not in times:
+        errors["time"] = PICK_NEW_TIME_MESSAGE
+    elif times[time] and (day, time) == (appointment.date, appointment.time):
+        errors["time"] = PICK_NEW_TIME_MESSAGE
+    elif times[time]:
+        errors["taken"] = time_label(time)
+    reason = (post.get("reschedule_reason") or "").strip()
+    if not reason:
+        errors["reason"] = WHY_MISSING_MESSAGE
+    return {"date": day, "time": time, "reschedule_reason": reason}, errors
+
+
+def reschedule_attempt(user, owner, appointment, post, today, now):
+    """
+    The owner's Change day or time POST. Returns ("sent", new visit),
+    ("gone", None) when the visit can't be changed any more (nothing changed)
+    or ("errors", dict) for a problem to show (nothing changed): date, time,
+    taken (the time someone else booked first), reason. The save is
+    reschedule_by_owner: lock, re-read, slot re-check, one transaction.
+    """
+    data, errors = _reschedule_post_errors(
+        appointment, post, today, now, get_clinic_settings()
+    )
+    if errors:
+        return "errors", errors
+    try:
+        new_visit = reschedule_by_owner(user, owner, appointment.pk, data)
+    except SlotTaken:
+        return "errors", {"taken": time_label(data["time"])}
+    return ("gone", None) if new_visit is None else ("sent", new_visit)

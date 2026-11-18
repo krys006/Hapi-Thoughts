@@ -3,7 +3,8 @@
   per row, 48 px). A taken time is gray with a line through it and the word
   "Taken": plain text, not an input. Works without JavaScript (peer-checked).
   Needs picked_date, time_groups, slot_length, time_error; the page's POST
-  form (id="time-form") wraps it. Reusable by the change-time page (8b-7).
+  form (id="time-form") wraps it. Reusable by the change-time page (8b-7b),
+  where the visit's own time (is_own) reads "Your time", not an input.
 {% endcomment %}
 {% if picked_date %}
   <section class="space-y-3" aria-labelledby="times-title">
@@ -16,7 +17,9 @@
         <legend class="mb-2 text-base font-semibold text-gray-700">{{ group.name }}</legend>
         <div class="grid grid-cols-3 gap-2">
           {% for time in group.times %}
-            {% if time.taken %}
+            {% if time.is_own %}
+              <span class="flex min-h-12 flex-col items-center justify-center rounded-xl border border-dashed border-gray-400 bg-gray-50 text-base font-semibold text-gray-700"><span>{{ time.label }}</span><span class="text-sm font-normal">Your time</span></span>
+            {% elif time.taken %}
               <span class="flex min-h-12 flex-col items-center justify-center rounded-xl bg-gray-100 text-base text-gray-500"><span class="line-through">{{ time.label }}</span><span class="text-sm">Taken</span></span>
             {% else %}
               <label class="relative block cursor-pointer">

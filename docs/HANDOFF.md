@@ -355,6 +355,16 @@ to needs-approval) and the appointments list.
     - 7 Unused now (Krys deletes or keeps): `owner/appointments/list.html`. Still used: `owner/appointments/detail.html` (the reschedule page, until 8b-7b), `AppointmentCancellationForm` (the cancel rules), `owner_get_slots`.
     - Tests added (appointments): `OwnerVisitNoteTests`, `OwnerVisitsContextTests`, `OwnerVisitsPageTests`, `OwnerVisitDetailPageTests`, `OwnerCancelSheetPostTests`.
     - Tests changed (on purpose): `IsWithin24hTests._is_late` reads `context["sheet"]["late"]` from the visit page for the cancel view (a GET or a failed POST now redirects there; was `context["is_late"]` of the cancel page; the reschedule view is unchanged); `DeclinedReasonInUseTests.test_a_clinic_cancel_and_an_old_row_do_not_say_declined` expects "Cancelled by the clinic" (was "Other", the reason label the old page printed; the not-declined check is unchanged); accounts `test_every_logout_control_is_a_post_form_with_a_csrf_token` no longer lists `owner_appointments` (moved to the owner layout) and `test_owner_dashboard_and_my_pets_have_no_get_link_to_logout` now covers it. No assertion removed or loosened.
+  - **Slice 8b-7b owner change day or time — 2026-11-18** (templates, view, helpers; no migration, no model change). `app.css` rebuilt (new classes); no new static file.
+    - 1 Helpers in `appointments/utils.py`: `owner_can_change(appointment, now)` (Pending/Confirmed, slot not started), `owner_reschedule_context(owner, appointment, params, today, now, errors=None)` (404 for another owner's visit), `reschedule_attempt(user, owner, appointment, post, today, now)` → `("sent", new)` / `("gone", None)` / `("errors", dict)`; `time_groups(..., own=None)` adds `is_own` only when asked.
+    - 2 One page, no session draft: `owner_appointment_reschedule` (under 50 lines) on `owner/visits/reschedule.html`. GET `?date=` picks the day, `?month=` the month; the times, the "Why the change?" box and Send are one POST form (`date`, `time`, `reschedule_reason`). Flow frame: Back to Visit, Keep old time + one violet Send new time, no tabs.
+    - 3 Entry rule (GET and POST): not the owner's → 404; not Pending/Confirmed or slot started → visit page with "This visit can't be changed any more." The save is the existing locked `reschedule_by_owner` (original CANCELLED, new PENDING with `rescheduled_from`, the why in `reschedule_reason`); admin notified after the transaction; success goes to the new visit with "New time sent. The clinic will confirm it soon."
+    - 4 POST problems come back as the page (200), nothing changed: "Pick a new time.", the date error, "Tell us why you're changing it." (the reason stays required, as in the old form), or the red "{time} was just taken" box ("Your note is kept.", day kept, time cleared). The visit's own slot is shown "Your time" and is never a new time.
+    - 5 Booking parts reused with optional parameters only: `calendar.html` `current_day` (dashed current day, picked day violet, links keep `?month=` / `?date=`, legend entry), `times.html` `is_own`, `taken_box.html` `note_kept`. Booking pages render as before.
+    - 6 Query totals (whole GET, fixed by the test, flat for 3 vs 30 visits): without a day 7, with a day 9. Context alone 3 and 5.
+    - 7 Unused now (Krys deletes or keeps): `owner/appointments/detail.html` (and `book.html`, `list.html` in that folder), `owner/appointments/_slot_options.html`, the view `owner_get_slots` and its URL with its entry in the Visits tab mapping (`accounts/utils.py`), `AppointmentRescheduleForm` in `forms.py`, `form_with_taken_time` in `utils.py`. `SlotViewTests` (`tests.py:1691`) still calls `owner_get_slots`; it goes with the view in 8b-10. No reschedule JS or CSS existed.
+    - Tests added (appointments): `OwnerRescheduleContextTests`, `OwnerReschedulePageTests`, `OwnerReschedulePostTests`.
+    - Tests changed (on purpose): `SlotTakenAtSaveTests.test_owner_reschedule_comes_back_with_the_time_error` reads the red box, `taken_time`, `picked_date`, `reason_text` and `new_time` (was the form's time error, `form.data` day, text and empty time); `OwnerRescheduleAtomicTests.test_the_fields_are_the_same_as_before` flash "New time sent. The clinic will confirm it soon." (was "Reschedule request submitted. You will be notified once it is confirmed."). No assertion removed or loosened.
 - Slice 9 admin mobile pass (incl. dashboard schedule rows keep a 3-column grid that is tight at phone width), record detail tab order on phones, walk-in type-ahead live region, admin layout inline script → static JS file, `form_field.html` fieldset/legend branch
 - Open: `form_field.html` needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple form is migrated.
 - Notes for later slices:
@@ -498,11 +508,11 @@ deletes.
   import their old `static/css/admin/` file into the `legacy` layer via
   `legacy_css`. Owner pages (checked with a grep of the extends lines, 8b-5):
   on `layouts/owner.html`: dashboard, My Pets, Add pet, pet profile, Edit pet,
-  onboarding steps 1 to 3, booking steps 1 to 3 and Request sent, Visits list and visit detail (8b-7a), Account; on `layouts/owner_auth.html`: log in,
+  onboarding steps 1 to 3, booking steps 1 to 3 and Request sent, Visits list, visit detail and Change day or time (8b-7a, 8b-7b), Account; on `layouts/owner_auth.html`: log in,
   create account, check your email, forgot / new password and their done
   pages, the invalid-link page, the three `socialaccount/` pages; still on
   `base_dashboard.html` (Tailwind CDN plus per-page CSS in `static/css/owner|shared/`):
-  (the reschedule page still renders the old `owner/appointments/detail.html`, until 8b-7b) bills list / receipt, my details, email
+  (the old `owner/appointments/detail.html` is no longer rendered by any view) bills list / receipt, my details, email
   notifications, notifications list, health library list / article, the
   medical record page, and Clinic info for owners (`shared/clinic_info.html`).
   Rebuild `app.css` before every frontend commit.
