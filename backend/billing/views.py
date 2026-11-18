@@ -6,12 +6,11 @@ from django.utils import timezone
 from django.utils.cache import patch_vary_headers
 
 from accounts.utils import owner_profile_required
-from appointments.utils import get_clinic_settings, is_owner_results_swap
+from appointments.utils import is_owner_results_swap
 
 from .models import Service, BillingItem
 from .forms import ServiceForm, BillingReceiptForm, BillingItemForm
 from .utils import (
-    LOCKED_MESSAGE,  # noqa: F401 (tests import it from here)
     NO_ITEMS_MESSAGE,
     RECEIPT_EXISTS,
     RECEIPT_NEW_TEMPLATE,
@@ -19,7 +18,6 @@ from .utils import (
     add_item,
     create_receipt,
     create_visit_receipt,
-    discount_label,
     discount_saved_message,
     initial_pet_pick,
     lock_pending_receipt,
@@ -28,10 +26,10 @@ from .utils import (
     notify_receipt_paid,
     owner_for_receipt,
     owner_bills_context,
+    owner_receipt_context,
     owner_receipts,
     receipt_detail_context,
     receipt_for_page,
-    receipt_items,
     receipt_list_context,
     receipt_owner_context,
     receipt_pet_choice,
@@ -384,18 +382,10 @@ def owner_receipt_detail(request, pk):
         return redirect("admin_dashboard")
 
     receipt = get_object_or_404(
-        owner_receipts(request.owner).select_related("pet", "appointment"),
+        owner_receipts(request.owner).select_related(
+            "pet", "owner", "appointment", "appointment__service"
+        ),
         pk=pk,
     )
-    items = receipt_items(receipt)
-
-    return render(
-        request,
-        "owner/billing/receipt_detail.html",
-        {
-            "receipt": receipt,
-            "items": items,
-            "discount_label": discount_label(receipt),
-            "clinic_settings": get_clinic_settings(),
-        },
-    )
+    context = owner_receipt_context(receipt)
+    return render(request, "owner/billing/receipt_detail.html", context)

@@ -1743,6 +1743,14 @@ OWNER_CANCEL_WORDS = {
     Appointment.OTHER: "Other reason",
 }
 NO_SERVICE_WORDS = "Not sure yet"
+# The owner's words for a visit's status (OWNER_MOCKUPS status table)
+OWNER_STATUS_WORDS = {
+    Appointment.PENDING: "Waiting for approval",
+    Appointment.CONFIRMED: "Confirmed",
+    Appointment.COMPLETED: "Completed",
+    Appointment.CANCELLED: "Cancelled",
+    Appointment.NO_SHOW: "Missed",
+}
 
 
 def _slot_open_q(now, minutes):

@@ -1,4 +1,5 @@
-// Receipt page (admin/billing/receipt_detail.html). No inline handlers, no fetch.
+// Receipt page (admin/billing/receipt_detail.html and owner/billing/receipt_detail.html).
+// No inline handlers, no fetch.
 //   [data-print]                 prints the receipt (window.print(); the page's
 //                                @media print rules show only the receipt)
 //   Add item "What is it?"       a picked service fills Description (its name) and
@@ -7,6 +8,7 @@
 //                                and shows the option's data-help under Unit price.
 //                                "Other" and "Choose one" clear nothing.
 //   Discount select              puts "%" or "₱" inside the How much box
+// The owner page has only [data-print]; the other two parts find nothing there.
 (function () {
   "use strict";
 

@@ -44,7 +44,7 @@
 {% endblock %}
 
 {% block extra_js %}
-  <script src="{% static 'js/admin/receipt_detail.js' %}" defer></script>
+  <script src="{% static 'js/shared/receipt_detail.js' %}" defer></script>
   {# The printout: kept as a direct child of <body> (this block renders there) #}
   {% include "shared/billing/_receipt_print.html" %}
 {% endblock %}

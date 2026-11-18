@@ -15,9 +15,15 @@ from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
+from django.utils.text import Truncator
 
 from appointments.models import Appointment
-from appointments.utils import get_clinic_settings, paging_links
+from appointments.utils import (
+    OWNER_STATUS_WORDS,
+    get_clinic_settings,
+    paging_links,
+    time_label,
+)
 from notifications.models import Notification
 from notifications.utils import (
     EMAIL_NO_ADDRESS,
@@ -26,9 +32,10 @@ from notifications.utils import (
     compact_message,
     notify,
     short_day,
+    when_line,
 )
 from pets.models import Pet
-from pets.utils import ARCHIVED_PET, pet_state
+from pets.utils import ARCHIVED_PET, RECORD_HEADING_CHARS, pet_state
 
 from .models import MedicalRecord, Vaccination
 
@@ -831,9 +838,9 @@ def record_detail_context(record, today):
 def owner_record_queryset():
     """Records for the owner's page: the pet and the visit loaded, and
     private_notes never read (so no page can show it)."""
-    return MedicalRecord.objects.select_related("pet", "appointment").defer(
-        "private_notes"
-    )
+    return MedicalRecord.objects.select_related(
+        "pet", "appointment", "appointment__service"
+    ).defer("private_notes")
 
 
 def owner_test_files(record):
@@ -879,6 +886,79 @@ def owner_visit_receipt(record):
     )
 
 
+def owner_record_header(record):
+    """The top of the page: the date, the visit's service ("" when there is
+    none) and the title: the diagnosis cut short, "Visit record" when empty."""
+    visit = record.appointment
+    service = visit.service if visit else None
+    diagnosis = " ".join(record.diagnosis.split())
+    return {
+        "date": record.record_date,
+        "service": service.service_name if service else "",
+        "title": Truncator(diagnosis).chars(RECORD_HEADING_CHARS) or "Visit record",
+    }
+
+
+def owner_follow_up_box(follow_up, today):
+    """What the blue box says, or None (no follow-up, or no date). state is
+    "booked" (a visit answers it), "passed" (the date is past, nothing booked)
+    or "due"; visit_line is the booked visit's day, time and status."""
+    if not follow_up or not follow_up["date"]:
+        return None
+    visit = follow_up["visit"]
+    if visit is not None:
+        state = "booked"
+    elif follow_up["days"] < 0:
+        state = "passed"
+    else:
+        state = "due"
+    box = {"state": state, "date": follow_up["date"], "visit": visit}
+    if visit is not None:
+        words = OWNER_STATUS_WORDS.get(visit.status, "")
+        box["visit_line"] = f"{when_line(visit.date, visit.time, today)} · {words}"
+    return box
+
+
+def owner_found_rows(record):
+    """The "What Dr. Aga found" rows that have text, in the mockup's order."""
+    rows = (
+        ("Signs seen", record.symptoms),
+        ("Diagnosis", record.diagnosis),
+        ("Done at the clinic", record.treatment_given),
+    )
+    return [{"label": label, "text": text} for label, text in rows if text.strip()]
+
+
+def owner_same_visit_links(visit, receipt):
+    """The "From the same visit" link cards: the visit, then the bill (the
+    receipt already passed owner_visit_receipt: Unpaid or Paid only)."""
+    links = []
+    if visit is not None:
+        words = OWNER_STATUS_WORDS.get(visit.status, "")
+        parts = [visit.service.service_name if visit.service else "", words]
+        when = f"{date_format(visit.date, 'M j')}, {time_label(visit.time)}"
+        links.append(
+            {
+                "icon": "calendar-check",
+                "title": f"Visit · {when}",
+                "text": " · ".join(part for part in parts if part),
+                "url": reverse("owner_appointment_detail", args=[visit.pk]),
+            }
+        )
+    if receipt is not None:
+        paid = receipt.payment_status == receipt.PAID
+        links.append(
+            {
+                "icon": "receipt",
+                "title": f"Bill {receipt.receipt_number}",
+                "amount": receipt.total_amount,
+                "word": "Paid" if paid else "Unpaid",
+                "url": reverse("owner_receipt_detail", args=[receipt.pk]),
+            }
+        )
+    return links
+
+
 def owner_record_context(record, today):
     """
     Context for the owner's medical record page. record comes from
@@ -887,6 +967,8 @@ def owner_record_context(record, today):
     receipt are one query each however many rows there are. Doses are loaded
     without correction_note: owners only see "Corrected by the clinic".
     """
+    follow_up = owner_follow_up(record, today)
+    receipt = owner_visit_receipt(record)
     return {
         "record": record,
         "pet": record.pet,
@@ -897,10 +979,15 @@ def owner_record_context(record, today):
                 "-date_administered", "-pk"
             )
         ),
-        "follow_up": owner_follow_up(record, today),
+        "follow_up": follow_up,
         "visit": record.appointment,
-        "receipt": owner_visit_receipt(record),
+        "receipt": receipt,
         "today": today,
+        "header": owner_record_header(record),
+        "follow_up_box": owner_follow_up_box(follow_up, today),
+        "found_rows": owner_found_rows(record),
+        "same_visit_links": owner_same_visit_links(record.appointment, receipt),
+        "back_url": f"{reverse('owner_pet_detail', args=[record.pet_id])}?tab=records",
     }
 
 

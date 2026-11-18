@@ -304,7 +304,7 @@ PENDING or CONFIRMED → CANCELLED
 | View prescription details | `complete` |
 | View test results (text only, no file access) | `complete` |
 | View vaccination records per pet | `complete` |
-| Open one medical record (`/owner/pets/<pet>/medical/<record>/`): follow-up (booked or "Book a visit"), medicines, what we found, the clinic's note, test results as text only, doses given at the visit ("Corrected by the clinic", never the correction note), the visit and its bill (never a cancelled one); no private notes, no print | `planned` — backend and plain page done in 8a-2c; the page design is in 8b-8 |
+| Open one medical record (`/owner/pets/<pet>/medical/<record>/`, back to the pet's Records tab): the blue follow-up box first (not booked: "Book the follow-up"; booked: a link to that visit; date passed: "Follow-up was due around…"), what Dr. Aga found, medicines to give at home (how much / how often / for, with the note), test results as text only ("On file. Ask the clinic for a copy."), vaccine given ("Corrected by the clinic", never the correction note), the clinic's public notes, and links to the visit and its bill (never a cancelled one); sections with nothing in them are left out; no private notes, no print | `complete` (8b-8) |
 
 ### 4.3 Vaccination Tracking
 | Feature | Status |
@@ -369,8 +369,11 @@ PENDING or CONFIRMED → CANCELLED
 |---|---|
 | View billing receipt for completed appointments | `complete` |
 | View full billing history: Unpaid and Paid receipts only (cancelled ones are never shown) | `complete` |
+| Bills page: a yellow "To pay" box with the total and count, the Unpaid bills (never hidden by a filter), or a green "You're all paid up" box; "No bills yet" page when there are none | `complete` (8b-8) |
+| Bills History filter: search by receipt number or pet name plus a period (All time, This month, Last 3 months, this year, last year), a plain GET form, month groups, 25 a page | `complete` (8b-8) |
+| Receipt page (read-only): banner (please pay at the clinic / paid on), pet, bill date, link to the visit, items, subtotal, discount, total, "Paid by"; "Something looks wrong?" line while Unpaid | `complete` (8b-8) |
 | Save as PDF from the print window | `complete` |
-| Print receipt | `complete` |
+| Print receipt (the button shows on a Paid receipt) | `complete` (8b-8) |
 | Receive a notification when a receipt is paid | `complete` |
 
 ### Receipt Format

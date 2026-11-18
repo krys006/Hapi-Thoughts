@@ -3,6 +3,7 @@
 import calendar
 import datetime
 from decimal import Decimal
+from itertools import groupby
 from urllib.parse import urlencode
 
 from django.contrib import messages
@@ -14,6 +15,7 @@ from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateformat import format as date_format
 from django.utils.text import capfirst
 
 from appointments.models import Appointment
@@ -242,14 +244,29 @@ def _bills_history(owner, q, period, today):
     return rows.order_by("-paid_on", "-pk")
 
 
+def owner_bill_groups(receipts):
+    """The history rows (each with paid_on) under month headings
+    ("October 2026"), in their order."""
+    groups = []
+    for _key, rows in groupby(receipts, key=lambda r: r.paid_on.strftime("%Y-%m")):
+        rows = list(rows)
+        label = date_format(rows[0].paid_on, "F Y")
+        groups.append({"label": label, "receipts": rows})
+    return groups
+
+
 def owner_bills_context(owner, params, today):
     """
     Context for the owner's Bills page. to_pay is every unpaid receipt, oldest
     first, never filtered (with to_pay_count and to_pay_total). history is the
     page of paid receipts, newest paid first, narrowed by ?q= and ?period=
-    (unknown period → all), 25 a page. receipts (every visible receipt, as
-    the old page reads it) stays. Cancelled receipts appear nowhere. Three
-    queries however many receipts: unpaid, history count, history page.
+    (unknown period → all), 25 a page, and history_groups the same rows under
+    month headings. has_history is whether the owner has any paid receipt at
+    all, whatever the filter; has_bills adds the unpaid ones. receipts (every
+    visible receipt, as the old page reads it) stays. Cancelled receipts appear
+    nowhere. Three queries however many receipts: unpaid, history count,
+    history page (a filter with no match adds one more to see whether any bill
+    is paid at all).
     """
     q = params.get("q", "").strip()
     period = params.get("period")
@@ -267,6 +284,10 @@ def owner_bills_context(owner, params, today):
     ).get_page(params.get("page"))
     kept = {"q": q, "period": "" if period == "all" else period}
     page_query = urlencode({name: v for name, v in kept.items() if v})
+    is_filtering = bool(q) or period != "all"
+    has_history = bool(page_obj.paginator.count) or (
+        is_filtering and _bills_history(owner, "", "all", today).exists()
+    )
     return {
         "receipts": owner_receipts(owner)
         .select_related("pet")
@@ -275,13 +296,56 @@ def owner_bills_context(owner, params, today):
         "to_pay_count": len(to_pay),
         "to_pay_total": sum((r.total_amount for r in to_pay), Decimal("0")),
         "history": list(page_obj),
+        "history_groups": owner_bill_groups(page_obj),
+        "has_history": has_history,
+        "has_bills": bool(to_pay) or has_history,
         "page_obj": page_obj,
         "q": q,
         "period": period,
         "period_options": owner_period_options(today),
-        "is_filtering": bool(q) or period != "all",
+        "is_filtering": is_filtering,
         "today": today,
         **paging_links(page_obj, page_query),
+    }
+
+
+def owner_discount_text(receipt):
+    """What goes in the brackets after "Discount" on the owner's receipt:
+    "Loyal client, 10%", "10%", a peso discount's reason, or "" (no discount)."""
+    if not receipt.has_discount:
+        return ""
+    if receipt.discount_type != BillingReceipt.PERCENTAGE:
+        return receipt.discount_note
+    percent = f"{_plain_number(receipt.discount_value)}%"
+    note = receipt.discount_note
+    return f"{note}, {percent}" if note else percent
+
+
+def owner_receipt_visit_line(visit):
+    """ "Consultation · Nov 2, 3:00 PM" for the visit a receipt is for, or ""."""
+    if visit is None:
+        return ""
+    service = visit.service.service_name if visit.service else "Visit"
+    when = f"{date_format(visit.date, 'M j')}, {date_format(visit.time, 'g:i A')}"
+    return f"{service} · {when}"
+
+
+def owner_receipt_context(receipt):
+    """
+    Context for the owner's receipt page. receipt comes from
+    owner_receipts() with pet, owner and the visit (and its service) loaded.
+    The items are one query. is_paid shows the paid banner and Print; the
+    visit line is "" when the receipt has no visit. discount_label is the
+    printout's wording, discount_text the page's.
+    """
+    return {
+        "receipt": receipt,
+        "items": list(receipt_items(receipt)),
+        "is_paid": receipt.payment_status == BillingReceipt.PAID,
+        "discount_label": discount_label(receipt),
+        "discount_text": owner_discount_text(receipt),
+        "visit": receipt.appointment,
+        "visit_line": owner_receipt_visit_line(receipt.appointment),
     }
 
 
