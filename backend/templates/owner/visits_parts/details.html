@@ -1,0 +1,39 @@
+{% comment %}
+  "Visit details": the pet (a link unless archived), what it's for, the day,
+  the owner's own note (left out when empty), when it was booked and, for a
+  cancelled or declined visit, when and by whom. Never the internal notes.
+  Needs pet, service_words, details, appointment.
+{% endcomment %}
+<section aria-labelledby="visit-details-title" class="rounded-2xl border border-gray-200 bg-white px-4 shadow-sm">
+  <h2 id="visit-details-title" class="pt-4 text-lg font-bold text-gray-900">Visit details</h2>
+  <dl class="divide-y divide-gray-100">
+    <div class="py-3">
+      <dt class="text-base text-gray-700">Pet</dt>
+      <dd class="text-base font-semibold text-gray-900">{% if details.pet_url %}<a href="{{ details.pet_url }}" class="inline-flex min-h-11 items-center text-blue-600 underline underline-offset-2">{{ pet.name }}</a>{% else %}{{ pet.name }}{% endif %} · {{ details.pet_line }}</dd>
+    </div>
+    <div class="py-3">
+      <dt class="text-base text-gray-700">Visit for</dt>
+      <dd class="text-base font-semibold text-gray-900">{{ service_words }}</dd>
+    </div>
+    <div class="py-3">
+      <dt class="text-base text-gray-700">{{ details.when_label }}</dt>
+      <dd class="text-base font-semibold text-gray-900">{{ details.when_long }}</dd>
+    </div>
+    {% if appointment.reason %}
+    <div class="py-3">
+      <dt class="text-base text-gray-700">Your note for the vet</dt>
+      <dd class="text-base font-semibold text-gray-900">{{ appointment.reason }}</dd>
+    </div>
+    {% endif %}
+    <div class="py-3">
+      <dt class="text-base text-gray-700">Booked on</dt>
+      <dd class="text-base font-semibold text-gray-900">{{ details.booked_on }}</dd>
+    </div>
+    {% if details.cancelled_line %}
+    <div class="py-3">
+      <dt class="text-base text-gray-700">{{ details.cancelled_label }}</dt>
+      <dd class="text-base font-semibold text-gray-900">{{ details.cancelled_line }}</dd>
+    </div>
+    {% endif %}
+  </dl>
+</section>

@@ -1,0 +1,15 @@
+{% comment %}
+  The coloured banner for the visit's state: icon, bold title, one line, and
+  for a moved or changed visit one more line or a link. Needs banner (tone,
+  icon, title, text; optional extra, link_url, link_label).
+{% endcomment %}
+<div class="flex items-start gap-3 rounded-xl border px-4 py-4 {% if banner.tone == 'yellow' %}border-yellow-300 bg-yellow-50 text-yellow-900{% elif banner.tone == 'blue' %}border-blue-200 bg-blue-50 text-blue-900{% elif banner.tone == 'green' %}border-green-200 bg-green-50 text-green-900{% elif banner.tone == 'red' %}border-red-200 bg-red-50 text-red-900{% else %}border-gray-300 bg-gray-100 text-gray-900{% endif %}">
+  {% include "components/icon.html" with name=banner.icon class="mt-0.5 size-6 shrink-0" %}
+  <div>
+    <p class="text-lg font-semibold">{{ banner.title }}</p>
+    <p class="mt-0.5 text-base">{{ banner.text }}</p>
+    {% if banner.message %}<p class="mt-2 text-base"><strong class="font-semibold">Message from the clinic:</strong> {{ banner.message|linebreaksbr }}</p>{% endif %}
+    {% if banner.extra %}<p class="mt-1 text-base">{{ banner.extra }}</p>{% endif %}
+    {% if banner.link_url %}<a href="{{ banner.link_url }}" class="mt-1 inline-flex min-h-11 items-center text-base font-semibold underline underline-offset-2">{{ banner.link_label }}</a>{% endif %}
+  </div>
+</div>

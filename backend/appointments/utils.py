@@ -3,6 +3,7 @@ from itertools import groupby
 from urllib.parse import urlencode
 
 from django.contrib.auth import get_user_model
+from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Prefetch, Q
 from django.urls import reverse
@@ -20,6 +21,7 @@ from dashboard.utils import (
     _add_months,
     _last_day,
     _month_value,
+    _slot_end,
     booking_limit,
     resolve_month,
     slot_minutes,
@@ -1718,3 +1720,536 @@ def booking_data(owner, draft):
         "time": _iso_time(draft.get("time")),
         "reason": summary["note"],
     }
+
+
+# ── Owner visits list, visit page and cancel (Slice 8b-7a) ───────────────────
+
+OWNER_VISITS_PAGE_SIZE = 25
+OWNER_LIVE_STATUSES = (Appointment.PENDING, Appointment.CONFIRMED)
+NOT_UPDATED_NOTE = "The clinic hasn't updated this visit yet."
+CLINIC_CANCEL_NOTE = "Cancelled by the clinic. Please call us if you need a new time."
+# The owner's words for each reason: the cancel sheet's radio cards
+OWNER_CANCEL_WORDS = {
+    Appointment.CHANGE_OF_PLANS: "Change of plans",
+    Appointment.PET_UNWELL: "My pet is unwell",
+    Appointment.CANNOT_MAKE_TIME: "I can't make it at that time",
+    Appointment.OTHER: "Other reason",
+}
+NO_SERVICE_WORDS = "Not sure yet"
+
+
+def _slot_open_q(now, minutes):
+    """Q for visits whose slot hasn't ended: a slot ends `minutes` after it
+    starts, so it is still going when its start is later than now minus the
+    slot length (Manila date and time)."""
+    cutoff = timezone.localtime(now) - datetime.timedelta(minutes=minutes)
+    return Q(date__gt=cutoff.date()) | Q(date=cutoff.date(), time__gt=cutoff.time())
+
+
+def _cancelled_by_owner(appointment):
+    """True when the person who cancelled is a pet owner (not the clinic)."""
+    user = appointment.cancelled_by
+    return user is not None and user.is_pet_owner
+
+
+def friendly_when(day, time, today):
+    """'Today, Mon, Nov 2 at 3:00 PM', 'Tomorrow, Tue, Nov 3 at 8:00 AM' or
+    'Tue, Nov 10 at 12:00 PM' (the year when it isn't today's year)."""
+    text = when_line(day, time, today)
+    if day == today:
+        return f"Today, {text}"
+    if day == today + datetime.timedelta(days=1):
+        return f"Tomorrow, {text}"
+    return text
+
+
+def _long_when(day, time):
+    """'Tuesday, Nov 10, 2026 at 12:00 PM'."""
+    return f"{date_format(day, 'l, M j, Y')} at {time_label(time)}"
+
+
+def _service_words(appointment):
+    service = appointment.service
+    return service.service_name if service else NO_SERVICE_WORDS
+
+
+def _cancelled_note(appointment):
+    """The note for a cancelled visit: declined, by the owner, or by the clinic."""
+    if appointment.cancellation_reason == Appointment.DECLINED:
+        return "Declined by the clinic."
+    if not _cancelled_by_owner(appointment):
+        return CLINIC_CANCEL_NOTE
+    reason = appointment.cancellation_reason
+    if reason in ("", Appointment.OTHER):
+        return "You cancelled this visit."
+    return f"You cancelled: {appointment.get_cancellation_reason_display().lower()}."
+
+
+def _live_note(appointment, today):
+    """The note for a Pending or Confirmed visit whose slot hasn't ended."""
+    original = appointment.rescheduled_from
+    pending = appointment.status == Appointment.PENDING
+    if original is not None:
+        was = when_line(original.date, original.time, today)
+        if not _cancelled_by_owner(original):
+            return f"Moved by the clinic. Was {was}."
+        if pending:
+            return f"You changed the time. Was {was}."
+    return "The clinic will confirm this soon." if pending else None
+
+
+def owner_visit_note(appointment, now, minutes=None):
+    """
+    The one-line note for a visit's card (and a moved or changed visit's
+    page), or None. now is aware. minutes is the clinic's slot length; leave it
+    out and it is read from the settings (one query), so a list passes it.
+    Load rescheduled_from and cancelled_by (select_related) for a flat count.
+    A moved original (cancelled by a reschedule) has its own banner instead.
+    """
+    status = appointment.status
+    if status == Appointment.CANCELLED:
+        return _cancelled_note(appointment)
+    if status == Appointment.NO_SHOW:
+        return "Marked as missed by the clinic."
+    if status not in OWNER_LIVE_STATUSES:
+        return None  # completed: nothing to say
+    if minutes is None:
+        minutes = slot_minutes(get_clinic_settings())
+    if _slot_end(appointment, minutes) <= now:
+        return NOT_UPDATED_NOTE
+    return _live_note(appointment, timezone.localtime(now).date())
+
+
+def _visits_pet(pets, value):
+    """The owner's non-archived pet that ?pet= names, or None."""
+    text = str(value or "")
+    if not text.isdecimal() or len(text) > 9:
+        return None
+    return next((pet for pet in pets if pet.pk == int(text)), None)
+
+
+def _visits_query(show, pet):
+    """'show=past&pet=3': the list's own params, as a query string."""
+    params = {"show": show}
+    if pet is not None:
+        params["pet"] = pet.pk
+    return urlencode(params)
+
+
+def _visit_card(visit, today, now, minutes):
+    """One card of the list: the visit, its note and icon, today flag."""
+    note = owner_visit_note(visit, now, minutes)
+    moved = bool(note) and note.startswith(("Moved by", "You changed"))
+    return {
+        "visit": visit,
+        "service_name": _service_words(visit),
+        "note": note,
+        "note_icon": "calendar-clock" if moved else "info",
+        "is_today": visit.date == today,
+    }
+
+
+def _month_groups(cards):
+    """The cards under month headings ('November 2026'), in their order."""
+    groups = []
+    for _key, group in groupby(
+        cards, key=lambda c: (c["visit"].date.year, c["visit"].date.month)
+    ):
+        group = list(group)
+        label = date_format(group[0]["visit"].date, "F Y")
+        groups.append({"label": label, "cards": group})
+    return groups
+
+
+def owner_visits_context(owner, params, today, now):
+    """
+    Context for the owner's Visits page. ?show=upcoming|past (default and
+    unknown: upcoming); ?pet=<pk> (the owner's own non-archived pets only,
+    else all). Upcoming is Pending / Confirmed visits whose slot hasn't ended,
+    soonest first; past is everything else, newest first, 25 a page. An
+    original cancelled by a reschedule is left out of both (its new visit says
+    "Was ..."). The counts follow the pet filter. Four queries for upcoming
+    (settings, pets, counts, visits), five for past (and the page count).
+    """
+    minutes = slot_minutes(get_clinic_settings())
+    own_pets = Pet.objects.filter(owner=owner, is_archived=False)
+    pets = list(own_pets.order_by("name", "pk"))
+    pet = _visits_pet(pets, params.get("pet"))
+    show = "past" if params.get("show") == "past" else "upcoming"
+
+    live = Q(status__in=OWNER_LIVE_STATUSES) & _slot_open_q(now, minutes)
+    moved = Exists(Appointment.objects.filter(rescheduled_from=OuterRef("pk")))
+    visits = Appointment.objects.filter(owner=owner).annotate(is_moved=moved)
+    visits = visits.filter(~Q(status=Appointment.CANCELLED, is_moved=True))
+    if pet is not None:
+        visits = visits.filter(pet=pet)
+    counts = visits.aggregate(
+        upcoming=Count("pk", filter=live), past=Count("pk", filter=~live)
+    )
+
+    rows = visits.select_related(
+        "pet", "service", "cancelled_by", "rescheduled_from__cancelled_by"
+    )
+    page_obj, links = None, {"prev_page_query": "", "next_page_query": ""}
+    if show == "upcoming":
+        rows = list(rows.filter(live).order_by("date", "time", "pk"))
+    else:
+        past = rows.filter(~live).order_by("-date", "-time", "-pk")
+        page_obj = Paginator(past, OWNER_VISITS_PAGE_SIZE).get_page(params.get("page"))
+        rows = list(page_obj)
+        links = paging_links(page_obj, _visits_query(show, pet))
+    cards = [_visit_card(visit, today, now, minutes) for visit in rows]
+
+    segments = [
+        {
+            "label": f"{label} ({counts[key]})",
+            "query": _visits_query(key, pet),
+            "is_active": key == show,
+        }
+        for key, label in (("upcoming", "Upcoming"), ("past", "Past"))
+    ]
+    all_query = _visits_query(show, None)
+    chips = [{"label": "All", "query": all_query, "is_active": pet is None}]
+    chips += [
+        {
+            "label": chip.name,
+            "query": _visits_query(show, chip),
+            "is_active": chip == pet,
+        }
+        for chip in pets
+    ]
+    no_visits = not counts["upcoming"] and not counts["past"]
+    return {
+        "show": show,
+        "pet": pet,
+        "has_pets": bool(pets),
+        "show_pet_chips": len(pets) >= 2,
+        "show_no_pets_page": not pets and no_visits,
+        "counts": counts,
+        "segments": segments,
+        "chips": chips,
+        "groups": _month_groups(cards),
+        "has_cards": bool(cards),
+        "page_obj": page_obj,
+        "all_query": all_query,
+        "today": today,
+        **links,
+    }
+
+
+# ── One visit (Slice 8b-7a) ──────────────────────────────────────────────────
+
+
+def _banner(tone, icon, title, text, **extra):
+    return {"tone": tone, "icon": icon, "title": title, "text": text, **extra}
+
+
+# Banners that say the same thing for every visit in that state
+_STATIC_BANNERS = {
+    Appointment.PENDING: _banner(
+        "yellow",
+        "hourglass",
+        "Waiting for the clinic to confirm",
+        "You'll get a notification when they do. "
+        "Please don't come in until it's confirmed.",
+    ),
+    "ended": _banner(
+        "gray",
+        "info",
+        "This time has passed",
+        "The clinic hasn't updated this visit yet. "
+        "Please call them if you have a question.",
+    ),
+    "declined": _banner(
+        "red",
+        "circle-x",
+        "Declined by the clinic",
+        "The clinic couldn't take this request. Please call us or book another time.",
+    ),
+    "cancelled_clinic": _banner(
+        "red",
+        "circle-x",
+        "Cancelled by the clinic",
+        "Sorry about this. Please call us to find a new time, or book another visit.",
+    ),
+    Appointment.NO_SHOW: _banner(
+        "gray",
+        "info",
+        "Missed",
+        "The clinic marked this visit as missed. "
+        "If that's a mistake, please call the clinic.",
+    ),
+}
+
+
+def _day_words(day, today):
+    """'today', 'tomorrow' or 'on Tue, Nov 10', for "See you ... at 8:00 AM"."""
+    if day == today:
+        return "today"
+    if day == today + datetime.timedelta(days=1):
+        return "tomorrow"
+    return f"on {when_line(day, None, today)}"
+
+
+# What a decline saves when the clinic typed no message: not a message
+NO_CLINIC_MESSAGE = "Rejected by clinic."
+
+
+def _clinic_message(appointment):
+    """The text the clinic wrote for the owner (the admin cancel form and the
+    decline dialog both say the owner can see it), or "" when there is none.
+    Never the internal notes."""
+    detail = appointment.cancellation_detail.strip()
+    return "" if detail == NO_CLINIC_MESSAGE else detail
+
+
+def _visit_banner(state, appointment, today, moved_to, has_more):
+    """The coloured banner for the visit's state (a dict: tone, icon, title,
+    text, and for a moved visit link_url / link_label)."""
+    if state in _STATIC_BANNERS:
+        banner = dict(_STATIC_BANNERS[state])
+        if state in ("declined", "cancelled_clinic"):
+            banner["message"] = _clinic_message(appointment)
+    elif state == Appointment.CONFIRMED:
+        day = _day_words(appointment.date, today)
+        text = f"See you {day} at {time_label(appointment.time)}. "
+        banner = _banner(
+            "blue",
+            "calendar-check",
+            "Confirmed",
+            text + "Please come 10 minutes early.",
+        )
+    elif state == Appointment.COMPLETED:
+        text = "Thank you for coming in."
+        if has_more:
+            text += " The vet's notes and the bill are below."
+        banner = _banner("green", "circle-check", "Visit done", text)
+    elif state == "cancelled_owner":
+        detail = appointment.cancellation_detail.strip()
+        other = appointment.cancellation_reason == Appointment.OTHER and detail
+        text = f"Your reason: {detail}" if other else _cancelled_note(appointment)
+        banner = _banner("red", "circle-x", "You cancelled this visit", text)
+    else:
+        banner = _banner(
+            "gray",
+            "calendar-clock",
+            "This visit was moved",
+            f"It's now on {when_line(moved_to.date, moved_to.time, today)}.",
+            link_url=reverse("owner_appointment_detail", args=[moved_to.pk]),
+            link_label="See the new visit",
+        )
+    return banner
+
+
+def _visit_state(appointment, moved_to, ended):
+    """pending, confirmed, ended (slot over, not updated), completed, no_show,
+    moved (an original cancelled by a reschedule), declined, cancelled_owner
+    or cancelled_clinic."""
+    status = appointment.status
+    if status == Appointment.CANCELLED:
+        if moved_to is not None:
+            return "moved"
+        if appointment.cancellation_reason == Appointment.DECLINED:
+            return "declined"
+        if _cancelled_by_owner(appointment):
+            return "cancelled_owner"
+        return "cancelled_clinic"
+    if status in OWNER_LIVE_STATUSES and ended:
+        return "ended"
+    return status
+
+
+def _visit_record_and_bill(owner, appointment):
+    """The pk of the visit's medical record (or None) and the receipt the
+    owner may see (Unpaid or Paid, never Cancelled; or None)."""
+    # Imported here: these modules import this one
+    from billing.utils import owner_receipts
+    from medical.models import MedicalRecord
+
+    record_pk = (
+        MedicalRecord.objects.filter(appointment=appointment, pet=appointment.pet)
+        .values_list("pk", flat=True)
+        .first()
+    )
+    receipt = owner_receipts(owner).filter(appointment=appointment).first()
+    return record_pk, receipt
+
+
+def _visit_links(appointment, record_pk, receipt):
+    """The two link cards of a completed visit: the vet's notes (not for an
+    archived pet) and the bill."""
+    from billing.models import BillingReceipt
+
+    pet, links = appointment.pet, []
+    if record_pk is not None and not pet.is_archived:
+        links.append(
+            {
+                "icon": "file-text",
+                "title": "Vet's notes and medicines",
+                "text": f"What Dr. Aga found and what to give {pet.name}",
+                "url": reverse("owner_medical_record", args=[pet.pk, record_pk]),
+            }
+        )
+    if receipt is not None:
+        word = "Paid" if receipt.payment_status == BillingReceipt.PAID else "Unpaid"
+        links.append(
+            {
+                "icon": "receipt",
+                "title": f"Bill {receipt.receipt_number} · {word}",
+                "amount": receipt.total_amount,
+                "url": reverse("owner_receipt_detail", args=[receipt.pk]),
+            }
+        )
+    return links
+
+
+def _visit_buttons(state, pet):
+    """Which buttons the page shows: 'change' (Change day or time + Cancel),
+    'call_book' (Call + Book again), 'book' (one violet Book), or ''. Also the
+    Book link (to the pet, or plain when the pet is archived) and its words."""
+    book_url = reverse("owner_book_appointment")
+    if not pet.is_archived:
+        book_url += f"?pet={pet.pk}"
+    if state in ("declined", "cancelled_clinic"):
+        return "call_book", "Book again", book_url
+    if state in ("completed", "cancelled_owner"):
+        return "book", "Book another visit", book_url
+    if state == "no_show":
+        return "book", "Book a new visit", book_url
+    return "", "", book_url
+
+
+def _visit_sheet(appointment, today, now, service_words):
+    """The cancel sheet's words: title, when · service, action, late flag."""
+    pending = appointment.status == Appointment.PENDING
+    noun = "request" if pending else "visit"
+    when = when_line(appointment.date, appointment.time, today)
+    return {
+        "title": f"Cancel {appointment.pet.name}'s {noun}?",
+        "text": f"{when} · {service_words}",
+        "action_label": f"Yes, cancel the {noun}",
+        "late": is_within_24h(appointment, now),
+        "reasons": list(OWNER_CANCEL_WORDS.items()),
+    }
+
+
+def _visit_rows(appointment, state):
+    """The detail card's rows that need working out: the date words, the
+    cancelled / declined line (the date it was saved, who), the booked date."""
+    pet = appointment.pet
+    row = {
+        "pet_line": pet.species + (f" · {pet.breed}" if pet.breed else ""),
+        "pet_url": (
+            None if pet.is_archived else reverse("owner_pet_detail", args=[pet.pk])
+        ),
+        "when_label": "Day and time" if state in OWNER_LIVE_STATUSES else "Was on",
+        "when_long": _long_when(appointment.date, appointment.time),
+        "booked_on": date_format(timezone.localtime(appointment.created_at), "M j, Y"),
+        "cancelled_label": "",
+        "cancelled_line": "",
+    }
+    if state in ("declined", "cancelled_owner", "cancelled_clinic"):
+        when = date_format(timezone.localtime(appointment.updated_at), "M j, Y")
+        who = "you" if state == "cancelled_owner" else "the clinic"
+        row["cancelled_label"] = "Declined" if state == "declined" else "Cancelled"
+        row["cancelled_line"] = f"{when} by {who}"
+    return row
+
+
+def owner_visit_detail_context(owner, appointment, today, now):
+    """
+    Context for the owner's visit page. appointment is the owner's own, loaded
+    with pet, service, cancelled_by and rescheduled_from__cancelled_by. Never
+    carries the internal notes. Queries: the settings, plus the new visit for a
+    cancelled one, plus the record and the receipt for a completed one.
+    """
+    clinic = get_clinic_settings()
+    minutes = slot_minutes(clinic)
+    moved_to = None
+    if appointment.status == Appointment.CANCELLED:
+        moved_to = appointment.rescheduled_to.first()
+    ended = _slot_end(appointment, minutes) <= now
+    state = _visit_state(appointment, moved_to, ended)
+
+    links = []
+    if state == Appointment.COMPLETED:
+        record_pk, receipt = _visit_record_and_bill(owner, appointment)
+        links = _visit_links(appointment, record_pk, receipt)
+    banner = _visit_banner(state, appointment, today, moved_to, bool(links))
+    if state in OWNER_LIVE_STATUSES and appointment.rescheduled_from is not None:
+        banner["extra"] = owner_visit_note(appointment, now, minutes)
+
+    buttons, book_label, book_url = _visit_buttons(state, appointment.pet)
+    # A slot "ends" 0 minutes after it starts: its start. Change / Cancel only
+    # while it hasn't started.
+    can_change = state in OWNER_LIVE_STATUSES and _slot_end(appointment, 0) > now
+    service_words = _service_words(appointment)
+    return {
+        "appointment": appointment,
+        "pet": appointment.pet,
+        "state": state,
+        "service_words": service_words,
+        "when_friendly": friendly_when(appointment.date, appointment.time, today),
+        "banner": banner,
+        "links": links,
+        "details": _visit_rows(appointment, state),
+        "buttons": "change" if can_change else buttons,
+        "book_label": book_label,
+        "book_url": book_url,
+        "cancel_label": (
+            "Cancel this request"
+            if appointment.status == Appointment.PENDING
+            else "Cancel this visit"
+        ),
+        "sheet": _visit_sheet(appointment, today, now, service_words),
+        "phone": clinic.contact_number if clinic else "",
+        "today": today,
+    }
+
+
+def _notify_admin_of_owner_cancel(appointment):
+    """Tells the admin an owner cancelled (in the app, and by email per notify())."""
+    admin_user = get_user_model().objects.filter(role="admin").first()
+    if admin_user is None:
+        return
+    owner = appointment.owner
+    notify(
+        recipient=admin_user,
+        notification_type="appointment_cancelled",
+        title="Appointment Cancelled",
+        message=(
+            f"{owner.first_name} {owner.last_name} has cancelled "
+            f"their appointment for {appointment.pet.name} on "
+            f"{appointment.date.strftime('%B %d, %Y')} "
+            f"at {appointment.time.strftime('%I:%M %p')}."
+        ),
+        related_appointment=appointment,
+        related_pet=appointment.pet,
+        email_subject="Appointment Cancelled — Hapi Vet",
+    )
+
+
+def cancel_by_owner(user, appointment, post):
+    """
+    The owner's cancel: only a Pending or Confirmed visit, with a reason from
+    the cancel form (Other needs a detail). Saves CANCELLED with the reason,
+    the detail and the owner as cancelled_by, then tells the admin. Returns
+    (ok, text) for the flash; on a problem nothing changed.
+    """
+    from .forms import AppointmentCancellationForm
+
+    if appointment.status not in OWNER_LIVE_STATUSES:
+        return False, "This appointment cannot be cancelled."
+    form = AppointmentCancellationForm(post)
+    if not form.is_valid():
+        if "cancellation_reason" in form.errors:
+            return False, "Choose why you're cancelling."
+        return False, "Tell us a little more about the reason."
+    pending = appointment.status == Appointment.PENDING
+    appointment.status = Appointment.CANCELLED
+    appointment.cancellation_reason = form.cleaned_data["cancellation_reason"]
+    appointment.cancellation_detail = form.cleaned_data.get("cancellation_detail", "")
+    appointment.cancelled_by = user
+    appointment.save()
+    _notify_admin_of_owner_cancel(appointment)
+    return True, "Request cancelled." if pending else "Visit cancelled."

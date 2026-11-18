@@ -1,0 +1,9 @@
+{% comment %}
+  Pet chips (All + each pet), shown from two pets up. Links that keep
+  ?show=. The open one is light violet with aria-current. Needs chips.
+{% endcomment %}
+<nav aria-label="Show visits for" class="flex flex-wrap items-center gap-2">
+  {% for chip in chips %}
+  <a href="{% url 'owner_appointments' %}?{{ chip.query }}" class="inline-flex min-h-11 items-center rounded-full px-4 text-base ring-1 {% if chip.is_active %}bg-violet-100 font-semibold text-violet-800 ring-violet-300{% else %}bg-white font-medium text-gray-700 ring-gray-300 hover:bg-gray-50{% endif %}"{% if chip.is_active %} aria-current="true"{% endif %}>{{ chip.label }}</a>
+  {% endfor %}
+</nav>

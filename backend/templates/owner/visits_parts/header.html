@@ -1,0 +1,7 @@
+{% comment %}
+  Visits heading with "Book a visit" top right: the page's one violet button.
+{% endcomment %}
+<div class="flex items-center justify-between gap-3">
+  <h1 class="text-2xl font-bold">Visits</h1>
+  <a href="{% url 'owner_book_appointment' %}" class="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl bg-violet-600 px-4 text-base font-semibold text-white shadow-sm hover:bg-violet-700">{% include "components/icon.html" with name="plus" class="size-5 shrink-0" %}Book a visit</a>
+</div>

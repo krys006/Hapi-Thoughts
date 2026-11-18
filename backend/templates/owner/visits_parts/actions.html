@@ -1,0 +1,21 @@
+{% comment %}
+  The buttons for the visit's state (the view picks `buttons`). "change": Change
+  day or time (outline, the reschedule page) and the red-outline cancel button
+  that opens the sheet; no violet. "call_book": Call + the one violet Book
+  again. "book": the one violet Book link. Nothing for the rest.
+  Needs buttons, appointment, cancel_label, book_url, book_label, phone.
+{% endcomment %}
+{% if buttons == "change" %}
+<section class="space-y-3">
+  <h2 class="text-lg font-bold text-gray-900">Need to change it?</h2>
+  <a href="{% url 'owner_appointment_reschedule' appointment.pk %}" class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border border-gray-300 bg-white text-lg font-semibold text-gray-800 hover:bg-gray-50">{% include "components/icon.html" with name="calendar-clock" class="size-5 shrink-0" %}Change day or time</a>
+  <button type="button" data-dialog-open="cancel-sheet" class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border border-red-300 bg-white text-lg font-semibold text-red-700 hover:bg-red-50">{% include "components/icon.html" with name="calendar-x" class="size-5 shrink-0" %}{{ cancel_label }}</button>
+</section>
+{% elif buttons == "call_book" %}
+<div class="grid grid-cols-2 gap-3">
+  {% if phone %}<a href="tel:{{ phone|cut:' ' }}" class="flex min-h-14 items-center justify-center gap-2 rounded-2xl border border-gray-300 bg-white text-lg font-semibold text-gray-800 hover:bg-gray-50">{% include "components/icon.html" with name="phone" class="size-5 shrink-0" %}Call</a>{% endif %}
+  <a href="{{ book_url }}" class="flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700{% if not phone %} col-span-2{% endif %}">{% include "components/icon.html" with name="plus" class="size-5 shrink-0" %}{{ book_label }}</a>
+</div>
+{% elif buttons == "book" %}
+<a href="{{ book_url }}" class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700">{% include "components/icon.html" with name="plus" class="size-5 shrink-0" %}{{ book_label }}</a>
+{% endif %}

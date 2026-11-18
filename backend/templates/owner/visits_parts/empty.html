@@ -1,0 +1,16 @@
+{% comment %}
+  Nothing to list: a pet filter with no visits (with an "All" link), no
+  past visits, or no upcoming visits. Needs pet, show, all_query.
+{% endcomment %}
+<div class="rounded-2xl border border-dashed border-gray-300 bg-white">
+  {% if pet %}
+    {% include "components/empty_state.html" with icon="calendar" title="No visits for this pet here" text="Pick another pet, or All." %}
+  {% elif show == "past" %}
+    {% include "components/empty_state.html" with icon="calendar" title="No past visits yet" text="Your visits will show here after the day." %}
+  {% else %}
+    {% include "components/empty_state.html" with icon="calendar" title="No upcoming visits" text="When you book a visit, it will show here until the day comes." %}
+  {% endif %}
+</div>
+{% if pet %}
+  <a href="{% url 'owner_appointments' %}?{{ all_query }}" class="inline-flex min-h-11 items-center rounded-full bg-white px-4 text-base font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50">All</a>
+{% endif %}

@@ -833,7 +833,6 @@ class LogoutPostTests(_LoggedInBase):
             self.admin: ["admin_dashboard", "admin_clinic_settings", "admin_pet_list"],
             self.owner_user: [
                 "owner_profile",
-                "owner_appointments",
                 "clinic_info",
             ],
         }
@@ -849,7 +848,8 @@ class LogoutPostTests(_LoggedInBase):
         """Both moved to layouts/owner.html in 8b-4: their only Log out is the
         sheet on the Account page, so they never link to the logout URL."""
         self.client.force_login(self.owner_user)
-        for name in ("owner_dashboard", "owner_pet_list"):
+        # 8b-7a: owner_appointments (Visits) moved to the owner layout too
+        for name in ("owner_dashboard", "owner_pet_list", "owner_appointments"):
             with self.subTest(page=name):
                 response = self.client.get(reverse(name))
                 self.assertNotContains(response, f'href="{reverse("logout")}"')

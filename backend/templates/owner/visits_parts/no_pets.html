@@ -1,0 +1,11 @@
+{% comment %}
+  The owner has no pet (and no visit): booking needs a pet, so "Add a pet" is
+  the page's one violet button and it comes back to booking (?next=book).
+{% endcomment %}
+<div class="flex flex-col items-center py-10 text-center">
+  <span class="grid size-24 place-content-center rounded-full bg-violet-50 text-violet-600 ring-1 ring-violet-200">{% include "components/icon.html" with name="calendar" class="size-12 shrink-0" stroke="1.5" %}</span>
+  <h1 class="mt-5 text-2xl font-bold">Visits</h1>
+  <p class="mt-2 text-lg font-semibold text-gray-900">No visits yet</p>
+  <p class="mt-1 text-base text-gray-700">Add your pet first. Then you can book a visit with Dr. Aga.</p>
+  <a href="{% url 'owner_pet_add' %}?next=book" class="mt-6 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700">{% include "components/icon.html" with name="plus" class="size-6 shrink-0" %}Add a pet</a>
+</div>

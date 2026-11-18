@@ -1,0 +1,9 @@
+{% comment %}
+  One visit on the list: a single link to its page. A date tile (today is a
+  violet tile and a violet-ringed card), the pet, "service · time", the
+  status badge and the note with its icon. Needs card (visit, service_name,
+  note, note_icon, is_today).
+{% endcomment %}
+{% with visit=card.visit %}
+<a href="{% url 'owner_appointment_detail' visit.pk %}" class="flex items-center gap-4 rounded-2xl border bg-white p-4 shadow-sm hover:bg-gray-50 {% if card.is_today %}border-violet-300 ring-1 ring-violet-200{% else %}border-gray-200{% endif %}"><span class="flex w-16 shrink-0 flex-col items-center rounded-xl py-2 text-center {% if card.is_today %}bg-violet-600 text-violet-100{% else %}bg-gray-100 text-gray-700{% endif %}"><span class="text-sm font-semibold uppercase">{% if card.is_today %}Today{% else %}{{ visit.date|date:"M" }}{% endif %}</span><span class="text-2xl font-bold leading-7 {% if card.is_today %}text-white{% else %}text-gray-900{% endif %}">{{ visit.date|date:"j" }}</span><span class="text-sm">{{ visit.date|date:"D" }}</span></span><span class="min-w-0 flex-1"><span class="block text-lg font-bold leading-6 text-gray-900">{{ visit.pet.name }}</span><span class="block text-base text-gray-700">{{ card.service_name }} · {{ visit.time|time:"g:i A" }}</span><span class="mt-2 block">{% include "owner/booking_parts/status_badge.html" with status=visit.status %}</span>{% if card.note %}<span class="mt-2 flex items-start gap-1.5 text-base text-gray-700">{% include "components/icon.html" with name=card.note_icon class="mt-0.5 size-4 shrink-0" %}{{ card.note }}</span>{% endif %}</span>{% include "components/icon.html" with name="chevron-right" class="size-5 shrink-0 text-gray-500" %}</a>
+{% endwith %}

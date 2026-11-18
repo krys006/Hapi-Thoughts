@@ -16,7 +16,6 @@ from .forms import (
     BlockedDateForm,
     OwnerBookingStepOneForm,
     AppointmentRescheduleForm,
-    AppointmentCancellationForm,
     AdminAppointmentNotesForm,
     AdminAppointmentCancelForm,
     AdminAppointmentRescheduleForm,
@@ -37,6 +36,7 @@ from .utils import (
     booking_problem,
     booking_summary,
     booking_time_context,
+    cancel_by_owner,
     clear_booking_draft,
     clinic_hours_line,
     create_owner_booking,
@@ -60,6 +60,8 @@ from .utils import (
     notify_admin_of_request,
     notify_request_declined,
     owner_booking_pets,
+    owner_visit_detail_context,
+    owner_visits_context,
     paging_links,
     pick_booking_time,
     problems_label,
@@ -87,7 +89,6 @@ from .utils import (
 from accounts.utils import owner_profile_required
 from notifications.utils import compact_message, notify, when_line
 from dashboard.templatetags.friendly_dates import friendly_date
-from django.contrib.auth import get_user_model
 
 import datetime
 
@@ -292,43 +293,17 @@ def clinic_info(request):
 @owner_profile_required
 def owner_appointment_list(request):
     """
-    Pet Owner view — list all their appointments.
-    Grouped into upcoming and past for clarity.
+    Pet Owner view — the Visits tab: Upcoming / Past (?show=), a pet filter
+    (?pet=) and 25 past visits a page (?page=). The clock is read once.
     """
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
-    owner = request.owner
-    today = timezone.localdate()
-
-    upcoming = (
-        Appointment.objects.filter(
-            owner=owner,
-            date__gte=today,
-        )
-        .exclude(status=Appointment.CANCELLED)
-        .order_by("date", "time")
+    now = timezone.now()
+    context = owner_visits_context(
+        request.owner, request.GET, timezone.localdate(now), now
     )
-
-    past = Appointment.objects.filter(
-        owner=owner,
-        date__lt=today,
-    ).order_by("-date", "-time")
-
-    cancelled = Appointment.objects.filter(
-        owner=owner,
-        status=Appointment.CANCELLED,
-    ).order_by("-date", "-time")
-
-    return render(
-        request,
-        "owner/appointments/list.html",
-        {
-            "upcoming": upcoming,
-            "past": past,
-            "cancelled": cancelled,
-        },
-    )
+    return render(request, "owner/visits/list.html", context)
 
 
 @login_required
@@ -495,93 +470,47 @@ def owner_book_sent(request, pk):
 @owner_profile_required
 def owner_appointment_detail(request, pk):
     """
-    Pet Owner view — view a single appointment's details.
-    Owners can only view their own appointments.
+    Pet Owner view — one visit, in any status, with the cancel sheet.
+    Owners can only view their own visits (404 for anyone else's).
     """
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
-    owner = request.owner
-    appointment = get_object_or_404(Appointment, pk=pk, owner=owner)
-
-    return render(
-        request,
-        "owner/appointments/detail.html",
-        {"appointment": appointment},
+    now = timezone.now()
+    appointment = get_object_or_404(
+        Appointment.objects.select_related(
+            "pet", "service", "cancelled_by", "rescheduled_from__cancelled_by"
+        ),
+        pk=pk,
+        owner=request.owner,
     )
+    context = owner_visit_detail_context(
+        request.owner, appointment, timezone.localdate(now), now
+    )
+    return render(request, "owner/visits/detail.html", context)
 
 
 @login_required
 @owner_profile_required
 def owner_appointment_cancel(request, pk):
     """
-    Pet Owner view — cancel an appointment.
-    Free cancellation if more than 24 hours before.
-    Within 24 hours — still cancelled but flagged for admin awareness.
-    Only PENDING or CONFIRMED appointments can be cancelled.
+    Pet Owner view — the cancel sheet's POST (a GET goes back to the visit).
+    Only a Pending or Confirmed visit, with a reason (Other needs a detail);
+    cancel_by_owner does the work. Every answer goes back to the visit page
+    with a flash; the late note is only on the sheet, the cancel still works.
     """
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
-    owner = request.owner
-    now = timezone.now()  # one read of the clock, for the late note
-    appointment = get_object_or_404(Appointment, pk=pk, owner=owner)
-
-    # Only pending or confirmed appointments can be cancelled
-    if appointment.status not in [Appointment.PENDING, Appointment.CONFIRMED]:
-        messages.error(
-            request,
-            "This appointment cannot be cancelled.",
-        )
-        return redirect("owner_appointment_detail", pk=pk)
-
-    if request.method == "POST":
-        form = AppointmentCancellationForm(request.POST)
-        if form.is_valid():
-            appointment.status = Appointment.CANCELLED
-            appointment.cancellation_reason = form.cleaned_data["cancellation_reason"]
-            appointment.cancellation_detail = form.cleaned_data.get(
-                "cancellation_detail", ""
-            )
-            appointment.cancelled_by = request.user
-            appointment.save()
-
-            # Notify admin of cancellation
-            User = get_user_model()
-            admin_user = User.objects.filter(role="admin").first()
-            if admin_user:
-                notify(
-                    recipient=admin_user,
-                    notification_type="appointment_cancelled",
-                    title="Appointment Cancelled",
-                    message=(
-                        f"{owner.first_name} {owner.last_name} has cancelled "
-                        f"their appointment for {appointment.pet.name} on "
-                        f"{appointment.date.strftime('%B %d, %Y')} "
-                        f"at {appointment.time.strftime('%I:%M %p')}."
-                    ),
-                    related_appointment=appointment,
-                    related_pet=appointment.pet,
-                    email_subject="Appointment Cancelled — Hapi Vet",
-                )
-
-            messages.success(request, "Your appointment has been cancelled.")
-            return redirect("owner_appointments")
-        else:
-            messages.error(request, "Please correct the errors below.")
-    else:
-        form = AppointmentCancellationForm()
-
-    return render(
-        request,
-        "owner/appointments/detail.html",
-        {
-            "appointment": appointment,
-            "cancellation_form": form,
-            "show_cancel_form": True,
-            "is_late": is_within_24h(appointment, now),
-        },
+    appointment = get_object_or_404(
+        Appointment.objects.select_related("pet", "owner"),
+        pk=pk,
+        owner=request.owner,
     )
+    if request.method == "POST":
+        ok, text = cancel_by_owner(request.user, appointment, request.POST)
+        (messages.success if ok else messages.error)(request, text)
+    return redirect("owner_appointment_detail", pk=pk)
 
 
 @login_required

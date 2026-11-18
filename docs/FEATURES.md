@@ -223,6 +223,9 @@ Phase 7 — Dashboards & Polish
 | Booking calendar shows open, full and closed days (month arrows, up to the booking limit); times are grouped Morning / Afternoon, taken times are shown but can't be picked. Slice 8b-6 | `complete` |
 | "Not sure yet" as the visit reason (saves no service) | `complete` |
 | No-pet path: step 1 sends the owner to Add a pet in booking mode and back with the new pet picked. Slice 8b-6 | `complete` |
+| Visits list (Visits tab): Upcoming / Past links with counts, a pet filter (chips, from 2 pets), cards grouped by month with a note per visit (what happens next, who moved or cancelled it), Past 25 a page; an original cancelled by a reschedule is left out (its new visit says "Was …"). Slice 8b-7a | `complete` |
+| Visit detail for every status with a coloured banner (waiting, confirmed, time passed, done, declined, cancelled by the clinic or by you, moved, missed), the clinic's own message for a cancel or decline, links to the vet's notes and the Unpaid/Paid bill, and the buttons for that state. Slice 8b-7a | `complete` |
+| Cancel sheet on the visit page: reasons as radio cards, a "Tell us a little more" box for Other, the orange late note within 24 hours (with the clinic phone), POST only; errors and success come back to the visit page as a flash. Slice 8b-7a | `complete` |
 
 ### 3.3 Appointment Management (Admin)
 | Feature | Status |
