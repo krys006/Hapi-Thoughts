@@ -16,7 +16,7 @@ from django.core import mail
 from django.core.cache import cache
 from django.db import connection
 from django.template import Context, Template, engines
-from django.template.loader import get_template, render_to_string
+from django.template.loader import get_template
 from django.test import (
     Client,
     RequestFactory,
@@ -820,10 +820,9 @@ class LogoutPostTests(_LoggedInBase):
         self.assertIn("_auth_user_id", client.session)
 
     def test_every_logout_control_is_a_post_form_with_a_csrf_token(self):
-        """The admin sidebar (every admin page) and the owner sidebar
-        (base_dashboard.html, every owner page still on it). The owner
-        dashboard and My Pets moved to layouts/owner.html in 8b-4, where the
-        only Log out is the sheet on the Account page (OwnerAccountHubTests)."""
+        """The admin sidebar (every admin page). Owner pages are on
+        layouts/owner.html, where the only Log out is the sheet on the Account
+        page (OwnerAccountHubTests)."""
         logout_url = reverse("logout")
         form = re.compile(
             rf'<form method="post" action="{logout_url}">\s*'
@@ -840,14 +839,6 @@ class LogoutPostTests(_LoggedInBase):
                     html = self.client.get(reverse(name)).content.decode()
                     self.assertRegex(html, form)
                     self.assertNotIn(f'href="{logout_url}"', html)
-        # 8b-9b, re-anchored: the health library and Clinic info were the last
-        # owner pages on base_dashboard.html, so the same check now runs on
-        # the owner sidebar partial itself, rendered for a real owner request
-        self.client.force_login(self.owner_user)
-        request = self.client.get(reverse("owner_account")).wsgi_request
-        html = render_to_string("shared/sidebar_owner.html", request=request)
-        self.assertRegex(html, form)
-        self.assertNotIn(f'href="{logout_url}"', html)
 
     def test_owner_dashboard_and_my_pets_have_no_get_link_to_logout(self):
         """Both moved to layouts/owner.html in 8b-4: their only Log out is the
@@ -867,15 +858,6 @@ class LogoutPostTests(_LoggedInBase):
             r'(?s)<button type="submit" class="flex min-h-11 w-full items-center gap-3 '
             r"rounded-lg px-3 text-left text-base text-gray-800 "
             r'hover:bg-violet-200/70">.*?Log out</button>',
-        )
-        self.client.force_login(self.owner_user)
-        # (8b-4, re-anchored: the owner dashboard has no sidebar now, so the
-        # same check runs on a page that is still on it; 8b-9b: no owner page
-        # is on it any more, so it runs on the owner sidebar partial itself)
-        request = self.client.get(reverse("owner_account")).wsgi_request
-        html = render_to_string("shared/sidebar_owner.html", request=request)
-        self.assertIn(
-            '<button type="submit" class="owner-sidebar-logout">Logout</button>', html
         )
 
 

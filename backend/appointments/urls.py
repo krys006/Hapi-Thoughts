@@ -133,10 +133,4 @@ urlpatterns = [
         views.owner_appointment_reschedule,
         name="owner_appointment_reschedule",
     ),
-    # ── HTMX — Slot loader (owner) ────────────────────────────────────────
-    path(
-        "owner/appointments/slots/",
-        views.owner_get_slots,
-        name="owner_get_slots",
-    ),
 ]

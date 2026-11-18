@@ -18,7 +18,7 @@ from django.templatetags.static import static
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
-from django.urls import reverse
+from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
@@ -1696,14 +1696,6 @@ class OwnerSameDayCutoffTests(FrozenNowTestBase):
             with self.subTest(day=day):
                 self.assertEqual(self._hours(get_available_slots(day)), hours)
                 self._assert_is_slot_available_agrees(day)
-
-    def test_owner_slot_view_uses_the_owner_rules(self):
-        self.client.force_login(self.owner.user)
-        response = self.client.get(
-            reverse("owner_get_slots"), {"date": WALK_IN_DAY.isoformat()}
-        )
-        self.assertContains(response, 'value="10:00:00"')
-        self.assertNotContains(response, 'value="09:00:00"')
 
     def _book(self, hour):
         # Slice 8b-6: the booking is three steps now (was one POST)
@@ -8758,3 +8750,25 @@ class OwnerClinicInfoPageTests(AppointmentTestBase):
             with self.subTest(blocked=count):
                 with self.assertNumQueries(self.PAGE_QUERIES):
                     self.client.get(self.url)
+
+
+class RemovedOwnerUrlsTests(AppointmentTestBase):
+    """Slice 8b-10a: the owner URLs removed in the cleanup are gone."""
+
+    REMOVED = (
+        ("owner_get_slots", [], "/owner/appointments/slots/"),
+        ("owner_dashboard_refresh", [], "/owner/dashboard/refresh/"),
+        ("notification_mark_read", [1], "/notifications/1/read/"),
+    )
+
+    def test_the_names_no_longer_reverse(self):
+        for name, args, _path in self.REMOVED:
+            with self.subTest(name=name):
+                with self.assertRaises(NoReverseMatch):
+                    reverse(name, args=args)
+
+    def test_the_old_paths_are_404_for_a_logged_in_owner(self):
+        self.client.force_login(self.owner.user)
+        for name, _args, path in self.REMOVED:
+            with self.subTest(name=name):
+                self.assertEqual(self.client.get(path).status_code, 404)

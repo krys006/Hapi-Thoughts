@@ -138,7 +138,7 @@ def _get_owner_dashboard_context(request):
     """
     Builds the context for the pet owner dashboard: owner_dashboard_context
     (the new keys), the owner (for the greeting), and the old keys the tests
-    still read (the old page and its refresh partial are unused since 8b-4).
+    still read (no template reads them since 8b-4).
     The old upcoming_appointments is the next visit and the ones after it
     (Pending or Confirmed only, so no Completed or No show visit shows).
     """
@@ -309,22 +309,6 @@ def owner_dashboard(request):
 
     context = _get_owner_dashboard_context(request)
     return render(request, "owner/dashboard/index.html", context)
-
-
-@login_required
-@owner_profile_required
-def owner_dashboard_partial(request):
-    """
-    Returns the owner dashboard widgets block only.
-    Not polled any more (Slice 8a-2b, decision 13): nothing calls it now.
-    """
-    if request.user.role != "pet_owner":
-        return redirect("admin_dashboard")
-    if not request.user.is_onboarded:
-        return redirect("owner_onboarding")
-
-    context = _get_owner_dashboard_context(request)
-    return render(request, "owner/dashboard/_dashboard_partial.html", context)
 
 
 @login_required

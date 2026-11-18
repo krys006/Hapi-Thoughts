@@ -2,11 +2,9 @@ import re
 from datetime import date, datetime, time, timedelta
 from datetime import timezone as dt_timezone
 from decimal import Decimal
-from pathlib import Path
 from unittest.mock import patch
 
 from allauth.socialaccount.models import SocialAccount
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
 from django.core import mail
@@ -4988,23 +4986,6 @@ class PetDetailPageTests(TestCase):
 
 # ─── Slice 4b-4: pet form (species / breed dropdowns) ────────────────────────
 
-SHARED_SPECIES_JS = (
-    Path(settings.BASE_DIR) / "static" / "js" / "shared" / "pet_species_breed.js"
-)
-
-
-def _js_species_lists():
-    """PET_SPECIES_OPTIONS and PET_BREEDS_BY_SPECIES read from the shared JS."""
-    text = SHARED_SPECIES_JS.read_text(encoding="utf-8")
-    species_block = re.search(r"PET_SPECIES_OPTIONS = \[(.*?)\];", text, re.S)
-    species = re.findall(r'"([^"]*)"', species_block.group(1))
-    breeds_block = re.search(r"PET_BREEDS_BY_SPECIES = \{(.*?)\n\};", text, re.S)
-    breeds = {
-        name: re.findall(r'"([^"]*)"', items)
-        for name, items in re.findall(r"(\w+): \[(.*?)\]", breeds_block.group(1), re.S)
-    }
-    return species, breeds
-
 
 def _select(html, name):
     """The <select name=…> tag and its (value, label) options."""
@@ -5027,13 +5008,6 @@ def _wrapper_hidden(html, attr):
 
 class SpeciesBreedListTests(SimpleTestCase):
     """pets/utils.py: the species / breed lists and their helpers."""
-
-    def test_lists_match_the_shared_js(self):
-        species, breeds = _js_species_lists()
-        self.assertEqual(species_options(), species)
-        self.assertEqual(list(PET_BREEDS_BY_SPECIES), list(breeds))
-        self.assertEqual(PET_BREEDS_BY_SPECIES, breeds)
-        self.assertNotIn("Other", species_options())
 
     def test_species_match_ignores_case_and_spaces(self):
         self.assertEqual(match_species("dog"), "Dog")

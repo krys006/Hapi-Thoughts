@@ -435,8 +435,8 @@ class TopbarSearchTests(ShellTestBase):
 
 
 class LegacyLayerRetiredTests(ShellTestBase):
-    """Slice 7b-5: admin pages have no legacy CSS layer and no shared modal;
-    owner pages keep shared/modals.html."""
+    """Slice 7b-5: admin pages have no legacy CSS layer and no shared modal
+    (8b-10a: shared/modals.html is deleted, so no page has it)."""
 
     def test_admin_pages_have_no_legacy_layer_or_shared_modal(self):
         self.client.force_login(self.admin)
@@ -456,17 +456,6 @@ class LegacyLayerRetiredTests(ShellTestBase):
         for word in ("legacy_css", "layer(legacy)", "shared/modals.html"):
             with self.subTest(word=word):
                 self.assertNotIn(word, source)
-
-    def test_owner_page_still_includes_shared_modals(self):
-        # 8b-9b, re-anchored: no owner page is on base_dashboard.html any more,
-        # so the same checks run on that base template rendered for an owner
-        self.client.force_login(self.owner.user)
-        request = self.client.get(reverse("clinic_info")).wsgi_request
-        html = render_to_string("base_dashboard.html", request=request)
-        base = engines["django"].get_template("base_dashboard.html")
-        self.assertIn("shared/modals.html", base.template.source)
-        self.assertIn('id="confirm-modal-overlay"', html)
-        self.assertIn("openConfirmModal", html)
 
 
 class OwnerSearchReceiptTests(ShellTestBase):
@@ -1903,7 +1892,8 @@ class OwnerDashboardContextTests(DashboardV5TestBase):
     def test_the_page_has_no_polling_attributes(self, _now):
         html = self._page().content.decode()
         self.assertNotIn("every 30s", html)
-        self.assertNotIn(reverse("owner_dashboard_refresh"), html)
+        # 8b-10a: the URL is gone, so the path is written out
+        self.assertNotIn("/owner/dashboard/refresh/", html)
         # (8b-4: re-anchored to the whole page; the old widgets block and its
         # "owner-dashboard-content" div are gone, and so is the click-driven
         # Recent Notifications button)
@@ -2052,7 +2042,8 @@ class OwnerDashboardPageTests(DashboardV5TestBase):
     def test_no_polling_or_htmx_refresh_on_the_page(self, _now):
         html = self._html()
         self.assertNotRegex(html, r"hx-(get|post|trigger|swap)=")
-        self.assertNotIn(reverse("owner_dashboard_refresh"), html)
+        # 8b-10a: the URL is gone, so the path is written out
+        self.assertNotIn("/owner/dashboard/refresh/", html)
 
     # next visit
 

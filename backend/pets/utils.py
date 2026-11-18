@@ -97,9 +97,9 @@ def barangay_choices(town):
 
 # ── Pet species and breeds ───────────────────────────────────────────────────
 
-# Keep in sync with PET_SPECIES_OPTIONS / PET_BREEDS_BY_SPECIES in
-# static/js/shared/pet_species_breed.js (the owner-side pet forms use it).
-# Same names, same order. "Other" is not a species; the forms add it.
+# The species / breed lists for the pet forms (no JS copy any more; the
+# forms render the dropdowns on the server). "Other" is not a species; the
+# forms add it.
 PET_BREEDS_BY_SPECIES = {
     "Dog": [
         "Aspin (Native)",

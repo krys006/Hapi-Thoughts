@@ -562,35 +562,6 @@ def owner_appointment_reschedule(request, pk):
     return render(request, "owner/visits/reschedule.html", context)
 
 
-@login_required
-def owner_get_slots(request):
-    """
-    HTMX view — returns available time slots for a selected date.
-    Called when the pet owner picks a date on the booking form.
-    Returns a partial HTML snippet of <option> elements.
-    """
-    if request.user.role != "pet_owner":
-        return redirect("admin_dashboard")
-
-    import datetime
-
-    date_str = request.GET.get("date", "")
-    slots = []
-
-    if date_str:
-        try:
-            date = datetime.date.fromisoformat(date_str)
-            slots = get_available_slots(date)
-        except ValueError:
-            pass
-
-    return render(
-        request,
-        "owner/appointments/_slot_options.html",
-        {"slots": slots},
-    )
-
-
 # ── Admin — Appointments ──────────────────────────────────────────────────────
 
 # Longest clinic message kept when declining a request (longer is trimmed).

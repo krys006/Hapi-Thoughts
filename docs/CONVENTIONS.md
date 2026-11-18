@@ -108,19 +108,17 @@ views/
 All templates live in the top-level `backend/templates/` folder.
 Never use per-app template folders.
 
-- `layouts/owner.html` is the new base for logged-in owner pages (§10, "Owner
-  layout"). Only the Account page uses it so far (Slice 8b-1).
-- `base_dashboard.html` is still the base for every other logged-in owner page
-  (header, bell, sidebar, flash messages) until its own 8b batch moves it. No
-  admin page uses it.
+- `layouts/owner.html` is the base for every logged-in owner page (§10, "Owner
+  layout"). The old `base_dashboard.html` and `base.html` are dead (8b-10a):
+  no page extends them, and they are listed for deletion in HANDOFF §5.
 - `layouts/admin.html` is the base for every admin page (see §10). Every
   admin page is redesigned: there is no `legacy_css` block, no `legacy`
   cascade layer and no `static/css/admin/` stylesheet to import (removed in
   Slice 7b-5).
 - `layouts/auth.html` is the base for the admin login: a standalone card
   with no sidebar (see §10).
-- `base.html` is the base for standalone auth pages (login, register,
-  password reset, email verification, onboarding).
+- `layouts/owner_auth.html` is the base for the owner auth pages (login,
+  register, password reset, email verification).
 - HTMX partials are prefixed with `_` and never extend a base template.
 - `components/` holds include-only building blocks for the new admin UI
   (see §11). They have no `_` prefix (that prefix means "HTMX partial")
@@ -133,8 +131,6 @@ Never use per-app template folders.
 
 ```
 templates/
-├── base.html                         ← Auth/standalone page base
-├── base_dashboard.html               ← Dashboard base (owner pages)
 ├── components/                       ← Include-only UI building blocks (§11)
 │   ├── icon.html
 │   ├── pet_avatar.html
@@ -151,12 +147,10 @@ templates/
 │   ├── auth.html
 │   ├── bell_count.html
 │   ├── owner.html                    ← owner layout (§10)
-│   └── owner_parts/                  ← tabs.html, tab_link.html, back_bar.html
+│   ├── owner_auth.html               ← owner auth pages
+│   └── owner_parts/                  ← tabs.html, tab_link.html, back_bar.html, save_bar.html
 ├── shared/                           ← Used by both roles
-│   ├── clinic_info.html
-│   ├── modals.html
 │   ├── sidebar_admin.html
-│   ├── sidebar_owner.html
 │   ├── _global_search_results.html
 │   ├── _owner_search_results.html
 │   ├── billing/
@@ -872,11 +866,12 @@ class AppointmentBookingForm(forms.ModelForm):
 ### Base templates
 | Base | Used by | What it provides |
 |---|---|---|
-| `layouts/owner.html` | The owner Account page (more owner pages move over in 8b-2 to 8b-10) | See "Owner layout" below |
+| `layouts/owner.html` | Every logged-in owner page (since 8b-9b) | See "Owner layout" below |
 | `layouts/admin.html` | Every admin page (e.g. `admin/dashboard/index.html`, `admin/health/article_list.html`). No admin page has a legacy layer | Sidebar with count badges and logout, top bar with search ("Find a pet or owner"; the appointments, pet owners, pets, vaccinations and medical records lists and the deletion requests page put their own search there) and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/shared/dialogs.js`, `static/js/shared/flash.js`, `static/js/admin/auto_submit.js`, CSRF + `X-Admin-Layout` via `hx-headers`. No confirm modal: confirmations are native `<dialog>`s (see Dialogs) |
 | `layouts/auth.html` | `admin/login.html` | Admin login: standalone card on a violet background, `app.css`, no HTMX |
-| `base_dashboard.html` | Logged-in owner pages not yet moved to `layouts/owner.html` (e.g. `owner/pets/list.html`; `shared/clinic_info.html` for owners, which gets its base from the view) | Header with search and bell, owner sidebar, flash messages, Tailwind + HTMX, CSRF header for HTMX, confirm modal (`shared/modals.html`, owners only) |
-| `base.html` | Standalone auth pages (e.g. `owner/login.html`, `owner/register.html`, password reset, `owner/onboarding/step1.html`) | Bare page with Tailwind + HTMX, no header or sidebar |
+| `layouts/owner_auth.html` | The owner auth pages (`owner/login.html`, `owner/register.html`, password reset, the `socialaccount/` pages) | Standalone page, compiled `app.css`, `js/shared/flash.js`, `js/shared/password_toggle.js` |
+
+No page extends `base_dashboard.html` or `base.html` any more (8b-10a); both are listed for deletion in HANDOFF §5.
 
 `layouts/admin.html` shell sizes: Sidebar 224 px (w-56). The sidebar's logo
 block and the top bar are both h-16, so the nav starts level with the page
@@ -914,23 +909,7 @@ that needs styles uses Tailwind classes.
 {% block content %}{% endblock %}     ← the card, centred inside <main>
 {% block extra_js %}{% endblock %}    ← page JS, end of <body>
 
-<!-- base_dashboard.html -->
-{% block title %}Hapi Vet{% endblock %}
-{% block extra_css %}{% endblock %}   ← page CSS link, in <head>
-{% block content %}{% endblock %}     ← page body, inside <main>
-{% block extra_js %}{% endblock %}    ← page JS, end of <body>; the owner
-                                         receipt page puts the print partial
-                                         here too, so it is a direct child of
-                                         <body> (since 6a-4)
-
-<!-- base.html -->
-{% block title %}Hapi Vet{% endblock %}
-{% block tailwind %}…{% endblock %}   ← Tailwind CDN script (overridable)
-{% block htmx %}…{% endblock %}       ← HTMX script (overridable)
-{% block preload_assets %}{% endblock %}
-{% block extra_css %}{% endblock %}
-{% block content %}{% endblock %}
-{% block extra_js %}{% endblock %}
+<!-- layouts/owner.html: see "Owner layout" below -->
 ```
 
 ### Owner layout (`layouts/owner.html`, since Slice 8b-1)
@@ -1138,10 +1117,9 @@ Admin dates are in Manila time (`timezone.localdate()`).
 ### Two setups during the admin UI overhaul
 | Pages | Tailwind | Loaded by |
 |---|---|---|
-| Every admin page (since Slice 1.5; no legacy layer since Slice 7b-5), the admin login, the owner Account page (8b-1) and the error pages | Compiled `static/css/app.css` (Tailwind v4.3.3, standalone CLI) | `layouts/admin.html`, `layouts/auth.html`, `layouts/owner.html`, `404.html` / `403.html` / `500.html` |
-| Everything else (other owner pages, owner auth pages) | Play CDN `https://cdn.tailwindcss.com` | `base.html`, `base_dashboard.html` |
+| Every admin page (since Slice 1.5; no legacy layer since Slice 7b-5), the admin login, every owner page and the error pages | Compiled `static/css/app.css` (Tailwind v4.3.3, standalone CLI) | `layouts/admin.html`, `layouts/auth.html`, `layouts/owner.html`, `layouts/owner_auth.html`, `404.html` / `403.html` / `500.html` |
 
-- Never load the CDN script in the new layout, and never load `app.css` from the old bases.
+- No layout loads the Tailwind CDN script (the old `base.html` and `base_dashboard.html` did; both are dead since 8b-10a).
 - A migrated page loads no file from `static/css/admin/`.
 
 ### Building app.css

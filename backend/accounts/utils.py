@@ -45,7 +45,7 @@ def owner_profile_required(view):
 # for this mapping. owner_notifications (the bell's page) is on purpose in no
 # tab, and so is any name not listed.
 OWNER_TABS = {
-    "home": ["owner_dashboard", "owner_dashboard_refresh"],
+    "home": ["owner_dashboard"],
     "pets": [
         "owner_pet_list",
         "owner_pet_add",
@@ -66,7 +66,6 @@ OWNER_TABS = {
         "owner_appointment_detail",
         "owner_appointment_cancel",
         "owner_appointment_reschedule",
-        "owner_get_slots",
     ],
     "bills": ["owner_billing_list", "owner_receipt_detail"],
     "account": [

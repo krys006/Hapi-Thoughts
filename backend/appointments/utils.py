@@ -494,29 +494,6 @@ def slot_is_booked(date, time):
     )
 
 
-def slot_taken_message(time):
-    """The owner's error on the time field when the slot went meanwhile."""
-    return (
-        f"{date_format(time, 'g:i A')} was just taken. Someone else booked "
-        "it a moment ago. Please pick another time."
-    )
-
-
-def form_with_taken_time(form_class, args, post, time):
-    """
-    The same owner form, bound to the POST with every value but the time
-    (a fresh time list for the date, nothing picked), and the "just taken"
-    error on the time field. args are the form's leading arguments.
-    """
-    data = post.copy()
-    data["time"] = ""
-    form = form_class(*args, data)
-    form.fields["time"].required = False
-    form.is_valid()
-    form.add_error("time", slot_taken_message(time))
-    return form
-
-
 def create_owner_booking(owner, data):
     """
     Owner booking: lock, check the slot again with the owner rules, save

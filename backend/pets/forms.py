@@ -132,82 +132,6 @@ ContactLinkFormSet = formset_factory(
 )
 
 
-class PetForm(forms.ModelForm):
-    class Meta:
-        model = Pet
-        fields = [
-            "name",
-            "species",
-            "breed",
-            "color",
-            "gender",
-            "date_of_birth",
-            "weight",
-            "registration_number",
-            "photo",
-        ]
-        widgets = {
-            "name": forms.TextInput(attrs={"placeholder": "Pet's name"}),
-            # species and breed are plain text inputs; a cascading
-            # dropdown is planned for later.
-            "species": forms.TextInput(attrs={"placeholder": "e.g. Dog, Cat, Bird"}),
-            "breed": forms.TextInput(
-                attrs={"placeholder": "e.g. Aspin, Persian (optional)"}
-            ),
-            "color": forms.TextInput(
-                attrs={"placeholder": "e.g. Brown and white (optional)"}
-            ),
-            "gender": forms.Select(),
-            "date_of_birth": forms.DateInput(
-                attrs={"type": "date"},
-                format="%Y-%m-%d",
-            ),
-            "weight": forms.NumberInput(
-                attrs={"placeholder": "Weight in kg (optional)", "step": "0.01"}
-            ),
-            "registration_number": forms.TextInput(
-                attrs={"placeholder": "Government-issued number (optional)"}
-            ),
-        }
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # date_of_birth is optional in the model — reflect that in the form
-        self.fields["date_of_birth"].required = False
-        # Explicitly mark optional fields so the template can label them clearly
-        self.fields["breed"].required = False
-        self.fields["color"].required = False
-        self.fields["weight"].required = False
-        self.fields["registration_number"].required = False
-        self.fields["photo"].required = False
-
-    def clean_name(self):
-        value = self.cleaned_data.get("name", "").strip()
-        if not value:
-            raise forms.ValidationError("Pet name is required.")
-        return value
-
-    def clean_species(self):
-        value = self.cleaned_data.get("species", "").strip()
-        if not value:
-            raise forms.ValidationError("Species is required.")
-        return value
-
-    def clean_weight(self):
-        weight = self.cleaned_data.get("weight")
-        if weight is not None and weight <= 0:
-            raise forms.ValidationError("Weight must be greater than 0.")
-        return weight
-
-    def clean_date_of_birth(self):
-        from django.utils import timezone
-
-        dob = self.cleaned_data.get("date_of_birth")
-        if dob and dob > timezone.localdate():
-            raise forms.ValidationError("Date of birth cannot be in the future.")
-        return dob
-
-
 class OwnerPetEditForm(ErrorCountMixin, forms.ModelForm):
     """
     Owner pet edit: name, breed, color, weight and photo only. Species,
@@ -324,36 +248,6 @@ class OwnerPetEditForm(ErrorCountMixin, forms.ModelForm):
             else:
                 cleaned["breed"] = breed
         return cleaned
-
-
-class PetDeletionRequestForm(forms.ModelForm):
-    class Meta:
-        model = PetDeletionRequest
-        fields = ["reason", "reason_detail"]
-        widgets = {
-            "reason": forms.Select(),
-            "reason_detail": forms.Textarea(
-                attrs={
-                    "rows": 3,
-                    "placeholder": (
-                        "Please describe the reason (required if Other is selected)"
-                    ),
-                }
-            ),
-        }
-
-    def clean(self):
-        cleaned_data = super().clean()
-        reason = cleaned_data.get("reason")
-        reason_detail = cleaned_data.get("reason_detail", "").strip()
-
-        # If reason is OTHER, detail is required
-        if reason == PetDeletionRequest.OTHER and not reason_detail:
-            raise forms.ValidationError(
-                "Please provide details when selecting Other as the reason."
-            )
-
-        return cleaned_data
 
 
 class AdminPetArchiveForm(forms.Form):

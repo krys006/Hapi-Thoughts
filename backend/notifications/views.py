@@ -16,11 +16,8 @@ from django.contrib import messages
 
 
 def _panel_template(request):
-    """New-layout admin pages get the new panel; everyone else keeps the shared one.
-
-    Admin pages still on base_dashboard.html don't send X-Admin-Layout, so
-    they keep the old panel until their slice is migrated.
-    """
+    """Admin pages (they send X-Admin-Layout) get the admin panel; everyone
+    else gets the shared one."""
     if request.user.is_admin and request.headers.get("X-Admin-Layout") == "1":
         return "admin/notifications/_panel.html"
     return "shared/notifications/_panel.html"
@@ -42,30 +39,6 @@ def notification_panel(request):
         request,
         _panel_template(request),
         {"notifications": notifications},
-    )
-
-
-@login_required
-def notification_mark_read(request, pk):
-    """
-    Marks a single notification as read.
-    Called via HTMX POST when a notification row is clicked.
-    Returns the updated notification row partial.
-    """
-    if request.method != "POST":
-        return HttpResponse(status=405)
-
-    notification = get_object_or_404(
-        Notification,
-        pk=pk,
-        recipient=request.user,
-    )
-    notification.mark_as_read()
-
-    return render(
-        request,
-        "shared/notifications/_notification_row.html",
-        {"notification": notification},
     )
 
 
