@@ -1,0 +1,9 @@
+{% comment %}
+  Previous / Next under the list. Needs prev_page_query, next_page_query and
+  page_obj from owner_notifications_context.
+{% endcomment %}
+<nav aria-label="Pages" class="mt-5 flex items-center justify-between gap-3">
+  {% if prev_page_query %}<a href="{{ prev_page_query }}" class="btn btn-outline min-h-11">Previous</a>{% else %}<span></span>{% endif %}
+  <span class="text-base text-gray-700">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+  {% if next_page_query %}<a href="{{ next_page_query }}" class="btn btn-outline min-h-11">Next</a>{% else %}<span></span>{% endif %}
+</nav>

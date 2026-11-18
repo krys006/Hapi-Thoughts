@@ -107,7 +107,7 @@ Phase 7 — Dashboards & Polish
 | View own profile | `complete` |
 | Edit profile (name, address, contact number) | `complete` |
 | Email is changed only by the clinic (My details shows it read-only: "To change your email, contact the clinic."; the profile form has no email field and a posted email changes nothing) | `complete` (8a-2c; restyled in 8b-9) |
-| Account hub: name, email, links to My details, Email notifications, Clinic info and Health library, and a POST Log out form (`/owner/account/`) | `planned` — backend and plain page done in 8a-2c; the page design is in 8b-9 |
+| Account hub: name, email, links to My details, Email notifications, Clinic info and Health library, and a POST Log out form (`/owner/account/`) | `complete` (8b-9a) |
 | Edit contact links (Facebook, other socials) | `complete` |
 | Profile photo upload (optional) | `complete` |
 | Auto-generated initials avatar if no photo uploaded | `complete` |
@@ -156,7 +156,7 @@ Phase 7 — Dashboards & Polish
 | Add owner without booking a visit (owners list; no pet, no appointment; set-password link sent if an email is given) | `complete` |
 | Resend the set-password link: "Send the link again" on the owner page, asks first (owner has an email and has never set up the account; Google sign-ups count as set up) | `complete` |
 | Edit pet owner details | `complete` |
-| Address: Marinduque towns and barangays from dropdowns (PSA list); other provinces typed (Add owner and Edit details, and the owner's onboarding step 1 since 8b-3 (there the address is required); the owner's profile edit page and the walk-in New owner page are still typed) | `complete` |
+| Address: Marinduque towns and barangays from dropdowns (PSA list); other provinces typed (Add owner and Edit details, and the owner's onboarding step 1 since 8b-3 (there the address is required); the owner's My details page since 8b-9a (also required); the walk-in New owner page is still typed) | `complete` |
 | Archive pet owner account (soft delete; asks first, and warns about visits still to come, which archiving doesn't cancel) | `complete` |
 | Restore archived pet owner account (asks first) | `complete` |
 | View all registered pets (tabs Active / Archived / Deletion requests, with counts; a pet of an archived owner is on Archived; split rows: the pet with its tags, then the owner with a link and phone number; 25 per page) | `complete` |
@@ -428,7 +428,7 @@ PENDING or CONFIRMED → CANCELLED
 | In-app notifications always on regardless of email toggles | `complete` |
 | Admin can clear notifications (all, read only) | `complete` |
 | Owner notifications page `/owner/notifications/` (backend and a plain page; Slice 8a-2b): newest first, 25 a page, grouped Today / Earlier by Manila date, unread flagged, one link per row through `notification_open` (no link when there is nowhere to go), "Mark all as read" (`return_to=page`), "See all notifications" link in the bell panel | `complete` |
-| Owner notifications page design (cards with type icon, violet unread, bell badge capped at 9+; `owner_notifications_v1.html`) | `planned` — page in 8b-9 |
+| Owner notifications page design (cards with type icon, violet unread, bell badge capped at 9+; `owner_notifications_v1.html`) | `complete` (8b-9a) |
 | Owner notifications use a short title and a compact message ("Visit confirmed" / "Bantay · Mon, Nov 2 at 3:00 PM"); the email keeps the full sentence; old rows keep their long text (decision 9) | `complete` |
 
 ### 6.2 Email Notifications (Gmail SMTP)
@@ -599,6 +599,7 @@ These features will NOT be built in v1 under any circumstances:
 | Keep the original visit until an owner reschedule is approved | Today the current visit is cancelled and a new PENDING request is made in one transaction |
 | Limit open requests per owner | Not in v1 |
 | Owner email change | Today only the clinic changes an owner's email (decision 3); My details shows it read-only |
+| Owner changes their password while logged in | No page for it yet (the Account hub has no "Sign-in and password" row); needs a design and a page for password owners, and a "set a password" case for Google-only owners |
 | Late-cancellation approval | Also planned in 3.2 |
 | Owner calendar page | Admin calendar page is planned separately |
 | Split dashboard loading | Load dashboard parts separately (`owner_dashboard_loading_v1.html`) only if real users find the single page slow |

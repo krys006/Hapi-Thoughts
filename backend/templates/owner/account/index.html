@@ -4,27 +4,34 @@
 
 {% block content %}
 
-{# The account hub. Plain markup: the design comes with 8b-9. #}
-<section>
+<div class="space-y-6">
+  <h1 class="text-2xl font-bold text-gray-900">Account</h1>
 
-  <h1>Account</h1>
+  {# The profile card: one link to My details #}
+  <a href="{% url 'owner_profile_edit' %}" class="flex items-center gap-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm hover:border-violet-300">{% include "components/owner_avatar.html" with owner=owner size="lg" %}<span class="min-w-0 flex-1"><span class="block text-xl font-bold text-gray-900">{{ owner.full_name }}</span><span class="block truncate text-base text-gray-600">{{ user.email }}</span><span class="mt-1 inline-flex items-center gap-1 text-base font-medium text-blue-600">Edit my details{% include "components/icon.html" with name="chevron-right" class="size-4 shrink-0" %}</span></span></a>
 
-  <p><strong>{{ owner.full_name }}</strong></p>
-  <p>{{ user.email }}</p>
+  {# No Sign-in and password row: there is no change-password page for owners yet #}
+  <section aria-labelledby="account-mine">
+    <h2 id="account-mine" class="mb-2 px-1 text-base font-semibold text-gray-600">My account</h2>
+    <div class="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+      {% include "owner/account_parts/link_row.html" with url_name="owner_profile_edit" icon="user" label="My details" sub="Name, phone, address, photo" %}
+      {% include "owner/account_parts/link_row.html" with url_name="owner_notification_preferences" icon="bell" label="Email notifications" sub="Which emails you get, and when" %}
+    </div>
+  </section>
 
-  <nav aria-label="Account">
-    <ul>
-      <li><a href="{% url 'owner_profile_edit' %}">My details</a></li>
-      <li><a href="{% url 'owner_notification_preferences' %}">Email notifications</a></li>
-      <li><a href="{% url 'clinic_info' %}">Clinic info</a></li>
-      <li><a href="{% url 'owner_health_article_list' %}">Health library</a></li>
-    </ul>
-  </nav>
+  <section aria-labelledby="account-clinic">
+    <h2 id="account-clinic" class="mb-2 px-1 text-base font-semibold text-gray-600">The clinic</h2>
+    <div class="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+      {% include "owner/account_parts/link_row.html" with url_name="clinic_info" icon="building-2" label="Clinic info" sub="Hours, phone, and your vet" %}
+      {% include "owner/account_parts/link_row.html" with url_name="owner_health_article_list" icon="book-open" label="Health library" sub="Common pet illnesses and care" %}
+    </div>
+  </section>
 
   {# Logging out asks first: this button opens the sheet, whose action is a POST form #}
-  <button type="button" class="btn btn-outline" data-dialog-open="logout-sheet">Log out</button>
-
-</section>
+  <div class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+    <button type="button" class="flex min-h-16 w-full cursor-pointer items-center gap-4 px-4 py-3 text-left hover:bg-gray-50" data-dialog-open="logout-sheet">{% include "components/icon.html" with name="log-out" class="size-10 shrink-0 rounded-xl bg-red-50 p-2.5 text-red-700" %}<span class="flex-1 text-base font-semibold text-red-700">Log out</span></button>
+  </div>
+</div>
 
 {% url 'logout' as logout_url %}
 {% include "components/bottom_sheet.html" with id="logout-sheet" title="Log out of Hapi Tutz?" text="You'll need your email and password (or Google) to sign in again." action_url=logout_url action_label="Yes, log out" action_icon="log-out" keep_label="Stay logged in" %}

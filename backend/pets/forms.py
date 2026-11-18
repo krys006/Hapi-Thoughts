@@ -34,6 +34,12 @@ class PetOwnerProfileForm(forms.ModelForm):
             "province",
             "profile_photo",
         ]
+        # Plain words for an empty name (also on onboarding step 1 and My
+        # details, which inherit this Meta)
+        error_messages = {
+            "first_name": {"required": "Type your first name."},
+            "last_name": {"required": "Type your last name."},
+        }
         widgets = {
             "first_name": forms.TextInput(attrs={"placeholder": "First name"}),
             "last_name": forms.TextInput(attrs={"placeholder": "Last name"}),
@@ -88,6 +94,13 @@ class ContactLinkForm(forms.ModelForm):
             ),
             "url_or_handle": forms.TextInput(attrs={"placeholder": "URL or username"}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Every row may come back empty. A saved link's row too: emptying it
+        # is how it is removed (save_owner_profile replaces all the links),
+        # and the formset would otherwise ask for a value in it.
+        self.empty_permitted = True
 
     def clean(self):
         cleaned_data = super().clean()
@@ -722,7 +735,8 @@ class OwnerOnboardingForm(ErrorCountMixin, AddressFieldsMixin, PetOwnerProfileFo
     Onboarding step 1: the owner's profile with the address asked for.
     Barangay, town and province are required (the street stays optional);
     the town and barangay come from the PSA list in Marinduque mode. The
-    profile edit page keeps PetOwnerProfileForm (no address rule there yet).
+    mobile number stays optional here; My details (OwnerDetailsForm) asks
+    for it.
     """
 
     address_required = True
@@ -753,6 +767,24 @@ class OwnerOnboardingForm(ErrorCountMixin, AddressFieldsMixin, PetOwnerProfileFo
             ),
             "province": forms.TextInput(attrs={"placeholder": "For example: Batangas"}),
         }
+
+
+class OwnerDetailsForm(OwnerOnboardingForm):
+    """
+    The My details page (Account tab): the onboarding form (same fields,
+    same address rules, no email) with the mobile number required, as in the
+    approved mockup. Onboarding keeps the mobile number optional.
+    """
+
+    class Meta(OwnerOnboardingForm.Meta):
+        error_messages = {
+            **OwnerOnboardingForm.Meta.error_messages,
+            "contact_number": {"required": "Type your mobile number."},
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["contact_number"].required = True
 
 
 class PetBasicsCleanMixin:

@@ -21,10 +21,10 @@ from .forms import (
     AdminPetForm,
     AdminPetOwnerForm,
     ContactLinkFormSet,
+    OwnerDetailsForm,
     OwnerOnboardingForm,
     OwnerPetEditForm,
     OwnerPetForm,
-    PetOwnerProfileForm,
 )
 
 from .models import (
@@ -237,24 +237,11 @@ def _complete_onboarding(request):
 @login_required
 @owner_profile_required
 def owner_profile(request):
-    # Role check
+    """The old read-only profile page: My details replaces it (8b-9a)."""
     guard = _require_pet_owner(request)
     if guard:
         return guard
-
-    pet_owner = request.owner
-    contact_links = pet_owner.contact_links.all()
-    preference = request.user.notification_preference
-
-    return render(
-        request,
-        "owner/profile/index.html",
-        {
-            "pet_owner": pet_owner,
-            "contact_links": contact_links,
-            "preference": preference,
-        },
-    )
+    return redirect("owner_profile_edit")
 
 
 # ---------------------------------------------------------------------------
@@ -265,19 +252,18 @@ def owner_profile(request):
 @login_required
 @owner_profile_required
 def owner_profile_edit(request):
-    # Role check
+    """My details (Account tab): name, mobile, address, photo and contact
+    links of the signed-in owner. The email is shown, never posted."""
     guard = _require_pet_owner(request)
     if guard:
         return guard
 
     pet_owner = request.owner
+    # Read before the form is bound: a posted photo would replace it
+    photo_url = pet_owner.profile_photo.url if pet_owner.profile_photo else ""
 
     if request.method == "POST":
-        profile_form = PetOwnerProfileForm(
-            request.POST,
-            request.FILES,
-            instance=pet_owner,
-        )
+        profile_form = OwnerDetailsForm(request.POST, request.FILES, instance=pet_owner)
         link_formset = ContactLinkFormSet(request.POST, prefix="links")
 
         if profile_form.is_valid() and link_formset.is_valid():
@@ -285,24 +271,18 @@ def owner_profile_edit(request):
             # matched row by row (see save_owner_profile)
             save_owner_profile(profile_form, link_formset, request.user)
 
-            messages.success(request, "Profile updated successfully.")
-            return redirect("owner_profile")
+            messages.success(request, "Your details are saved.")
+            return redirect("owner_account")
 
     else:
-        profile_form = PetOwnerProfileForm(instance=pet_owner)
+        profile_form = OwnerDetailsForm(instance=pet_owner)
         link_formset = ContactLinkFormSet(
             prefix="links", initial=contact_link_initial(pet_owner)
         )
 
-    return render(
-        request,
-        "owner/profile/edit.html",
-        {
-            "profile_form": profile_form,
-            "link_formset": link_formset,
-            "pet_owner": pet_owner,
-        },
-    )
+    context = onboarding_step1_context(profile_form, link_formset)
+    context.update(pet_owner=pet_owner, photo_url=photo_url)
+    return render(request, "owner/profile/edit.html", context)
 
 
 # ---------------------------------------------------------------------------

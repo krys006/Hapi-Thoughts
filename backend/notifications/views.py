@@ -183,16 +183,19 @@ def owner_notifications(request):
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
-    today = timezone.localdate()  # one read of the clock (Manila)
-    context = owner_notifications_context(request.user, request.GET, today)
+    now = timezone.now()  # one read of the clock; the dates are Manila
+    context = owner_notifications_context(
+        request.user, request.GET, timezone.localdate(now), now
+    )
     return render(request, "owner/notifications/list.html", context)
 
 
 @login_required
 def owner_notification_preferences(request):
     """
-    Pet Owner view — update email notification preferences.
-    The NotificationPreference row always exists (created via signal on registration).
+    Pet Owner view — the Email notifications page (Account tab). The
+    NotificationPreference row always exists (created via signal on
+    registration). Saving comes back to the same page with a flash.
     """
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
@@ -203,15 +206,13 @@ def owner_notification_preferences(request):
         form = NotificationPreferenceForm(request.POST, instance=preference)
         if form.is_valid():
             form.save()
-            messages.success(request, "Notification preferences updated.")
-            return redirect("owner_profile")
-        else:
-            messages.error(request, "Please correct the errors below.")
+            messages.success(request, "Your email settings are saved.")
+            return redirect("owner_notification_preferences")
     else:
         form = NotificationPreferenceForm(instance=preference)
 
     return render(
         request,
-        "owner/profile/notification_preferences.html",
+        "owner/notifications/preferences.html",
         {"form": form},
     )

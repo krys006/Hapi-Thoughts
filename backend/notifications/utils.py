@@ -1,5 +1,7 @@
 # notifications/utils.py
 
+import datetime
+
 from django.core.mail import send_mail
 from django.core.paginator import Paginator
 from django.urls import reverse
@@ -225,19 +227,69 @@ def notification_target(notification):
     return None
 
 
+def notification_link_label(notification):
+    """
+    The words at the end of an owner notification card: "See visit", "See
+    bill", "See pet", "Book a visit" (when the target is the booking page),
+    or "Open" for any other target. None when the notification points at
+    nothing: then the card has no label.
+    """
+    target = notification_target(notification)
+    if target is None:
+        return None
+    if target == reverse("owner_book_appointment"):
+        return "Book a visit"
+    if notification.related_appointment_id:
+        return "See visit"
+    if notification.related_billing_id:
+        return "See bill"
+    if notification.related_pet_id:
+        return "See pet"
+    return "Open"
+
+
+def _plural(count, word):
+    return f"{count} {word}{'' if count == 1 else 's'} ago"
+
+
+def notification_when(created_at, now):
+    """
+    How long ago a notification arrived, by the Manila clock: "Just now"
+    (under a minute), "5 minutes ago", "1 hour ago" / "3 hours ago" (the
+    same Manila day), "Yesterday", then the date ("Oct 31", with the year
+    when it isn't this year). Both arguments are aware datetimes; `now`
+    comes from the caller, so this reads no clock.
+    """
+    seconds = (now - created_at).total_seconds()
+    if seconds < 60:
+        return "Just now"
+    today = timezone.localtime(now).date()
+    day = timezone.localtime(created_at).date()
+    if day == today:
+        minutes = int(seconds // 60)
+        if minutes < 60:
+            return _plural(minutes, "minute")
+        return _plural(minutes // 60, "hour")
+    if day == today - datetime.timedelta(days=1):
+        return "Yesterday"
+    return short_day(day, today)
+
+
 # ── Owner notifications page ─────────────────────────────────────────────────
 
 OWNER_NOTIFICATIONS_PAGE_SIZE = 25
 
 
-def owner_notifications_context(user, params, today):
+def owner_notifications_context(user, params, today, now):
     """
     The owner notifications page: the user's notifications, newest first, 25
     a page, split into today's ("Today") and the rest ("Earlier") by Manila
-    date. Each row: notification, title, message, icon, is_unread, target
-    (a notification_open URL, so a click marks it read; None when
-    notification_target is None) and created_at. Also unread_count (all
-    pages) and the pager links. 3 queries however many rows.
+    date. Each row: notification, title, message, icon (the template picks
+    the tile colour from it), is_unread, target (a notification_open URL, so
+    a click marks it read; None when notification_target is None),
+    link_label (None with no target), when ("1 hour ago") and created_at.
+    Also unread_count (all pages) and the pager links. 3 queries however
+    many rows. today and now come from one clock read in the view.
     """
     from appointments.utils import paging_links  # appointments imports this module
 
@@ -258,6 +310,8 @@ def owner_notifications_context(user, params, today):
             "message": notification.message,
             "icon": notification_icon(notification),
             "is_unread": not notification.is_read,
+            "link_label": notification_link_label(notification),
+            "when": notification_when(notification.created_at, now),
             "target": (
                 reverse("notification_open", kwargs={"pk": notification.pk})
                 if opens

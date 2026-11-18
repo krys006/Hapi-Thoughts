@@ -24,6 +24,7 @@ from django.test import (
     TransactionTestCase,
     override_settings,
 )
+from django.test.utils import CaptureQueriesContext
 from django.urls import get_resolver, resolve, reverse
 from django.utils import timezone
 from django.utils.encoding import force_bytes
@@ -832,7 +833,9 @@ class LogoutPostTests(_LoggedInBase):
         pages = {
             self.admin: ["admin_dashboard", "admin_clinic_settings", "admin_pet_list"],
             self.owner_user: [
-                "owner_profile",
+                # 8b-9a, re-anchored: the profile page moved to the owner layout
+                # (owner_profile redirects), the health library is still on it
+                "owner_health_article_list",
                 "clinic_info",
             ],
         }
@@ -865,8 +868,9 @@ class LogoutPostTests(_LoggedInBase):
         )
         self.client.force_login(self.owner_user)
         # (8b-4, re-anchored: the owner dashboard has no sidebar now, so the
-        # same check runs on the profile page, which is still on it)
-        html = self.client.get(reverse("owner_profile")).content.decode()
+        # same check runs on a page that is still on it; 8b-9a: the health
+        # library, as the profile page has moved to the owner layout)
+        html = self.client.get(reverse("owner_health_article_list")).content.decode()
         self.assertIn(
             '<button type="submit" class="owner-sidebar-logout">Logout</button>', html
         )
@@ -972,9 +976,13 @@ class OwnerAccountHubTests(_LoggedInBase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "owner/account/index.html")
         self.assertEqual(response.context["owner"].user, self.owner_user)
-        self.assertContains(response, "<h1>Account</h1>", html=True)
+        # 8b-9a: the h1 and the link rows have classes and inner spans now
+        self.assertContains(
+            response, '<h1 class="text-2xl font-bold text-gray-900">Account</h1>'
+        )
         self.assertContains(response, "Ana Cruz")
         self.assertContains(response, "ana@example.com")
+        html = response.content.decode()
         for name, text in (
             ("owner_profile_edit", "My details"),
             ("owner_notification_preferences", "Email notifications"),
@@ -982,19 +990,19 @@ class OwnerAccountHubTests(_LoggedInBase):
             ("owner_health_article_list", "Health library"),
         ):
             with self.subTest(link=name):
-                self.assertContains(
-                    response, f'<a href="{reverse(name)}">{text}</a>', html=True
+                link = (
+                    rf'(?s)<a href="{reverse(name)}" class="flex min-h-16[^>]*>'
+                    rf".*?>{text}</span>"
                 )
+                self.assertRegex(html, link)
 
     def test_every_link_is_on_one_line(self):
-        self.client.force_login(self.owner_user)
-        html = self.client.get(self.url).content.decode()
-        # Only this page's own markup (the shell has older multi-line tags)
-        page = html.split("<h1>Account</h1>")[1].split("</section>")[0]
-        for line in page.splitlines():
-            if "<a " in line or "<a>" in line:
-                with self.subTest(line=line.strip()):
-                    self.assertIn("</a>", line)
+        # 8b-9a, re-anchored: the rows hold icons (multi-line once rendered),
+        # so the same check reads the page template and its row part
+        for name in ("owner/account/index.html", "owner/account_parts/link_row.html"):
+            for link in re.findall(r"(?s)<a\b.*?</a>", template_source(name)):
+                with self.subTest(file=name, link=link[:50]):
+                    self.assertNotIn("\n", link)
 
     def test_log_out_is_a_post_form_with_a_csrf_token(self):
         self.client.force_login(self.owner_user)
@@ -2673,3 +2681,177 @@ class SocialaccountTemplateTests(TestCase):
         self.assertContains(response, "border-blue-200")
         self.assertContains(response, BACK_TO_LOGIN)
         self.assertNotContains(response, "Login Cancelled")
+
+
+# ── Slice 8b-9a: the Account hub, designed ───────────────────────────────────
+
+
+class OwnerAccountHubV2Tests(_LoggedInBase):
+    """/owner/account/ as designed (owner_account_v1.html, frame 1)."""
+
+    PARTS = ["owner/account/index.html", "owner/account_parts/link_row.html"]
+    VIOLET_BUTTON = r"<(?:a|button)\b[^>]*\bbg-violet-600\b[^>]*>"
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.owner_user)
+        self.url = reverse("owner_account")
+
+    def _html(self):
+        return self.client.get(self.url).content.decode()
+
+    def test_the_account_tab_is_the_only_one_lit(self):
+        html = self._html()
+        nav = re.search(r'(?s)<nav aria-label="Main"[^>]*>(.*?)</nav>', html).group(1)
+        self.assertEqual(nav.count('aria-current="page"'), 1)
+        current = re.search(r'<a href="([^"]+)"[^>]*aria-current="page"', nav)
+        self.assertEqual(current.group(1), reverse("owner_account"))
+        heading = '<h1 class="text-2xl font-bold text-gray-900">Account</h1>'
+        self.assertIn(heading, html)
+
+    def test_the_profile_card_is_one_link_to_my_details(self):
+        html = self._html()
+        edit = reverse("owner_profile_edit")
+        card = re.search(
+            rf'(?s)<a href="{edit}" class="flex items-center gap-4 rounded-2xl '
+            rf'border border-gray-200 bg-white p-4 shadow-sm[^"]*">(.*?)</a>',
+            html,
+        )
+        self.assertIsNotNone(card)
+        inside = card.group(1)
+        self.assertIn("bg-violet-50", inside)  # the initials circle
+        self.assertIn(">AC</span>", inside)
+        self.assertIn('text-xl font-bold text-gray-900">Ana Cruz</span>', inside)
+        email = 'truncate text-base text-gray-600">ana@example.com</span>'
+        self.assertIn(email, inside)
+        self.assertIn("Edit my details", inside)
+        self.assertIn("text-blue-600", inside)
+        self.assertIn("<svg", inside)  # the chevron
+
+    def test_the_profile_card_shows_the_photo_when_there_is_one(self):
+        PetOwner.objects.filter(user=self.owner_user).update(
+            profile_photo="owners/ana.png"
+        )
+        photo = PetOwner.objects.get(user=self.owner_user).profile_photo
+        edit = reverse("owner_profile_edit")
+        card = re.search(rf'(?s)<a href="{edit}"[^>]*>(.*?)</a>', self._html())
+        self.assertIn(f'<img src="{photo.url}"', card.group(1))
+        self.assertNotIn(">AC</span>", card.group(1))
+
+    def test_the_groups_and_their_rows(self):
+        html = self._html()
+        mine = "owner_profile_edit", "owner_notification_preferences"
+        clinic = "clinic_info", "owner_health_article_list"
+        groups = (
+            ("account-mine", "My account", mine),
+            ("account-clinic", "The clinic", clinic),
+        )
+        rows = {
+            "owner_profile_edit": ("My details", "Name, phone, address, photo"),
+            "owner_notification_preferences": (
+                "Email notifications",
+                "Which emails you get, and when",
+            ),
+            "clinic_info": ("Clinic info", "Hours, phone, and your vet"),
+            "owner_health_article_list": (
+                "Health library",
+                "Common pet illnesses and care",
+            ),
+        }
+        for key, heading, names in groups:
+            pattern = rf'(?s)<section aria-labelledby="{key}">(.*?)</section>'
+            section = re.search(pattern, html).group(1)
+            title = f'class="mb-2 px-1 text-base font-semibold text-gray-600">{heading}'
+            self.assertIn(f"{title}</h2>", section)
+            self.assertIn("divide-y divide-gray-100", section)
+            self.assertEqual(section.count('class="flex min-h-16'), len(names))
+            for name in names:
+                label, sub = rows[name]
+                with self.subTest(row=label):
+                    link = rf'(?s)<a href="{reverse(name)}" class="flex min-h-16[^"]*">'
+                    row = re.search(link + "(.*?)</a>", section).group(1)
+                    self.assertIn(f">{label}</span>", row)
+                    self.assertIn(f">{sub}</span>", row)
+                    self.assertEqual(row.count("<svg"), 2)  # the tile and a chevron
+
+    def test_no_password_row_while_there_is_no_password_page(self):
+        html = self._html()
+        self.assertNotIn("Sign-in and password", html)
+        self.assertNotIn("Change your password", html)
+        self.assertNotIn("/accounts/password/", html)
+
+    def test_the_log_out_row_opens_the_sheet(self):
+        html = self._html()
+        row = re.search(
+            r'(?s)<button type="button" class="([^"]*)" '
+            r'data-dialog-open="logout-sheet">(.*?)</button>',
+            html,
+        )
+        self.assertIsNotNone(row)
+        self.assertIn("min-h-16", row.group(1))
+        self.assertIn("text-red-700", row.group(2))
+        self.assertIn(">Log out</span>", row.group(2))
+        self.assertEqual(row.group(2).count("<svg"), 1)  # no chevron
+
+    def test_the_log_out_sheet_wording_form_and_buttons(self):
+        html = self._html()
+        sheet = re.search(r'(?s)<dialog id="logout-sheet".*?</dialog>', html).group(0)
+        self.assertIn(">Log out of Hapi Tutz?</h2>", sheet)
+        self.assertIn(
+            "You'll need your email and password (or Google) to sign in again.", sheet
+        )
+        action = reverse("logout")
+        pattern = rf'(?s)<form method="post" action="{action}">(.*?)</form>'
+        form = re.search(pattern, sheet).group(1)
+        self.assertIn('name="csrfmiddlewaretoken"', form)
+        self.assertIn("bg-red-600", form)
+        self.assertIn("Yes, log out", form)
+        stay = r'<button type="button" class="([^"]*)" data-dialog-close'
+        keep = re.search(stay, sheet)
+        yes = re.search(r'<button type="submit" class="([^"]*)"', form)
+        self.assertIn(">Stay logged in</button>", sheet)
+        # Same size: the same height, width, shape and text size
+        for classes in (keep.group(1), yes.group(1)):
+            for word in ("min-h-14", "w-full", "rounded-2xl", "text-lg"):
+                self.assertIn(word, classes.split())
+
+    def test_logging_out_is_still_a_post_that_needs_the_token(self):
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.owner_user)
+        self.assertEqual(client.post(reverse("logout")).status_code, 403)
+        self.assertIn("_auth_user_id", client.session)
+        self.assertNotIn(f'href="{reverse("logout")}"', self._html())
+
+    def test_no_violet_button_on_the_hub(self):
+        self.assertEqual(re.findall(self.VIOLET_BUTTON, self._html()), [])
+
+    def test_every_a_tag_is_on_one_line(self):
+        for name in self.PARTS:
+            for link in re.findall(r"(?s)<a\b.*?</a>", template_source(name)):
+                with self.subTest(file=name, link=link[:50]):
+                    self.assertNotIn("\n", link)
+
+    def test_no_inline_script_or_handlers(self):
+        html = self._html()
+        self.assertIsNone(re.search(r"<script(?![^>]*\ssrc=)[^>]*>", html))
+        self.assertIsNone(re.search(r"\son[a-z]+\s*=", html))
+        for name in self.PARTS:
+            source = template_source(name)
+            for banned in ("<script", "hx-confirm", "<!--"):
+                self.assertNotIn(banned, source)
+
+    def test_the_whole_request_is_flat(self):
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        # session, user, owner, clinic (logo), unread count (bell)
+        self.assertEqual(len(queries), 5)
+        for number in range(20):
+            Notification.objects.create(
+                recipient=self.owner_user,
+                notification_type=Notification.APPOINTMENT_APPROVED,
+                title=f"Title {number}",
+                message="Message",
+            )
+        with self.assertNumQueries(len(queries)):
+            self.client.get(self.url)

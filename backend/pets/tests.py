@@ -29,6 +29,8 @@ from pets.forms import (
     AdminOwnerEmailForm,
     AdminPetForm,
     AdminPetOwnerForm,
+    ContactLinkForm,
+    OwnerDetailsForm,
     OwnerOnboardingForm,
     OwnerPetEditForm,
     OwnerPetForm,
@@ -5806,7 +5808,9 @@ class ContactLinksAtomicTests(TestCase):
         )
 
     def _edit(self, first="Changed"):
+        # 8b-9a: My details asks for the mobile number and the address
         data = {"first_name": first, "last_name": "Cruz"}
+        data.update({"contact_number": "09171234567", **OWNER_ADDRESS})
         data.update(_links_post(("Instagram", "@ana")))
         return self.client.post(reverse("owner_profile_edit"), data)
 
@@ -5821,8 +5825,9 @@ class ContactLinksAtomicTests(TestCase):
 
     def test_successful_edit_replaces_the_links(self):
         response = self._edit()
+        # 8b-9a: saving goes back to the Account hub (was owner_profile)
         self.assertRedirects(
-            response, reverse("owner_profile"), fetch_redirect_response=False
+            response, reverse("owner_account"), fetch_redirect_response=False
         )
         platforms = list(self.owner.contact_links.values_list("platform", flat=True))
         self.assertEqual(platforms, ["Instagram"])
@@ -6070,7 +6075,9 @@ class OwnerProfileEmailReadOnlyTests(TestCase):
         self.url = reverse("owner_profile_edit")
 
     def _post(self, **changes):
-        data = {"first_name": "Ana", "last_name": "Cruz", **changes}
+        # 8b-9a: My details asks for the mobile number and the address
+        data = {"first_name": "Ana", "last_name": "Cruz"}
+        data.update({"contact_number": "09171234567", **OWNER_ADDRESS, **changes})
         data.update(_links_post())
         return self.client.post(self.url, data)
 
@@ -6088,8 +6095,9 @@ class OwnerProfileEmailReadOnlyTests(TestCase):
         for posted in ("new@example.com", "ANA@EXAMPLE.COM", ""):
             with self.subTest(posted=posted):
                 response = self._post(email=posted)
+                # 8b-9a: saving goes back to the Account hub (was owner_profile)
                 self.assertRedirects(
-                    response, reverse("owner_profile"), fetch_redirect_response=False
+                    response, reverse("owner_account"), fetch_redirect_response=False
                 )
                 self.owner.user.refresh_from_db()
                 self.assertEqual(self.owner.user.email, "ana@example.com")
@@ -6104,7 +6112,7 @@ class OwnerProfileEmailReadOnlyTests(TestCase):
             email="new@example.com",
         )
         self.assertRedirects(
-            response, reverse("owner_profile"), fetch_redirect_response=False
+            response, reverse("owner_account"), fetch_redirect_response=False
         )
         self.owner.refresh_from_db()
         self.assertEqual(self.owner.first_name, "Anita")
@@ -6747,8 +6755,9 @@ class OnboardingPagesTests(TestCase):
         )
         self.assertContains(response, 'role="alert"')
         self.assertContains(response, "Nothing was saved yet.")
-        # (Django's own required message comes before the form's clean_first_name)
-        self.assertContains(response, "This field is required.")
+        # 8b-9a: the required message is plain words now (was Django's own
+        # "This field is required.")
+        self.assertContains(response, "Type your first name.")
         self.assertContains(response, "Choose your town.")
         self.assertEqual(response.context["error_count"], 2)
 
@@ -8578,3 +8587,478 @@ class AddPetBookingModeTests(TestCase):
             fetch_redirect_response=False,
         )
         self.assertEqual(_messages(response), ["Bantay has been added."])
+
+
+# ── Slice 8b-9a: the My details page ─────────────────────────────────────────
+
+
+def _details_links(rows, initial=0):
+    """The links formset POST data for (platform, url) rows, as the page
+    posts it: `initial` saved rows first, then the empty ones."""
+    data = {
+        "links-TOTAL_FORMS": str(len(rows)),
+        "links-INITIAL_FORMS": str(initial),
+        "links-MIN_NUM_FORMS": "0",
+        "links-MAX_NUM_FORMS": "10",
+    }
+    for number, (platform, url) in enumerate(rows):
+        data[f"links-{number}-platform"] = platform
+        data[f"links-{number}-url_or_handle"] = url
+    return data
+
+
+class OwnerDetailsPageTests(TestCase):
+    """My details (/owner/profile/edit/) on the owner layout: Name, Contact,
+    Address and Social and other contacts, with a pinned Save bar."""
+
+    PARTS = [
+        "owner/profile/edit.html",
+        "owner/profile_parts/photo_row.html",
+        "owner/profile_parts/name_card.html",
+        "owner/profile_parts/contact_card.html",
+        "owner/profile_parts/links_card.html",
+        "owner/onboarding_parts/address_card.html",
+    ]
+
+    def setUp(self):
+        self.owner = _login_owner(self)
+        self.owner.user.is_onboarded = True
+        self.owner.user.save()
+        self.url = reverse("owner_profile_edit")
+
+    def _html(self):
+        return self.client.get(self.url).content.decode()
+
+    def _data(self, rows=(("", ""), ("", "")), initial=0, **changes):
+        data = {
+            "first_name": "Ana",
+            "last_name": "Cruz",
+            "contact_number": "09171234567",
+            **OWNER_ADDRESS,
+        }
+        data.update(changes)
+        data.update(_details_links(rows, initial))
+        return data
+
+    def _post(self, **kwargs):
+        return self.client.post(self.url, self._data(**kwargs))
+
+    def _errors(self, response):
+        form = response.context["profile_form"]
+        return {name: list(errors) for name, errors in form.errors.items()}
+
+    # ── the old page and who may come ─────────────────────────────────────
+
+    def test_the_old_profile_page_goes_to_my_details(self):
+        response = self.client.get(reverse("owner_profile"))
+        self.assertRedirects(response, self.url, fetch_redirect_response=False)
+
+    def test_the_admin_and_a_visitor_are_sent_away(self):
+        self.client.logout()
+        for name in ("owner_profile", "owner_profile_edit"):
+            self.assertEqual(self.client.get(reverse(name)).status_code, 302)
+        _admin(self)
+        for name in ("owner_profile", "owner_profile_edit"):
+            response = self.client.get(reverse(name))
+            self.assertRedirects(
+                response, reverse("admin_dashboard"), fetch_redirect_response=False
+            )
+
+    # ── layout, cards and fields ──────────────────────────────────────────
+
+    def test_the_layout_back_bar_and_lit_account_tab(self):
+        response = self.client.get(self.url)
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertTemplateUsed(response, "owner/profile/edit.html")
+        self.assertTemplateNotUsed(response, "base_dashboard.html")
+        html = response.content.decode()
+        self.assertIn(">My details</h1>", html)
+        self.assertIn("Back to Account", html)
+        nav = re.search(r'(?s)<nav aria-label="Main"[^>]*>(.*?)</nav>', html).group(1)
+        current = re.search(r'<a href="([^"]+)"[^>]*aria-current="page"', nav)
+        self.assertEqual(current.group(1), reverse("owner_account"))
+
+    def test_the_four_cards_and_their_fields(self):
+        html = self._html()
+        for title in ("Name", "Contact", "Address", "Social and other contacts"):
+            with self.subTest(card=title):
+                self.assertRegex(html, rf'<h2 id="[a-z]+-title"[^>]*>{title}</h2>')
+        self.assertIn("So the clinic can reach you another way. Optional.", html)
+        for name in (
+            "first_name",
+            "last_name",
+            "contact_number",
+            "address_line",
+            "address_province",
+            "address_town",
+            "address_barangay",
+            "province",
+            "city_municipality",
+            "barangay",
+            "profile_photo",
+        ):
+            with self.subTest(field=name):
+                self.assertRegex(html, "(?:<input|<select)[^>]*" + f'name="{name}"')
+        self.assertIn('enctype="multipart/form-data"', html)
+        # First and last name sit in two columns
+        self.assertIn('class="mt-4 grid grid-cols-2 gap-3"', html)
+        self.assertIn("data-address", html)
+
+    def test_the_form_is_the_details_form_with_the_onboarding_address(self):
+        form = self.client.get(self.url).context["profile_form"]
+        self.assertIsInstance(form, OwnerDetailsForm)
+        self.assertIsInstance(form, OwnerOnboardingForm)
+        self.assertTrue(form.address_required)
+        self.assertEqual(form.address_barangays_url, "owner_address_barangays")
+        self.assertTrue(form.fields["contact_number"].required)
+        self.assertNotIn("email", form.fields)
+        # Onboarding keeps the mobile number optional
+        self.assertFalse(OwnerOnboardingForm().fields["contact_number"].required)
+
+    def test_the_mobile_is_starred_and_the_street_is_optional(self):
+        html = self._html()
+        label = re.search(r'(?s)<label for="id_contact_number".*?</label>', html)
+        self.assertIn("*", label.group(0))
+        street = re.search(r'(?s)<label for="id_address_line".*?</label>', html)
+        self.assertIn("(optional)", street.group(0))
+
+    def test_the_photo_row(self):
+        html = self._html()
+        self.assertIn('type="file" name="profile_photo"', html)
+        self.assertIn('accept="image/*"', html)
+        self.assertIn("data-photo-input", html)
+        self.assertIn("Change photo", html)
+        self.assertIn(">Optional</p>", html)
+        self.assertIn("size-20", html)
+        self.assertIn(">AC</span>", html)  # no photo yet: the initials
+
+    def test_the_photo_shows_when_there_is_one(self):
+        PetOwner.objects.filter(pk=self.owner.pk).update(profile_photo="owners/a.png")
+        photo = PetOwner.objects.get(pk=self.owner.pk).profile_photo
+        html = self._html()
+        self.assertIn(f'<img src="{photo.url}"', html)
+        self.assertNotIn(">AC</span>", html)
+
+    def test_the_three_scripts_are_loaded(self):
+        html = self._html()
+        for name in ("photo_input", "address_form", "contact_links"):
+            with self.subTest(script=name):
+                pattern = rf'<script src="/static/js/shared/{name}(\.[0-9a-f]+)?\.js"'
+                self.assertRegex(html, pattern)
+
+    # ── the email ─────────────────────────────────────────────────────────
+
+    def test_the_email_is_text_and_a_posted_one_changes_nothing(self):
+        html = self._html()
+        self.assertIn('id="owner-email">ana@example.com</p>', html)
+        self.assertIn("To change your email, contact the clinic.", html)
+        self.assertNotRegex(html, r'name="email"')
+        for posted in ("new@example.com", ""):
+            with self.subTest(posted=posted):
+                response = self._post(email=posted)
+                self.assertRedirects(
+                    response, reverse("owner_account"), fetch_redirect_response=False
+                )
+                self.owner.user.refresh_from_db()
+                self.assertEqual(self.owner.user.email, "ana@example.com")
+
+    # ── the address ───────────────────────────────────────────────────────
+
+    def test_marinduque_asks_for_the_town_and_barangay(self):
+        response = self._post(address_town="", address_barangay="")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            self._errors(response),
+            {
+                "address_town": ["Choose your town."],
+                "address_barangay": ["Choose your barangay."],
+            },
+        )
+
+    def test_another_province_asks_for_all_three_typed_parts(self):
+        response = self._post(
+            address_province="other", address_town="", address_barangay=""
+        )
+        self.assertEqual(
+            self._errors(response),
+            {
+                "province": ["Type your province."],
+                "city_municipality": ["Type your town."],
+                "barangay": ["Type your barangay."],
+            },
+        )
+        self.assertContains(response, "Type your province.")
+
+    def test_a_marinduque_address_saves_the_psa_spelling(self):
+        self._post(address_barangay="amoingon", address_line="Purok 3")
+        self.owner.refresh_from_db()
+        self.assertEqual(
+            (self.owner.province, self.owner.city_municipality, self.owner.barangay),
+            ("Marinduque", "Boac", "Amoingon"),
+        )
+        self.assertEqual(self.owner.address_line, "Purok 3")
+
+    def test_another_province_saves_what_was_typed_and_the_street_is_optional(self):
+        response = self._post(
+            address_province="other",
+            address_town="",
+            address_barangay="",
+            province="batangas",
+            city_municipality="lipa city",
+            barangay="sabang",
+        )
+        self.assertRedirects(
+            response, reverse("owner_account"), fetch_redirect_response=False
+        )
+        self.owner.refresh_from_db()
+        self.assertEqual(
+            (self.owner.province, self.owner.city_municipality, self.owner.barangay),
+            ("Batangas", "Lipa City", "Sabang"),
+        )
+        self.assertEqual(self.owner.address_line, "")
+
+    # ── plain required messages ───────────────────────────────────────────
+
+    def test_the_name_and_mobile_messages_are_friendly(self):
+        response = self._post(first_name="  ", last_name="", contact_number="")
+        self.assertEqual(
+            self._errors(response),
+            {
+                "first_name": ["Type your first name."],
+                "last_name": ["Type your last name."],
+                "contact_number": ["Type your mobile number."],
+            },
+        )
+        for message in (
+            "Type your first name.",
+            "Type your last name.",
+            "Type your mobile number.",
+        ):
+            self.assertContains(response, message)
+        self.assertNotContains(response, "This field is required.")
+        # The red box counts the three things to fix, and nothing is saved
+        self.assertContains(response, "Please fix the 3 items below.")
+        self.owner.refresh_from_db()
+        self.assertEqual(self.owner.first_name, "Ana")
+
+    def test_onboarding_step_one_has_the_same_name_messages(self):
+        user = User.objects.create_user(
+            username="newbie",
+            email="newbie@example.com",
+            password="pass-12345-x",
+            role=User.PET_OWNER,
+        )
+        self.client.force_login(user)
+        data = {"first_name": " ", "last_name": "", **OWNER_ADDRESS}
+        data.update(_details_links([("", ""), ("", "")]))
+        response = self.client.post(reverse("owner_onboarding_step1"), data)
+        errors = response.context["profile_form"].errors
+        self.assertEqual(errors["first_name"], ["Type your first name."])
+        self.assertEqual(errors["last_name"], ["Type your last name."])
+        self.assertNotIn("contact_number", errors)  # optional on step 1
+        self.assertContains(response, "Type your first name.")
+
+    # ── the contact links ─────────────────────────────────────────────────
+
+    def _saved_links(self):
+        ContactLink.objects.create(
+            owner=self.owner, platform="Facebook", url_or_handle="fb.com/ana"
+        )
+        ContactLink.objects.create(
+            owner=self.owner, platform="Viber", url_or_handle="0917"
+        )
+
+    def _platforms(self):
+        return sorted(self.owner.contact_links.values_list("platform", flat=True))
+
+    def test_each_row_has_a_44px_remove_button_and_there_is_an_add_link(self):
+        self._saved_links()
+        html = self._html()
+        buttons = re.findall(r"<button\b[^>]*data-link-remove[^>]*>", html)
+        self.assertEqual(len(buttons), 4)  # two saved rows and two empty ones
+        labels = [re.search(r'aria-label="([^"]+)"', tag).group(1) for tag in buttons]
+        self.assertEqual(
+            labels,
+            ["Remove Facebook", "Remove Viber", "Remove link 3", "Remove link 4"],
+        )
+        for tag in buttons:
+            self.assertIn("size-11", tag)
+            self.assertIn(" hidden>", tag)  # JavaScript shows it
+        add = re.search(r"(?s)<button\b[^>]*data-link-add[^>]*>(.*?)</button>", html)
+        self.assertIn("Add a link", add.group(1))
+        self.assertIn("min-h-11", add.group(0))
+        self.assertIn("fb.com/ana", html)
+
+    def test_removing_and_adding_links_in_one_save(self):
+        self._saved_links()
+        rows = [("", ""), ("Viber", "0917"), ("Instagram", "@ana"), ("", "")]
+        response = self._post(rows=rows, initial=2)
+        self.assertRedirects(
+            response, reverse("owner_account"), fetch_redirect_response=False
+        )
+        self.assertEqual(self._platforms(), ["Instagram", "Viber"])
+
+    def test_emptying_every_row_removes_every_link(self):
+        self._saved_links()
+        response = self._post(rows=[("", ""), ("", "")], initial=2)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self._platforms(), [])
+
+    def test_a_half_filled_row_is_refused_and_nothing_changes(self):
+        self._saved_links()
+        rows = [("Facebook", "fb.com/ana"), ("Viber", ""), ("", ""), ("", "")]
+        response = self._post(rows=rows, initial=2, first_name="Changed")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Please fill in both the platform name")
+        self.assertContains(response, "Please fix the item below.")
+        self.assertEqual(self._platforms(), ["Facebook", "Viber"])
+        self.owner.refresh_from_db()
+        self.assertEqual(self.owner.first_name, "Ana")
+
+    def test_the_links_and_the_profile_save_in_one_transaction(self):
+        self._saved_links()
+        rows = [("Instagram", "@ana"), ("", "")]
+        with patch.object(ContactLink, "save", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                self._post(rows=rows, initial=2, first_name="Changed")
+        self.assertEqual(self._platforms(), ["Facebook", "Viber"])
+        self.owner.refresh_from_db()
+        self.assertEqual(self.owner.first_name, "Ana")
+
+    # ── the Save bar and the save ─────────────────────────────────────────
+
+    def test_the_pinned_save_bar_above_the_tabs(self):
+        html = self._html()
+        self.assertIn('<form id="details-form" method="post"', html)
+        pattern = (
+            r'(?s)<div class="fixed inset-x-0 bottom-\[[^"]*" data-bar="tall">'
+            r".*?</div>\s*</div>"
+        )
+        bar = re.search(pattern, html)
+        self.assertIsNotNone(bar)
+        self.assertIn('type="submit" form="details-form"', bar.group(0))
+        self.assertIn("Save changes", bar.group(0))
+        self.assertIn("<svg", bar.group(0))
+        self.assertEqual(len(re.findall(r"<button\b[^>]*\bbg-violet-600\b", html)), 1)
+        self.assertLess(html.index('data-bar="tall"'), html.index('aria-label="Main"'))
+
+    def test_saving_goes_back_to_the_hub_with_the_flash(self):
+        response = self._post(first_name="Anita", last_name="Reyes")
+        self.assertRedirects(
+            response, reverse("owner_account"), fetch_redirect_response=False
+        )
+        self.owner.refresh_from_db()
+        names = (self.owner.first_name, self.owner.last_name)
+        self.assertEqual(names, ("Anita", "Reyes"))
+        self.assertEqual(self.owner.contact_number, "09171234567")
+        hub = self.client.get(reverse("owner_account"))
+        self.assertContains(hub, "Your details are saved.")
+        self.assertContains(hub, "Anita Reyes")
+
+    # ── only the signed-in owner's own details ────────────────────────────
+
+    def test_another_owners_details_are_never_shown_or_changed(self):
+        ben = _owner(first="Ben", last="Reyes", email="ben@example.com")
+        PetOwner.objects.filter(pk=ben.pk).update(contact_number="09990000000")
+        ContactLink.objects.create(
+            owner=ben, platform="Telegram", url_or_handle="@benreyes"
+        )
+        html = self._html()
+        secrets = ("Ben Reyes", "09990000000", "Telegram", "benreyes", "ben@example")
+        for secret in secrets:
+            self.assertNotIn(secret, html)
+        self._post(rows=[("", ""), ("", "")], owner=ben.pk, id=ben.pk, pk=ben.pk)
+        ben.refresh_from_db()
+        self.assertEqual(ben.first_name, "Ben")
+        self.assertEqual(ben.contact_number, "09990000000")
+        self.assertEqual(ben.contact_links.count(), 1)
+
+    # ── template rules ────────────────────────────────────────────────────
+
+    def test_every_a_tag_is_on_one_line(self):
+        for name in self.PARTS:
+            source = engines["django"].get_template(name).template.source
+            for link in re.findall(r"(?s)<a\b.*?</a>", source):
+                with self.subTest(template=name, link=link[:50]):
+                    self.assertNotIn("\n", link)
+
+    def test_no_inline_script_or_handlers(self):
+        self._saved_links()
+        html = self._html()
+        self.assertIsNone(re.search(INLINE_SCRIPT, html))
+        self.assertIsNone(re.search(r"\son[a-z]+\s*=", html))
+        for name in self.PARTS:
+            source = engines["django"].get_template(name).template.source
+            for banned in ("<script>", "hx-confirm", "<!--"):
+                self.assertNotIn(banned, source)
+
+    def test_the_whole_request_is_flat_for_1_and_6_links(self):
+        ContactLink.objects.create(
+            owner=self.owner, platform="Facebook", url_or_handle="fb.com/ana"
+        )
+        self.client.get(self.url)
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        # session, user, owner, links (the back bar has no logo or bell)
+        self.assertEqual(len(queries), 4)
+        for number in range(5):
+            ContactLink.objects.create(
+                owner=self.owner, platform=f"Site {number}", url_or_handle="x"
+            )
+        with self.assertNumQueries(len(queries)):
+            self.client.get(self.url)
+
+
+class ContactLinkEmptyRowTests(TestCase):
+    """Slice 8b-9a: ContactLinkForm rows are empty_permitted (an emptied saved
+    row removes the link). Only the owner's pages use the links formset."""
+
+    def setUp(self):
+        self.owner = _login_owner(self)
+        self.link = ContactLink.objects.create(
+            owner=self.owner, platform="Facebook", url_or_handle="fb.com/ana"
+        )
+        self.url = reverse("owner_profile_edit")
+
+    def _post(self, rows, initial):
+        data = {
+            "first_name": "Ana",
+            "last_name": "Cruz",
+            "contact_number": "09171234567",
+            **OWNER_ADDRESS,
+            **_details_links(rows, initial),
+        }
+        return self.client.post(self.url, data)
+
+    def test_a_saved_link_whose_row_is_emptied_is_removed(self):
+        response = self._post([("", ""), ("", ""), ("", "")], initial=1)
+        self.assertRedirects(
+            response, reverse("owner_account"), fetch_redirect_response=False
+        )
+        self.assertEqual(self.owner.contact_links.count(), 0)
+
+    def test_a_new_empty_row_is_ignored(self):
+        rows = [("Facebook", "fb.com/ana"), ("", ""), ("", "")]
+        response = self._post(rows, initial=1)
+        self.assertEqual(response.status_code, 302)
+        links = self.owner.contact_links.all()
+        self.assertEqual([link.platform for link in links], ["Facebook"])
+
+    def test_a_half_filled_row_is_still_refused(self):
+        form = ContactLinkForm({"platform": "Facebook", "url_or_handle": ""})
+        self.assertFalse(form.is_valid())
+        blank = ContactLinkForm({"platform": "", "url_or_handle": ""})
+        self.assertTrue(blank.is_valid())
+
+    def test_the_admin_owner_form_and_pages_do_not_touch_links(self):
+        self.assertFalse(
+            {"platform", "url_or_handle"} & set(AdminPetOwnerForm().fields)
+        )
+        _admin(self)
+        url = reverse("admin_owner_edit", args=[self.owner.pk])
+        page = self.client.get(url)
+        self.assertNotContains(page, "links-TOTAL_FORMS")
+        response = self.client.post(url, {**OWNER_POST, "email": "ana@example.com"})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.owner.contact_links.count(), 1)

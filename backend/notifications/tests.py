@@ -10,7 +10,7 @@ from django.core import mail
 from django.core.management import call_command
 from django.db import connection
 from django.template.loader import get_template
-from django.test import SimpleTestCase, TestCase
+from django.test import Client, SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
@@ -32,7 +32,9 @@ from notifications.utils import (
     EMAIL_SENT,
     NOTIFICATION_ICONS,
     notification_icon,
+    notification_link_label,
     notification_target,
+    notification_when,
     notify,
     short_day,
     when_line,
@@ -1138,7 +1140,11 @@ class OwnerNotificationsPageTests(FrozenRemindersTestBase):
         response = self._get()
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "owner/notifications/list.html")
-        self.assertContains(response, "<h1>Notifications</h1>")
+        # 8b-9a: the h1 has its classes now (was a bare <h1>)
+        self.assertContains(
+            response,
+            '<h1 class="flex-1 text-xl font-bold text-gray-900">Notifications</h1>',
+        )
 
     def test_anonymous_goes_to_login(self):
         response = self.client.get(self.URL)
@@ -1217,6 +1223,9 @@ class OwnerNotificationsPageTests(FrozenRemindersTestBase):
                 "is_unread",
                 "target",
                 "created_at",
+                # 8b-9a: the card's link words and its "1 hour ago" text
+                "link_label",
+                "when",
             },
         )
         self.assertEqual(row["notification"], notice)
@@ -1242,7 +1251,8 @@ class OwnerNotificationsPageTests(FrozenRemindersTestBase):
         (row,) = response.context["today_rows"]
         open_url = reverse("notification_open", args=[notice.pk])
         self.assertEqual(row["target"], open_url)
-        self.assertContains(response, f'<a href="{open_url}">')
+        # 8b-9a: the card's <a> has classes (was a bare href)
+        self.assertContains(response, f'<a href="{open_url}" class="')
         # Following it marks the notification read and lands on the pet
         followed = self.client.get(open_url)
         self.assertRedirects(
@@ -1370,10 +1380,622 @@ class OwnerNotificationsPageTests(FrozenRemindersTestBase):
         self.assertEqual(self._query_count(), few)
 
     def test_every_a_tag_is_on_one_line_and_there_is_no_inline_script(self):
-        for name in ("owner/notifications/list.html", "owner/notifications/_row.html"):
+        # 8b-9a: _row.html moved to notifications_parts/row.html (a plain
+        # include); the card body and the pager are parts of the page now
+        for name in (
+            "owner/notifications/list.html",
+            "owner/notifications_parts/row.html",
+            "owner/notifications_parts/card_body.html",
+            "owner/notifications_parts/pager.html",
+        ):
             source = get_template(name).template.source
             with self.subTest(template=name):
                 # No line opens an <a …> tag without closing it
                 self.assertEqual(re.findall(r"<a\b[^>\n]*$", source, re.M), [])
                 for banned in ("onclick", "hx-confirm", "<script", "<!--"):
                     self.assertNotIn(banned, source)
+
+
+# ─── Slice 8b-9a: the owner notifications page and Email notifications ───────
+
+NOW = datetime.datetime(2026, 11, 3, 15, 0, tzinfo=MANILA)
+INLINE_SCRIPT = r"<script(?![^>]*\ssrc=)[^>]*>"
+
+
+def _card(html, title):
+    """The <li> of the notification card with this title."""
+    for item in re.findall(r"(?s)<li\b.*?</li>", html):
+        if f">{title}</span>" in item:
+            return item
+    raise AssertionError(f"No card titled {title!r}")
+
+
+def _one_line_links(test, names):
+    """No <a> … </a> in these templates spans two lines."""
+    for name in names:
+        source = get_template(name).template.source
+        for link in re.findall(r"(?s)<a\b.*?</a>", source):
+            with test.subTest(template=name, link=link[:50]):
+                test.assertNotIn("\n", link)
+
+
+class NotificationWhenTests(SimpleTestCase):
+    """notification_when: the card's "1 hour ago" text, by the Manila clock."""
+
+    def _when(self, created, now=NOW):
+        return notification_when(created, now)
+
+    def test_under_a_minute_is_just_now(self):
+        for seconds in (0, 1, 59):
+            with self.subTest(seconds=seconds):
+                created = NOW - datetime.timedelta(seconds=seconds)
+                self.assertEqual(self._when(created), "Just now")
+
+    def test_a_clock_a_little_ahead_is_just_now(self):
+        created = NOW + datetime.timedelta(seconds=30)
+        self.assertEqual(self._when(created), "Just now")
+
+    def test_minutes(self):
+        cases = {60: "1 minute ago", 300: "5 minutes ago", 3599: "59 minutes ago"}
+        for seconds, text in cases.items():
+            with self.subTest(seconds=seconds):
+                created = NOW - datetime.timedelta(seconds=seconds)
+                self.assertEqual(self._when(created), text)
+
+    def test_hours_the_same_day(self):
+        cases = {1: "1 hour ago", 2: "2 hours ago", 14: "14 hours ago"}
+        for hours, text in cases.items():
+            with self.subTest(hours=hours):
+                created = NOW - datetime.timedelta(hours=hours)
+                self.assertEqual(self._when(created), text)
+
+    def test_yesterday(self):
+        late = datetime.datetime(2026, 11, 2, 23, 59, tzinfo=MANILA)
+        early = datetime.datetime(2026, 11, 2, 0, 0, tzinfo=MANILA)
+        self.assertEqual(self._when(late), "Yesterday")
+        self.assertEqual(self._when(early), "Yesterday")
+
+    def test_the_day_before_midnight_is_yesterday_not_minutes(self):
+        now = datetime.datetime(2026, 11, 3, 0, 30, tzinfo=MANILA)
+        created = datetime.datetime(2026, 11, 2, 23, 50, tzinfo=MANILA)
+        self.assertEqual(self._when(created, now), "Yesterday")
+
+    def test_the_manila_date_decides_not_the_utc_date(self):
+        # 17:00 UTC on Nov 2 is 01:00 on Nov 3 in Manila: this morning
+        created = datetime.datetime(2026, 11, 2, 17, 0, tzinfo=datetime.timezone.utc)
+        self.assertEqual(self._when(created), "14 hours ago")
+
+    def test_older_days_are_dates_with_the_year_only_when_not_this_year(self):
+        this_year = datetime.datetime(2026, 10, 31, 9, 0, tzinfo=MANILA)
+        last_year = datetime.datetime(2025, 12, 25, 9, 0, tzinfo=MANILA)
+        self.assertEqual(self._when(this_year), "Oct 31")
+        self.assertEqual(self._when(last_year), "Dec 25, 2025")
+
+
+class NotificationLinkLabelTests(SimpleTestCase):
+    """notification_link_label: the blue words at the end of a card."""
+
+    def _notice(self, **fields):
+        # Unsaved: the recipient's role is all notification_target reads
+        recipient = User(role=User.PET_OWNER)
+        return Notification(recipient=recipient, **fields)
+
+    def test_a_visit_a_bill_and_a_pet(self):
+        cases = (
+            ({"related_appointment_id": 4}, "See visit"),
+            ({"related_billing_id": 4}, "See bill"),
+            ({"related_pet_id": 4}, "See pet"),
+        )
+        for fields, label in cases:
+            with self.subTest(fields=fields):
+                notice = self._notice(**fields)
+                self.assertEqual(notification_link_label(notice), label)
+
+    def test_the_visit_comes_first_like_the_target(self):
+        notice = self._notice(related_appointment_id=1, related_pet_id=2)
+        self.assertEqual(notification_link_label(notice), "See visit")
+
+    def test_no_target_no_label(self):
+        self.assertIsNone(notification_link_label(self._notice()))
+
+    def test_booking_and_any_other_target(self):
+        notice = self._notice(related_pet_id=2)
+        booking = reverse("owner_book_appointment")
+        with mock.patch("notifications.utils.notification_target") as target:
+            target.return_value = booking
+            self.assertEqual(notification_link_label(notice), "Book a visit")
+            target.return_value = "/somewhere/"
+            self.assertEqual(notification_link_label(self._notice()), "Open")
+
+
+class OwnerNotificationsPageV2Tests(FrozenRemindersTestBase):
+    """Slice 8b-9a: /owner/notifications/ on the owner layout, at 00:30 on
+    Tue, Nov 3, 2026 (Manila)."""
+
+    URL = "/owner/notifications/"
+    MIDNIGHT = datetime.datetime(2026, 11, 3, 0, 0, tzinfo=MANILA)
+    JUST_BEFORE = datetime.datetime(2026, 11, 2, 23, 59, 59, tzinfo=MANILA)
+    TONES = {
+        Notification.APPOINTMENT_APPROVED: "bg-blue-50 text-blue-700",
+        Notification.APPOINTMENT_REJECTED: "bg-red-50 text-red-700",
+        Notification.APPOINTMENT_CANCELLED: "bg-red-50 text-red-700",
+        Notification.APPOINTMENT_REMINDER: "bg-violet-50 text-violet-700",
+        Notification.BILLING_GENERATED: "bg-yellow-50 text-yellow-800",
+        Notification.VACCINATION_REMINDER: "bg-green-50 text-green-700",
+        Notification.FOLLOWUP_REMINDER: "bg-green-50 text-green-700",
+        Notification.PET_DELETION_ANSWERED: "bg-gray-100 text-gray-700",
+        "appointment_requested": "bg-gray-100 text-gray-700",
+    }
+    PARTS = [
+        "owner/notifications/list.html",
+        "owner/notifications_parts/row.html",
+        "owner/notifications_parts/card_body.html",
+        "owner/notifications_parts/pager.html",
+    ]
+
+    def setUp(self):
+        super().setUp()
+        other_user = User.objects.create_user(
+            username="other",
+            email="other@example.com",
+            password="unused-pass-123",
+            role=User.PET_OWNER,
+            is_onboarded=True,
+        )
+        self.other = PetOwner.objects.create(
+            user=other_user, first_name="Ben", last_name="Reyes"
+        )
+
+    def _notice(self, title="Title", user=None, created=None, is_read=False, **fields):
+        notice = Notification.objects.create(
+            recipient=user or self.owner.user,
+            notification_type=fields.pop(
+                "notification_type", Notification.APPOINTMENT_APPROVED
+            ),
+            title=title,
+            message=f"{title} message",
+            is_read=is_read,
+            **fields,
+        )
+        if created:
+            Notification.objects.filter(pk=notice.pk).update(created_at=created)
+        return Notification.objects.get(pk=notice.pk)
+
+    def _get(self, user=None, **params):
+        self.client.force_login(user or self.owner.user)
+        return self.client.get(self.URL, params)
+
+    def test_the_page_is_on_the_owner_layout_with_a_back_link(self):
+        response = self._get()
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertTemplateNotUsed(response, "base_dashboard.html")
+        home = reverse("owner_dashboard")
+        self.assertRegex(
+            response.content.decode(),
+            rf'<a href="{home}" class="[^"]*" aria-label="Back">',
+        )
+        self.assertContains(response, ">Notifications</h1>")
+
+    def test_the_tabs_stay_and_none_is_lit(self):
+        html = self._get().content.decode()
+        nav = re.search(r'(?s)<nav aria-label="Main"[^>]*>(.*?)</nav>', html)
+        self.assertIsNotNone(nav)
+        self.assertEqual(nav.group(1).count("<a href="), 5)
+        self.assertNotIn('aria-current="page"', nav.group(1))
+
+    def test_mark_all_shows_only_with_something_unread(self):
+        self._notice("Read", created=self.MIDNIGHT, is_read=True)
+        self.assertNotContains(self._get(), "Mark all as read")
+        self._notice("Unread", created=self.MIDNIGHT)
+        html = self._get().content.decode()
+        pattern = r'(?s)<form method="post" action="([^"]+)">(.*?)</form>'
+        action, inside = re.search(pattern, html).groups()
+        self.assertEqual(action, reverse("notification_mark_all_read"))
+        self.assertIn('name="csrfmiddlewaretoken"', inside)
+        self.assertIn('<input type="hidden" name="return_to" value="page">', inside)
+        self.assertIn("Mark all as read", inside)
+        self.assertIn("min-h-11", inside)
+
+    def test_mark_all_is_a_post_that_needs_the_csrf_token(self):
+        self._notice("Unread", created=self.MIDNIGHT)
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.owner.user)
+        response = client.post(
+            reverse("notification_mark_all_read"), {"return_to": "page"}
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(Notification.objects.get().is_read)
+
+    def test_today_and_earlier_are_h2_headings(self):
+        self._notice("Today one", created=self.MIDNIGHT)
+        self._notice("Earlier one", created=self.JUST_BEFORE)
+        html = self._get().content.decode()
+        for name, word in (("today", "Today"), ("earlier", "Earlier")):
+            with self.subTest(group=word):
+                heading = rf'<h2 id="notifications-{name}" class="[^"]*">{word}</h2>'
+                self.assertRegex(html, heading)
+
+    def test_an_unread_card(self):
+        self._notice("Fresh", created=self.MIDNIGHT)
+        card = _card(self._get().content.decode(), "Fresh")
+        self.assertIn('data-unread="true"', card)
+        self.assertIn("border-violet-200 bg-violet-50 shadow-sm", card)
+        self.assertIn("font-bold", card)
+        self.assertNotIn("font-semibold", card)
+        self.assertIn("bg-violet-600", card)  # the dot
+        self.assertIn('<span class="sr-only">New</span>', card)
+        self.assertIn("Fresh message", card)
+
+    def test_a_read_card(self):
+        self._notice("Old", created=self.MIDNIGHT, is_read=True)
+        card = _card(self._get().content.decode(), "Old")
+        self.assertNotIn("data-unread", card)
+        self.assertIn("border-gray-200 bg-white", card)
+        self.assertIn("font-semibold", card)
+        self.assertNotIn("font-bold", card)
+        self.assertNotIn("violet", card)
+        self.assertNotIn("New", card)
+
+    def test_the_tile_colour_follows_the_icon(self):
+        for number, kind in enumerate(self.TONES):
+            self._notice(
+                f"Kind {number}", created=self.MIDNIGHT, notification_type=kind
+            )
+        html = self._get().content.decode()
+        for number, (kind, tone) in enumerate(self.TONES.items()):
+            with self.subTest(kind=kind):
+                card = _card(html, f"Kind {number}")
+                self.assertIn(f"rounded-xl {tone}", card)
+                self.assertIn("<svg", card)
+
+    def test_when_text_and_link_label(self):
+        visit = Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=TODAY,
+            time=datetime.time(10, 0),
+            status=Appointment.CONFIRMED,
+        )
+        self._notice("A visit", created=self.MIDNIGHT, related_appointment=visit)
+        self._notice("A pet", created=self.JUST_BEFORE, related_pet=self.pet)
+        old = datetime.datetime(2026, 10, 31, 9, 0, tzinfo=MANILA)
+        self._notice("Nowhere", created=old)
+        html = self._get().content.decode()
+        card = _card(html, "A visit")
+        self.assertIn("30 minutes ago", card)
+        self.assertRegex(card, r'<time datetime="[^"]+" class="text-gray-500">')
+        self.assertIn('<span class="font-medium text-blue-600">See visit</span>', card)
+        pet = _card(html, "A pet")
+        self.assertIn("Yesterday", pet)
+        self.assertIn(">See pet</span>", pet)
+        nowhere = _card(html, "Nowhere")
+        self.assertIn("Oct 31", nowhere)
+        self.assertNotIn("text-blue-600", nowhere)
+        self.assertNotIn("See ", nowhere)
+
+    def test_a_card_is_one_link_to_notification_open(self):
+        notice = self._notice("Linked", created=self.MIDNIGHT, related_pet=self.pet)
+        self._notice("Plain", created=self.MIDNIGHT)
+        html = self._get().content.decode()
+        open_url = reverse("notification_open", args=[notice.pk])
+        card = _card(html, "Linked")
+        self.assertRegex(card, rf'(?s)<a href="{open_url}" class="[^"]*">.*</a>')
+        self.assertEqual(html.count(f'href="{open_url}"'), 1)
+        self.assertNotIn("<a ", _card(html, "Plain"))
+
+    def test_another_owners_notifications_are_never_shown(self):
+        self._notice("Mine", created=self.MIDNIGHT)
+        self._notice("Theirs", user=self.other.user, created=self.MIDNIGHT)
+        self.assertNotContains(self._get(), "Theirs")
+        theirs = self._get(user=self.other.user)
+        self.assertContains(theirs, "Theirs")
+        self.assertNotContains(theirs, "Mine")
+
+    def test_the_empty_page(self):
+        response = self._get()
+        self.assertContains(response, "No notifications yet")
+        self.assertContains(
+            response,
+            "We'll tell you here when the clinic confirms a visit, records a "
+            "payment, or a vaccine is due.",
+        )
+        for gone in ("adds a bill", "Mark all as read", "Today</h2>", "Earlier</h2>"):
+            self.assertNotContains(response, gone)
+
+    def test_the_pager(self):
+        for number in range(30):
+            self._notice(f"N{number}", created=self.MIDNIGHT)
+        first = self._get().content.decode()
+        self.assertIn("Page 1 of 2", first)
+        self.assertRegex(first, r'<a href="\?page=2" class="[^"]*">Next</a>')
+        self.assertNotIn(">Previous</a>", first)
+        second = self._get(page=2).content.decode()
+        self.assertIn("Page 2 of 2", second)
+        self.assertRegex(second, r'<a href="\?page=1" class="[^"]*">Previous</a>')
+        self.assertNotIn(">Next</a>", second)
+
+    def test_one_page_has_no_pager(self):
+        self._notice(created=self.MIDNIGHT)
+        self.assertNotContains(self._get(), 'aria-label="Pages"')
+
+    def test_the_bell_badge_caps_at_9_plus_and_hides_at_zero(self):
+        self.client.force_login(self.owner.user)
+        bell_page = reverse("owner_account")
+        html = self.client.get(bell_page).content.decode()
+        self.assertNotIn("bg-red-600", html.split("</header>")[0])
+        for number in range(3):
+            self._notice(f"N{number}")
+        html = self.client.get(bell_page).content.decode()
+        self.assertIn('aria-label="Notifications, 3 unread"', html)
+        self.assertIn('aria-hidden="true">3</span>', html)
+        for number in range(7):
+            self._notice(f"M{number}")
+        html = self.client.get(bell_page).content.decode()
+        self.assertIn('aria-label="Notifications, 10 unread"', html)
+        self.assertIn('aria-hidden="true">9+</span>', html)
+
+    def test_every_a_tag_is_on_one_line(self):
+        _one_line_links(self, self.PARTS)
+
+    def test_no_inline_script_or_handlers(self):
+        self._notice(created=self.MIDNIGHT, related_pet=self.pet)
+        html = self._get().content.decode()
+        self.assertIsNone(re.search(INLINE_SCRIPT, html))
+        self.assertIsNone(re.search(r"\son[a-z]+\s*=", html))
+        for name in self.PARTS:
+            source = get_template(name).template.source
+            for banned in ("<script", "hx-confirm", "<!--"):
+                self.assertNotIn(banned, source)
+            self.assertIsNone(re.search(r"\son[a-z]+\s*=", source))
+
+    def _query_count(self):
+        self.client.force_login(self.owner.user)
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(self.URL)
+        self.assertEqual(response.status_code, 200)
+        return len(queries)
+
+    def test_the_whole_request_is_flat_for_3_and_25_cards(self):
+        for number in range(3):
+            self._notice(f"N{number}", related_pet=self.pet, created=self.MIDNIGHT)
+        few = self._query_count()
+        # session, user, owner, count, page, unread count
+        self.assertEqual(few, 6)
+        for number in range(22):
+            self._notice(f"M{number}", related_pet=self.pet, created=self.MIDNIGHT)
+        with self.assertNumQueries(few):
+            response = self.client.get(self.URL)
+        self.assertEqual(len(response.context["today_rows"]), 25)
+
+
+class OwnerEmailSettingsPageTests(FrozenRemindersTestBase):
+    """Slice 8b-9a: Email notifications on the owner layout (Account tab)."""
+
+    SWITCHES = {
+        "email_appointment_reminders": "Visit reminders",
+        "email_appointment_status": "Visit updates",
+        "email_billing": "Bills",
+        "email_vaccination": "Vaccine reminders",
+        "email_followup": "Follow-up reminders",
+    }
+    HIDE = "not-group-has-[input[type=checkbox]:checked]/pref:hidden"
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("owner_notification_preferences")
+        self.preference = NotificationPreference.objects.get(user=self.owner.user)
+        self.client.force_login(self.owner.user)
+
+    def _html(self):
+        return self.client.get(self.url).content.decode()
+
+    def _post(self, **changes):
+        data = {"appointment_reminder_days": "1", "vaccination_reminder_days": "7"}
+        data.update(changes)
+        return self.client.post(self.url, data)
+
+    def test_the_page_is_on_the_owner_layout_with_the_account_tab_lit(self):
+        response = self.client.get(self.url)
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertTemplateUsed(response, "owner/notifications/preferences.html")
+        self.assertTemplateNotUsed(response, "base_dashboard.html")
+        html = response.content.decode()
+        nav = re.search(r'(?s)<nav aria-label="Main"[^>]*>(.*?)</nav>', html).group(1)
+        self.assertEqual(nav.count('aria-current="page"'), 1)
+        current = re.search(r'<a href="([^"]+)"[^>]*aria-current="page"', nav)
+        self.assertEqual(current.group(1), reverse("owner_account"))
+        self.assertIn("Back to Account", html)
+        self.assertIn(f'<a href="{reverse("owner_account")}"', html)
+
+    def test_title_intro_and_the_blue_info_box(self):
+        html = self._html()
+        self.assertIn('<h1 class="text-2xl font-bold text-gray-900">', html)
+        self.assertIn(">Email notifications</h1>", html)
+        self.assertIn("Choose which emails you get.", html)
+        box = re.search(r'(?s)<div class="[^"]*bg-blue-50[^"]*">(.*?)</div>', html)
+        self.assertIn("border-blue-200", box.group(0))
+        self.assertIn(
+            "You'll always see these in the app (the bell). These switches only "
+            "turn the <b>emails</b> on or off.",
+            box.group(1),
+        )
+
+    def test_the_five_rows_in_one_card(self):
+        html = self._html()
+        card = re.search(r'(?s)<section class="divide-y[^"]*">(.*?)</section>', html)
+        self.assertIsNotNone(card)
+        rows = (
+            ("Visit reminders", "A reminder before each visit."),
+            ("Visit updates", "When the clinic confirms, moves or declines a visit."),
+            ("Bills", "When the clinic records your payment."),
+            ("Vaccine reminders", "When a vaccine is coming due."),
+            ("Follow-up reminders", "When the vet asked to see your pet again."),
+        )
+        for title, text in rows:
+            with self.subTest(title=title):
+                self.assertIn(f">{title}</span>", card.group(1))
+                self.assertIn(f">{text}</span>", card.group(1))
+        self.assertEqual(card.group(1).count('class="group/pref py-4"'), 5)
+        self.assertNotIn("New bills", html)
+
+    def test_every_switch_is_a_real_checkbox_with_a_role_and_a_name(self):
+        html = self._html()
+        for name, title in self.SWITCHES.items():
+            with self.subTest(field=name):
+                tag = re.search(rf'<input[^>]*name="{name}"[^>]*>', html).group(0)
+                self.assertIn('type="checkbox"', tag)
+                self.assertIn('role="switch"', tag)
+                self.assertIn(f'aria-label="{title}"', tag)
+                self.assertIn("peer", tag)
+                self.assertIn("sr-only", tag)
+
+    def test_the_switch_look_and_a_whole_row_tap_area(self):
+        html = self._html()
+        self.assertEqual(html.count("h-8 w-14"), 5)
+        self.assertEqual(html.count("bg-gray-300 transition-colors"), 5)
+        self.assertEqual(html.count("peer-checked:bg-violet-600"), 5)
+        self.assertEqual(html.count("peer-checked:translate-x-6"), 5)
+        self.assertEqual(html.count("peer-focus-visible:ring-2"), 5)
+        self.assertEqual(html.count("bg-white shadow transition-transform"), 5)  # knob
+        # The label around the title and the switch is the tap area
+        self.assertEqual(html.count('class="flex min-h-14 cursor-pointer'), 5)
+
+    def test_the_timing_selects_and_their_choices(self):
+        html = self._html()
+        appointment = re.search(
+            r'(?s)<select name="appointment_reminder_days".*?</select>', html
+        ).group(0)
+        vaccine = re.search(
+            r'(?s)<select name="vaccination_reminder_days".*?</select>', html
+        ).group(0)
+        for label in ("On the same day", "1 day before", "2 days before"):
+            self.assertIn(f">{label}</option>", appointment)
+        self.assertIn(">3 days before</option>", appointment)
+        for label in ("3 days before", "7 days before", "14 days before"):
+            self.assertIn(f">{label}</option>", vaccine)
+        self.assertIn(">30 days before</option>", vaccine)
+        self.assertNotIn("On the same day", vaccine)
+        self.assertNotIn("day(s) before", html)
+        self.assertEqual(html.count(">Send it</label>"), 2)
+
+    def test_the_timing_row_hides_with_css_only_and_shows_when_unsure(self):
+        html = self._html()
+        self.assertEqual(html.count(f"bg-gray-50 px-3 py-2 {self.HIDE}"), 2)
+        # Nothing hides it by itself: the base classes have no hidden token
+        for row in re.findall(r'<div class="mt-3 rounded-xl[^"]*">', html):
+            self.assertNotRegex(row, r"(?<![\w:/\]-])hidden\b")
+        self.assertIsNone(re.search(INLINE_SCRIPT, html))
+
+    def test_a_timing_error_shows_even_with_its_switch_off(self):
+        response = self._post(appointment_reminder_days="9")
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        self.assertEqual(html.count("Choose one of the options."), 1)
+        # Only the vaccine row still hides with its (off) switch
+        self.assertEqual(html.count(self.HIDE), 1)
+        self.preference.refresh_from_db()
+        self.assertEqual(self.preference.appointment_reminder_days, 1)
+
+    def test_saved_values_round_trip(self):
+        response = self._post(
+            email_appointment_reminders="on",
+            email_billing="on",
+            appointment_reminder_days="3",
+            vaccination_reminder_days="30",
+        )
+        self.assertRedirects(response, self.url, fetch_redirect_response=False)
+        self.preference.refresh_from_db()
+        self.assertEqual(
+            (
+                self.preference.email_appointment_reminders,
+                self.preference.email_appointment_status,
+                self.preference.email_billing,
+                self.preference.email_vaccination,
+                self.preference.email_followup,
+                self.preference.appointment_reminder_days,
+                self.preference.vaccination_reminder_days,
+            ),
+            (True, False, True, False, False, 3, 30),
+        )
+        html = self._html()
+        for name, title in self.SWITCHES.items():
+            tag = re.search(rf'<input[^>]*name="{name}"[^>]*>', html).group(0)
+            on = name in ("email_appointment_reminders", "email_billing")
+            with self.subTest(field=name):
+                self.assertEqual(" checked" in tag, on)
+        self.assertIn('<option value="3" selected>3 days before</option>', html)
+        self.assertIn('<option value="30" selected>30 days before</option>', html)
+
+    def test_an_earlier_value_outside_the_list_is_still_there(self):
+        NotificationPreference.objects.filter(pk=self.preference.pk).update(
+            appointment_reminder_days=5, vaccination_reminder_days=10
+        )
+        html = self._html()
+        for days in (5, 10):
+            with self.subTest(days=days):
+                self.assertIn(
+                    f'<option value="{days}" selected>'
+                    f"{days} days before (your earlier choice)</option>",
+                    html,
+                )
+        # Saving as it is keeps it
+        self._post(appointment_reminder_days="5", vaccination_reminder_days="10")
+        self.preference.refresh_from_db()
+        self.assertEqual(self.preference.appointment_reminder_days, 5)
+        self.assertEqual(self.preference.vaccination_reminder_days, 10)
+
+    def test_the_pinned_save_bar_above_the_tabs(self):
+        html = self._html()
+        pattern = (
+            r'(?s)<div class="fixed inset-x-0 bottom-\[[^"]*" data-bar="tall">'
+            r".*?</div>\s*</div>"
+        )
+        bar = re.search(pattern, html)
+        self.assertIsNotNone(bar)
+        self.assertIn('type="submit" form="email-settings-form"', bar.group(0))
+        self.assertIn("Save settings", bar.group(0))
+        self.assertIn("<svg", bar.group(0))
+        self.assertIn('<form id="email-settings-form" method="post"', html)
+        buttons = re.findall(r"<button\b[^>]*\bbg-violet-600\b[^>]*>", html)
+        self.assertEqual(len(buttons), 1)
+        self.assertLess(html.index('data-bar="tall"'), html.index('aria-label="Main"'))
+
+    def test_saving_comes_back_with_the_flash(self):
+        response = self._post(email_followup="on")
+        self.assertRedirects(response, self.url, fetch_redirect_response=False)
+        page = self.client.get(self.url)
+        self.assertContains(page, "Your email settings are saved.")
+        # Shown once, then gone
+        self.assertNotContains(self.client.get(self.url), "are saved.")
+
+    def test_only_owners_and_only_their_own_row(self):
+        admin = User.objects.create_user(
+            username="admin",
+            email="admin@example.com",
+            password="unused-pass-123",
+            role=User.ADMIN,
+            is_onboarded=True,
+        )
+        self.client.force_login(admin)
+        response = self.client.get(self.url)
+        self.assertRedirects(
+            response, reverse("admin_dashboard"), fetch_redirect_response=False
+        )
+        self.client.logout()
+        self.assertEqual(self.client.get(self.url).status_code, 302)
+
+    def test_the_whole_request_is_flat(self):
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        # session, user, preference (the back bar has no logo or bell)
+        self.assertEqual(len(queries), 3)
+        for number in range(12):
+            Notification.objects.create(
+                recipient=self.owner.user,
+                notification_type=Notification.APPOINTMENT_APPROVED,
+                title=f"N{number}",
+                message="m",
+            )
+        with self.assertNumQueries(len(queries)):
+            self.client.get(self.url)

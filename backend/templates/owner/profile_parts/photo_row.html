@@ -1,0 +1,23 @@
+{% comment %}
+  My details photo row: the saved photo (or the initials on a violet circle),
+  "Change photo" (a label around a hidden file input; shared/photo_input.js
+  shows the chosen name) and "Optional". Needs form (the details form),
+  pet_owner and photo_url (the saved photo, read before the form was bound).
+{% endcomment %}
+<section class="flex items-center gap-4" aria-label="Your photo" data-photo>
+  {% if photo_url %}
+    <img src="{{ photo_url }}" alt="Your photo" class="size-20 shrink-0 rounded-full object-cover ring-1 ring-black/10">
+  {% else %}
+    <span class="grid size-20 shrink-0 place-content-center rounded-full bg-violet-50 text-3xl font-semibold tracking-wide text-violet-700 ring-1 ring-violet-200" role="img" aria-label="No photo yet">{{ pet_owner.first_name|first|upper }}{{ pet_owner.last_name|first|upper }}</span>
+  {% endif %}
+  <div class="min-w-0 space-y-1">
+    <label for="{{ form.profile_photo.id_for_label }}" class="btn btn-outline min-h-11 font-semibold has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-violet-600">
+      {% include "components/icon.html" with name="image" %}Change photo
+      <input type="file" name="{{ form.profile_photo.html_name }}" id="{{ form.profile_photo.id_for_label }}" accept="image/*" class="sr-only" data-photo-input>
+    </label>
+    <p class="text-base font-medium text-gray-800" aria-live="polite" hidden data-photo-name></p>
+    <p class="text-base text-gray-600">Optional</p>
+    {% if form.errors %}<p class="text-base font-medium text-gray-800">Choose the photo again. Browsers can't keep it after a problem.</p>{% endif %}
+    {% for error in form.profile_photo.errors %}<p class="flex items-start gap-1 text-base font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0" %}{{ error }}</p>{% endfor %}
+  </div>
+</section>

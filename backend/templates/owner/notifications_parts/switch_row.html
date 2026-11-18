@@ -1,0 +1,31 @@
+{% comment %}
+  One row of the Email notifications card: a title and one line, and a switch
+  on the right. The switch is a real checkbox (role="switch", named by the
+  form) hidden beside a track and a knob that follow it with peer-checked, so
+  the whole label is the tap area and it works without JavaScript. A timing
+  row ("Send it" and a select) shows only while the switch is on: CSS only,
+  and visible when the browser can't tell (fails safe). A timing error always
+  shows. Needs field, title, text; timing (a form field) is optional.
+{% endcomment %}
+<div class="group/pref py-4">
+  <label for="{{ field.id_for_label }}" class="flex min-h-14 cursor-pointer items-start gap-4">
+    <span class="flex-1">
+      <span class="block text-base font-semibold text-gray-900">{{ title }}</span>
+      <span class="block text-base text-gray-600">{{ text }}</span>
+    </span>
+    <span class="relative mt-0.5 block h-8 w-14 shrink-0">
+      {{ field }}
+      <span class="absolute inset-0 rounded-full bg-gray-300 transition-colors peer-checked:bg-violet-600 peer-focus-visible:ring-2 peer-focus-visible:ring-violet-600 peer-focus-visible:ring-offset-2" aria-hidden="true"></span>
+      <span class="absolute left-1 top-1 size-6 rounded-full bg-white shadow transition-transform peer-checked:translate-x-6" aria-hidden="true"></span>
+    </span>
+  </label>
+  {% if timing %}
+  <div class="mt-3 rounded-xl bg-gray-50 px-3 py-2 {% if not timing.errors %}not-group-has-[input[type=checkbox]:checked]/pref:hidden{% endif %}">
+    <div class="flex items-center gap-3">
+      <label for="{{ timing.id_for_label }}" class="flex-1 text-base text-gray-700">Send it</label>
+      <div class="form-field w-52 shrink-0{% if timing.errors %} has-error{% endif %}">{{ timing }}</div>
+    </div>
+    {% for error in timing.errors %}<p class="mt-2 flex items-start gap-1 text-base font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0" %}{{ error }}</p>{% endfor %}
+  </div>
+  {% endif %}
+</div>

@@ -1,0 +1,10 @@
+{% comment %}
+  My details, Name: first and last name side by side. Needs form.
+{% endcomment %}
+<section class="card" aria-labelledby="name-title">
+  <h2 id="name-title" class="text-xl font-semibold text-gray-900">Name</h2>
+  <div class="mt-4 grid grid-cols-2 gap-3">
+    {% include "components/form_field.html" with field=form.first_name %}
+    {% include "components/form_field.html" with field=form.last_name %}
+  </div>
+</section>

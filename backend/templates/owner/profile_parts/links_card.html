@@ -1,0 +1,38 @@
+{% comment %}
+  My details, Social and other contacts: one row per saved link, then two
+  empty rows (the contact links formset). shared/contact_links.js hides the
+  empty rows and shows "Add a link" and each row's remove button; remove
+  empties the row, and an empty row is dropped on save
+  (save_owner_profile). Without JavaScript every row shows and the two
+  buttons stay hidden, so a link is removed by clearing its row. Needs
+  link_formset.
+{% endcomment %}
+<section class="card" aria-labelledby="links-title" data-links>
+  <h2 id="links-title" class="text-xl font-semibold text-gray-900">Social and other contacts</h2>
+  <p class="mt-1 text-base text-gray-600">So the clinic can reach you another way. Optional.</p>
+  {{ link_formset.management_form }}
+  <ul class="mt-4 space-y-3">
+    {% for link_form in link_formset %}
+      <li class="rounded-xl border border-gray-200 p-3" data-link-row{% if link_form.errors %} data-link-error{% endif %}>
+        <div class="flex items-start gap-3">
+          {% include "components/icon.html" with name="link" class="mt-1 size-9 shrink-0 rounded-lg bg-gray-100 p-2 text-gray-700" %}
+          <div class="grid min-w-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-2">
+            <div class="form-field space-y-1.5{% if link_form.platform.errors %} has-error{% endif %}">
+              <label for="{{ link_form.platform.id_for_label }}" class="block text-base font-medium text-gray-800">Where <span class="font-normal text-gray-600">(link {{ forloop.counter }})</span></label>
+              {{ link_form.platform }}
+              {% for error in link_form.platform.errors %}<p class="flex items-start gap-1 text-base font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0" %}{{ error }}</p>{% endfor %}
+            </div>
+            <div class="form-field space-y-1.5{% if link_form.url_or_handle.errors %} has-error{% endif %}">
+              <label for="{{ link_form.url_or_handle.id_for_label }}" class="block text-base font-medium text-gray-800">Name or link <span class="font-normal text-gray-600">(link {{ forloop.counter }})</span></label>
+              {{ link_form.url_or_handle }}
+              {% for error in link_form.url_or_handle.errors %}<p class="flex items-start gap-1 text-base font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0" %}{{ error }}</p>{% endfor %}
+            </div>
+            {% for error in link_form.non_field_errors %}<p class="flex items-start gap-1 text-base font-medium text-red-700 sm:col-span-2">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0" %}{{ error }}</p>{% endfor %}
+          </div>
+          <button type="button" class="grid size-11 shrink-0 cursor-pointer place-content-center rounded-lg text-gray-600 hover:bg-gray-100" aria-label="Remove {% if link_form.platform.value %}{{ link_form.platform.value }}{% else %}link {{ forloop.counter }}{% endif %}" data-link-remove hidden>{% include "components/icon.html" with name="x" class="size-5 shrink-0" %}</button>
+        </div>
+      </li>
+    {% endfor %}
+  </ul>
+  <button type="button" class="mt-3 inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg text-base font-medium text-blue-600 hover:text-blue-800" data-link-add hidden>{% include "components/icon.html" with name="plus" class="size-5 shrink-0" %}Add a link</button>
+</section>

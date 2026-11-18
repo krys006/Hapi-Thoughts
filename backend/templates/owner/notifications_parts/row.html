@@ -1,0 +1,14 @@
+{% comment %}
+  One notification card: row is a dict from owner_notifications_context. The
+  whole card is one link to notification_open (it marks the notification read,
+  then goes to the visit, bill or pet); with nowhere to go it is a plain box.
+  Unread: light violet card, bold title, a violet dot with "New" for a screen
+  reader. The card body is in card_body.html so the link stays on one line.
+{% endcomment %}
+<li{% if row.is_unread %} data-unread="true"{% endif %}>
+  {% if row.target %}
+  <a href="{{ row.target }}" class="flex gap-4 rounded-2xl border p-4 hover:border-violet-300 {% if row.is_unread %}border-violet-200 bg-violet-50 shadow-sm{% else %}border-gray-200 bg-white{% endif %}">{% include "owner/notifications_parts/card_body.html" %}</a>
+  {% else %}
+  <div class="flex gap-4 rounded-2xl border p-4 {% if row.is_unread %}border-violet-200 bg-violet-50 shadow-sm{% else %}border-gray-200 bg-white{% endif %}">{% include "owner/notifications_parts/card_body.html" %}</div>
+  {% endif %}
+</li>

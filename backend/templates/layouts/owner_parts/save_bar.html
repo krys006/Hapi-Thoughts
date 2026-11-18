@@ -1,0 +1,12 @@
+{% comment %}
+  The pinned Save bar above the bottom tabs (the tabs are 57 px tall), the
+  Edit pet pattern: the page's one violet button, a submit for the form with
+  id form_id. data-bar="tall" gives <main> the room (layouts/owner.html).
+  A page puts it in block bottom_bar, followed by the tabs include.
+  Needs form_id and label.
+{% endcomment %}
+<div class="fixed inset-x-0 bottom-[calc(3.5rem+1px+env(safe-area-inset-bottom))] z-20 border-t border-gray-200 bg-white px-4 py-3" data-bar="tall">
+  <div class="mx-auto max-w-3xl">
+    <button type="submit" form="{{ form_id }}" class="flex min-h-14 w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700">{% include "components/icon.html" with name="check" class="size-5 shrink-0" %}{{ label }}</button>
+  </div>
+</div>

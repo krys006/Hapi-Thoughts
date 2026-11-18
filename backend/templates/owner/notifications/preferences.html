@@ -1,0 +1,33 @@
+{% extends "layouts/owner.html" %}
+
+{% block title %}Email notifications — Hapi Vet{% endblock %}
+
+{# Back goes to the Account hub; the Account tab stays lit (see OWNER_TABS) #}
+{% block top_bar %}{% url 'owner_account' as account_url %}{% include "layouts/owner_parts/back_bar.html" with url=account_url label="Account" %}{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-bold text-gray-900">Email notifications</h1>
+<p class="mt-1 text-base text-gray-700">Choose which emails you get.</p>
+
+<div class="mt-5 flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-blue-900">
+  {% include "components/icon.html" with name="info" class="mt-0.5 size-5 shrink-0" %}
+  <p class="text-base">You'll always see these in the app (the bell). These switches only turn the <b>emails</b> on or off.</p>
+</div>
+
+<form id="email-settings-form" method="post" class="mt-5" novalidate>
+  {% csrf_token %}
+  <section class="divide-y divide-gray-100 rounded-2xl border border-gray-200 bg-white px-4 shadow-sm">
+    {% include "owner/notifications_parts/switch_row.html" with field=form.email_appointment_reminders title="Visit reminders" text="A reminder before each visit." timing=form.appointment_reminder_days %}
+    {% include "owner/notifications_parts/switch_row.html" with field=form.email_appointment_status title="Visit updates" text="When the clinic confirms, moves or declines a visit." %}
+    {% include "owner/notifications_parts/switch_row.html" with field=form.email_billing title="Bills" text="When the clinic records your payment." %}
+    {% include "owner/notifications_parts/switch_row.html" with field=form.email_vaccination title="Vaccine reminders" text="When a vaccine is coming due." timing=form.vaccination_reminder_days %}
+    {% include "owner/notifications_parts/switch_row.html" with field=form.email_followup title="Follow-up reminders" text="When the vet asked to see your pet again." %}
+  </section>
+</form>
+{% endblock %}
+
+{# The one violet button rides in a bar above the bottom tabs (the tabs are 57 px tall) #}
+{% block bottom_bar %}
+{% include "layouts/owner_parts/save_bar.html" with form_id="email-settings-form" label="Save settings" %}
+{% include "layouts/owner_parts/tabs.html" %}
+{% endblock %}
