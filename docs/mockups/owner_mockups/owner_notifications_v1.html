@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notifications v1</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { background:#e7e5e4; font-family:"Segoe UI", system-ui, sans-serif; }
+  .phone { width:390px; height:844px; overflow-y:auto; position:relative; }
+  .phone::-webkit-scrollbar { width:0; }
+</style>
+</head>
+<body class="p-6 text-gray-900 antialiased">
+
+<header class="mx-auto mb-6 max-w-[1750px]">
+  <h1 class="text-2xl font-bold">Notifications v1 — opened from the bell</h1>
+  <p class="mt-1 text-base text-gray-700">A full page instead of the see-through overlay. Each notification is a card with an icon, a short title, the key details, and how long ago. Tapping one opens the visit, bill or pet it's about. Phone 1 works: tap a card or "Mark all as read".</p>
+</header>
+
+<div class="mx-auto flex max-w-[1750px] flex-wrap justify-center gap-8" id="frames"></div>
+
+<script>
+// ---------- Icons (Lucide shapes, mockup only) ----------
+const P = {
+  house:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  calCheck:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="m9 16 2 2 4-4"/>',
+  calX:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="m14 14-4 4"/><path d="m10 14 4 4"/>',
+  move:'<path d="M16 14v2.2l1.6 1"/><path d="M16 2v4"/><path d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5"/><path d="M3 10h5"/><path d="M8 2v4"/><circle cx="16" cy="16" r="6"/>',
+  clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  syringe:'<path d="m18 2 4 4"/><path d="m17 7 3-3"/><path d="M19 9 8.7 19.3c-1 1-2.5 1-3.4 0l-.6-.6c-1-1-1-2.5 0-3.4L15 5"/><path d="m9 11 4 4"/><path d="m5 19-3 3"/><path d="m14 4 6 6"/>',
+  steth:'<path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/>',
+  user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  back:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  checks:'<path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/>',
+};
+const ic = (n, c='size-5 shrink-0') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// Icon + colour per notification_type (colours follow the status colours)
+const kinds = {
+  approved:  ['calCheck','bg-blue-50 text-blue-700'],
+  moved:     ['move','bg-blue-50 text-blue-700'],
+  rejected:  ['calX','bg-red-50 text-red-700'],
+  cancelled: ['calX','bg-red-50 text-red-700'],
+  reminder:  ['clock','bg-violet-50 text-violet-700'],
+  billing:   ['receipt','bg-yellow-50 text-yellow-800'],
+  vaccine:   ['syringe','bg-green-50 text-green-700'],
+  followup:  ['steth','bg-green-50 text-green-700'],
+};
+
+// ---------- Shell ----------
+// Bell page: Back + title + "Mark all as read"; tabs stay, none active
+const head = (unread) => `
+<div class="sticky top-0 z-20 shrink-0 border-b border-gray-200 bg-white">
+  <div class="flex h-16 items-center gap-2 px-2">
+    <a class="grid size-11 place-content-center rounded-full text-gray-800 hover:bg-gray-100" aria-label="Back">${ic('back','size-6')}</a>
+    <h1 class="flex-1 text-xl font-bold">Notifications</h1>
+    ${unread ? `<button type="button" class="markall inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-base font-medium text-blue-600 hover:bg-blue-50">${ic('checks','size-5')}Mark all as read</button>` : ''}
+  </div>
+</div>`;
+const tabs = `
+<nav class="sticky bottom-0 z-10 mt-auto grid shrink-0 grid-cols-5 border-t border-gray-200 bg-white pb-2">
+  ${[['house','Home'],['paw','Pets'],['calendar','Visits'],['receipt','Bills'],['user','Account']].map(([i,l]) =>
+    `<a class="flex min-h-14 flex-col items-center justify-center gap-0.5 pt-2 text-sm font-medium text-gray-600">${ic(i,'size-6')}${l}<span class="mt-0.5 h-1 w-6"></span></a>`).join('')}
+</nav>`;
+const page = (inner, unread) => `<div class="flex min-h-full flex-col">${head(unread)}${inner}${tabs}</div>`;
+
+// ---------- Card ----------
+const card = ([kind, title, detail, when, unread, link]) => {
+  const [icon, tone] = kinds[kind];
+  return `
+<a class="note relative flex gap-4 rounded-2xl border p-4 ${unread ? 'unread border-violet-200 bg-violet-50 shadow-sm' : 'border-gray-200 bg-white'}">
+  <span class="grid size-11 shrink-0 place-content-center rounded-xl ${tone}">${ic(icon,'size-6')}</span>
+  <span class="min-w-0 flex-1">
+    <span class="flex items-start justify-between gap-2">
+      <span class="text-base ${unread ? 'font-bold' : 'font-semibold'}">${title}</span>
+      ${unread ? '<span class="dot mt-1.5 size-2.5 shrink-0 rounded-full bg-violet-600" aria-label="New"></span>' : ''}
+    </span>
+    <span class="mt-0.5 block text-base text-gray-700">${detail}</span>
+    <span class="mt-2 flex items-center justify-between gap-2 text-base">
+      <span class="text-gray-500">${when}</span>
+      <span class="font-medium text-blue-600">${link}</span>
+    </span>
+  </span>
+</a>`;
+};
+
+const today = [
+  ['approved','Visit confirmed','Browny · Mon, Nov 2 at 3:00 PM','1 hour ago',true,'See visit'],
+  ['moved','The clinic moved your visit','Browny · now Mon, Nov 2 at 2:00 PM. The new time is confirmed.','3 hours ago',true,'See visit'],
+  ['reminder','Visit tomorrow','Browny · Tue, Nov 3 at 8:00 AM','5 hours ago',true,'See visit'],
+];
+const earlier = [
+  ['billing','New bill: ₱1,350.00','Browny · HV-2026-0004. Pay in cash at the clinic.','Yesterday',true,'See bill'],
+  ['cancelled','The clinic cancelled a visit','Browny · Tue, Nov 10 at 2:00 PM. Please call us for a new time.','Yesterday',false,'See visit'],
+  ['vaccine','Vaccine due soon','Mingming · Anti-rabies, due Nov 9','Oct 31',false,'See pet'],
+  ['followup','Follow-up visit','Choco · Dr. Aga asked to see Choco again around Nov 15','Oct 30',false,'Book a visit'],
+  ['rejected','Visit request declined','Choco · Fri, Oct 30 at 1:00 PM. That day is fully booked.','Oct 28',false,'See visit'],
+];
+const groupH = t => `<h2 class="pt-1 text-base font-semibold text-gray-600">${t}</h2>`;
+
+const list = (rows1, rows2) => `
+<main class="flex-1 space-y-3 px-4 py-4">
+  ${rows1.length ? groupH('Today') + rows1.map(card).join('') : ''}
+  ${groupH('Earlier') + rows2.map(card).join('')}
+  <p class="pt-2 text-center text-base text-gray-500">That's everything from the last 30 days.</p>
+</main>`;
+
+const allRead = r => r.map(x => { const y = [...x]; y[4] = false; return y; });
+
+const empty = `
+<main class="flex flex-1 flex-col items-center justify-center px-6 py-10 text-center">
+  <span class="grid size-24 place-content-center rounded-full bg-gray-100 text-gray-500">${ic('bell','size-12')}</span>
+  <p class="mt-5 text-xl font-bold">No notifications yet</p>
+  <p class="mt-1 text-base text-gray-700">We'll tell you here when the clinic confirms a visit, adds a bill, or a vaccine is due.</p>
+</main>`;
+
+// Bell in the top bar, before and after (badge caps at 9+)
+const bellDemo = `
+<div class="flex items-center gap-6 rounded-2xl border border-gray-200 bg-white p-4">
+  ${[['3','3 unread'],['9+','12 unread'],['','None unread']].map(([n,l]) => `
+    <div class="flex flex-col items-center gap-1">
+      <span class="relative grid size-11 place-content-center rounded-full text-gray-900">${ic('bell','size-6')}${n ? `<span class="absolute right-0.5 top-0.5 grid min-w-5 place-content-center rounded-full bg-red-600 px-1 text-xs font-bold text-white ring-2 ring-white">${n}</span>` : ''}</span>
+      <span class="text-sm text-gray-600">${l}</span>
+    </div>`).join('')}
+</div>`;
+
+// ---------- Frames ----------
+const frame = (lbl, note, body, id='') => `
+<figure class="flex flex-col items-center">
+  <figcaption class="mb-3 w-[390px]"><p class="text-lg font-bold">${lbl}</p><p class="text-base text-gray-700">${note}</p></figcaption>
+  <div ${id ? `id="${id}"` : ''} class="phone rounded-[2rem] bg-gray-50 shadow-xl ring-8 ring-gray-900">${body}</div>
+</figure>`;
+
+document.getElementById('frames').innerHTML =
+  frame('1 · Notifications (try it)', 'New ones have a light violet background, a violet dot and a bold title. Grouped Today / Earlier. One link per card says where it goes.', page(list(today, earlier), true), 'live') +
+  frame('2 · All read', '"Mark all as read" disappears when there\'s nothing new.', page(list(allRead(today), allRead(earlier)), false)) +
+  frame('3 · Nothing yet', 'New owner: says what will show up here.', page(empty, false)) +
+  `<figure class="flex w-[390px] flex-col gap-3">
+     <figcaption><p class="text-lg font-bold">Bell badge</p><p class="text-base text-gray-700">Shows the unread count, capped at 9+ so it never gets wider. No badge when everything is read.</p></figcaption>
+     ${bellDemo}
+   </figure>`;
+
+// ---------- Make phone 1 work ----------
+const root = document.getElementById('live');
+const markRead = n => {
+  n.classList.remove('unread','border-violet-200','bg-violet-50','shadow-sm'); n.classList.add('border-gray-200','bg-white');
+  n.querySelector('.dot')?.remove();
+  const t = n.querySelector('.font-bold'); if (t) { t.classList.remove('font-bold'); t.classList.add('font-semibold'); }
+  if (!root.querySelector('.unread')) root.querySelector('.markall')?.remove();
+};
+root.querySelectorAll('.note').forEach(n => n.addEventListener('click', () => markRead(n)));
+root.querySelector('.markall').addEventListener('click', () => root.querySelectorAll('.unread').forEach(markRead));
+</script>
+</body>
+</html>

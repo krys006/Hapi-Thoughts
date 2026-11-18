@@ -1,374 +1,48 @@
-{% extends 'base_dashboard.html' %}
+{% extends "layouts/owner.html" %}
+
 {% load static %}
 
-{% block title %}Add a Pet — Hapi Vet{% endblock %}
+{% block title %}Add a pet — Hapi Vet{% endblock %}
+
+{% block extra_head %}
+  {# Without JavaScript every species and breed box shows, so the form still works #}
+  <noscript><style>[data-species-other], [data-breed-pick], [data-breed-other] { display: block; }</style></noscript>
+{% endblock %}
+
+{# Back goes to My Pets, or to booking when the owner came from there (?next=book) #}
+{% block top_bar %}{% include "layouts/owner_parts/back_bar.html" with url=back_url label=back_label %}{% endblock %}
 
 {% block content %}
-
-
-<style>
-  
-<style>
-
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
-
-.pet-form-page{
-    max-width:430px;
-    margin:0 auto;
-    padding:20px;
-    font-family:'Poppins',sans-serif;
-}
-
-.pet-form-header{
-    margin-bottom:25px;
-}
-
-.pet-form-title{
-    color:white;
-    font-size:2rem;
-    font-weight:800;
-    margin-bottom:5px;
-}
-
-.page-subtitle{
-    color:rgba(255,255,255,.85);
-}
-
-.pet-form{
-    background:rgba(255,255,255,.15);
-    backdrop-filter:blur(18px);
-    border:1px solid rgba(255,255,255,.2);
-    border-radius:28px;
-    padding:24px;
-    box-shadow:0 10px 30px rgba(0,0,0,.12);
-}
-
-/* PHOTO */
-
-.photo-upload-card{
-    background:rgba(255,255,255,.10);
-    border:2px dashed rgba(255,255,255,.25);
-    border-radius:22px;
-    padding:25px;
-    text-align:center;
-    margin-bottom:25px;
-}
-
-.photo-upload-icon{
-    font-size:3rem;
-    color:white;
-    margin-bottom:10px;
-}
-
-.photo-upload-text{
-    color:white;
-    font-weight:600;
-    margin-bottom:15px;
-}
-
-.photo-upload-card input[type=file]{
-    width:100%;
-    color:white;
-}
-
-/* FORM */
-
-.form-section{
-    margin-bottom:18px;
-}
-
-.form-row-two-col{
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    gap:14px;
-}
-
-.form-label{
-    display:block;
-    color:white;
-    font-weight:600;
-    margin-bottom:8px;
-}
-
-.required-tag{
-    color:#ffd966;
-}
-
-.optional-tag{
-    color:rgba(255,255,255,.7);
-    font-size:.85rem;
-}
-
-/* INPUTS */
-
-.pet-form input,
-.pet-form select,
-.pet-form textarea{
-    width:100%;
-    padding:14px;
-    border:none;
-    border-radius:16px;
-    background:rgba(255,255,255,.18);
-    color:white;
-    font-size:15px;
-    outline:none;
-}
-
-.pet-form input::placeholder{
-    color:rgba(255,255,255,.65);
-}
-
-.pet-form select option{
-    color:black;
-}
-
-/* ERRORS */
-
-.form-error{
-    color:#ffd6d6;
-    margin-top:6px;
-    font-size:.85rem;
-}
-
-/* BUTTONS */
-
-.form-actions{
-    display:flex;
-    gap:12px;
-    margin-top:25px;
-}
-
-.btn-primary{
-    flex:1;
-    border:none;
-    border-radius:18px;
-    padding:15px;
-
-    background:linear-gradient(
-        135deg,
-        #7c5cff,
-        #00c6ff
-    );
-
-    color:white;
-    font-weight:700;
-    font-size:15px;
-    cursor:pointer;
-    text-decoration:none;
-    text-align:center;
-}
-
-.btn-secondary{
-    flex:1;
-
-    background:rgba(255,255,255,.15);
-
-    border:1px solid rgba(255,255,255,.2);
-
-    color:white;
-
-    text-decoration:none;
-
-    border-radius:18px;
-
-    padding:15px;
-
-    text-align:center;
-}
-
-.btn-primary:hover,
-.btn-secondary:hover{
-    transform:translateY(-2px);
-}
-
-/* MOBILE */
-
-@media(max-width:480px){
-
-    .form-row-two-col{
-        grid-template-columns:1fr;
-    }
-
-    .form-actions{
-        flex-direction:column;
-    }
-
-    .pet-form-title{
-        font-size:1.7rem;
-    }
-
-}
-
-</style>
-
-<div class="pet-form-page">
-
-<div class="pet-form-header">
-
-    <div>
-
-        <h1 class="pet-form-title">
-            Add Pet
-        </h1>
-
-        <p class="page-subtitle">
-            Create your pet profile
-        </p>
-
-    </div>
-
-</div>
-
-  <form method="post" enctype="multipart/form-data" class="pet-form">
-    {% csrf_token %}
-
-    <!-- Pet photo -->
-    <div class="form-section">
-      <label class="form-label">
-        Pet Photo <span class="optional-tag">(optional)</span>
-      </label>
-      {{ form.photo }}
-      {% if form.photo.errors %}
-        <p class="form-error">{{ form.photo.errors.0 }}</p>
-      {% endif %}
-    </div>
-
-    <!-- Pet name -->
-    <div class="form-section">
-      <label class="form-label" for="{{ form.name.id_for_label }}">
-        Pet Name <span class="required-tag">*</span>
-      </label>
-      {{ form.name }}
-      {% if form.name.errors %}
-        <p class="form-error">{{ form.name.errors.0 }}</p>
-      {% endif %}
-    </div>
-
-    <!-- Species and breed — cascading dropdown with custom input fallback -->
-    <div class="form-row-two-col">
-
-      <div class="form-section">
-        <label class="form-label" for="{{ form.species.id_for_label }}_select">
-          Species <span class="required-tag">*</span>
-        </label>
-        <select id="{{ form.species.id_for_label }}_select" class="species-select">
-          <option value="">Select a species</option>
-          <option value="Dog">Dog</option>
-          <option value="Cat">Cat</option>
-          <option value="Bird">Bird</option>
-          <option value="Rabbit">Rabbit</option>
-          <option value="Hamster">Hamster</option>
-          <option value="__other__">Other (please specify)</option>
-        </select>
-        <!-- Actual submitted field — hidden unless "Other" is chosen -->
-        <div id="{{ form.species.id_for_label }}_custom_wrapper" class="hidden-field custom-input-wrapper">
-          {{ form.species }}
-        </div>
-        {% if form.species.errors %}
-          <p class="form-error">{{ form.species.errors.0 }}</p>
-        {% endif %}
-      </div>
-
-      <div class="form-section">
-        <label class="form-label" for="{{ form.breed.id_for_label }}_select">
-          Breed <span class="optional-tag">(optional)</span>
-        </label>
-        <select id="{{ form.breed.id_for_label }}_select" class="breed-select">
-          <option value="">Select species first</option>
-        </select>
-        <!-- Actual submitted field — hidden unless "Other" is chosen -->
-        <div id="{{ form.breed.id_for_label }}_custom_wrapper" class="hidden-field custom-input-wrapper">
-          {{ form.breed }}
-        </div>
-        {% if form.breed.errors %}
-          <p class="form-error">{{ form.breed.errors.0 }}</p>
-        {% endif %}
-      </div>
-
-    </div>
-
-    <!-- Gender and date of birth -->
-    <div class="form-row-two-col">
-
-      <div class="form-section">
-        <label class="form-label" for="{{ form.gender.id_for_label }}">
-          Gender <span class="required-tag">*</span>
-        </label>
-        {{ form.gender }}
-        {% if form.gender.errors %}
-          <p class="form-error">{{ form.gender.errors.0 }}</p>
-        {% endif %}
-      </div>
-
-      <div class="form-section">
-        <label class="form-label" for="{{ form.date_of_birth.id_for_label }}">
-          Date of Birth <span class="optional-tag">(optional)</span>
-        </label>
-        {{ form.date_of_birth }}
-        {% if form.date_of_birth.errors %}
-          <p class="form-error">{{ form.date_of_birth.errors.0 }}</p>
-        {% endif %}
-      </div>
-
-    </div>
-
-    <!-- Color and weight -->
-    <div class="form-row-two-col">
-
-      <div class="form-section">
-        <label class="form-label" for="{{ form.color.id_for_label }}">
-          Color <span class="optional-tag">(optional)</span>
-        </label>
-        {{ form.color }}
-        {% if form.color.errors %}
-          <p class="form-error">{{ form.color.errors.0 }}</p>
-        {% endif %}
-      </div>
-
-      <div class="form-section">
-        <label class="form-label" for="{{ form.weight.id_for_label }}">
-          Weight (kg) <span class="optional-tag">(optional)</span>
-        </label>
-        {{ form.weight }}
-        {% if form.weight.errors %}
-          <p class="form-error">{{ form.weight.errors.0 }}</p>
-        {% endif %}
-      </div>
-
-    </div>
-
-    <!-- Registration number -->
-    <div class="form-section">
-      <label class="form-label" for="{{ form.registration_number.id_for_label }}">
-        Registration Number <span class="optional-tag">(optional)</span>
-      </label>
-      {{ form.registration_number }}
-      {% if form.registration_number.errors %}
-        <p class="form-error">{{ form.registration_number.errors.0 }}</p>
-      {% endif %}
-    </div>
-
-    <div class="form-actions">
-      <a href="{% url 'owner_pet_list' %}" class="btn-secondary">Cancel</a>
-   <button type="submit" class="btn-primary">
-    🐾 Add Pet
-</button>
-    </div>
-
-  </form>
-
-</div>
-
+<h1 class="text-2xl font-bold text-gray-900">Add a pet</h1>
+
+{% if next_value %}
+  <div class="mt-4 flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-blue-900">
+    {% include "components/icon.html" with name="info" class="mt-0.5 size-5 shrink-0" %}
+    <p class="text-base">After you save, you'll go back to booking with this pet already picked.</p>
+  </div>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data" class="mt-5 space-y-6" novalidate>
+  {% csrf_token %}
+  {% if next_value %}<input type="hidden" name="next" value="{{ next_value }}">{% endif %}
+  {% if form.errors %}
+    {% include "admin/pets/owner_form_parts/error_summary.html" %}
+  {% else %}
+    <p class="text-base text-gray-700">Fields marked <span class="text-red-700">*</span> are required. The rest is optional.</p>
+  {% endif %}
+
+  {% include "owner/pet_form_parts/fields.html" %}
+
+  {# In booking mode the button says where it goes next #}
+  {% if next_value %}
+    <button type="submit" class="flex min-h-14 w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700">Save and continue{% include "components/icon.html" with name="arrow-right" class="size-5 shrink-0" %}</button>
+  {% else %}
+    <button type="submit" class="flex min-h-14 w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700">{% include "components/icon.html" with name="plus" class="size-5 shrink-0" %}Add pet</button>
+  {% endif %}
+</form>
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'js/shared/pet_species_breed.js' %}"></script>
-<script>
-  document.addEventListener('DOMContentLoaded', function () {
-    initPetSpeciesBreedFields(
-      '{{ form.species.id_for_label }}',
-      '{{ form.breed.id_for_label }}'
-    );
-  });
-</script>
+  <script src="{% static 'js/shared/photo_input.js' %}" defer></script>
+  <script src="{% static 'js/shared/pet_form.js' %}" defer></script>
 {% endblock %}

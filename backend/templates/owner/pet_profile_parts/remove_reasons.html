@@ -1,0 +1,15 @@
+{% comment %}
+  The remove sheet's "What happened?" radio cards, included inside the sheet's
+  POST form (components/bottom_sheet.html body_template). Written by hand:
+  form_field.html has no fieldset branch. The label wraps the input; the
+  chosen card turns light violet through has-[:checked]. Needs removal_reasons.
+{% endcomment %}
+<fieldset class="space-y-2">
+  <legend class="mb-2 text-base font-semibold text-gray-900">What happened?</legend>
+  {% for value, words in removal_reasons %}
+    <label class="flex min-h-14 cursor-pointer items-center gap-3 rounded-2xl border border-gray-300 bg-white px-4 has-[:checked]:border-violet-500 has-[:checked]:bg-violet-50 has-[:checked]:ring-2 has-[:checked]:ring-violet-200 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-violet-600">
+      <input type="radio" name="reason" value="{{ value }}" class="size-6 shrink-0 accent-violet-600">
+      <span class="text-base font-semibold text-gray-900">{{ words }}</span>
+    </label>
+  {% endfor %}
+</fieldset>

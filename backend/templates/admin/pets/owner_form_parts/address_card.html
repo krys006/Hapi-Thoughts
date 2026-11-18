@@ -1,10 +1,10 @@
 {% comment %}
   Address: Province select, then the Town and Barangay dropdowns (Marinduque,
   PSA list) or the typed fields (another province), then the street line.
-  The group not in use is hidden; owner_form.js switches them, and without
-  JavaScript both show (the <noscript> style in owner_form.html).
+  The group not in use is hidden; shared/address_form.js switches them, and
+  without JavaScript both show (the <noscript> style in owner_form.html).
   The Town select loads the Barangay options over HTMX (attributes set in
-  AdminPetOwnerForm).
+  AddressFieldsMixin).
 {% endcomment %}
 <section class="card" aria-labelledby="address-title" data-address>
   <h2 id="address-title" class="text-xl font-semibold text-gray-900">Address <span class="text-base font-normal text-gray-600">(optional)</span></h2>

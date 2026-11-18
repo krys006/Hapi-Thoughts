@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visit Detail v1</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { background:#e7e5e4; font-family:"Segoe UI", system-ui, sans-serif; }
+  .phone { width:390px; height:844px; overflow-y:auto; position:relative; }
+  .phone::-webkit-scrollbar { width:0; }
+  .locked { overflow:hidden; }
+</style>
+</head>
+<body class="p-6 text-gray-900 antialiased">
+
+<header class="mx-auto mb-6 max-w-[2550px]">
+  <h1 class="text-2xl font-bold">Visit detail v1 — every status, cancel and reschedule</h1>
+  <p class="mt-1 text-base text-gray-700">Opened from a Visits card or a notification. A coloured banner says where the visit stands and what happens next. Only visits that are waiting or confirmed can be changed. The clinic's private notes are never shown. Phone 3 works: pick "Other".</p>
+</header>
+
+<div class="mx-auto flex max-w-[2550px] flex-wrap justify-center gap-8" id="frames"></div>
+
+<script>
+// ---------- Icons (Lucide shapes, mockup only) ----------
+const P = {
+  house:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  calCheck:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="m9 16 2 2 4-4"/>',
+  calX:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="m14 14-4 4"/><path d="m10 14 4 4"/>',
+  move:'<path d="M16 14v2.2l1.6 1"/><path d="M16 2v4"/><path d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5"/><path d="M3 10h5"/><path d="M8 2v4"/><circle cx="16" cy="16" r="6"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  back:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  chev:'<path d="m9 18 6-6-6-6"/>',
+  chevL:'<path d="m15 18-6-6 6-6"/>',
+  hourglass:'<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>',
+  checkCircle:'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  xCircle:'<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
+  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  steth:'<path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/>',
+  phone:'<path d="M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  image:'<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+};
+const ic = (n, c='size-5 shrink-0') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// ---------- Shell ----------
+const backBar = (to='Visits') => `
+<div class="sticky top-0 z-20 flex h-16 shrink-0 items-center border-b border-gray-200 bg-white px-2">
+  <a class="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-base font-medium text-gray-800 hover:bg-gray-100">${ic('back','size-6')}${to}</a>
+</div>`;
+const tabs = `
+<nav class="sticky bottom-0 z-10 mt-auto grid shrink-0 grid-cols-5 border-t border-gray-200 bg-white pb-2">
+  ${[['house','Home'],['paw','Pets'],['calendar','Visits'],['receipt','Bills'],['user','Account']].map(([i,l]) =>
+    `<a class="flex min-h-14 flex-col items-center justify-center gap-0.5 pt-2 text-sm font-medium ${l==='Visits' ? 'text-violet-700' : 'text-gray-600'}"${l==='Visits' ? ' aria-current="page"' : ''}>
+      ${ic(i,'size-6')}${l}<span class="mt-0.5 h-1 w-6 rounded-full ${l==='Visits' ? 'bg-violet-600' : ''}"></span></a>`).join('')}
+</nav>`;
+const page = (inner, head=backBar(), foot=tabs) => `<div class="relative flex min-h-full flex-col">${head}${inner}${foot}</div>`;
+
+const banner = (tone, icon, title, text) => {
+  const t = {yellow:'border-yellow-300 bg-yellow-50 text-yellow-900', blue:'border-blue-200 bg-blue-50 text-blue-900', green:'border-green-200 bg-green-50 text-green-900', red:'border-red-200 bg-red-50 text-red-900', gray:'border-gray-300 bg-gray-100 text-gray-900', orange:'border-orange-300 bg-orange-50 text-orange-900'}[tone];
+  return `<div class="flex items-start gap-3 rounded-xl border px-4 py-4 ${t}">${ic(icon,'mt-0.5 size-6 shrink-0')}<div><p class="text-lg font-semibold">${title}</p><p class="mt-0.5 text-base">${text}</p></div></div>`;
+};
+
+// Pet + what + when on top
+const hero = (when, svc='Consultation') => `
+<div class="flex items-center gap-4">
+  <span class="grid size-16 shrink-0 place-content-center rounded-2xl bg-gradient-to-br from-amber-200 to-amber-500 text-white ring-1 ring-black/10" role="img" aria-label="Photo of Browny">${ic('image','size-6')}</span>
+  <div><h1 class="text-2xl font-bold leading-7">Browny · ${svc}</h1><p class="mt-1 text-lg font-semibold text-gray-800">${when}</p></div>
+</div>`;
+
+const details = rows => `
+<section class="rounded-2xl border border-gray-200 bg-white px-4 shadow-sm">
+  <h2 class="pt-4 text-lg font-bold">Visit details</h2>
+  <dl class="divide-y divide-gray-100">
+    ${rows.map(([t, d]) => `<div class="py-3"><dt class="text-base text-gray-600">${t}</dt><dd class="text-base font-semibold">${d}</dd></div>`).join('')}
+  </dl>
+</section>`;
+const baseRows = (day) => [
+  ['Pet', '<a class="text-blue-600 underline underline-offset-2">Browny</a> · Dog · Aspin'],
+  ['Visit for', 'Consultation'],
+  ['Day and time', day],
+  ['Your note for the vet', 'Not eating since yesterday.'],
+  ['Booked on', 'Nov 1, 2026'],
+];
+
+// Actions for visits that can still change
+const btnOutline = (icon, label) => `<a class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border border-gray-300 bg-white text-lg font-semibold text-gray-800">${ic(icon,'size-5')}${label}</a>`;
+const btnDanger = (icon, label) => `<a class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border border-red-300 bg-white text-lg font-semibold text-red-700">${ic(icon,'size-5')}${label}</a>`;
+const btnPrimary = (icon, label) => `<a class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm">${ic(icon,'size-5')}${label}</a>`;
+const actions = (cancelLabel) => `
+<section class="space-y-3">
+  <h2 class="text-lg font-bold">Need to change it?</h2>
+  ${btnOutline('move','Change day or time')}
+  ${btnDanger('calX', cancelLabel)}
+</section>`;
+
+// ---------- 1 · Waiting for approval ----------
+const pending = page(`
+<main class="flex-1 space-y-5 px-4 py-5">
+  ${hero('Tue, Nov 10 at 12:00 PM')}
+  ${banner('yellow','hourglass','Waiting for the clinic to confirm','You\'ll get a notification when they do. Please don\'t come in until it\'s confirmed.')}
+  ${details(baseRows('Tuesday, Nov 10, 2026 at 12:00 PM'))}
+  ${actions('Cancel this request')}
+</main>`);
+
+// ---------- 2 · Confirmed, tomorrow (within 24 hours) ----------
+const confirmed = page(`
+<main class="flex-1 space-y-5 px-4 py-5">
+  ${hero('Tomorrow, Tue, Nov 3 at 8:00 AM')}
+  ${banner('blue','calCheck','Confirmed','See you tomorrow at 8:00 AM. Please come 10 minutes early.')}
+  ${details(baseRows('Tuesday, Nov 3, 2026 at 8:00 AM'))}
+  ${actions('Cancel this visit')}
+</main>`);
+
+// ---------- 3 · Cancel sheet ----------
+const reasons = [['change','Change of plans'],['unwell','My pet is unwell'],['time','I can\'t make it at that time'],['other','Other reason']];
+const radio = (k, l, on) => `
+<label class="flex min-h-14 cursor-pointer items-center gap-3 rounded-2xl border px-4 ${on ? 'border-violet-500 bg-violet-50 ring-2 ring-violet-200' : 'border-gray-200 bg-white'}">
+  <input type="radio" name="why" value="${k}" ${on ? 'checked' : ''} class="r size-6 accent-violet-600">
+  <span class="text-base font-semibold">${l}</span>
+</label>`;
+const cancelSheet = page(`
+<main class="flex-1 space-y-5 px-4 py-5">
+  ${hero('Tomorrow, Tue, Nov 3 at 8:00 AM')}
+  ${banner('blue','calCheck','Confirmed','See you tomorrow at 8:00 AM.')}
+</main>`) + `
+<div class="absolute inset-0 z-30 flex items-end bg-gray-900/50">
+  <div role="dialog" aria-modal="true" aria-labelledby="ct" class="max-h-[92%] w-full overflow-y-auto rounded-t-3xl bg-white px-5 pb-6 pt-3 shadow-2xl">
+    <span class="mx-auto mb-4 block h-1.5 w-12 rounded-full bg-gray-300"></span>
+    <h2 id="ct" class="text-xl font-bold">Cancel Browny's visit?</h2>
+    <p class="mt-1 text-base text-gray-700">Tue, Nov 3 at 8:00 AM · Consultation</p>
+    <div class="mt-3 flex items-start gap-2 rounded-xl bg-orange-50 px-3 py-2 text-orange-900">${ic('alert','mt-0.5 size-5 shrink-0')}<p class="text-base">It's less than 24 hours away, so the clinic will see this as a late cancel. If you can, <b>call them instead</b>: 0954 288 9774.</p></div>
+    <fieldset class="mt-4 space-y-2">
+      <legend class="mb-2 text-base font-semibold">Why are you cancelling?</legend>
+      ${reasons.map(([k,l],i) => radio(k,l,i===1)).join('')}
+    </fieldset>
+    <div class="otherbox mt-3 hidden">
+      <label for="od" class="block text-base font-semibold">Tell us a little more</label>
+      <textarea id="od" rows="2" class="mt-1.5 block w-full rounded-xl border border-gray-300 p-3 text-base focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200"></textarea>
+    </div>
+    <div class="mt-5 space-y-3">
+      <button class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-red-600 text-lg font-semibold text-white">${ic('calX','size-5')}Yes, cancel the visit</button>
+      <button class="flex min-h-14 w-full items-center justify-center rounded-2xl border border-gray-300 bg-white text-lg font-medium text-gray-800">Keep the visit</button>
+    </div>
+  </div>
+</div>`;
+
+// ---------- 4 · Change day or time ----------
+// Compact calendar (same rules as booking): Nov 2026, today Nov 2 past cutoff, weekends + Nov 30 closed, Nov 6 full
+const dayState = d => { const wd = (d-1)%7; if (d<2) return 'past'; if (d===2) return 'today'; if (wd===0||wd===6||d===30) return 'closed'; if (d===6) return 'full'; return 'open'; };
+const dayCell = (d, sel, current) => {
+  const st = dayState(d), base = 'relative grid h-11 place-content-center rounded-xl text-base';
+  if (d === current) return `<span class="${base} font-semibold text-gray-500 outline-2 outline-dashed outline-gray-400 -outline-offset-2" aria-label="Nov ${d}, your current day">${d}</span>`;
+  if (st === 'open') return `<button type="button" class="${base} font-semibold ${d===sel ? 'bg-violet-600 text-white' : 'bg-white ring-1 ring-gray-200'}">${d}</button>`;
+  if (st === 'full') return `<span class="${base} bg-gray-100 text-gray-400 line-through">${d}</span>`;
+  if (st === 'today') return `<span class="${base} text-gray-400 ring-2 ring-gray-300">${d}</span>`;
+  return `<span class="${base} text-gray-300">${d}</span>`;
+};
+const calendar = current => `
+<section class="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm">
+  <div class="mb-2 flex items-center justify-between">
+    <button class="grid size-11 place-content-center rounded-full text-gray-300" disabled aria-label="Previous month">${ic('chevL','size-6')}</button>
+    <p class="text-lg font-bold">November 2026</p>
+    <button class="grid size-11 place-content-center rounded-full text-gray-800" aria-label="Next month">${ic('chev','size-6')}</button>
+  </div>
+  <div class="grid grid-cols-7 gap-1 text-center text-sm font-semibold text-gray-600">${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>`<span>${d}</span>`).join('')}</div>
+  <div class="mt-1 grid grid-cols-7 gap-1">${Array.from({length:30},(_,i)=>dayCell(i+1, 12, current)).join('')}</div>
+  <p class="mt-3 flex items-center gap-2 border-t border-gray-100 pt-3 text-base text-gray-700"><span class="inline-block size-5 rounded-md outline-2 outline-dashed outline-gray-400 -outline-offset-2"></span>Your current day</p>
+</section>`;
+const slotsFor = `
+<section class="space-y-2">
+  <h2 class="text-lg font-bold">Times on Thu, Nov 12</h2>
+  <div class="grid grid-cols-3 gap-2">
+    ${['8:00 AM','9:00 AM','10:00 AM','11:00 AM','12:00 PM','1:00 PM','2:00 PM','3:00 PM','4:00 PM'].map(t => {
+      if (['10:00 AM','2:00 PM'].includes(t)) return `<span class="flex min-h-12 flex-col items-center justify-center rounded-xl bg-gray-100 text-base text-gray-400"><span class="line-through">${t}</span><span class="text-sm">Taken</span></span>`;
+      const on = t === '9:00 AM';
+      return `<button type="button" class="min-h-12 rounded-xl text-base font-semibold ${on ? 'bg-violet-600 text-white' : 'bg-white ring-1 ring-gray-300'}">${t}</button>`;
+    }).join('')}
+  </div>
+</section>`;
+// late = the visit is less than 24 hours away: same note as the Cancel sheet, at the top
+const resched = (oldShort, oldLong, current, late) => page(`
+<main class="flex-1 space-y-5 px-4 py-5">
+  <div><h1 class="text-2xl font-bold">Change day or time</h1><p class="mt-1 text-base text-gray-700">Browny · Consultation</p></div>
+  ${late ? `<div class="flex items-start gap-3 rounded-xl border border-orange-300 bg-orange-50 px-4 py-3 text-orange-900">${ic('alert','mt-0.5 size-5 shrink-0')}<p class="text-base">Your visit is less than 24 hours away, so the clinic will see this as a late change. If you can, <b>call them instead</b>: 0954 288 9774.</p></div>` : ''}
+  <div class="grid grid-cols-2 gap-3">
+    <div class="rounded-2xl border border-gray-200 bg-white p-3"><p class="text-base text-gray-600">Now</p><p class="text-base font-semibold text-gray-500 line-through">${oldShort}</p></div>
+    <div class="rounded-2xl border-2 border-violet-500 bg-violet-50 p-3"><p class="text-base text-violet-800">New</p><p class="text-base font-bold">Thu, Nov 12<br>9:00 AM</p></div>
+  </div>
+  ${calendar(current)}
+  ${slotsFor}
+  <div>
+    <label for="rr" class="block text-lg font-bold">Why the change?</label>
+    <textarea id="rr" rows="3" class="mt-1.5 block w-full rounded-xl border border-gray-300 bg-white p-4 text-base placeholder:text-gray-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200" placeholder="e.g. I have work on that day"></textarea>
+  </div>
+  <div class="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-blue-900">${ic('info','mt-0.5 size-5 shrink-0')}<p class="text-base">The new time needs the clinic's OK again, so it will show as <b>Waiting for approval</b>. Your old time (${oldLong}) is given up.</p></div>
+</main>`, backBar('Visit'), `
+<div class="sticky bottom-0 z-10 mt-auto flex shrink-0 gap-3 border-t border-gray-200 bg-white px-4 pb-5 pt-3">
+  <a class="inline-flex min-h-14 items-center justify-center rounded-2xl border border-gray-300 bg-white px-5 text-lg font-medium text-gray-800">Keep old time</a>
+  <button class="flex min-h-14 flex-1 items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm">${ic('check','size-5')}Send new time</button>
+</div>`);
+
+// ---------- 5 · Completed ----------
+const linkCard = (icon, tone, title, sub) => `
+<a class="flex items-center gap-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+  <span class="grid size-11 shrink-0 place-content-center rounded-xl ${tone}">${ic(icon,'size-6')}</span>
+  <span class="flex-1"><span class="block text-base font-semibold">${title}</span><span class="block text-base text-gray-600">${sub}</span></span>
+  ${ic('chev','size-5 text-gray-400')}
+</a>`;
+const completed = page(`
+<main class="flex-1 space-y-5 px-4 py-5">
+  ${hero('Sat, Oct 31 at 2:00 PM')}
+  ${banner('green','checkCircle','Visit done','Thank you for coming in. The vet\'s notes and the bill are below.')}
+  <section class="space-y-3">
+    ${linkCard('steth','bg-green-50 text-green-700','Vet\'s notes and medicines','What Dr. Aga found and what to give Browny')}
+    ${linkCard('receipt','bg-green-50 text-green-700','Bill HV-2026-0003 · Paid','₱850.00')}
+  </section>
+  ${details(baseRows('Saturday, Oct 31, 2026 at 2:00 PM'))}
+  ${btnPrimary('plus','Book another visit')}
+</main>`);
+
+// ---------- 6 · Cancelled by the clinic ----------
+const cancelledClinic = page(`
+<main class="flex-1 space-y-5 px-4 py-5">
+  ${hero('Thu, Oct 15 at 11:00 AM', 'Check-up')}
+  ${banner('red','xCircle','Cancelled by the clinic','Sorry about this. Please call us to find a new time, or book another visit.')}
+  <div class="grid grid-cols-2 gap-3">
+    <a class="flex min-h-14 items-center justify-center gap-2 rounded-2xl border border-gray-300 bg-white text-lg font-semibold text-gray-800">${ic('phone','size-5')}Call</a>
+    ${btnPrimary('plus','Book again').replace('w-full ','')}
+  </div>
+  ${details([['Pet','<a class="text-blue-600 underline underline-offset-2">Browny</a> · Dog · Aspin'],['Visit for','Check-up'],['Was on','Thursday, Oct 15, 2026 at 11:00 AM'],['Cancelled','Oct 14, 2026 by the clinic']])}
+</main>`);
+
+// ---------- 7 · Missed ----------
+const missed = page(`
+<main class="flex-1 space-y-5 px-4 py-5">
+  ${hero('Tue, Oct 20 at 1:00 PM', 'Grooming')}
+  ${banner('gray','info','Missed','The clinic marked this visit as missed. If that\'s a mistake, please call the clinic.')}
+  ${details([['Pet','<a class="text-blue-600 underline underline-offset-2">Browny</a> · Dog · Aspin'],['Visit for','Grooming'],['Was on','Tuesday, Oct 20, 2026 at 1:00 PM']])}
+  ${btnPrimary('plus','Book a new visit')}
+</main>`);
+
+// ---------- Frames ----------
+const frame = (lbl, note, body, id='', cls='') => `
+<figure class="flex flex-col items-center">
+  <figcaption class="mb-3 w-[390px]"><p class="text-lg font-bold">${lbl}</p><p class="text-base text-gray-700">${note}</p></figcaption>
+  <div ${id ? `id="${id}"` : ''} class="phone ${cls} rounded-[2rem] bg-gray-50 shadow-xl ring-8 ring-gray-900">${body}</div>
+</figure>`;
+
+document.getElementById('frames').innerHTML =
+  frame('1 · Waiting for approval', 'Yellow: what happens next and "don\'t come in yet". They can still change or cancel the request.', pending) +
+  frame('2 · Confirmed, less than 24 hours away', 'Blue banner and the two change buttons. No warning here: the late-cancel note only appears after tapping Cancel (phone 3).', confirmed) +
+  frame('3 · Cancel? (try it)', 'Only shows the late-cancel note when the visit is under 24 hours away. Asks for one of the 4 reasons from the model. "Other" opens a text box. Keep is just as big as Cancel.', cancelSheet, 'cancel', 'locked') +
+  frame('4 · Change day or time', 'Old time crossed out next to the new one. Same calendar rules as booking. Reason is asked. Says it goes back to waiting.', resched('Tue, Nov 10<br>12:00 PM','Tue, Nov 10 at 12:00 PM',10,false)) +
+  frame('4b · Change time, less than 24 hours away', 'Same page with the late-change note on top, worded like the Cancel sheet. Only shown when the visit is under 24 hours away.', resched('Tue, Nov 3<br>8:00 AM','Tue, Nov 3 at 8:00 AM',3,true)) +
+  frame('5 · Done', 'Green. Links to the vet\'s notes (public notes only) and the bill. No change buttons.', completed) +
+  frame('6 · Cancelled by the clinic', 'Red, with a Call button and Book again. If the owner cancelled, it says "You cancelled: <reason>".', cancelledClinic) +
+  frame('7 · Missed', 'Gray. Tells them who to call if it\'s wrong.', missed);
+
+// ---------- Make phone 3's reasons work ----------
+const c = document.getElementById('cancel');
+c.querySelectorAll('.r').forEach(r => r.addEventListener('change', () => {
+  c.querySelectorAll('label:has(.r)').forEach(l => {
+    const on = l.querySelector('.r').checked;
+    l.className = `flex min-h-14 cursor-pointer items-center gap-3 rounded-2xl border px-4 ${on ? 'border-violet-500 bg-violet-50 ring-2 ring-violet-200' : 'border-gray-200 bg-white'}`;
+  });
+  c.querySelector('.otherbox').classList.toggle('hidden', r.value !== 'other');
+}));
+</script>
+</body>
+</html>

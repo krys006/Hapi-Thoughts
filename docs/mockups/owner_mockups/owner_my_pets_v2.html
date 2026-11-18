@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Pets v2</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { background:#e7e5e4; font-family:"Segoe UI", system-ui, sans-serif; }
+  .phone { width:390px; height:844px; overflow-y:auto; position:relative; }
+  .phone::-webkit-scrollbar, .chips::-webkit-scrollbar { width:0; height:0; }
+  input[type=search]::-webkit-search-cancel-button { -webkit-appearance:none; display:none; }
+</style>
+</head>
+<body class="p-6 text-gray-900 antialiased">
+
+<header class="mx-auto mb-6 max-w-[1750px]">
+  <h1 class="text-2xl font-bold">My Pets v2 — white bar, search and filters</h1>
+  <p class="mt-1 text-base text-gray-700">No violet band on inner pages: only the white bar with the logo and bell. The first phone works: type in the search box or tap a filter.</p>
+</header>
+
+<div class="mx-auto flex max-w-[1750px] flex-wrap justify-center gap-8" id="frames"></div>
+
+<script>
+// ---------- Icons (Lucide shapes, mockup only) ----------
+const P = {
+  house:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  search:'<path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/>',
+  x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  image:'<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+  dog:'<path d="M11.25 16.25h1.5L12 17z"/><path d="M16 14v.5"/><path d="M4.42 11.247A13.152 13.152 0 0 0 4 14.556C4 18.728 7.582 21 12 21s8-2.272 8-6.444a11.702 11.702 0 0 0-.493-3.309"/><path d="M8 14v.5"/><path d="M8.5 8.5c-.384 1.05-1.083 2.028-2.344 2.5-1.931.722-3.576-.297-3.656-1-.113-.994 1.177-6.53 4-7 1.923-.321 3.651.845 3.651 2.235A7.497 7.497 0 0 1 14 5.277c0-1.39 1.844-2.598 3.767-2.277 2.823.47 4.113 6.006 4 7-.08.703-1.725 1.722-3.656 1-1.261-.472-1.855-1.45-2.239-2.5"/>',
+  cat:'<path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z"/><path d="M8 14v.5"/><path d="M16 14v.5"/><path d="M11.25 16.25h1.5L12 17l-.75-.75Z"/>',
+};
+const ic = (n, c='size-5 shrink-0') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+const thin = (n, c) => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// ---------- Shell: white bar + bottom tabs pinned to the screen bottom ----------
+const bar = `
+<div class="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4">
+  <div class="flex items-center gap-2.5">
+    <span class="grid size-9 place-content-center rounded-xl bg-violet-600 text-white">${ic('paw','size-5')}</span>
+    <span class="text-lg font-bold">Hapi Tutz</span>
+  </div>
+  <button class="relative grid size-11 place-content-center rounded-full hover:bg-gray-100" aria-label="Notifications, 9 unread">
+    ${ic('bell','size-6')}
+    <span class="absolute right-1 top-1 grid min-w-5 place-content-center rounded-full bg-red-600 px-1 text-xs font-bold text-white ring-2 ring-white">9</span>
+  </button>
+</div>`;
+const tabs = `
+<nav class="sticky bottom-0 z-10 mt-auto grid shrink-0 grid-cols-5 border-t border-gray-200 bg-white pb-2">
+  ${[['house','Home'],['paw','Pets'],['calendar','Visits'],['receipt','Bills'],['user','Account']].map(([i,l]) =>
+    `<a class="flex min-h-14 flex-col items-center justify-center gap-0.5 pt-2 text-sm font-medium ${l==='Pets' ? 'text-violet-700' : 'text-gray-600'}"${l==='Pets' ? ' aria-current="page"' : ''}>
+      ${ic(i,'size-6')}${l}<span class="mt-0.5 h-1 w-6 rounded-full ${l==='Pets' ? 'bg-violet-600' : ''}"></span></a>`).join('')}
+</nav>`;
+const page = inner => `<div class="flex min-h-full flex-col">${bar}${inner}${tabs}</div>`;
+
+// Title row: page title left, the page's one violet button top right
+const titleRow = count => `
+<div class="flex items-center justify-between gap-3">
+  <div><h1 class="text-2xl font-bold">My Pets</h1><p class="text-base text-gray-600">${count}</p></div>
+  <a class="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-violet-600 px-4 text-base font-semibold text-white shadow-sm">${ic('plus','size-5')}Add a pet</a>
+</div>`;
+
+// ---------- Data ----------
+const pets = [
+  {name:'Browny',  sp:'dog', species:'Dog',    breed:'Aspin',     sex:'Male',   age:'3 yrs', photo:'from-amber-200 to-amber-500', visit:'Nov 10'},
+  {name:'Mingming',sp:'cat', species:'Cat',    breed:'Puspin',    sex:'Female', age:'1 yr',  photo:'', visit:''},
+  {name:'Choco',   sp:'dog', species:'Dog',    breed:'Shih Tzu',  sex:'Male',   age:'5 yrs', photo:'from-sky-200 to-sky-400', visit:'Nov 20'},
+  {name:'Kiko',    sp:'paw', species:'Rabbit', breed:'',          sex:'Female', age:'2 yrs', photo:'', visit:''},
+  {name:'Bantay',  sp:'dog', species:'Dog',    breed:'Aspin',     sex:'Male',   age:'7 yrs', photo:'', visit:''},
+  {name:'Snow',    sp:'cat', species:'Cat',    breed:'Persian',   sex:'Female', age:'4 yrs', photo:'from-rose-200 to-rose-400', visit:'Dec 1'},
+];
+const group = p => p.species === 'Dog' ? 'Dogs' : p.species === 'Cat' ? 'Cats' : 'Others';
+
+// Picture: the photo when uploaded (stand-in tile here), otherwise the species icon on violet (admin pet_avatar rule)
+const picture = p => p.photo
+  ? `<span class="grid aspect-square w-full place-content-center rounded-xl bg-gradient-to-br ${p.photo} text-white" role="img" aria-label="Photo of ${p.name}">${ic('image','size-8')}</span>`
+  : `<span class="grid aspect-square w-full place-content-center rounded-xl bg-violet-50 text-violet-500 ring-1 ring-inset ring-violet-200" role="img" aria-label="No photo of ${p.name} yet">${thin(p.sp,'size-14')}</span>`;
+
+const card = p => `
+<a class="pet flex flex-col rounded-2xl border border-gray-200 bg-white p-2.5 shadow-sm" data-name="${p.name.toLowerCase()}" data-group="${group(p)}">
+  ${picture(p)}
+  <span class="px-1 pb-1 pt-3">
+    <span class="block text-lg font-bold leading-6">${p.name}</span>
+    <span class="block text-base text-gray-700">${p.species}${p.breed ? ' · ' + p.breed : ''}</span>
+    <span class="block text-base text-gray-600">${p.sex} · ${p.age}</span>
+    ${p.visit
+      ? `<span class="mt-2 inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-1 text-sm font-medium text-blue-800">${ic('calendar','size-4 shrink-0')}Visit ${p.visit}</span>`
+      : `<span class="mt-2 inline-flex items-center gap-1 py-1 text-sm text-gray-500">${ic('calendar','size-4 shrink-0')}No visit booked</span>`}
+  </span>
+</a>`;
+
+// Search box and species filters (only the groups this owner has)
+const search = (value='') => `
+<label class="relative block">
+  <span class="sr-only">Search your pets by name</span>
+  <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">${ic('search','size-5')}</span>
+  <input class="q block min-h-12 w-full rounded-xl border border-gray-300 bg-white pl-12 pr-12 text-base placeholder:text-gray-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200" type="search" placeholder="Search your pets by name" value="${value}">
+  <button type="button" class="clear absolute right-1 top-1/2 grid size-11 -translate-y-1/2 place-content-center rounded-lg text-gray-600 ${value ? '' : 'hidden'}" aria-label="Clear search">${ic('x','size-5')}</button>
+</label>`;
+
+const groups = ['All', ...['Dogs','Cats','Others'].filter(g => pets.some(p => group(p) === g))];
+const chips = (active='All') => `
+<div class="chips flex flex-wrap gap-2" role="group" aria-label="Show pets by type">
+  ${groups.map(g => {
+    const on = g === active;
+    return `<button type="button" data-chip="${g}" aria-pressed="${on}" class="chip inline-flex min-h-11 shrink-0 items-center rounded-full px-4 text-base font-medium ring-1 ${on ? 'bg-violet-100 text-violet-800 ring-violet-300 font-semibold' : 'bg-white text-gray-700 ring-gray-300'}">${g}</button>`;
+  }).join('')}
+</div>`;
+
+const noMatch = q => `
+<div class="nomatch ${q ? '' : 'hidden'} flex flex-col items-center rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-10 text-center">
+  <span class="grid size-12 place-content-center rounded-full bg-gray-100 text-gray-500">${ic('search','size-6')}</span>
+  <p class="mt-3 text-base font-semibold">No pet named "<span class="term">${q}</span>"</p>
+  <p class="mt-1 text-base text-gray-600">Check the spelling, or clear the search to see all your pets.</p>
+  <button type="button" class="clear2 mt-4 inline-flex min-h-11 items-center rounded-xl border border-gray-300 bg-white px-4 text-base font-medium text-gray-800">Clear search</button>
+</div>`;
+
+const grid = (list) => `<div class="grid grid-cols-2 gap-3">${list.map(card).join('')}</div>`;
+
+// ---------- Screens ----------
+const full = page(`
+<main class="flex-1 space-y-4 px-4 py-5">
+  ${titleRow('6 pets')}${search()}${chips()}${noMatch('')}${grid(pets)}
+</main>`);
+
+const noResults = page(`
+<main class="flex-1 space-y-4 px-4 py-5">
+  ${titleRow('6 pets')}${search('Max')}${chips()}${noMatch('Max')}
+</main>`);
+
+// One or two pets: no search or filters, they'd just be clutter
+const fewPets = page(`
+<main class="flex-1 space-y-4 px-4 py-5">
+  ${titleRow('1 pet')}${grid(pets.slice(0,1))}
+</main>`);
+
+const noPets = page(`
+<main class="flex flex-1 flex-col items-center justify-center px-6 py-10 text-center">
+  <span class="grid size-24 place-content-center rounded-full bg-violet-50 text-violet-600 ring-1 ring-violet-200">${thin('paw','size-12')}</span>
+  <h1 class="mt-5 text-2xl font-bold">My Pets</h1>
+  <p class="mt-2 text-lg font-semibold">You haven't added a pet yet</p>
+  <p class="mt-1 text-base text-gray-700">Add your pet so you can book visits and see their health records here.</p>
+  <a class="mt-6 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm">${ic('plus','size-6')}Add a pet</a>
+</main>`);
+
+const frame = (label, note, body, id='') => `
+<figure class="flex flex-col items-center">
+  <figcaption class="mb-3 w-[390px]"><p class="text-lg font-bold">${label}</p><p class="text-base text-gray-700">${note}</p></figcaption>
+  <div ${id ? `id="${id}"` : ''} class="phone rounded-[2rem] bg-gray-50 shadow-xl ring-8 ring-gray-900">${body}</div>
+</figure>`;
+
+document.getElementById('frames').innerHTML =
+  frame('1 · My Pets (try it)', 'Search by name and filter by type. Photo when uploaded, species icon when not. Blue tag = visit booked.', full, 'live') +
+  frame('2 · No search results', 'Plain message and a way back to all pets.', noResults) +
+  frame('3 · One or two pets', 'Search and filters hide when there are only a few pets (suggest: show from 4 pets up).', fewPets) +
+  frame('4 · No pets yet', 'Empty state. The big button is the page\'s one violet button here.', noPets);
+
+// ---------- Make phone 1 work ----------
+const live = document.getElementById('live');
+let activeGroup = 'All';
+const apply = () => {
+  const q = live.querySelector('.q').value.trim().toLowerCase();
+  let shown = 0;
+  live.querySelectorAll('.pet').forEach(el => {
+    const ok = el.dataset.name.includes(q) && (activeGroup === 'All' || el.dataset.group === activeGroup);
+    el.classList.toggle('hidden', !ok); if (ok) shown++;
+  });
+  live.querySelector('.clear').classList.toggle('hidden', !q);
+  const nm = live.querySelector('.nomatch');
+  nm.classList.toggle('hidden', shown > 0);
+  nm.querySelector('.term').textContent = live.querySelector('.q').value.trim();
+};
+live.querySelector('.q').addEventListener('input', apply);
+const clear = () => { live.querySelector('.q').value = ''; apply(); };
+live.querySelector('.clear').addEventListener('click', clear);
+live.querySelector('.clear2').addEventListener('click', clear);
+live.querySelectorAll('.chip').forEach(b => b.addEventListener('click', () => {
+  activeGroup = b.dataset.chip;
+  live.querySelectorAll('.chip').forEach(c => {
+    const on = c === b;
+    c.setAttribute('aria-pressed', on);
+    c.className = `chip inline-flex min-h-11 shrink-0 items-center rounded-full px-4 text-base font-medium ring-1 ${on ? 'bg-violet-100 text-violet-800 ring-violet-300 font-semibold' : 'bg-white text-gray-700 ring-gray-300'}`;
+  });
+  apply();
+}));
+</script>
+</body>
+</html>

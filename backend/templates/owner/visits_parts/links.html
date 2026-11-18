@@ -1,0 +1,10 @@
+{% load billing_extras %}
+{% comment %}
+  A completed visit's link cards: the vet's notes (only with a record) and
+  the bill (only Unpaid or Paid). Needs links (icon, title, text or amount, url).
+{% endcomment %}
+<section aria-label="After the visit" class="space-y-3">
+  {% for link in links %}
+  <a href="{{ link.url }}" class="flex items-center gap-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm hover:bg-gray-50"><span class="grid size-11 shrink-0 place-content-center rounded-xl bg-green-50 text-green-700">{% include "components/icon.html" with name=link.icon class="size-6 shrink-0" %}</span><span class="min-w-0 flex-1"><span class="block text-base font-semibold text-gray-900">{{ link.title }}</span><span class="block text-base text-gray-700">{% if link.amount is not None %}{{ link.amount|peso }}{% else %}{{ link.text }}{% endif %}</span></span>{% include "components/icon.html" with name="chevron-right" class="size-5 shrink-0 text-gray-500" %}</a>
+  {% endfor %}
+</section>

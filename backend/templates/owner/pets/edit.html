@@ -1,235 +1,43 @@
-<div class="pet-form-page">
+{% extends "layouts/owner.html" %}
 
-    <!-- Header -->
-    <div class="pet-form-header">
+{% load static %}
 
-        <h1 class="pet-form-title">
-            Edit {{ pet.name }}
-        </h1>
+{% block title %}Edit {{ pet_name }} — Hapi Vet{% endblock %}
 
-        <a href="{% url 'owner_pet_detail' pet.pk %}"
-           class="btn-secondary">
-            Cancel
-        </a>
+{% block extra_head %}
+  {# Without JavaScript the typed breed box shows, so the form still works #}
+  <noscript><style>[data-breed-other] { display: block; }</style></noscript>
+{% endblock %}
 
-    </div>
+{# Back goes to the pet's profile #}
+{% block top_bar %}{% include "layouts/owner_parts/back_bar.html" with url=profile_url label=pet_name %}{% endblock %}
 
-    <!-- Current Photo -->
-    {% if pet.photo %}
-    <div class="current-photo-card">
+{% block content %}
+<h1 class="text-2xl font-bold text-gray-900">Edit {{ pet_name }}'s details</h1>
 
-        <img
-            src="{{ pet.photo.url }}"
-            alt="{{ pet.name }}"
-            class="current-photo-preview"
-        >
+<form id="pet-edit-form" method="post" enctype="multipart/form-data" class="mt-5 space-y-5" novalidate>
+  {% csrf_token %}
+  {% if form.errors %}{% include "admin/pets/owner_form_parts/error_summary.html" %}{% endif %}
+  {% include "owner/pet_edit_parts/photo_row.html" %}
+  {% include "owner/pet_edit_parts/change_card.html" %}
+</form>
 
-        <p class="current-photo-label">
-            Current Photo
-        </p>
-
-    </div>
-    {% endif %}
-
-    <!-- Form -->
-    <form method="post"
-          enctype="multipart/form-data"
-          class="pet-form">
-
-        {% csrf_token %}
-
-        <!-- Photo Upload -->
-        <div class="form-section">
-
-            <label class="form-label">
-                Pet Photo
-                <span class="optional-tag">(optional)</span>
-            </label>
-
-            {{ form.photo }}
-
-            {% if form.photo.errors %}
-                <p class="form-error">
-                    {{ form.photo.errors.0 }}
-                </p>
-            {% endif %}
-
-        </div>
-
-        <!-- Pet Name -->
-        <div class="form-section">
-
-            <label class="form-label">
-                Pet Name
-                <span class="required-tag">*</span>
-            </label>
-
-            {{ form.name }}
-
-            {% if form.name.errors %}
-                <p class="form-error">
-                    {{ form.name.errors.0 }}
-                </p>
-            {% endif %}
-
-        </div>
-
-        <!-- Species + Breed -->
-        <div class="form-row-two-col">
-
-            <div class="form-section">
-
-                <label class="form-label">
-                    Species
-                    <span class="required-tag">*</span>
-                </label>
-
-                <select id="{{ form.species.id_for_label }}_select"
-                        class="species-select">
-
-                    <option value="">
-                        Select Species
-                    </option>
-
-                    <option value="Dog">
-                        Dog
-                    </option>
-
-                    <option value="Cat">
-                        Cat
-                    </option>
-
-                    <option value="Bird">
-                        Bird
-                    </option>
-
-                    <option value="Rabbit">
-                        Rabbit
-                    </option>
-
-                    <option value="Hamster">
-                        Hamster
-                    </option>
-
-                    <option value="__other__">
-                        Other
-                    </option>
-
-                </select>
-
-                <div
-                    id="{{ form.species.id_for_label }}_custom_wrapper"
-                    class="hidden-field custom-input-wrapper"
-                >
-                    {{ form.species }}
-                </div>
-
-            </div>
-
-            <div class="form-section">
-
-                <label class="form-label">
-                    Breed
-                </label>
-
-                <select id="{{ form.breed.id_for_label }}_select"
-                        class="breed-select">
-
-                    <option value="">
-                        Select Species First
-                    </option>
-
-                </select>
-
-                <div
-                    id="{{ form.breed.id_for_label }}_custom_wrapper"
-                    class="hidden-field custom-input-wrapper"
-                >
-                    {{ form.breed }}
-                </div>
-
-            </div>
-
-        </div>
-
-        <!-- Gender + Birthday -->
-        <div class="form-row-two-col">
-
-            <div class="form-section">
-
-                <label class="form-label">
-                    Gender
-                    <span class="required-tag">*</span>
-                </label>
-
-                {{ form.gender }}
-
-            </div>
-
-            <div class="form-section">
-
-                <label class="form-label">
-                    Date of Birth
-                </label>
-
-                {{ form.date_of_birth }}
-
-            </div>
-
-        </div>
-
-        <!-- Color + Weight -->
-        <div class="form-row-two-col">
-
-            <div class="form-section">
-
-                <label class="form-label">
-                    Color
-                </label>
-
-                {{ form.color }}
-
-            </div>
-
-            <div class="form-section">
-
-                <label class="form-label">
-                    Weight (kg)
-                </label>
-
-                {{ form.weight }}
-
-            </div>
-
-        </div>
-
-        <!-- Registration Number -->
-        <div class="form-section">
-
-            <label class="form-label">
-                Registration Number
-            </label>
-
-            {{ form.registration_number }}
-
-        </div>
-
-        <!-- Buttons -->
-        <div class="form-actions">
-
-            <a href="{% url 'owner_pet_detail' pet.pk %}"
-               class="btn-secondary">
-                Cancel
-            </a>
-
-            <button type="submit"
-                    class="btn-primary">
-                Save Changes
-            </button>
-
-        </div>
-
-    </form>
-
+<div class="mt-5">
+  {% include "owner/pet_edit_parts/locked_card.html" %}
 </div>
+{% endblock %}
 
+{# The one violet button rides in a bar above the bottom tabs (the tabs are 57 px tall) #}
+{% block bottom_bar %}
+<div class="fixed inset-x-0 bottom-[calc(3.5rem+1px+env(safe-area-inset-bottom))] z-20 border-t border-gray-200 bg-white px-4 py-3" data-bar="tall">
+  <div class="mx-auto max-w-3xl">
+    <button type="submit" form="pet-edit-form" class="flex min-h-14 w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700">{% include "components/icon.html" with name="check" class="size-5 shrink-0" %}Save changes</button>
+  </div>
+</div>
+{% include "layouts/owner_parts/tabs.html" %}
+{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'js/shared/photo_input.js' %}" defer></script>
+  <script src="{% static 'js/shared/pet_form.js' %}" defer></script>
+{% endblock %}

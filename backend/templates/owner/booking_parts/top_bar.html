@@ -1,0 +1,22 @@
+{% comment %}
+  Top bar of the booking flow (block top_bar of layouts/owner.html): Back, the
+  title, Cancel, then "Step N of 3 · name" and a three-part progress bar. No
+  bell and no bottom tabs while booking. Needs step (1 to 3), step_label,
+  back_url and cancel_url. The bar is a progressbar (aria-valuenow) with the
+  same words shown as text.
+{% endcomment %}
+<header class="sticky top-0 z-20 border-b border-gray-200 bg-white">
+  <div class="mx-auto flex h-16 max-w-3xl items-center gap-2 px-2">
+    <a href="{{ back_url }}" aria-label="Back" class="grid size-11 place-content-center rounded-full text-gray-800 hover:bg-gray-100">{% include "components/icon.html" with name="arrow-left" class="size-6 shrink-0" %}</a>
+    <p class="flex-1 text-lg font-bold text-gray-900">Book a visit</p>
+    <a href="{{ cancel_url }}" class="inline-flex min-h-11 items-center rounded-lg px-3 text-base font-medium text-gray-700 hover:bg-gray-100">Cancel</a>
+  </div>
+  <div class="mx-auto max-w-3xl px-4 pb-3">
+    <p class="text-base text-gray-700"><span class="font-semibold text-gray-900">Step {{ step }} of 3</span> · {{ step_label }}</p>
+    <div class="mt-2 grid grid-cols-3 gap-1.5" role="progressbar" aria-label="Booking steps" aria-valuemin="1" aria-valuemax="3" aria-valuenow="{{ step }}" aria-valuetext="Step {{ step }} of 3: {{ step_label }}">
+      <span class="h-1.5 rounded-full bg-violet-600"></span>
+      <span class="h-1.5 rounded-full {% if step >= 2 %}bg-violet-600{% else %}bg-gray-200{% endif %}"></span>
+      <span class="h-1.5 rounded-full {% if step >= 3 %}bg-violet-600{% else %}bg-gray-200{% endif %}"></span>
+    </div>
+  </div>
+</header>

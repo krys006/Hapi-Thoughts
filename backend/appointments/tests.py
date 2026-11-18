@@ -3,33 +3,60 @@ import io
 import re
 import shutil
 import tempfile
+from decimal import Decimal
+from html import unescape
 from unittest import mock
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
 from django.core import mail
-from django.db import DatabaseError, connection
+from django.db import DatabaseError, connection, transaction
 from django.core.paginator import Paginator
+from django.http import Http404
 from django.templatetags.static import static
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
-from django.urls import reverse
+from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
 from appointments.models import Appointment, BlockedDate, ClinicSettings
 from appointments.utils import (
+    CANNOT_CHANGE_MESSAGE,
     CLINIC_SETTINGS_DEFAULTS,
+    DAY_FULL_MESSAGE,
+    DAY_GONE_MESSAGE,
+    DAY_NOT_OPEN_MESSAGE,
+    PET_GONE_MESSAGE,
+    PICK_AGAIN_MESSAGE,
+    PICK_DAY_FIRST_MESSAGE,
+    PICK_NEW_TIME_MESSAGE,
+    RESCHEDULE_SENT_MESSAGE,
+    SERVICE_GONE_MESSAGE,
+    SERVICE_MISSING_MESSAGE,
+    START_MESSAGE,
+    WHY_MISSING_MESSAGE,
     clinic_hours_line,
+    closed_days_line,
     get_available_slots,
     get_clinic_settings,
     is_slot_available,
+    is_within_24h,
     list_period,
+    lock_schedule,
+    owner_booking_calendar,
+    owner_can_change,
+    owner_reschedule_context,
+    owner_visit_note,
+    owner_visits_context,
     paging_links,
+    reschedule_by_owner,
     resolve_period,
     slot_in_progress,
+    time_groups,
+    vet_initials,
 )
 from billing.models import BillingReceipt, Service
 from dashboard.templatetags.friendly_dates import friendly_date, long_date
@@ -174,11 +201,15 @@ class RejectTests(AppointmentTestBase):
             {"message": "  The vet is away that week.  "},
         )
         appointment.refresh_from_db()
-        self.assertEqual(appointment.cancellation_reason, Appointment.OTHER)
+        # Slice 8a-1b: a decline is stored as DECLINED (was OTHER)
+        self.assertEqual(appointment.cancellation_reason, Appointment.DECLINED)
         self.assertEqual(appointment.cancellation_detail, "The vet is away that week.")
+        # 8a-2b: the app text is compact and carries the clinic's message as
+        # its one clause; "Message from the clinic: …" is now in the email
+        self.assertIn("The vet is away that week.", self._owner_notification().message)
         self.assertIn(
             "Message from the clinic: The vet is away that week.",
-            self._owner_notification().message,
+            mail.outbox[-1].body,
         )
 
     def test_without_message_keeps_default_text(self):
@@ -382,9 +413,16 @@ class RescheduleTests(AppointmentTestBase):
         )
         notification = Notification.objects.get(recipient=self.owner.user)
         self.assertEqual(notification.notification_type, "appointment_approved")
-        self.assertEqual(notification.title, "Appointment moved by the clinic")
+        # 8a-2b: short title and compact message (were "Appointment moved by
+        # the clinic" and the full sentence, which is now the email body)
+        self.assertEqual(notification.title, "The clinic moved your visit")
         self.assertEqual(
             notification.message,
+            f"Bantay · now {date_format(self.target, 'D, M j')} at 9:00 AM. "
+            "The new time is confirmed.",
+        )
+        self.assertEqual(
+            mail.outbox[0].body,
             f"Your appointment for Bantay was moved to "
             f"{date_format(self.target, 'D, M j')} at 9:00 AM by the clinic. "
             "The new time is confirmed.",
@@ -1516,6 +1554,24 @@ def _manila(hour, minute=0, day=WALK_IN_DAY):
     return datetime.datetime(day.year, day.month, day.day, hour, minute, tzinfo=MANILA)
 
 
+def _book_through_the_steps(client, pet, day, time, reason="", service="none"):
+    """The owner booking in its three steps (Slice 8b-6): step 1 (pet,
+    service, note), the day and time on step 2, Send on step 3. Stops at the
+    first step that answers with a page instead of a redirect (an error) and
+    returns that response; time is "10:00:00"."""
+    response = client.post(
+        reverse("owner_book_appointment"),
+        {"pet": pet.pk, "service": service, "reason": reason},
+    )
+    if response.status_code == 302:
+        response = client.post(
+            reverse("owner_book_time"), {"date": day.isoformat(), "time": time}
+        )
+    if response.status_code == 302:
+        response = client.post(reverse("owner_book_check"))
+    return response
+
+
 class FrozenNowTestBase(AppointmentTestBase):
     """AppointmentTestBase with "now" fixed at NOW (Manila) for every test."""
 
@@ -1641,23 +1697,14 @@ class OwnerSameDayCutoffTests(FrozenNowTestBase):
                 self.assertEqual(self._hours(get_available_slots(day)), hours)
                 self._assert_is_slot_available_agrees(day)
 
-    def test_owner_slot_view_uses_the_owner_rules(self):
-        self.client.force_login(self.owner.user)
-        response = self.client.get(
-            reverse("owner_get_slots"), {"date": WALK_IN_DAY.isoformat()}
-        )
-        self.assertContains(response, 'value="10:00:00"')
-        self.assertNotContains(response, 'value="09:00:00"')
-
     def _book(self, hour):
+        # Slice 8b-6: the booking is three steps now (was one POST)
         self.client.force_login(self.owner.user)
-        return self.client.post(
-            reverse("owner_book_appointment"),
-            {
-                "pet": self.pet.pk,
-                "date": WALK_IN_DAY.isoformat(),
-                "time": datetime.time(hour, 0).isoformat(),
-            },
+        return _book_through_the_steps(
+            self.client,
+            self.pet,
+            WALK_IN_DAY,
+            datetime.time(hour, 0).isoformat(),
         )
 
     def test_owner_can_book_a_slot_that_has_not_started(self):
@@ -1914,8 +1961,13 @@ class WalkInAppointmentCreateTests(FrozenNowTestBase):
         notification = Notification.objects.get(recipient=self.owner.user)
         self.assertEqual(notification.notification_type, "appointment_approved")
         self.assertEqual(notification.title, "Visit booked by the clinic")
+        # 8a-2b: compact message; the full sentence is now the email body
         self.assertEqual(
             notification.message,
+            "Bantay · Mon, Nov 2 at 10:00 AM. The time is confirmed.",
+        )
+        self.assertEqual(
+            mail.outbox[0].body,
             "The clinic booked a visit for Bantay on Mon, Nov 2 at 10:00 AM. "
             "The time is confirmed.",
         )
@@ -4213,16 +4265,19 @@ class ClinicInfoPageTests(AppointmentTestBase):
         self.assertNotContains(response, "Open in Google Maps")
         self.assertContains(response, "No address is set")
 
-    def test_owner_still_gets_the_owner_frame_and_old_files(self):
+    def test_owner_gets_the_owner_layout_page(self):
+        # 8b-9b: owner/clinic/info.html on layouts/owner.html (was the shared
+        # page on base_dashboard.html with its own CSS and JS, and a
+        # "Book an Appointment" button)
         response = self._owner_get()
-        self.assertTemplateUsed(response, "shared/clinic_info.html")
-        self.assertTemplateUsed(response, "base_dashboard.html")
+        self.assertTemplateUsed(response, "owner/clinic/info.html")
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertTemplateNotUsed(response, "base_dashboard.html")
+        self.assertTemplateNotUsed(response, "shared/clinic_info.html")
         self.assertTemplateNotUsed(response, "admin/clinic_info.html")
-        self.assertContains(response, "css/shared/clinic_info.")
-        self.assertContains(response, "js/shared/clinic_info.")
-        self.assertContains(response, "clinic-info-page")
+        self.assertNotContains(response, "css/shared/clinic_info")
+        self.assertNotContains(response, "js/shared/clinic_info")
         self.assertContains(response, "Dr. Edgar Sadiwa")
-        self.assertContains(response, "Book an Appointment")
         self.assertNotContains(response, "Back to clinic settings")
 
     def test_logged_out_goes_to_the_login_page(self):
@@ -4945,3 +5000,3775 @@ class ListPeriodViewTests(FrozenNowTestBase):
             self._html(self._get(status="pending")),
             r'aria-current="page">Needs approval<span class="[^"]*bg-yellow-200',
         )
+
+
+class DeclinedReasonChoiceTests(SimpleTestCase):
+    """Slice 8a-0: DECLINED, "Declined by the clinic", is a cancellation reason
+    the clinic's decline will set (8a-1); no cancel form offers it."""
+
+    def test_constant_value(self):
+        self.assertEqual(Appointment.DECLINED, "declined")
+
+    def test_label(self):
+        appointment = Appointment(cancellation_reason=Appointment.DECLINED)
+        self.assertEqual(
+            appointment.get_cancellation_reason_display(), "Declined by the clinic"
+        )
+
+    def test_it_is_the_last_choice(self):
+        self.assertEqual(
+            Appointment.CANCEL_CHOICES[-1],
+            (Appointment.DECLINED, "Declined by the clinic"),
+        )
+
+    def test_cancel_forms_do_not_offer_declined(self):
+        from appointments.forms import (
+            AdminAppointmentCancelForm,
+            AppointmentCancellationForm,
+        )
+
+        for form_class in (AppointmentCancellationForm, AdminAppointmentCancelForm):
+            with self.subTest(form=form_class.__name__):
+                field = form_class().fields["cancellation_reason"]
+                values = [value for value, _label in field.choices]
+                self.assertNotIn(Appointment.DECLINED, values)
+                self.assertEqual(
+                    values,
+                    [
+                        Appointment.CHANGE_OF_PLANS,
+                        Appointment.PET_UNWELL,
+                        Appointment.CANNOT_MAKE_TIME,
+                        Appointment.OTHER,
+                    ],
+                )
+
+
+# ─── Slice 8a-1b: booking lock, atomic owner reschedule, declined reason ─────
+
+
+class _OwnerRequestBase(AppointmentTestBase):
+    """Helpers for the owner booking / reschedule / move / walk-in posts."""
+
+    def setUp(self):
+        super().setUp()
+        self.day = self.today + datetime.timedelta(days=4)
+
+    def _booking_data(self, **overrides):
+        data = {
+            "pet": self.pet.pk,
+            "date": self.day.isoformat(),
+            "time": "10:00:00",
+            "reason": "Limping",
+        }
+        data.update(overrides)
+        return data
+
+    def _reschedule_data(self, **overrides):
+        data = {
+            "date": self.day.isoformat(),
+            "time": "10:00:00",
+            "reschedule_reason": "Need to move it",
+        }
+        data.update(overrides)
+        return data
+
+    def _owner_books(self, **overrides):
+        # Slice 8b-6: the booking is three steps now (was one POST)
+        self.client.force_login(self.owner.user)
+        data = self._booking_data(**overrides)
+        return _book_through_the_steps(
+            self.client,
+            self.pet,
+            datetime.date.fromisoformat(data["date"]),
+            data["time"],
+            reason=data["reason"],
+        )
+
+    def _owner_reschedules(self, appointment, **overrides):
+        self.client.force_login(self.owner.user)
+        return self.client.post(
+            reverse("owner_appointment_reschedule", args=[appointment.pk]),
+            self._reschedule_data(**overrides),
+        )
+
+    def _admin_moves(self, appointment):
+        return self.client.post(
+            reverse("admin_appointment_reschedule", args=[appointment.pk]),
+            self._reschedule_data(),
+        )
+
+    def _walk_in(self):
+        return self.client.post(
+            reverse("admin_walkin_appointment_visit"),
+            {
+                "owner": self.owner.pk,
+                "pet": self.pet.pk,
+                "date": self.day.isoformat(),
+                "time": "10:00:00",
+                "reason": "Limping",
+                "action": "book",
+            },
+        )
+
+
+class ScheduleLockTests(_OwnerRequestBase):
+    """Every path that makes a PENDING or CONFIRMED visit runs lock_schedule()
+    inside its transaction, before it checks the slot again."""
+
+    def test_owner_booking_locks(self):
+        with mock.patch("appointments.utils.lock_schedule") as lock:
+            self._owner_books()
+        lock.assert_called_once_with()
+        self.assertEqual(Appointment.objects.count(), 1)
+
+    def test_owner_reschedule_locks(self):
+        original = self._appointment(Appointment.PENDING)
+        with mock.patch("appointments.utils.lock_schedule") as lock:
+            self._owner_reschedules(original)
+        lock.assert_called_once_with()
+        self.assertEqual(Appointment.objects.count(), 2)
+
+    def test_walk_in_locks(self):
+        with mock.patch("appointments.utils.lock_schedule") as lock:
+            self._walk_in()
+        lock.assert_called_once_with()
+        self.assertTrue(Appointment.objects.get().is_walk_in)
+
+    def test_admin_move_locks(self):
+        original = self._appointment(Appointment.CONFIRMED)
+        with mock.patch("appointments.views.lock_schedule") as lock:
+            self._admin_moves(original)
+        lock.assert_called_once_with()
+        self.assertEqual(Appointment.objects.count(), 2)
+
+    def test_lock_is_a_select_for_update_on_the_settings_row(self):
+        with transaction.atomic(), CaptureQueriesContext(connection) as queries:
+            lock_schedule()
+        locking = [q["sql"] for q in queries if "FOR UPDATE" in q["sql"]]
+        self.assertEqual(len(locking), 1)
+        self.assertIn("appointments_clinicsettings", locking[0])
+
+    def test_no_settings_row_means_no_lock_and_no_error(self):
+        ClinicSettings.objects.all().delete()
+        with transaction.atomic():
+            lock_schedule()  # must not raise
+
+
+class SlotTakenAtSaveTests(_OwnerRequestBase):
+    """The form's check passed, but the slot is gone by the time the save
+    runs under the lock: patching the re-check in appointments.utils (the form
+    keeps its own, real check) is that moment."""
+
+    MESSAGE = (
+        "10:00 AM was just taken. Someone else booked it a moment ago. "
+        "Please pick another time."
+    )
+
+    def _taken(self):
+        return mock.patch("appointments.utils.is_slot_available", return_value=False)
+
+    def test_owner_booking_comes_back_with_the_time_error(self):
+        # Slice 8b-6: Send comes back to step 2 with the red "was just taken"
+        # box (was: the one form again, with the error on its time field).
+        # Same behaviour: every value kept but the time, nothing saved, the
+        # admin not told.
+        with self._taken():
+            response = self._owner_books()
+        self.assertRedirects(
+            response, reverse("owner_book_time"), fetch_redirect_response=False
+        )
+        page = self.client.get(reverse("owner_book_time"))
+        self.assertContains(page, "10:00 AM was just taken")
+        self.assertContains(
+            page,
+            "Someone booked it a moment ago. Please pick another time. "
+            "Your other answers are kept.",
+        )
+        draft = self.client.session["owner_booking"]
+        self.assertEqual(draft["pet"], self.pet.pk)
+        self.assertEqual(draft["date"], self.day.isoformat())
+        self.assertEqual(draft["note"], "Limping")
+        self.assertNotIn("time", draft)
+        self.assertFalse(Appointment.objects.exists())
+        self.assertFalse(Notification.objects.filter(recipient=self.admin).exists())
+
+    def test_owner_reschedule_comes_back_with_the_time_error(self):
+        original = self._appointment(Appointment.CONFIRMED)
+        with self._taken():
+            response = self._owner_reschedules(original)
+        # Slice 8b-7b: the page has no Django form any more. Was: the form's
+        # time error was the long MESSAGE and its data held the day, the text
+        # and an empty time. Now: the red "was just taken" box, the day kept,
+        # the note kept and no time picked. Same behaviour.
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["taken_time"], "10:00 AM")
+        self.assertContains(response, "10:00 AM was just taken")
+        self.assertContains(response, "Your note is kept.")
+        self.assertEqual(response.context["picked_date"], self.day)
+        self.assertEqual(response.context["reason_text"], "Need to move it")
+        self.assertEqual(response.context["new_time"], "")
+        # The original is untouched, and nothing new exists
+        self._assert_status(original, Appointment.CONFIRMED)
+        self.assertEqual(original.cancellation_reason, "")
+        self.assertIsNone(original.cancelled_by)
+        self.assertEqual(Appointment.objects.count(), 1)
+
+    def test_walk_in_keeps_its_taken_handling(self):
+        with mock.patch("appointments.utils.slot_is_booked", return_value=True):
+            response = self._walk_in()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["taken_time"], "10:00 AM")
+        self.assertFalse(Appointment.objects.exists())
+        self.assertFalse(
+            Notification.objects.filter(recipient=self.owner.user).exists()
+        )
+
+    def test_admin_move_keeps_its_slot_error(self):
+        original = self._appointment(Appointment.CONFIRMED)
+        with mock.patch("appointments.views.is_slot_available", return_value=False):
+            response = self._admin_moves(original)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            "This slot is no longer available. Please select another.",
+            str(response.context["reschedule_form"].errors),
+        )
+        self._assert_status(original, Appointment.CONFIRMED)
+        self.assertEqual(Appointment.objects.count(), 1)
+
+
+class OwnerRescheduleAtomicTests(_OwnerRequestBase):
+    """The owner's reschedule cancels the original and creates the new visit
+    in one transaction: both happen or neither."""
+
+    def test_the_fields_are_the_same_as_before(self):
+        original = self._appointment(Appointment.CONFIRMED)
+        service = Service.objects.create(service_name="Checkup", status=Service.ACTIVE)
+        original.service = service
+        original.reason = "Itchy skin"
+        original.save()
+        response = self._owner_reschedules(original)
+        new = Appointment.objects.exclude(pk=original.pk).get()
+        self.assertRedirects(
+            response,
+            reverse("owner_appointment_detail", args=[new.pk]),
+            fetch_redirect_response=False,
+        )
+        original.refresh_from_db()
+        self.assertEqual(original.status, Appointment.CANCELLED)
+        self.assertEqual(original.cancellation_reason, Appointment.OTHER)
+        self.assertEqual(original.cancellation_detail, "Rescheduled by pet owner.")
+        self.assertEqual(original.cancelled_by, self.owner.user)
+        self.assertEqual(new.status, Appointment.PENDING)
+        self.assertEqual(new.owner, self.owner)
+        self.assertEqual(new.pet, self.pet)
+        self.assertEqual(new.service, service)
+        self.assertEqual((new.date, new.time), (self.day, datetime.time(10, 0)))
+        self.assertEqual(new.reason, "Itchy skin")
+        self.assertEqual(new.reschedule_reason, "Need to move it")
+        self.assertEqual(new.rescheduled_from, original)
+        self.assertEqual(
+            self._messages(response),
+            # Slice 8b-7b: was "Reschedule request submitted. You will be
+            # notified once it is confirmed."
+            ["New time sent. The clinic will confirm it soon."],
+        )
+        self.assertTrue(
+            Notification.objects.filter(
+                recipient=self.admin,
+                title="Appointment Reschedule Request",
+                related_appointment=new,
+            ).exists()
+        )
+
+    def test_a_failed_create_leaves_the_original_as_it_was(self):
+        for status, hour in ((Appointment.PENDING, 9), (Appointment.CONFIRMED, 11)):
+            with self.subTest(status=status):
+                original = self._appointment(status, hour=hour)
+                with mock.patch.object(
+                    Appointment.objects, "create", side_effect=RuntimeError("boom")
+                ):
+                    with self.assertRaises(RuntimeError):
+                        self._owner_reschedules(original)
+                self._assert_status(original, status)
+                self.assertEqual(original.cancellation_reason, "")
+                self.assertIsNone(original.cancelled_by)
+                self.assertFalse(
+                    Appointment.objects.filter(rescheduled_from=original).exists()
+                )
+
+    def test_an_original_cancelled_meanwhile_changes_nothing(self):
+        original = self._appointment(Appointment.PENDING)
+
+        def cancelled_by_someone_else():
+            Appointment.objects.filter(pk=original.pk).update(
+                status=Appointment.CANCELLED
+            )
+
+        with mock.patch(
+            "appointments.utils.lock_schedule", side_effect=cancelled_by_someone_else
+        ):
+            response = self._owner_reschedules(original)
+        self.assertRedirects(
+            response,
+            reverse("owner_appointment_detail", args=[original.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(
+            self._messages(response), ["This visit can't be changed any more."]
+        )
+        self.assertEqual(Appointment.objects.count(), 1)
+        self.assertFalse(Notification.objects.filter(recipient=self.admin).exists())
+
+    def test_nothing_is_created_when_the_original_is_not_changeable(self):
+        data = {
+            "date": self.day,
+            "time": datetime.time(10, 0),
+            "reschedule_reason": "x",
+        }
+        other_user = User.objects.create_user(
+            username="other", email="other@example.com", password="unused-pass-123"
+        )
+        other = PetOwner.objects.create(
+            user=other_user, first_name="Bo", last_name="Li"
+        )
+        for status in (
+            Appointment.CANCELLED,
+            Appointment.COMPLETED,
+            Appointment.NO_SHOW,
+        ):
+            with self.subTest(status=status):
+                original = self._appointment(status)
+                self.assertIsNone(
+                    reschedule_by_owner(self.owner.user, self.owner, original.pk, data)
+                )
+        # Not this owner's visit
+        pending = self._appointment(Appointment.PENDING, hour=14)
+        self.assertIsNone(reschedule_by_owner(other_user, other, pending.pk, data))
+        self._assert_status(pending, Appointment.PENDING)
+        self.assertFalse(Appointment.objects.filter(rescheduled_from__isnull=False))
+
+
+class DeclinedReasonInUseTests(_OwnerRequestBase):
+    """The clinic's decline is stored as DECLINED; the owner reads
+    "Declined by the clinic". Old rows (reason Other) keep reading Other."""
+
+    def _decline(self, **data):
+        appointment = self._appointment(Appointment.PENDING)
+        self._post("admin_appointment_reject", appointment, data)
+        appointment.refresh_from_db()
+        return appointment
+
+    def test_decline_saves_declined(self):
+        appointment = self._decline(message="The vet is away.")
+        self.assertEqual(appointment.status, Appointment.CANCELLED)
+        self.assertEqual(appointment.cancellation_reason, Appointment.DECLINED)
+        self.assertEqual(appointment.cancellation_detail, "The vet is away.")
+        self.assertEqual(appointment.cancelled_by, self.admin)
+
+    def test_default_detail_and_notification_are_unchanged(self):
+        appointment = self._decline()
+        self.assertEqual(appointment.cancellation_detail, "Rejected by clinic.")
+        notification = Notification.objects.get(
+            recipient=self.owner.user, notification_type="appointment_rejected"
+        )
+        # 8a-2b: title was "Appointment Not Confirmed"; "was not confirmed by
+        # the clinic." moved to the email body, the app text is compact
+        self.assertEqual(notification.title, "Visit request declined")
+        self.assertIn("Bantay · ", notification.message)
+        self.assertIn("was not confirmed by the clinic.", mail.outbox[-1].body)
+
+    def test_owner_visit_page_says_declined_by_the_clinic(self):
+        appointment = self._decline()
+        self.client.force_login(self.owner.user)
+        response = self.client.get(
+            reverse("owner_appointment_detail", args=[appointment.pk])
+        )
+        self.assertContains(response, "Declined by the clinic")
+
+    def test_a_clinic_cancel_and_an_old_row_do_not_say_declined(self):
+        cancelled = self._appointment(Appointment.CONFIRMED, hour=11)
+        self._post(
+            "admin_appointment_cancel",
+            cancelled,
+            {
+                "cancellation_reason": Appointment.OTHER,
+                "cancellation_detail": "Closed",
+            },
+        )
+        old = self._appointment(Appointment.CANCELLED, hour=13)
+        old.cancellation_reason = Appointment.OTHER  # a decline from before 8a-1b
+        old.cancelled_by = self.admin
+        old.save()
+        self.client.force_login(self.owner.user)
+        for appointment in (cancelled, old):
+            with self.subTest(pk=appointment.pk):
+                response = self.client.get(
+                    reverse("owner_appointment_detail", args=[appointment.pk])
+                )
+                self.assertNotContains(response, "Declined by the clinic")
+                # Slice 8b-7a: the new visit page says who cancelled, not the
+                # reason's label ("Other"); the check is the same: not declined
+                self.assertContains(response, "Cancelled by the clinic")
+
+
+# ─── Slice 8a-2a: owner late note, booking calendar, pet picked ──────────────
+
+# 00:30 Manila on Mon, Nov 2, 2026: still Sun, Nov 1 in UTC
+JUST_AFTER_MIDNIGHT = _manila(0, 30)
+
+
+class JustAfterMidnightBase(FrozenNowTestBase):
+    NOW = JUST_AFTER_MIDNIGHT
+
+    def _owner_logs_in(self):
+        self.client.force_login(self.owner.user)
+
+
+class IsWithin24hTests(JustAfterMidnightBase):
+    """The one late rule: a start less than 24 hours after now (or already
+    passed) is within; exactly 24 hours away is not."""
+
+    def _visit(self, minutes_from_now):
+        start = JUST_AFTER_MIDNIGHT + datetime.timedelta(minutes=minutes_from_now)
+        return Appointment(
+            owner=self.owner, pet=self.pet, date=start.date(), time=start.time()
+        )
+
+    def test_the_edges(self):
+        cases = [
+            (24 * 60 - 1, True),  # 23:59 away
+            (24 * 60, False),  # 24:00 away
+            (24 * 60 + 1, False),  # 24:01 away
+            (0, True),  # starts right now
+            (-30, True),  # already started
+            (-3 * 24 * 60, True),  # days ago
+        ]
+        for minutes, expected in cases:
+            with self.subTest(minutes=minutes):
+                visit = self._visit(minutes)
+                self.assertIs(is_within_24h(visit, timezone.now()), expected)
+
+    def test_the_property_and_is_cancellable_freely_agree(self):
+        for minutes in (24 * 60 - 1, 24 * 60, 24 * 60 + 1, -30):
+            with self.subTest(minutes=minutes):
+                visit = self._visit(minutes)
+                expected = is_within_24h(visit, timezone.now())
+                self.assertIs(visit.is_within_24h, expected)
+                self.assertIs(visit.is_cancellable_freely, not expected)
+
+    def _is_late(self, url_name, appointment, **post):
+        self._owner_logs_in()
+        url = reverse(url_name, args=[appointment.pk])
+        if post:
+            response = self.client.post(url, post["data"], follow=True)
+        else:
+            response = self.client.get(url, follow=True)
+        # Slice 8b-7a: Cancel is a POST-only sheet on the visit page (a GET or
+        # a failed POST goes back to it), so its late flag is read from that
+        # page's sheet. Change time still renders its own page with is_late.
+        if url_name == "owner_appointment_cancel":
+            return response.context["sheet"]["late"]
+        return response.context["is_late"]
+
+    def test_cancel_and_reschedule_pass_is_late_on_get(self):
+        soon = self._appointment(Appointment.CONFIRMED, days_from_today=0, hour=9)
+        far = self._appointment(Appointment.CONFIRMED, days_from_today=3, hour=9)
+        for name in ("owner_appointment_cancel", "owner_appointment_reschedule"):
+            with self.subTest(view=name):
+                self.assertIs(self._is_late(name, soon), True)
+                self.assertIs(self._is_late(name, far), False)
+
+    def test_cancel_and_reschedule_pass_is_late_on_a_failed_post(self):
+        soon = self._appointment(Appointment.CONFIRMED, days_from_today=0, hour=9)
+        far = self._appointment(Appointment.CONFIRMED, days_from_today=3, hour=9)
+        for name in ("owner_appointment_cancel", "owner_appointment_reschedule"):
+            with self.subTest(view=name):
+                self.assertIs(self._is_late(name, soon, data={}), True)
+                self.assertIs(self._is_late(name, far, data={}), False)
+
+
+class OwnerBookingCalendarTests(JustAfterMidnightBase):
+    """owner_booking_calendar on Mon, Nov 2, 2026 at 00:30 Manila. The clinic
+    is open every day 8:00-17:00 (hourly), cutoff 15:00, window 30 days."""
+
+    def _cal(self, month="2026-11", current=None):
+        return owner_booking_calendar(
+            month, timezone.localdate(), timezone.localtime(), current
+        )
+
+    def _cell(self, calendar, day):
+        return next(c for c in calendar["cells"] if c["date"] == day)
+
+    def _state(self, day, month="2026-11"):
+        return self._cell(self._cal(month), day)["state"]
+
+    def _fill(self, day, status=Appointment.CONFIRMED, hours=range(8, 17)):
+        for hour in hours:
+            Appointment.objects.create(
+                owner=self.owner,
+                pet=self.pet,
+                date=day,
+                time=datetime.time(hour, 0),
+                status=status,
+            )
+
+    def test_weeks_start_on_sunday(self):
+        for month in ("2026-11", "2026-12"):
+            with self.subTest(month=month):
+                cells = self._cal(month)["cells"]
+                self.assertEqual(cells[0]["date"].weekday(), 6)
+                self.assertEqual(len(cells) % 7, 0)
+        # Nov 1, 2026 is a Sunday: the grid opens on the 1st
+        self.assertEqual(self._cal()["cells"][0]["date"], datetime.date(2026, 11, 1))
+        # Dec 1 is a Tuesday: the grid opens on Sun, Nov 29, out of the month
+        first = self._cal("2026-12")["cells"][0]
+        self.assertEqual(first["date"], datetime.date(2026, 11, 29))
+        self.assertFalse(first["in_month"])
+
+    def test_35_or_42_cells(self):
+        ClinicSettings.objects.update(booking_limit_days=365)
+        sizes = {
+            month: len(self._cal(month)["cells"])
+            for month in ("2026-11", "2026-12", "2027-01", "2027-02")
+        }
+        # Jan 2027 starts on a Friday and has 31 days: six weeks
+        self.assertEqual(
+            sizes, {"2026-11": 35, "2026-12": 35, "2027-01": 42, "2027-02": 35}
+        )
+
+    def test_cell_keys_and_month_label(self):
+        calendar = self._cal()
+        self.assertEqual(calendar["month_label"], "November 2026")
+        self.assertEqual(calendar["month_value"], "2026-11")
+        cell = self._cell(calendar, datetime.date(2026, 11, 4))
+        self.assertEqual(
+            set(cell),
+            {
+                "date",
+                "day",
+                "in_month",
+                "state",
+                "is_today",
+                "is_current",
+                "aria_label",
+            },
+        )
+        self.assertTrue(cell["in_month"])
+
+    def test_past_days_and_days_after_the_window(self):
+        self.assertEqual(self._state(datetime.date(2026, 11, 1)), "past")
+        self.assertEqual(self._state(datetime.date(2026, 12, 2), "2026-12"), "open")
+        self.assertEqual(self._state(datetime.date(2026, 12, 3), "2026-12"), "past")
+
+    def test_closed_for_a_day_off_and_a_blocked_date(self):
+        ClinicSettings.objects.update(working_days=[0, 1, 2, 3, 4, 5])  # no Sunday
+        BlockedDate.objects.create(date=datetime.date(2026, 11, 10))
+        self.assertEqual(self._state(datetime.date(2026, 11, 8)), "closed")
+        self.assertEqual(self._state(datetime.date(2026, 11, 10)), "closed")
+        self.assertEqual(self._state(datetime.date(2026, 11, 9)), "open")
+
+    def test_full_when_every_slot_is_held(self):
+        day = datetime.date(2026, 11, 12)
+        self._fill(day, Appointment.PENDING, hours=range(8, 16))
+        self.assertEqual(self._state(day), "open")  # the 16:00 slot is free
+        self._fill(day, Appointment.PENDING, hours=[16])
+        self.assertEqual(self._state(day), "full")
+
+    def test_a_cancelled_visit_frees_its_slot(self):
+        day = datetime.date(2026, 11, 12)
+        self._fill(day)
+        Appointment.objects.filter(date=day, time=datetime.time(10, 0)).update(
+            status=Appointment.CANCELLED
+        )
+        self.assertEqual(self._state(day), "open")
+
+    def test_today_follows_the_same_day_cutoff(self):
+        today = datetime.date(2026, 11, 2)
+        self.assertEqual(self._state(today), "open")
+        self.freeze(_manila(14, 30))  # slots at 15:00 and 16:00 still start later
+        self.assertEqual(self._state(today), "open")
+        self.freeze(_manila(15, 0))  # the cutoff
+        self.assertEqual(self._state(today), "full")
+
+    def test_today_is_full_when_every_slot_has_started(self):
+        ClinicSettings.objects.update(same_day_cutoff_time=datetime.time(17, 0))
+        self.freeze(_manila(16, 30))
+        self.assertEqual(self._state(datetime.date(2026, 11, 2)), "full")
+
+    def test_aria_labels(self):
+        ClinicSettings.objects.update(working_days=[0, 1, 2, 3, 4, 5])
+        self._fill(datetime.date(2026, 11, 12))
+        calendar = self._cal()
+        expected = {
+            datetime.date(2026, 11, 12): "Thursday, November 12: full",
+            datetime.date(2026, 11, 8): "Sunday, November 8: clinic closed",
+            datetime.date(2026, 11, 4): "Wednesday, November 4: open",
+        }
+        for day, label in expected.items():
+            with self.subTest(day=day):
+                self.assertEqual(self._cell(calendar, day)["aria_label"], label)
+
+    def test_is_today_and_is_current(self):
+        calendar = self._cal(current=datetime.date(2026, 11, 12))
+        self.assertEqual(
+            [c["date"] for c in calendar["cells"] if c["is_current"]],
+            [datetime.date(2026, 11, 12)],
+        )
+        self.assertEqual(
+            [c["date"] for c in calendar["cells"] if c["is_today"]],
+            [datetime.date(2026, 11, 2)],
+        )
+        self.assertFalse(any(c["is_current"] for c in self._cal()["cells"]))
+
+    def test_the_month_is_clamped_and_bad_values_open_today_s_month(self):
+        cases = {
+            "2026-11": "2026-11",
+            "2026-12": "2026-12",
+            "2026-01": "2026-11",  # before today's month
+            "2030-05": "2026-12",  # after the last bookable month
+            "2026-13": "2026-11",
+            "2026-00": "2026-11",
+            "0000-01": "2026-11",
+            "2026-1": "2026-11",
+            " 2026-12": "2026-11",
+            "garbage": "2026-11",
+            "": "2026-11",
+            None: "2026-11",
+        }
+        for value, expected in cases.items():
+            with self.subTest(value=value):
+                self.assertEqual(self._cal(value)["month_value"], expected)
+
+    def test_prev_and_next_are_none_at_the_ends(self):
+        first, last = self._cal("2026-11"), self._cal("2026-12")
+        self.assertIsNone(first["prev_month"])
+        self.assertEqual(first["next_month"], "2026-12")
+        self.assertEqual(last["prev_month"], "2026-11")
+        self.assertIsNone(last["next_month"])
+        ClinicSettings.objects.update(booking_limit_days=120)
+        middle = self._cal("2026-12")
+        self.assertEqual(
+            (middle["prev_month"], middle["next_month"]), ("2026-11", "2027-01")
+        )
+
+    def test_every_day_agrees_with_get_available_slots(self):
+        ClinicSettings.objects.update(working_days=[0, 1, 2, 3, 4, 5])
+        BlockedDate.objects.create(date=datetime.date(2026, 11, 10))
+        self._fill(datetime.date(2026, 11, 12))
+        self._fill(datetime.date(2026, 11, 13), Appointment.CANCELLED)
+        self._fill(datetime.date(2026, 11, 14), Appointment.PENDING, hours=range(8, 16))
+        self._fill(datetime.date(2026, 11, 2), hours=range(10, 17))
+        for now in (_manila(0, 30), _manila(9, 30), _manila(14, 59), _manila(15, 30)):
+            self.freeze(now)
+            for month in ("2026-11", "2026-12"):
+                for cell in self._cal(month)["cells"]:
+                    with self.subTest(now=now.time(), day=cell["date"]):
+                        has_slots = bool(get_available_slots(cell["date"]))
+                        self.assertEqual(cell["state"] == "open", has_slots)
+
+    def test_the_query_count_is_flat(self):
+        def queries():
+            with CaptureQueriesContext(connection) as captured:
+                self._cal()
+            return len(captured)
+
+        empty = queries()
+        for day in range(2, 28):
+            self._fill(datetime.date(2026, 11, day))
+        BlockedDate.objects.create(date=datetime.date(2026, 11, 30))
+        self.assertEqual(queries(), empty)
+        self.assertEqual(empty, 3)  # settings, blocked dates, held slots
+
+
+class BookWithPetParamTests(JustAfterMidnightBase):
+    """owner_book_appointment starts the form with ?pet= when it is one of
+    the owner's non-archived pets; anything else is ignored."""
+
+    def setUp(self):
+        super().setUp()
+        self.second = Pet.objects.create(
+            owner=self.owner, name="Mingming", species="Cat"
+        )
+        self._owner_logs_in()
+
+    def _picked(self, value):
+        response = self.client.get(reverse("owner_book_appointment"), {"pet": value})
+        self.assertEqual(response.status_code, 200)
+        return response.context["form"]["pet"].value()
+
+    def test_own_pet_is_picked(self):
+        self.assertEqual(self._picked(self.second.pk), self.second.pk)
+
+    def test_without_the_parameter_no_pet_is_picked(self):
+        response = self.client.get(reverse("owner_book_appointment"))
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context["form"]["pet"].value())
+
+    def test_another_owners_pet_is_ignored(self):
+        other_user = User.objects.create_user(
+            username="other",
+            email="other@example.com",
+            password="unused-pass-123",
+            role=User.PET_OWNER,
+            is_onboarded=True,
+        )
+        other = PetOwner.objects.create(
+            user=other_user, first_name="Ben", last_name="Reyes"
+        )
+        theirs = Pet.objects.create(owner=other, name="Rex", species="Dog")
+        self.assertIsNone(self._picked(theirs.pk))
+
+    def test_an_archived_pet_is_ignored(self):
+        # Slice 8b-6: a lone pet is pre-picked now, so the owner gets one more
+        # active pet: two remain, and nothing is picked
+        Pet.objects.create(owner=self.owner, name="Choco", species="Dog")
+        Pet.objects.filter(pk=self.second.pk).update(is_archived=True)
+        self.assertIsNone(self._picked(self.second.pk))
+
+    def test_a_lone_pet_is_pre_picked_and_an_archived_one_never_is(self):
+        Pet.objects.filter(pk=self.second.pk).update(is_archived=True)
+        for value in (None, self.second.pk, "junk"):
+            with self.subTest(value=value):
+                params = {} if value is None else {"pet": value}
+                response = self.client.get(reverse("owner_book_appointment"), params)
+                self.assertEqual(response.context["form"]["pet"].value(), self.pet.pk)
+
+    def test_junk_is_ignored(self):
+        for value in ("abc", "", "-1", "0", "1.5", "99999999999999999999", "999999"):
+            with self.subTest(value=value):
+                self.assertIsNone(self._picked(value))
+
+
+# ─── Slice 8b-6: owner booking in three steps ────────────────────────────────
+
+VIOLET_BUTTON = r"<(?:a|button)\b[^>]*\bbg-violet-600\b[^>]*>"
+# Tuesday, Nov 10, 2026: eight days after the frozen "today" (Mon, Nov 2)
+BOOK_DAY = datetime.date(2026, 11, 10)
+
+
+class _OwnerBookingBase(JustAfterMidnightBase):
+    """Mon, Nov 2, 2026 at 00:30 Manila; the clinic is open every day,
+    8:00-17:00 hourly, for 30 days. The owner is logged in and has one pet
+    (Bantay) and one Active service."""
+
+    def setUp(self):
+        super().setUp()
+        self._owner_logs_in()
+        self.service = Service.objects.create(
+            service_name="Consultation", status=Service.ACTIVE
+        )
+        self.step1 = reverse("owner_book_appointment")
+        self.step1_back = f"{self.step1}?back=1"
+        self.step2 = reverse("owner_book_time")
+        self.step3 = reverse("owner_book_check")
+
+    def _set_draft(self, **changes):
+        """Writes a full draft into the session (a key set to None is left
+        out) and returns it."""
+        draft = {
+            "pet": self.pet.pk,
+            "service": str(self.service.pk),
+            "note": "Limping",
+            "date": BOOK_DAY.isoformat(),
+            "time": "12:00:00",
+        }
+        draft.update(changes)
+        draft = {key: value for key, value in draft.items() if value is not None}
+        session = self.client.session
+        session["owner_booking"] = draft
+        session.save()
+        return draft
+
+    def _draft(self):
+        return self.client.session.get("owner_booking")
+
+    def _html(self, url, **params):
+        return self.client.get(url, params).content.decode()
+
+    def _other_owners_pet(self):
+        user = User.objects.create_user(
+            username="other",
+            email="other@example.com",
+            password="unused-pass-123",
+            role=User.PET_OWNER,
+            is_onboarded=True,
+        )
+        other = PetOwner.objects.create(user=user, first_name="Ben", last_name="Reyes")
+        return Pet.objects.create(owner=other, name="Rex", species="Dog")
+
+    def _hold(self, day, hours, status=Appointment.CONFIRMED):
+        """Visits (by the owner's pet) holding the slots of day at hours."""
+        for hour in hours:
+            Appointment.objects.create(
+                owner=self.owner,
+                pet=self.pet,
+                date=day,
+                time=datetime.time(hour, 0),
+                status=status,
+            )
+
+
+class OwnerBookingDraftTests(_OwnerBookingBase):
+    """The session draft: fresh on a plain GET of step 1, kept with ?back=1,
+    and every step checks the whole draft again."""
+
+    def _assert_back(self, response, url, message):
+        self.assertRedirects(response, url, fetch_redirect_response=False)
+        self.assertEqual(self._messages(response), [message])
+        # A page that shows the flash uses it up, so the next check starts clean
+        self.client.get(reverse("owner_dashboard"))
+
+    # ── Starting and keeping ────────────────────────────────────────────────
+
+    def test_a_plain_get_starts_a_fresh_draft(self):
+        self._set_draft()
+        self.client.get(self.step1)
+        self.assertEqual(self._draft(), {"pet": None, "from_pet": False})
+
+    def test_pet_param_picks_an_own_pet(self):
+        self.client.get(self.step1, {"pet": self.pet.pk})
+        self.assertEqual(self._draft(), {"pet": self.pet.pk, "from_pet": True})
+
+    def test_pet_param_of_another_owner_or_an_archived_pet_is_ignored(self):
+        theirs = self._other_owners_pet()
+        archived = Pet.objects.create(
+            owner=self.owner, name="Old", species="Cat", is_archived=True
+        )
+        for value in (theirs.pk, archived.pk, "junk"):
+            with self.subTest(value=value):
+                self.client.get(self.step1, {"pet": value})
+                self.assertEqual(self._draft(), {"pet": None, "from_pet": False})
+
+    def test_back_keeps_the_draft_and_the_form_shows_it(self):
+        draft = self._set_draft(note="Keep this")
+        response = self.client.get(self.step1, {"back": "1"})
+        self.assertEqual(self._draft(), draft)
+        form = response.context["form"]
+        self.assertEqual(form["pet"].value(), self.pet.pk)
+        self.assertEqual(form["service"].value(), str(self.service.pk))
+        self.assertEqual(form["reason"].value(), "Keep this")
+
+    def test_back_without_a_draft_starts_one(self):
+        self.client.get(self.step1, {"back": "1"})
+        self.assertEqual(self._draft(), {"pet": None, "from_pet": False})
+
+    def test_step_1_post_saves_the_answers_and_keeps_the_day_and_time(self):
+        self._set_draft()
+        response = self.client.post(
+            self.step1, {"pet": self.pet.pk, "service": "none", "reason": "New"}
+        )
+        self.assertRedirects(response, self.step2, fetch_redirect_response=False)
+        draft = self._draft()
+        self.assertEqual((draft["service"], draft["note"]), ("none", "New"))
+        self.assertEqual(draft["date"], BOOK_DAY.isoformat())
+        self.assertEqual(draft["time"], "12:00:00")
+        self.assertFalse(Appointment.objects.exists())
+
+    # ── Every step checks the whole draft again ─────────────────────────────
+
+    def test_no_draft_starts_at_step_1(self):
+        for url in (self.step2, self.step3):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self._assert_back(response, self.step1_back, START_MESSAGE)
+
+    def test_another_owners_pet_and_an_archived_pet_go_back_to_step_1(self):
+        archived = Pet.objects.create(
+            owner=self.owner, name="Old", species="Cat", is_archived=True
+        )
+        for pet in (self._other_owners_pet(), archived):
+            for url in (self.step2, self.step3):
+                with self.subTest(pet=pet.name, url=url):
+                    self._set_draft(pet=pet.pk)
+                    response = self.client.get(url)
+                    self._assert_back(response, self.step1_back, PET_GONE_MESSAGE)
+
+    def test_a_service_that_is_not_bookable_goes_back_to_step_1(self):
+        for status in (Service.DRAFT, Service.UNLISTED, Service.CLOSED):
+            Service.objects.filter(pk=self.service.pk).update(status=status)
+            for url in (self.step2, self.step3):
+                with self.subTest(status=status, url=url):
+                    self._set_draft()
+                    response = self.client.get(url)
+                    self._assert_back(response, self.step1_back, SERVICE_GONE_MESSAGE)
+
+    def test_no_service_answer_goes_back_to_step_1(self):
+        self._set_draft(service=None)
+        response = self.client.get(self.step2)
+        self._assert_back(response, self.step1_back, SERVICE_MISSING_MESSAGE)
+
+    def test_a_day_that_cannot_be_booked_goes_back_to_step_2(self):
+        ClinicSettings.objects.update(working_days=[0, 2, 3, 4, 5, 6])  # no Tuesday
+        closed = (BOOK_DAY.isoformat(), DAY_GONE_MESSAGE)
+        blocked_day = datetime.date(2026, 11, 11)
+        BlockedDate.objects.create(date=blocked_day)
+        full_day = datetime.date(2026, 11, 12)
+        self._hold(full_day, range(8, 17))
+        cases = {
+            "closed": closed,
+            "blocked": (blocked_day.isoformat(), DAY_GONE_MESSAGE),
+            "full": (full_day.isoformat(), DAY_FULL_MESSAGE),
+            "past": ("2026-11-01", DAY_GONE_MESSAGE),
+            "beyond the limit": ("2026-12-03", DAY_GONE_MESSAGE),
+            "not a date": ("junk", PICK_AGAIN_MESSAGE),
+        }
+        for name, (day, message) in cases.items():
+            with self.subTest(case=name):
+                self._set_draft(date=day)
+                self._assert_back(self.client.get(self.step3), self.step2, message)
+                self._assert_back(self.client.post(self.step3), self.step2, message)
+        self.assertFalse(Appointment.objects.filter(status="pending").exists())
+
+    def test_no_time_goes_back_to_step_2(self):
+        self._set_draft(time=None)
+        response = self.client.get(self.step3)
+        self._assert_back(response, self.step2, PICK_AGAIN_MESSAGE)
+
+    def test_a_taken_time_goes_back_to_step_2_with_the_red_box(self):
+        self._hold(BOOK_DAY, [12])
+        self._set_draft()
+        response = self.client.get(self.step3)
+        self.assertRedirects(response, self.step2, fetch_redirect_response=False)
+        self.assertEqual(self._messages(response), [])
+        draft = self._draft()
+        self.assertEqual(draft["taken"], "12:00 PM")
+        self.assertNotIn("time", draft)
+        self.assertContains(self.client.get(self.step2), "12:00 PM was just taken")
+
+    def test_a_time_that_is_not_a_slot_goes_back_to_step_2(self):
+        self._set_draft(time="12:17:00")
+        response = self.client.get(self.step3)
+        self.assertRedirects(response, self.step2, fetch_redirect_response=False)
+        self.assertEqual(len(self._messages(response)), 1)
+
+
+class OwnerBookingStepPagesTests(_OwnerBookingBase):
+    """The three step pages: the flow frame, step 1 cards, the calendar and
+    times, the check page, field errors, markup rules and query counts."""
+
+    def _bar(self, html):
+        return re.search(r'(?s)<header class="sticky.*?</header>', html).group(0)
+
+    def _pages(self):
+        """(name, html) for each booking page with a full draft."""
+        self._set_draft()
+        return [
+            ("step 1", self._html(self.step1, back="1")),
+            ("step 2", self._html(self.step2)),
+            ("step 3", self._html(self.step3)),
+        ]
+
+    # ── The flow frame ──────────────────────────────────────────────────────
+
+    def test_flow_bar_step_names_and_progress_values(self):
+        self._set_draft()
+        cases = [
+            (self.step1_back, 1, "Pet and reason"),
+            (self.step2, 2, "Date and time"),
+            (self.step3, 3, "Check and send"),
+        ]
+        for url, step, name in cases:
+            with self.subTest(step=step):
+                html = self.client.get(url).content.decode()
+                self.assertIn(f"Step {step} of 3</span> · {name}", html)
+                self.assertIn('role="progressbar"', html)
+                self.assertIn('aria-valuemin="1" aria-valuemax="3"', html)
+                self.assertIn(f'aria-valuenow="{step}"', html)
+                bar = re.search(r'(?s)role="progressbar".*?</div>', html).group(0)
+                self.assertEqual(bar.count("bg-violet-600"), step)
+
+    def test_back_and_cancel_links(self):
+        self._set_draft()
+        step1 = self._bar(self._html(self.step1, back="1"))
+        step2 = self._bar(self._html(self.step2))
+        step3 = self._bar(self._html(self.step3))
+        dashboard = reverse("owner_dashboard")
+        pet_page = reverse("owner_pet_detail", args=[self.pet.pk])
+        self.assertIn(f'<a href="{dashboard}" aria-label="Back"', step1)
+        self.assertIn(f'<a href="{self.step1_back}" aria-label="Back"', step2)
+        self.assertIn(f'<a href="{self.step2}?back=1" aria-label="Back"', step3)
+        for bar in (step1, step2, step3):
+            self.assertIn(f'<a href="{dashboard}" class=', bar)
+            self.assertIn(">Cancel</a>", bar)
+        # Started from a pet's page: Cancel goes back there
+        self._set_draft(from_pet=True)
+        bar = self._bar(self._html(self.step2))
+        self.assertIn(f'<a href="{pet_page}" class=', bar)
+        self.assertIn(">Cancel</a>", bar)
+
+    def test_the_bottom_bar_has_back_and_one_violet_next(self):
+        for name, html in self._pages()[1:]:
+            with self.subTest(page=name):
+                bar = re.search(r'(?s)<div class="fixed inset-x-0.*', html).group(0)
+                self.assertRegex(bar, r"(?s)<svg.*?</svg>\s*Back</a>")
+                self.assertEqual(len(re.findall(VIOLET_BUTTON, bar)), 1)
+
+    def test_no_bottom_tabs_during_the_flow(self):
+        self._set_draft()
+        urls = [self.step1_back, self.step2, self.step3]
+        for url in urls:
+            with self.subTest(url=url):
+                html = self.client.get(url).content.decode()
+                self.assertNotIn('<nav aria-label="Main"', html)
+                self.assertNotIn(reverse("owner_billing_list"), html)
+
+    def test_one_violet_button_on_every_page(self):
+        for name, html in self._pages():
+            with self.subTest(page=name):
+                self.assertEqual(len(re.findall(VIOLET_BUTTON, html)), 1)
+
+    def test_one_line_links_no_inline_script_no_htmx_attributes(self):
+        for name, html in self._pages():
+            with self.subTest(page=name):
+                self.assertIsNone(re.search(r"<a\b[^>]*\n", html))
+                for tag in re.findall(r"<script\b[^>]*>", html):
+                    self.assertIn(" src=", tag)
+                self.assertIsNone(re.search(r"\son[a-z]+=", html))
+                for word in ("hx-confirm", "hx-get", "hx-post", "hx-trigger"):
+                    self.assertNotIn(word, html)
+                self.assertNotIn("<!--", html)
+
+    # ── Step 1 ──────────────────────────────────────────────────────────────
+
+    def test_step_1_shows_each_pet_as_a_card_and_picks_one(self):
+        Pet.objects.filter(pk=self.pet.pk).update(breed="Aspin")
+        mingming = Pet.objects.create(owner=self.owner, name="Mingming", species="Cat")
+        archived = Pet.objects.create(
+            owner=self.owner, name="Ghostpet", species="Dog", is_archived=True
+        )
+        theirs = self._other_owners_pet()
+        html = self._html(self.step1, pet=mingming.pk)
+        self.assertIn("Which pet is this for?", html)
+        self.assertIn("Dog · Aspin", html)
+        self.assertIn("Cat</span>", html)
+        for pet in (archived, theirs):
+            self.assertNotIn(pet.name, html)
+        radios = re.findall(r'<input type="radio" name="pet"[^>]*>', html)
+        self.assertEqual(len(radios), 2)
+        checked = [r for r in radios if " checked" in r]
+        self.assertEqual(len(checked), 1)
+        self.assertIn(f'value="{mingming.pk}"', checked[0])
+        add_pet = f'<a href="{reverse("owner_pet_add")}?next=book"'
+        self.assertIn(add_pet, html)
+        self.assertIn("Add another pet</a>", html)
+
+    def test_with_one_pet_that_pet_is_picked_and_is_the_only_choice(self):
+        html = self._html(self.step1)
+        radios = re.findall(r'<input type="radio" name="pet"[^>]*>', html)
+        self.assertEqual(len(radios), 1)
+        self.assertIn(" checked", radios[0])
+
+    def test_with_no_pet_only_the_pet_question_and_a_disabled_next(self):
+        Pet.objects.all().delete()
+        html = self._html(self.step1)
+        self.assertIn("You haven't added a pet yet", html)
+        self.assertIn("Which pet is this for?", html)
+        self.assertNotIn("What is the visit for?", html)
+        self.assertNotIn('id="booking-form"', html)
+        add_pet = f'<a href="{reverse("owner_pet_add")}?next=book"'
+        found = re.findall(VIOLET_BUTTON, html)
+        self.assertEqual(len(found), 1)
+        self.assertIn(add_pet, found[0])
+        self.assertIn("Add a pet</a>", html)
+        self.assertRegex(html, r'<button type="button" disabled[^>]*>\s*Next')
+        self.assertIn("Add a pet to continue", html)
+        self.assertIn("The rest of the booking", html)
+
+    def test_step_1_lists_bookable_services_then_not_sure_yet(self):
+        for name, status in (
+            ("Grooming", Service.ACTIVE),
+            ("Secret draft", Service.DRAFT),
+            ("Unlisted one", Service.UNLISTED),
+            ("Closed one", Service.CLOSED),
+        ):
+            Service.objects.create(service_name=name, status=status)
+        html = self._html(self.step1)
+        names = re.findall(
+            r'<input type="radio" name="service" value="[^"]*"[^>]*>\s*'
+            r'<span class="flex min-h-14[^>]*>([^<]*)</span>',
+            html,
+        )
+        self.assertEqual(names, ["Consultation", "Grooming", "Not sure yet"])
+        self.assertIn('name="service" value="none"', html)
+        self.assertIn('Not sure? Pick "Not sure yet" and Dr. Aga will check.', html)
+
+    def test_step_1_has_the_optional_note(self):
+        html = self._html(self.step1)
+        self.assertIn("Anything the vet should know?", html)
+        self.assertIn("(optional)", html)
+        self.assertIn('<textarea id="booking-reason" name="reason"', html)
+        self.assertIn("For example: not eating since yesterday", html)
+
+    def test_missing_answers_are_field_errors_and_next_stays_enabled(self):
+        no_service = ["Choose what the visit is for."]
+        cases = [
+            ({}, ["Choose a pet.", "Choose what the visit is for."]),
+            ({"pet": self.pet.pk}, no_service),
+            ({"service": "none"}, ["Choose a pet."]),
+            ({"pet": self.pet.pk, "service": "999"}, no_service),
+        ]
+        for data, errors in cases:
+            with self.subTest(data=data):
+                response = self.client.post(self.step1, data)
+                self.assertEqual(response.status_code, 200)
+                html = response.content.decode()
+                for error in errors:
+                    self.assertContains(response, error)
+                self.assertEqual(html.count('role="alert"'), len(errors))
+                self.assertNotIn('<button type="button" disabled', html)
+                self.assertIn('form="booking-form"', html)
+        self.assertFalse(Appointment.objects.exists())
+
+    def test_another_owners_pet_cannot_be_posted(self):
+        theirs = self._other_owners_pet()
+        response = self.client.post(
+            self.step1, {"pet": theirs.pk, "service": "none", "reason": ""}
+        )
+        self.assertContains(response, "Choose a pet.")
+        self.assertNotEqual((self._draft() or {}).get("pet"), theirs.pk)
+
+    def test_a_long_note_is_refused(self):
+        response = self.client.post(
+            self.step1, {"pet": self.pet.pk, "service": "none", "reason": "x" * 1001}
+        )
+        self.assertContains(response, "Please keep the note short")
+
+    # ── Step 2 ──────────────────────────────────────────────────────────────
+
+    def _cell(self, html, day):
+        """The tag of one calendar day, found by its date in the aria-label."""
+        label = date_format(day, "l, F j")
+        return re.search(rf'<(?:a|span)\b[^>]*aria-label="{label}: [^"]*"[^>]*>', html)
+
+    def test_step_2_summary_and_the_pick_a_day_state(self):
+        self._set_draft(date=None, time=None, service="none")
+        html = self._html(self.step2)
+        self.assertIn("Bantay", html)
+        self.assertIn("Not sure yet", html)
+        self.assertIn("Pick a day", html)
+        self.assertIn("You can book up to 30 days ahead.", html)
+        self.assertIn("Pick a day to see the times.", html)
+        self.assertNotIn("Times on", html)
+
+    def test_calendar_days_by_state_with_their_labels(self):
+        ClinicSettings.objects.update(working_days=[0, 1, 2, 3, 4, 5])  # no Sunday
+        self._hold(datetime.date(2026, 11, 12), range(8, 17))
+        self._set_draft(date=None, time=None)
+        html = self._html(self.step2)
+        open_day = self._cell(html, datetime.date(2026, 11, 4)).group(0)
+        self.assertTrue(open_day.startswith("<a href="))
+        self.assertIn(f'href="{self.step2}?date=2026-11-04"', open_day)
+        self.assertIn('aria-label="Wednesday, November 4: open"', open_day)
+        full = self._cell(html, datetime.date(2026, 11, 12)).group(0)
+        self.assertTrue(full.startswith("<span"))
+        self.assertIn("bg-gray-100", full)
+        self.assertIn("line-through", full)
+        self.assertIn("Thursday, November 12: full", full)
+        for day, phrase in (
+            (datetime.date(2026, 11, 8), "clinic closed"),
+            (datetime.date(2026, 11, 1), "not available"),
+        ):
+            with self.subTest(day=day):
+                plain = self._cell(html, day).group(0)
+                self.assertTrue(plain.startswith("<span"))
+                self.assertIn(phrase, plain)
+                self.assertNotIn("href=", plain)
+        for word in ("Sun", "Mon", "Sat", "Open", "Full", "Closed"):
+            self.assertIn(word, html)
+
+    def test_today_past_the_cutoff_is_a_ring_not_a_link(self):
+        self.freeze(_manila(15, 30))
+        self._set_draft(date=None, time=None)
+        html = self._html(self.step2)
+        today = self._cell(html, WALK_IN_DAY).group(0)
+        self.assertTrue(today.startswith("<span"))
+        self.assertIn("ring-2", today)
+        self.assertNotIn("line-through", today)
+        self.assertIn("Monday, November 2: no more bookings today", today)
+
+    def test_the_picked_day_is_violet_and_not_a_link(self):
+        self._set_draft()
+        html = self._html(self.step2)
+        picked = self._cell(html, BOOK_DAY).group(0)
+        self.assertTrue(picked.startswith("<span"))
+        self.assertIn("bg-violet-600", picked)
+        self.assertIn('aria-current="date"', picked)
+
+    def test_month_arrows_are_links_with_disabled_spans_at_the_edges(self):
+        self._set_draft(date=None, time=None)
+        first = self._html(self.step2, month="2026-11")
+        self.assertIn(
+            f'<a href="{self.step2}?month=2026-12" aria-label="Next month"', first
+        )
+        disabled = r'<span aria-disabled="true" aria-label="'
+        self.assertRegex(first, disabled + "Previous month")
+        self.assertNotIn(f'<a href="{self.step2}?month=2026-10"', first)
+        self.assertIn("November 2026", first)
+        last = self._html(self.step2, month="2026-12")
+        self.assertIn(
+            f'<a href="{self.step2}?month=2026-11" aria-label="Previous month"', last
+        )
+        self.assertRegex(last, disabled + "Next month")
+        self.assertIn("December 2026", last)
+        # Before this month and past the limit are clamped, junk opens today's
+        self.assertIn("November 2026", self._html(self.step2, month="2026-01"))
+        self.assertIn("December 2026", self._html(self.step2, month="2030-05"))
+        self.assertIn("November 2026", self._html(self.step2, month="junk"))
+
+    def test_days_after_the_booking_limit_are_not_links(self):
+        self._set_draft(date=None, time=None)
+        html = self._html(self.step2, month="2026-12")
+        self.assertIn("?date=2026-12-02", html)
+        self.assertNotIn("?date=2026-12-03", html)
+        self.assertIn("Thursday, December 3: not available", html)
+
+    def test_times_grouped_morning_and_afternoon_with_taken_not_selectable(self):
+        self._hold(BOOK_DAY, [10])
+        self._set_draft(time="12:00:00")
+        html = self._html(self.step2)
+        self.assertIn("Times on Tue, Nov 10", html)
+        self.assertIn("Each visit is 1 hour.", html)
+        morning, afternoon = html.index("Morning"), html.index("Afternoon")
+        self.assertLess(morning, afternoon)
+        values = re.findall(r'<input type="radio" name="time" value="([^"]+)"', html)
+        self.assertEqual(
+            values,
+            [f"{h:02d}:00:00" for h in (8, 9, 11, 12, 13, 14, 15, 16)],
+        )
+        self.assertLess(html.index('value="11:00:00"'), afternoon)
+        self.assertGreater(html.index('value="12:00:00"'), afternoon)
+        taken = r'(?s)<span class="line-through">10:00 AM</span>.*?Taken'
+        self.assertRegex(html, taken)
+        self.assertNotIn('value="10:00:00"', html)
+        checked = re.findall(r'<input type="radio" name="time"[^>]*checked>', html)
+        self.assertEqual(len(checked), 1)
+        self.assertIn('value="12:00:00"', checked[0])
+        grid = re.findall(r'<div class="grid grid-cols-3 gap-2">', html)
+        self.assertEqual(len(grid), 2)
+
+    def test_the_slot_length_wording(self):
+        self._set_draft()
+        for minutes, phrase in ((60, "1 hour"), (30, "30 minutes"), (120, "2 hours")):
+            with self.subTest(minutes=minutes):
+                ClinicSettings.objects.update(slot_duration_minutes=minutes)
+                self.assertIn(f"Each visit is {phrase}.", self._html(self.step2))
+
+    def test_a_picked_day_goes_in_the_draft_and_clears_the_time(self):
+        self._set_draft()
+        other = datetime.date(2026, 11, 11)
+        html = self._html(self.step2, date=other.isoformat())
+        self.assertIn("Times on Wed, Nov 11", html)
+        draft = self._draft()
+        self.assertEqual(draft["date"], other.isoformat())
+        self.assertNotIn("time", draft)
+
+    def test_a_day_that_is_not_open_in_the_url_shows_the_calendar_and_an_error(self):
+        self._hold(datetime.date(2026, 11, 12), range(8, 17))
+        BlockedDate.objects.create(date=datetime.date(2026, 11, 13))
+        draft = self._set_draft()
+        for value in ("2026-11-01", "2026-11-12", "2026-11-13", "2026-12-03", "junk"):
+            with self.subTest(value=value):
+                response = self.client.get(self.step2, {"date": value})
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, "That day can&#x27;t be booked.")
+                self.assertContains(response, "November 2026")
+                self.assertEqual(self._draft(), draft)
+
+    def test_step_2_post_without_a_time_or_a_day_is_a_field_error(self):
+        self._set_draft(date=None, time=None)
+        response = self.client.post(self.step2, {"date": BOOK_DAY.isoformat()})
+        self.assertContains(response, "Pick a time.")
+        response = self.client.post(self.step2, {"time": "12:00:00"})
+        self.assertContains(response, "Pick a day first.")
+        self.assertIn('form="time-form"', response.content.decode())
+        self.assertNotIn("time", self._draft())
+
+    def test_step_2_post_saves_the_day_and_time_and_goes_to_step_3(self):
+        self._set_draft(date=None, time=None)
+        response = self.client.post(
+            self.step2, {"date": BOOK_DAY.isoformat(), "time": "09:00:00"}
+        )
+        self.assertRedirects(response, self.step3, fetch_redirect_response=False)
+        draft = self._draft()
+        self.assertEqual(draft["date"], BOOK_DAY.isoformat())
+        self.assertEqual(draft["time"], "09:00:00")
+        self.assertFalse(Appointment.objects.exists())
+
+    def test_step_2_post_of_a_taken_time_shows_the_box_and_keeps_the_day(self):
+        self._hold(BOOK_DAY, [9])
+        self._set_draft(time=None)
+        response = self.client.post(
+            self.step2, {"date": BOOK_DAY.isoformat(), "time": "09:00:00"}
+        )
+        self.assertContains(response, "9:00 AM was just taken")
+        self.assertContains(response, "Times on Tue, Nov 10")
+        self.assertNotIn("time", self._draft())
+
+    # ── Step 3 ──────────────────────────────────────────────────────────────
+
+    def test_step_3_rows_change_links_and_the_info_box(self):
+        self._set_draft()
+        html = self._html(self.step3)
+        self.assertIn("Check your request", html)
+        rows = re.findall(r"<dt[^>]*>([^<]*)</dt><dd[^>]*>([^<]*)</dd>", html)
+        self.assertEqual(
+            rows,
+            [
+                ("Pet", "Bantay"),
+                ("Visit for", "Consultation"),
+                ("Day and time", "Tue, Nov 10, 2026 at 12:00 PM"),
+                ("Note for the vet", "Limping"),
+            ],
+        )
+        page = f'<a href="{self.step1}?back=1"'
+        self.assertEqual(html.count(page), 3)  # pet, service, note
+        # Day and time, plus the two Back links
+        self.assertEqual(html.count(f'<a href="{self.step2}?back=1"'), 3)
+        self.assertEqual(html.count("Change<span"), 4)
+        self.assertIn("This is a <b>request</b>.", html)
+        self.assertIn("The clinic will confirm it", html)
+        self.assertIn('form="send-form"', html)
+        self.assertIn("Send request", html)
+
+    def test_step_3_not_sure_yet_and_no_note(self):
+        self._set_draft(service="none", note="")
+        html = self._html(self.step3)
+        rows = re.findall(r"<dt[^>]*>([^<]*)</dt><dd[^>]*>([^<]*)</dd>", html)
+        self.assertIn(("Visit for", "Not sure yet"), rows)
+        self.assertNotIn("Note for the vet", html)
+        self.assertEqual(html.count("Change<span"), 3)
+
+    # ── Query counts ────────────────────────────────────────────────────────
+
+    def _count(self, url, **params):
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(url, params)
+        self.assertEqual(response.status_code, 200)
+        return len(queries)
+
+    def test_every_step_has_a_flat_query_count(self):
+        self._set_draft()
+        urls = {
+            "step 1": (self.step1, {"back": "1"}),
+            "step 2": (self.step2, {"date": BOOK_DAY.isoformat()}),
+            "step 3": (self.step3, {}),
+        }
+        few = {name: self._count(url, **q) for name, (url, q) in urls.items()}
+        for number in range(6):
+            Pet.objects.create(owner=self.owner, name=f"Pet {number}", species="Cat")
+            Service.objects.create(service_name=f"S{number}", status=Service.ACTIVE)
+        self._hold(BOOK_DAY, [8, 9, 10, 14])
+        self._hold(datetime.date(2026, 11, 20), range(8, 17))
+        many = {name: self._count(url, **q) for name, (url, q) in urls.items()}
+        print(f"BOOKING QUERIES (whole request, flat): {many}")
+        self.assertEqual(few, many)
+
+
+class OwnerBookingFixesTests(_OwnerBookingBase):
+    """Fixes after the browser check: the picked look of the radio cards, the
+    room under <main> on every step, and a closed draft day on a step 2 POST."""
+
+    CARD = (
+        "peer-checked:border-violet-500",
+        "peer-checked:bg-violet-50",
+        "peer-checked:ring-2",
+        "peer-checked:ring-violet-200",
+        "peer-focus-visible:ring-2",
+        "peer-focus-visible:ring-violet-600",
+    )
+    CIRCLE = (
+        "peer-checked:border-violet-600",
+        "peer-checked:bg-violet-600",
+        "peer-checked:text-white",
+    )
+    TIME = (
+        "peer-checked:bg-violet-600",
+        "peer-checked:text-white",
+        "peer-checked:ring-violet-600",
+        "peer-focus-visible:ring-2",
+    )
+
+    def _card(self, html, name, value, checked=True):
+        """The classes of the card span that follows a radio inside its label
+        (the check circle's classes too, when it has one)."""
+        flag = " checked" if checked else ""
+        found = re.search(
+            rf'<label class="relative block cursor-pointer">\s*'
+            rf'<input type="radio" name="{name}" value="{value}" '
+            rf'class="peer sr-only"{flag}>\s*<span class="([^"]*)">'
+            rf"(?s:.*?)</label>",
+            html,
+        )
+        self.assertIsNotNone(found, (name, value, checked))
+        return found.group(1), found.group(0)
+
+    def _assert_all(self, classes, wanted):
+        for name in wanted:
+            self.assertIn(name, classes)
+
+    def test_a_server_checked_pet_and_service_are_picked_with_no_script(self):
+        self._set_draft()
+        html = self._html(self.step1, back="1")
+        pet, markup = self._card(html, "pet", self.pet.pk)
+        self._assert_all(pet, self.CARD)
+        self._assert_all(markup, self.CIRCLE)
+        service, markup = self._card(html, "service", self.service.pk)
+        self._assert_all(service, self.CARD)
+        self._assert_all(markup, self.CIRCLE)
+
+    def test_a_card_that_is_not_picked_has_no_checked_attribute(self):
+        mingming = Pet.objects.create(owner=self.owner, name="Mingming", species="Cat")
+        self._set_draft(service="none")
+        html = self._html(self.step1, back="1")
+        self._card(html, "pet", self.pet.pk)
+        self._card(html, "pet", mingming.pk, checked=False)
+        self._card(html, "service", self.service.pk, checked=False)
+        self._card(html, "service", "none")
+
+    def test_the_pet_in_the_url_shows_as_picked(self):
+        mingming = Pet.objects.create(owner=self.owner, name="Mingming", species="Cat")
+        html = self._html(self.step1, pet=mingming.pk)
+        classes, _markup = self._card(html, "pet", mingming.pk)
+        self._assert_all(classes, self.CARD)
+        self._card(html, "pet", self.pet.pk, checked=False)
+
+    def test_the_picked_time_is_filled_violet_and_the_others_are_not(self):
+        self._set_draft(time="12:00:00")
+        html = self._html(self.step2)
+        classes, _markup = self._card(html, "time", "12:00:00")
+        self._assert_all(classes, self.TIME)
+        self._card(html, "time", "13:00:00", checked=False)
+
+    def test_every_step_leaves_room_for_the_bottom_bar(self):
+        self._set_draft()
+        one = (
+            "group-has-[[data-bar=one]]/body:"
+            "pb-[calc(8rem+env(safe-area-inset-bottom))]"
+        )
+        for url in (self.step1_back, self.step2, self.step3):
+            with self.subTest(url=url):
+                html = self._html(url)
+                main = re.search(r'<main id="main" class="([^"]*)"', html).group(1)
+                self.assertIn("pb-28", main)
+                self.assertIn(one, main)
+                self.assertRegex(html, r'<body class="group/body ')
+                self.assertRegex(
+                    html, r'<div class="fixed inset-x-0 [^"]*"[^>]*data-bar="one"'
+                )
+                self.assertNotRegex(main, r"\bpb-40\b")
+
+    def test_a_post_for_a_draft_day_that_has_since_closed_shows_the_not_open_error(
+        self,
+    ):
+        self._set_draft(time=None)
+        BlockedDate.objects.create(date=BOOK_DAY)
+        draft = self._draft()
+        cases = (
+            {"date": BOOK_DAY.isoformat()},
+            {"date": BOOK_DAY.isoformat(), "time": "12:00:00"},
+        )
+        for data in cases:
+            with self.subTest(data=data):
+                response = self.client.post(self.step2, data)
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, "That day can&#x27;t be booked.")
+                self.assertContains(response, "November 2026")
+                self.assertNotContains(response, "Pick a time.")
+                self.assertEqual(self._draft(), draft)
+
+    def test_a_post_without_a_time_on_an_open_day_still_says_pick_a_time(self):
+        self._set_draft(time=None)
+        response = self.client.post(self.step2, {"date": BOOK_DAY.isoformat()})
+        self.assertContains(response, "Pick a time.")
+        self.assertNotContains(response, "That day can&#x27;t be booked.")
+
+
+class OwnerBookingSendTests(_OwnerBookingBase):
+    """Send: one PENDING visit through the locked create, a taken slot comes
+    back to step 2, a second tap makes nothing, and the sent page."""
+
+    def _send(self):
+        return self.client.post(self.step3)
+
+    def test_send_creates_exactly_one_pending_visit_and_clears_the_draft(self):
+        self._set_draft()
+        response = self._send()
+        visit = Appointment.objects.get()
+        self.assertRedirects(
+            response,
+            reverse("owner_book_sent", args=[visit.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(visit.status, Appointment.PENDING)
+        self.assertEqual(visit.owner, self.owner)
+        self.assertEqual(visit.pet, self.pet)
+        self.assertEqual(visit.service, self.service)
+        self.assertEqual(visit.date, BOOK_DAY)
+        self.assertEqual(visit.time, datetime.time(12, 0))
+        self.assertEqual(visit.reason, "Limping")
+        self.assertFalse(visit.is_walk_in)
+        self.assertIsNone(self._draft())
+
+    def test_not_sure_yet_saves_no_service(self):
+        self._set_draft(service="none", note="")
+        self._send()
+        visit = Appointment.objects.get()
+        self.assertIsNone(visit.service)
+        self.assertEqual(visit.reason, "")
+
+    def test_the_admin_is_told_as_before(self):
+        self._set_draft()
+        self._send()
+        visit = Appointment.objects.get()
+        notice = Notification.objects.get(recipient=self.admin)
+        self.assertEqual(notice.related_appointment, visit)
+        self.assertEqual(
+            Notification.objects.filter(recipient=self.owner.user).count(), 0
+        )
+
+    def test_send_goes_through_the_lock_and_checks_the_slot_again(self):
+        self._set_draft()
+        real = is_slot_available
+        with mock.patch("appointments.utils.lock_schedule") as lock:
+            with mock.patch(
+                "appointments.utils.is_slot_available", side_effect=real
+            ) as check:
+                self._send()
+        lock.assert_called_once_with()
+        check.assert_called_once_with(BOOK_DAY, datetime.time(12, 0))
+        self.assertEqual(Appointment.objects.count(), 1)
+
+    def test_a_slot_taken_at_the_lock_goes_back_to_step_2_with_the_box(self):
+        self._set_draft()
+        with mock.patch("appointments.utils.is_slot_available", return_value=False):
+            response = self._send()
+        self.assertRedirects(response, self.step2, fetch_redirect_response=False)
+        self.assertFalse(Appointment.objects.exists())
+        self.assertFalse(Notification.objects.filter(recipient=self.admin).exists())
+        page = self.client.get(self.step2)
+        self.assertContains(page, "12:00 PM was just taken")
+        self.assertContains(page, "Times on Tue, Nov 10")
+        draft = self._draft()
+        self.assertNotIn("time", draft)
+        self.assertEqual(
+            (draft["pet"], draft["service"], draft["note"], draft["date"]),
+            (self.pet.pk, str(self.service.pk), "Limping", BOOK_DAY.isoformat()),
+        )
+
+    def test_a_slot_booked_by_someone_else_before_send_makes_nothing(self):
+        self._set_draft()
+        self._hold(BOOK_DAY, [12])
+        response = self._send()
+        self.assertRedirects(response, self.step2, fetch_redirect_response=False)
+        self.assertEqual(Appointment.objects.count(), 1)  # only theirs
+
+    def test_a_second_post_makes_no_second_visit(self):
+        self._set_draft()
+        self._send()
+        response = self._send()
+        self.assertRedirects(
+            response, reverse("owner_appointments"), fetch_redirect_response=False
+        )
+        self.assertEqual(
+            self._messages(response),
+            ["Your request was already sent. It's in your visits."],
+        )
+        self.assertEqual(Appointment.objects.count(), 1)
+
+    def test_a_stale_draft_sent_again_finds_its_own_slot_taken(self):
+        draft = self._set_draft()
+        self._send()
+        self._set_draft(**draft)  # the second tap read the draft before it went
+        response = self._send()
+        self.assertRedirects(response, self.step2, fetch_redirect_response=False)
+        self.assertEqual(Appointment.objects.count(), 1)
+
+    # ── The sent page ───────────────────────────────────────────────────────
+
+    def _visit(self, **fields):
+        data = {
+            "owner": self.owner,
+            "pet": self.pet,
+            "service": self.service,
+            "date": BOOK_DAY,
+            "time": datetime.time(12, 0),
+            "status": Appointment.PENDING,
+        }
+        data.update(fields)
+        return Appointment.objects.create(**data)
+
+    def test_the_sent_page(self):
+        visit = self._visit(notes="Internal: bite risk")
+        response = self.client.get(reverse("owner_book_sent", args=[visit.pk]))
+        html = response.content.decode()
+        self.assertContains(response, "Request sent")
+        self.assertIn("Bantay · Consultation", html)
+        self.assertIn('<b class="text-gray-900">Tue, Nov 10 at 12:00 PM</b>', html)
+        self.assertIn("bg-yellow-100 text-yellow-800", html)
+        self.assertIn("Waiting for approval", html)
+        self.assertIn("We'll let you know when the clinic confirms.", html)
+        found = re.findall(VIOLET_BUTTON, html)
+        self.assertEqual(len(found), 1)
+        self.assertIn(f'href="{reverse("owner_appointments")}"', found[0])
+        self.assertIn("See my visits</a>", html)
+        self.assertIn(f'<a href="{reverse("owner_dashboard")}"', html)
+        self.assertIn("Back to home</a>", html)
+        self.assertNotIn('<nav aria-label="Main"', html)
+        self.assertNotIn(">Back</a>", html)
+        self.assertNotIn('aria-label="Back"', html)
+        self.assertNotIn("Internal: bite risk", html)
+        self.assertIsNone(re.search(r"<a\b[^>]*\n", html))
+
+    def test_the_sent_page_without_a_service(self):
+        visit = self._visit(service=None)
+        html = self._html(reverse("owner_book_sent", args=[visit.pk]))
+        self.assertIn("Bantay · Not sure yet", html)
+
+    def test_the_sent_page_shows_the_status_it_has_now(self):
+        visit = self._visit()
+        url = reverse("owner_book_sent", args=[visit.pk])
+        cases = {
+            Appointment.CONFIRMED: ("Confirmed", "bg-blue-100"),
+            Appointment.CANCELLED: ("Cancelled", "bg-red-100"),
+            Appointment.COMPLETED: ("Completed", "bg-green-100"),
+            Appointment.NO_SHOW: ("Missed", "bg-gray-100"),
+        }
+        for status, (word, colour) in cases.items():
+            with self.subTest(status=status):
+                Appointment.objects.filter(pk=visit.pk).update(status=status)
+                html = self._html(url)
+                badge = rf'<span class="badge [^"]*{colour}[^"]*">{word}</span>'
+                self.assertRegex(html, badge)
+                self.assertNotIn("Waiting for approval", html)
+
+    def test_another_owners_visit_is_a_404(self):
+        theirs = self._other_owners_pet()
+        visit = self._visit(owner=theirs.owner, pet=theirs)
+        response = self.client.get(reverse("owner_book_sent", args=[visit.pk]))
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            self.client.get(reverse("owner_book_sent", args=[99999])).status_code, 404
+        )
+
+    def test_the_clinic_is_sent_to_its_own_dashboard(self):
+        visit = self._visit()
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("owner_book_sent", args=[visit.pk]))
+        self.assertRedirects(
+            response, reverse("admin_dashboard"), fetch_redirect_response=False
+        )
+
+    def test_the_sent_page_query_count_is_flat(self):
+        visit = self._visit()
+        url = reverse("owner_book_sent", args=[visit.pk])
+
+        def count():
+            with CaptureQueriesContext(connection) as queries:
+                self.client.get(url)
+            return len(queries)
+
+        few = count()
+        for number in range(6):
+            self._visit(time=datetime.time(8 + number, 0))
+        print(f"BOOKING QUERIES (sent page): {few}")
+        self.assertEqual(count(), few)
+
+
+# ─── Slice 8b-7a: owner visits list, visit page and cancel sheet ─────────────
+
+PHONE = "0954 288 9774"
+# state: (colour classes, bold title, the one line under it)
+BANNERS = {
+    "pending": (
+        "bg-yellow-50 text-yellow-900",
+        "Waiting for the clinic to confirm",
+        "You'll get a notification when they do. "
+        "Please don't come in until it's confirmed.",
+    ),
+    "confirmed": (
+        "bg-blue-50 text-blue-900",
+        "Confirmed",
+        "See you on Tue, Nov 10 at 12:00 PM. Please come 10 minutes early.",
+    ),
+    "ended": (
+        "bg-gray-100 text-gray-900",
+        "This time has passed",
+        "The clinic hasn't updated this visit yet. "
+        "Please call them if you have a question.",
+    ),
+    "completed": (
+        "bg-green-50 text-green-900",
+        "Visit done",
+        "Thank you for coming in.",
+    ),
+    "declined": (
+        "bg-red-50 text-red-900",
+        "Declined by the clinic",
+        "The clinic couldn't take this request. Please call us or book another time.",
+    ),
+    "cancelled_clinic": (
+        "bg-red-50 text-red-900",
+        "Cancelled by the clinic",
+        "Sorry about this. Please call us to find a new time, or book another visit.",
+    ),
+    "cancelled_owner": (
+        "bg-red-50 text-red-900",
+        "You cancelled this visit",
+        "You cancelled: pet is unwell.",
+    ),
+    "moved": (
+        "bg-gray-100 text-gray-900",
+        "This visit was moved",
+        "It's now on Tue, Nov 10 at 12:00 PM.",
+    ),
+    "no_show": (
+        "bg-gray-100 text-gray-900",
+        "Missed",
+        "The clinic marked this visit as missed. "
+        "If that's a mistake, please call the clinic.",
+    ),
+}
+
+
+class _OwnerVisitsBase(FrozenNowTestBase):
+    """Mon, Nov 2, 2026 at 9:30 Manila. The owner (Ana) is logged in with one
+    pet (Bantay) and an Active service; slots are 60 minutes, so a 9:00 visit
+    is still going today and an 8:00 one is over."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.owner.user)
+        self.service = Service.objects.create(
+            service_name="Consultation", status=Service.ACTIVE
+        )
+        ClinicSettings.objects.update(contact_number=PHONE)
+
+    def _visit(self, days=3, hour=9, status=Appointment.CONFIRMED, **fields):
+        data = {
+            "owner": self.owner,
+            "pet": self.pet,
+            "service": self.service,
+            "date": self.today + datetime.timedelta(days=days),
+            "time": datetime.time(hour, 0),
+            "status": status,
+        }
+        data.update(fields)
+        return Appointment.objects.create(**data)
+
+    def _cancelled(self, by, reason=Appointment.OTHER, **fields):
+        return self._visit(
+            status=Appointment.CANCELLED,
+            cancelled_by=by,
+            cancellation_reason=reason,
+            **fields,
+        )
+
+    def _moved(self, by, status):
+        """An original cancelled by a reschedule (Mon, Nov 9 at 3:00 PM) and
+        the new visit on Tue, Nov 10 at 12:00 PM."""
+        original = self._cancelled(by, days=7, hour=15)
+        new = self._visit(days=8, hour=12, status=status, rescheduled_from=original)
+        return original, new
+
+    def _second_pet(self, name="Mingming"):
+        return Pet.objects.create(owner=self.owner, name=name, species="Cat")
+
+    def _other_owner(self):
+        user = User.objects.create_user(
+            username="someone",
+            email="someone@example.com",
+            password="unused-pass-123",
+            role=User.PET_OWNER,
+            is_onboarded=True,
+        )
+        other = PetOwner.objects.create(user=user, first_name="Ben", last_name="Reyes")
+        return other, Pet.objects.create(owner=other, name="Rex", species="Dog")
+
+    def _html(self, url_name="owner_appointments", args=None, **params):
+        """The page as text: entities decoded, so apostrophes and & read plain."""
+        response = self.client.get(reverse(url_name, args=args), params)
+        return unescape(response.content.decode())
+
+    def _violet(self, html):
+        return re.findall(VIOLET_BUTTON, html)
+
+    def _queries(self, url_name="owner_appointments", args=None, **params):
+        with CaptureQueriesContext(connection) as queries:
+            self.client.get(reverse(url_name, args=args), params)
+        return len(queries)
+
+
+class OwnerVisitNoteTests(_OwnerVisitsBase):
+    """owner_visit_note at Mon, Nov 2, 2026 9:30 Manila, 60-minute slots."""
+
+    def _note(self, visit):
+        return owner_visit_note(visit, self.NOW, 60)
+
+    def test_pending_says_the_clinic_will_confirm(self):
+        visit = self._visit(status=Appointment.PENDING)
+        self.assertEqual(self._note(visit), "The clinic will confirm this soon.")
+
+    def test_confirmed_and_completed_have_no_note(self):
+        self.assertIsNone(self._note(self._visit()))
+        self.assertIsNone(self._note(self._visit(days=-1, status="completed")))
+
+    def test_a_visit_made_by_a_clinic_move(self):
+        _original, new = self._moved(self.admin, Appointment.CONFIRMED)
+        self.assertEqual(
+            self._note(new), "Moved by the clinic. Was Mon, Nov 9 at 3:00 PM."
+        )
+
+    def test_a_visit_made_by_an_owner_change_while_pending(self):
+        _original, new = self._moved(self.owner.user, Appointment.PENDING)
+        self.assertEqual(
+            self._note(new), "You changed the time. Was Mon, Nov 9 at 3:00 PM."
+        )
+
+    def test_an_owner_change_the_clinic_confirmed_has_no_note(self):
+        _original, new = self._moved(self.owner.user, Appointment.CONFIRMED)
+        self.assertIsNone(self._note(new))
+
+    def test_cancelled_by_the_owner(self):
+        cases = {
+            Appointment.CHANGE_OF_PLANS: "You cancelled: change of plans.",
+            Appointment.PET_UNWELL: "You cancelled: pet is unwell.",
+            Appointment.CANNOT_MAKE_TIME: "You cancelled: cannot make the time.",
+            Appointment.OTHER: "You cancelled this visit.",
+            "": "You cancelled this visit.",
+        }
+        for reason, expected in cases.items():
+            with self.subTest(reason=reason):
+                visit = self._cancelled(self.owner.user, reason)
+                self.assertEqual(self._note(visit), expected)
+
+    def test_declined_by_the_clinic(self):
+        visit = self._cancelled(self.admin, Appointment.DECLINED)
+        self.assertEqual(self._note(visit), "Declined by the clinic.")
+
+    def test_cancelled_by_the_clinic(self):
+        expected = "Cancelled by the clinic. Please call us if you need a new time."
+        for by in (self.admin, None):
+            with self.subTest(by=by):
+                self.assertEqual(self._note(self._cancelled(by)), expected)
+
+    def test_missed(self):
+        visit = self._visit(days=-1, status=Appointment.NO_SHOW)
+        self.assertEqual(self._note(visit), "Marked as missed by the clinic.")
+
+    def test_a_slot_that_has_ended_was_not_updated(self):
+        ended = "The clinic hasn't updated this visit yet."
+        for status in (Appointment.PENDING, Appointment.CONFIRMED):
+            with self.subTest(status=status):
+                over = self._visit(days=0, hour=8, status=status)
+                yesterday = self._visit(days=-1, hour=15, status=status)
+                self.assertEqual(self._note(over), ended)
+                self.assertEqual(self._note(yesterday), ended)
+        # a moved visit whose slot is over says this, not "Moved by the clinic"
+        original = self._cancelled(self.admin, days=-3)
+        old = self._visit(days=0, hour=8, rescheduled_from=original)
+        self.assertEqual(self._note(old), ended)
+
+    def test_a_slot_in_progress_has_not_ended(self):
+        visit = self._visit(days=0, hour=9, status=Appointment.PENDING)
+        self.assertEqual(self._note(visit), "The clinic will confirm this soon.")
+
+    def test_without_minutes_it_reads_the_settings(self):
+        over = self._visit(days=0, hour=8)
+        note = owner_visit_note(over, self.NOW)
+        self.assertEqual(note, "The clinic hasn't updated this visit yet.")
+
+
+class OwnerVisitsContextTests(_OwnerVisitsBase):
+    def _ctx(self, **params):
+        return owner_visits_context(self.owner, params, self.today, self.NOW)
+
+    def _ids(self, ctx):
+        return [card["visit"].pk for group in ctx["groups"] for card in group["cards"]]
+
+    def test_upcoming_and_past_split_at_the_slot_end(self):
+        over = self._visit(days=0, hour=8)
+        going = self._visit(days=0, hour=9)
+        later = self._visit(days=0, hour=10)
+        yesterday = self._visit(days=-1, hour=15)
+        done = self._visit(days=2, hour=9, status=Appointment.COMPLETED)
+        cancelled = self._visit(days=2, hour=10, status=Appointment.CANCELLED)
+        upcoming = self._ctx()
+        self.assertEqual(self._ids(upcoming), [going.pk, later.pk])
+        past = self._ctx(show="past")
+        self.assertEqual(
+            self._ids(past), [cancelled.pk, done.pk, over.pk, yesterday.pk]
+        )
+        self.assertEqual(past["counts"], {"upcoming": 2, "past": 4})
+
+    def test_upcoming_is_soonest_first(self):
+        c = self._visit(days=5, hour=9)
+        a = self._visit(days=1, hour=14)
+        b = self._visit(days=1, hour=16, status=Appointment.PENDING)
+        self.assertEqual(self._ids(self._ctx()), [a.pk, b.pk, c.pk])
+
+    def test_an_original_cancelled_by_a_reschedule_is_left_out(self):
+        original, new = self._moved(self.admin, Appointment.CONFIRMED)
+        plain = self._cancelled(self.admin, days=-2)
+        past = self._ctx(show="past")
+        self.assertEqual(self._ids(self._ctx()), [new.pk])
+        self.assertEqual(self._ids(past), [plain.pk])
+        self.assertNotIn(original.pk, self._ids(past))
+        self.assertEqual(past["counts"], {"upcoming": 1, "past": 1})
+
+    def test_show_is_upcoming_unless_it_says_past(self):
+        cases = [
+            (None, "upcoming"),
+            ("", "upcoming"),
+            ("upcoming", "upcoming"),
+            ("bogus", "upcoming"),
+            ("PAST", "upcoming"),
+            ("past", "past"),
+        ]
+        for value, expected in cases:
+            with self.subTest(show=value):
+                params = {} if value is None else {"show": value}
+                self.assertEqual(self._ctx(**params)["show"], expected)
+
+    def test_pet_is_one_of_the_owners_current_pets_or_all(self):
+        second = self._second_pet()
+        archived = self._second_pet("Old")
+        archived.is_archived = True
+        archived.save()
+        _other, theirs = self._other_owner()
+        self.assertEqual(self._ctx(pet=str(second.pk))["pet"], second)
+        for value in ("", "abc", "-1", "9" * 30, str(theirs.pk), str(archived.pk)):
+            with self.subTest(pet=value):
+                self.assertIsNone(self._ctx(pet=value)["pet"])
+        self.assertIsNone(self._ctx()["pet"])
+
+    def test_the_pet_filter_and_the_counts(self):
+        second = self._second_pet()
+        mine = self._visit(days=1)
+        self._visit(days=2, pet=second)
+        self._visit(days=3, pet=second, status=Appointment.PENDING)
+        self._visit(days=-1, pet=second, status=Appointment.COMPLETED)
+        self.assertEqual(self._ctx()["counts"], {"upcoming": 3, "past": 1})
+        picked = self._ctx(pet=str(second.pk))
+        self.assertEqual(picked["counts"], {"upcoming": 2, "past": 1})
+        self.assertNotIn(mine.pk, self._ids(picked))
+        only = self._ctx(pet=str(self.pet.pk))
+        self.assertEqual(only["counts"], {"upcoming": 1, "past": 0})
+        self.assertEqual(self._ids(only), [mine.pk])
+
+    def test_month_groups(self):
+        nov_2 = self._visit(days=0, hour=10)
+        nov_6 = self._visit(days=4)
+        dec_2 = self._visit(days=30)
+        jan_11 = self._visit(days=70)  # 2027
+        groups = self._ctx()["groups"]
+        self.assertEqual(
+            [g["label"] for g in groups],
+            ["November 2026", "December 2026", "January 2027"],
+        )
+        self.assertEqual(
+            [[card["visit"].pk for card in g["cards"]] for g in groups],
+            [[nov_2.pk, nov_6.pk], [dec_2.pk], [jan_11.pk]],
+        )
+
+    def test_is_today_and_the_card_parts(self):
+        today = self._visit(days=0, hour=10)
+        tomorrow = self._visit(days=1, service=None, status=Appointment.PENDING)
+        cards = {c["visit"].pk: c for g in self._ctx()["groups"] for c in g["cards"]}
+        self.assertTrue(cards[today.pk]["is_today"])
+        self.assertFalse(cards[tomorrow.pk]["is_today"])
+        self.assertEqual(cards[today.pk]["service_name"], "Consultation")
+        self.assertEqual(cards[tomorrow.pk]["service_name"], "Not sure yet")
+        self.assertEqual(
+            cards[tomorrow.pk]["note"], "The clinic will confirm this soon."
+        )
+        self.assertEqual(cards[tomorrow.pk]["note_icon"], "info")
+        self.assertIsNone(cards[today.pk]["note"])
+
+    def test_a_clinic_move_and_an_owner_change_get_the_calendar_icon(self):
+        _a, by_clinic = self._moved(self.admin, Appointment.CONFIRMED)
+        _b, by_owner = self._moved(self.owner.user, Appointment.PENDING)
+        cards = {c["visit"].pk: c for g in self._ctx()["groups"] for c in g["cards"]}
+        self.assertEqual(cards[by_clinic.pk]["note_icon"], "calendar-clock")
+        self.assertEqual(cards[by_owner.pk]["note_icon"], "calendar-clock")
+
+    def test_past_pages_hold_25(self):
+        for number in range(30):
+            self._visit(days=-1 - number, status=Appointment.COMPLETED)
+        first = self._ctx(show="past")
+        self.assertEqual(len(self._ids(first)), 25)
+        self.assertEqual(first["page_obj"].paginator.num_pages, 2)
+        self.assertEqual(first["prev_page_query"], "")
+        self.assertEqual(first["next_page_query"], "?show=past&page=2")
+        second = self._ctx(show="past", page="2")
+        self.assertEqual(len(self._ids(second)), 5)
+        self.assertEqual(second["prev_page_query"], "?show=past&page=1")
+        self.assertEqual(second["next_page_query"], "")
+        self.assertEqual(len(self._ids(self._ctx(show="past", page="99"))), 5)
+        self.assertIsNone(self._ctx()["page_obj"])
+
+    def test_paging_keeps_the_pet(self):
+        second = self._second_pet()
+        for number in range(30):
+            self._visit(days=-1 - number, pet=second, status=Appointment.COMPLETED)
+        ctx = self._ctx(show="past", pet=str(second.pk), page="2")
+        self.assertEqual(ctx["prev_page_query"], f"?show=past&pet={second.pk}&page=1")
+
+    def test_pet_chips_need_two_current_pets(self):
+        self.assertFalse(self._ctx()["show_pet_chips"])
+        self.assertTrue(self._ctx()["has_pets"])
+        archived = self._second_pet("Old")
+        archived.is_archived = True
+        archived.save()
+        self.assertFalse(self._ctx()["show_pet_chips"])
+        self._second_pet()
+        chips = self._ctx()["chips"]
+        self.assertTrue(self._ctx()["show_pet_chips"])
+        self.assertEqual([c["label"] for c in chips], ["All", "Bantay", "Mingming"])
+        self.assertEqual([c["is_active"] for c in chips], [True, False, False])
+
+    def test_segments_carry_the_counts_and_keep_the_pet(self):
+        second = self._second_pet()
+        self._visit(days=1, pet=second)
+        ctx = self._ctx(show="past", pet=str(second.pk))
+        self.assertEqual(
+            [(s["label"], s["is_active"]) for s in ctx["segments"]],
+            [("Upcoming (1)", False), ("Past (0)", True)],
+        )
+        self.assertEqual(
+            [s["query"] for s in ctx["segments"]],
+            [f"show=upcoming&pet={second.pk}", f"show=past&pet={second.pk}"],
+        )
+        self.assertEqual(ctx["chips"][0]["query"], "show=past")
+
+    def test_no_pets_page_only_with_no_pets_and_no_visits(self):
+        self.assertFalse(self._ctx()["show_no_pets_page"])
+        visit = self._visit()
+        self.pet.is_archived = True
+        self.pet.save()
+        ctx = self._ctx()
+        self.assertFalse(ctx["has_pets"])
+        self.assertFalse(ctx["show_no_pets_page"])
+        visit.delete()
+        self.assertTrue(self._ctx()["show_no_pets_page"])
+
+    def test_another_owners_visits_never_show(self):
+        other, theirs = self._other_owner()
+        Appointment.objects.create(
+            owner=other,
+            pet=theirs,
+            date=self.today + datetime.timedelta(days=2),
+            time=datetime.time(9, 0),
+            status=Appointment.CONFIRMED,
+        )
+        mine = self._visit(days=1)
+        for show in ("upcoming", "past"):
+            ctx = self._ctx(show=show, pet=str(theirs.pk))
+            self.assertIsNone(ctx["pet"])
+            self.assertEqual(ctx["counts"], {"upcoming": 1, "past": 0})
+        self.assertEqual(self._ids(self._ctx()), [mine.pk])
+
+    def _count(self, **params):
+        with CaptureQueriesContext(connection) as queries:
+            owner_visits_context(self.owner, params, self.today, self.NOW)
+        return len(queries)
+
+    def _rows(self, number):
+        for step in range(number):
+            original, _new = self._moved(self.admin, Appointment.PENDING)
+            self._cancelled(self.owner.user, Appointment.PET_UNWELL, days=-1 - step)
+            self._visit(days=-1 - step, hour=14, status=Appointment.COMPLETED)
+
+    def test_queries_are_flat(self):
+        self._second_pet()
+        self._rows(1)
+        few = {show: self._count(show=show) for show in ("upcoming", "past")}
+        self._rows(10)
+        many = {show: self._count(show=show) for show in ("upcoming", "past")}
+        print(f"VISITS QUERIES (context 3 vs 33 visits): {few} {many}")
+        self.assertEqual(few, many)
+
+
+class OwnerVisitsPageTests(_OwnerVisitsBase):
+    def test_layout_title_and_the_visits_tab(self):
+        self._visit()
+        response = self.client.get(reverse("owner_appointments"))
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertTemplateNotUsed(response, "base_dashboard.html")
+        html = unescape(response.content.decode())
+        self.assertIn(">Visits</h1>", html)
+        nav = re.search(r'(?s)<nav aria-label="Main"[^>]*>(.*?)</nav>', html).group(1)
+        current = re.search(r'<a href="([^"]+)"[^>]*aria-current="page"', nav)
+        self.assertEqual(current.group(1), reverse("owner_appointments"))
+
+    def test_one_violet_button_to_book(self):
+        self._visit()
+        found = self._violet(self._html())
+        self.assertEqual(len(found), 1)
+        self.assertIn(f'href="{reverse("owner_book_appointment")}"', found[0])
+        self.assertIn("Book a visit</a>", self._html())
+
+    def test_segments_and_chips_are_links_that_keep_the_other_param(self):
+        second = self._second_pet()
+        self._visit(days=2)
+        self._visit(days=3, pet=second)
+        self._visit(days=-2, status=Appointment.COMPLETED)
+        base = reverse("owner_appointments")
+        html = self._html()
+        segments = re.search(
+            r'(?s)<nav aria-label="Which visits to show".*?</nav>', html
+        ).group(0)
+        self.assertEqual(segments.count('aria-current="page"'), 1)
+        self.assertRegex(segments, r'aria-current="page"[^>]*>Upcoming \(2\)</a>')
+        self.assertIn("Past (1)</a>", segments)
+        picked = self._html(show="past", pet=second.pk)
+        for query in (f"show=upcoming&pet={second.pk}", f"show=past&pet={second.pk}"):
+            self.assertIn(f'<a href="{base}?{query}"', picked)
+        chips = re.search(r'(?s)<nav aria-label="Show visits for".*?</nav>', picked)
+        chips = chips.group(0)
+        self.assertEqual(chips.count('aria-current="true"'), 1)
+        self.assertRegex(chips, r'aria-current="true"[^>]*>Mingming</a>')
+        self.assertIn(f'<a href="{base}?show=past"', chips)
+        self.assertIn(f'<a href="{base}?show=past&pet={self.pet.pk}"', chips)
+        self.assertIn("bg-violet-100 font-semibold text-violet-800", chips)
+        self.assertIn("Upcoming (1)</a>", picked)
+        self.assertIn("Past (0)</a>", picked)
+
+    def test_no_chips_with_one_pet(self):
+        self._visit()
+        self.assertNotIn('aria-label="Show visits for"', self._html())
+
+    def test_badge_words_and_colours(self):
+        self._visit(days=2, status=Appointment.PENDING)
+        self._visit(days=3)
+        self._visit(days=-1, status=Appointment.COMPLETED)
+        self._visit(days=-2, status=Appointment.CANCELLED)
+        self._visit(days=-3, status=Appointment.NO_SHOW)
+        upcoming, past = self._html(), self._html(show="past")
+        cases = [
+            (upcoming, "yellow", "Waiting for approval"),
+            (upcoming, "blue", "Confirmed"),
+            (past, "green", "Completed"),
+            (past, "red", "Cancelled"),
+            (past, "gray", "Missed"),
+        ]
+        for html, colour, word in cases:
+            with self.subTest(word=word):
+                classes = f"badge bg-{colour}-100 text-{colour}-800"
+                self.assertIn(f'<span class="{classes}">{word}</span>', html)
+
+    def test_each_card_is_one_link_with_the_notes(self):
+        self._visit(days=2, status=Appointment.PENDING)
+        self._moved(self.admin, Appointment.CONFIRMED)
+        self._moved(self.owner.user, Appointment.PENDING)
+        upcoming = self._html()
+        for note in (
+            "The clinic will confirm this soon.",
+            "Moved by the clinic. Was Mon, Nov 9 at 3:00 PM.",
+            "You changed the time. Was Mon, Nov 9 at 3:00 PM.",
+        ):
+            with self.subTest(note=note):
+                self.assertIn(note, upcoming)
+        self.assertEqual(upcoming.count("M16 14v2.2l1.6 1"), 2)
+        self.assertNotIn("Rescheduled", upcoming)
+        # three cards: the request and the two new visits (the originals are left out)
+        links = re.findall(r'<a href="/owner/appointments/\d+/"', upcoming)
+        self.assertEqual(len(links), 3)
+
+    def test_past_notes(self):
+        self._cancelled(self.owner.user, Appointment.CHANGE_OF_PLANS, days=-1)
+        self._cancelled(self.admin, Appointment.DECLINED, days=-2)
+        self._cancelled(self.admin, days=-3)
+        self._visit(days=-4, status=Appointment.NO_SHOW)
+        self._visit(days=0, hour=8, status=Appointment.PENDING)
+        past = self._html(show="past")
+        for note in (
+            "You cancelled: change of plans.",
+            "Declined by the clinic.",
+            "Cancelled by the clinic. Please call us if you need a new time.",
+            "Marked as missed by the clinic.",
+            "The clinic hasn't updated this visit yet.",
+        ):
+            with self.subTest(note=note):
+                self.assertIn(note, past)
+        self.assertNotIn("M16 14v2.2l1.6 1", past)
+
+    def test_the_card_parts(self):
+        self._visit(days=8, hour=12, service=None, status=Appointment.PENDING)
+        html = self._html()
+        self.assertIn(">Nov</span>", html)
+        self.assertIn(">10</span>", html)
+        self.assertIn(">Tue</span>", html)
+        self.assertIn("Bantay</span>", html)
+        self.assertIn("Not sure yet · 12:00 PM", html)
+        self.assertIn(">November 2026</h2>", html)
+
+    def test_today_is_a_violet_tile_and_a_ringed_card(self):
+        self._visit(days=0, hour=10)
+        self._visit(days=1)
+        html = self._html()
+        self.assertEqual(html.count("border-violet-300 ring-1 ring-violet-200"), 1)
+        self.assertEqual(html.count(">Today</span>"), 1)
+        self.assertEqual(len(self._violet(html)), 1)
+
+    def test_no_upcoming_visits(self):
+        self._visit(days=-2, status=Appointment.COMPLETED)
+        html = self._html()
+        self.assertIn("No upcoming visits", html)
+        self.assertIn(
+            "When you book a visit, it will show here until the day comes.", html
+        )
+        self.assertIn("Past (1)", html)
+
+    def test_no_past_visits(self):
+        self._visit(days=2)
+        html = self._html(show="past")
+        self.assertIn("No past visits yet", html)
+        self.assertIn("Your visits will show here after the day.", html)
+
+    def test_a_pet_filter_with_no_visits(self):
+        second = self._second_pet()
+        self._visit(days=2)
+        html = self._html(pet=second.pk)
+        self.assertIn("No visits for this pet here", html)
+        self.assertIn("Pick another pet, or All.", html)
+        self.assertEqual(html.count(">All</a>"), 2)
+        self.assertIn(f'<a href="{reverse("owner_appointments")}?show=upcoming"', html)
+
+    def test_no_pets_at_all(self):
+        self.pet.delete()
+        response = self.client.get(reverse("owner_appointments"))
+        html = unescape(response.content.decode())
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertIn("No visits yet", html)
+        self.assertIn(
+            "Add your pet first. Then you can book a visit with Dr. Aga.", html
+        )
+        found = self._violet(html)
+        self.assertEqual(len(found), 1)
+        add = f'href="{reverse("owner_pet_add")}?next=book"'
+        self.assertIn(add, found[0])
+        self.assertIn("Add a pet</a>", html)
+        self.assertNotIn("Which visits to show", html)
+        self.assertNotIn("Book a visit", html)
+
+    def test_the_past_pager(self):
+        for number in range(30):
+            self._visit(days=-1 - number, status=Appointment.COMPLETED)
+        first = self._html(show="past")
+        self.assertIn("Page 1 of 2", first)
+        self.assertIn('<a href="?show=past&page=2"', first)
+        cards = re.findall(r'<a href="/owner/appointments/\d+/"', first)
+        self.assertEqual(len(cards), 25)
+        second = self._html(show="past", page=2)
+        self.assertIn("Page 2 of 2", second)
+        self.assertIn('<a href="?show=past&page=1"', second)
+        self.assertNotIn("Page 1 of", self._html())  # one page: no pager
+
+    def test_markup_rules(self):
+        second = self._second_pet()
+        self._visit(days=0, hour=10)
+        self._visit(days=2, pet=second, status=Appointment.PENDING)
+        self._cancelled(self.owner.user, Appointment.PET_UNWELL, days=-1)
+        for params in ({}, {"show": "past"}, {"pet": second.pk}):
+            with self.subTest(params=params):
+                html = self._html(**params)
+                self.assertIsNone(re.search(r"<a\b[^>]*\n", html))
+                scripts = re.findall(r"<script\b[^>]*>", html)
+                self.assertTrue(all(" src=" in tag for tag in scripts))
+                self.assertIsNone(re.search(r"<[a-z][^>]*\son[a-z]+=", html))
+                self.assertNotIn("hx-confirm", html)
+
+    def test_the_list_query_count_is_flat(self):
+        self._second_pet()
+        self._visit(days=2)
+        self._visit(days=-2, status=Appointment.COMPLETED)
+        few = (self._queries(), self._queries(show="past"))
+        for number in range(10):
+            self._moved(self.admin, Appointment.CONFIRMED)
+            self._cancelled(self.owner.user, Appointment.PET_UNWELL, days=-3 - number)
+            self._visit(days=-3 - number, hour=14, status=Appointment.COMPLETED)
+        many = (self._queries(), self._queries(show="past"))
+        print(f"VISITS QUERIES (page: upcoming, past): {few} then {many}")
+        self.assertEqual(few, many)
+
+    def test_the_clinic_is_sent_to_its_own_dashboard(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("owner_appointments"))
+        self.assertRedirects(
+            response, reverse("admin_dashboard"), fetch_redirect_response=False
+        )
+
+
+class OwnerVisitDetailPageTests(_OwnerVisitsBase):
+    def _make(self, state):
+        """A visit in each state of the page (the moved one is the original)."""
+        if state in ("pending", "confirmed"):
+            return self._visit(days=8, hour=12, status=state)
+        if state == "ended":
+            return self._visit(days=0, hour=8)
+        if state in ("completed", "no_show"):
+            return self._visit(days=-1, status=state)
+        if state == "declined":
+            return self._cancelled(self.admin, Appointment.DECLINED)
+        if state == "cancelled_clinic":
+            return self._cancelled(self.admin)
+        if state == "cancelled_owner":
+            return self._cancelled(self.owner.user, Appointment.PET_UNWELL)
+        return self._moved(self.admin, Appointment.CONFIRMED)[0]
+
+    def _page(self, visit):
+        return self._html("owner_appointment_detail", [visit.pk])
+
+    def _receipt(self, visit, status, number="HV-2026-0003"):
+        return BillingReceipt.objects.create(
+            appointment=visit,
+            owner=self.owner,
+            pet=self.pet,
+            receipt_number=number,
+            payment_status=status,
+            total_amount=Decimal("850.00"),
+        )
+
+    def test_layout_back_bar_and_the_top(self):
+        visit = self._visit(days=8, hour=12)
+        response = self.client.get(reverse("owner_appointment_detail", args=[visit.pk]))
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertTemplateNotUsed(response, "base_dashboard.html")
+        html = unescape(response.content.decode())
+        visits = reverse("owner_appointments")
+        self.assertRegex(html, rf'<a href="{visits}"[^>]*>(?s:.*?)Back to Visits</a>')
+        self.assertIn("Bantay · Consultation</h1>", html)
+        nav = re.search(r'(?s)<nav aria-label="Main"[^>]*>(.*?)</nav>', html).group(1)
+        current = re.search(r'<a href="([^"]+)"[^>]*aria-current="page"', nav)
+        self.assertEqual(current.group(1), reverse("owner_appointments"))
+        self.assertNotIn("Waiting for approval", html)
+
+    def test_the_friendly_when(self):
+        cases = [
+            (dict(days=0, hour=10), "Today, Mon, Nov 2 at 10:00 AM"),
+            (dict(days=1, hour=8), "Tomorrow, Tue, Nov 3 at 8:00 AM"),
+            (dict(days=8, hour=12), "Tue, Nov 10 at 12:00 PM"),
+            (dict(days=100, hour=12), "Wed, Feb 10, 2027 at 12:00 PM"),
+        ]
+        for fields, expected in cases:
+            with self.subTest(expected=expected):
+                self.assertIn(expected, self._page(self._visit(**fields)))
+
+    def test_the_banner_for_each_state(self):
+        for state, (colours, title, text) in BANNERS.items():
+            with self.subTest(state=state):
+                html = self._page(self._make(state))
+                self.assertIn(colours, html)
+                self.assertIn(f">{title}</p>", html)
+                self.assertIn(f">{text}</p>", html)
+
+    def test_confirmed_says_when_to_come(self):
+        cases = [
+            (dict(days=0, hour=10), "See you today at 10:00 AM."),
+            (dict(days=1, hour=8), "See you tomorrow at 8:00 AM."),
+            (dict(days=8, hour=12), "See you on Tue, Nov 10 at 12:00 PM."),
+        ]
+        for fields, expected in cases:
+            with self.subTest(expected=expected):
+                html = self._page(self._visit(**fields))
+                self.assertIn(f"{expected} Please come 10 minutes early.", html)
+
+    def test_a_moved_original_links_to_the_new_visit(self):
+        original, new = self._moved(self.admin, Appointment.CONFIRMED)
+        html = self._page(original)
+        link = reverse("owner_appointment_detail", args=[new.pk])
+        self.assertRegex(html, rf'<a href="{link}"[^>]*>See the new visit</a>')
+        self.assertEqual(self._violet(html), [])
+        for words in ("Book again", "Book another visit", "Book a new visit"):
+            self.assertNotIn(words, html)
+
+    def test_a_clinic_move_and_an_owner_change_say_what_was_moved(self):
+        _a, by_clinic = self._moved(self.admin, Appointment.CONFIRMED)
+        _b, by_owner = self._moved(self.owner.user, Appointment.PENDING)
+        self.assertIn(
+            "Moved by the clinic. Was Mon, Nov 9 at 3:00 PM.", self._page(by_clinic)
+        )
+        self.assertIn(
+            "You changed the time. Was Mon, Nov 9 at 3:00 PM.", self._page(by_owner)
+        )
+
+    def test_completed_without_a_record_or_a_bill(self):
+        html = self._page(self._make("completed"))
+        self.assertNotIn("The vet's notes and the bill are below.", html)
+        self.assertNotIn("Vet's notes and medicines", html)
+        self.assertNotIn("Bill ", html)
+
+    def test_completed_with_a_record_and_a_bill(self):
+        visit = self._make("completed")
+        record = MedicalRecord.objects.create(
+            pet=self.pet, appointment=visit, record_date=self.today
+        )
+        receipt = self._receipt(visit, "pending")
+        html = self._page(visit)
+        self.assertIn(
+            "Thank you for coming in. The vet's notes and the bill are below.", html
+        )
+        notes = reverse("owner_medical_record", args=[self.pet.pk, record.pk])
+        bill = reverse("owner_receipt_detail", args=[receipt.pk])
+        self.assertRegex(html, rf'<a href="{notes}"[^>]*>')
+        self.assertIn("Vet's notes and medicines", html)
+        self.assertIn("What Dr. Aga found and what to give Bantay", html)
+        self.assertRegex(html, rf'<a href="{bill}"[^>]*>')
+        self.assertIn("Bill HV-2026-0003 · Unpaid", html)
+        self.assertIn("₱850.00", html)
+        BillingReceipt.objects.filter(pk=receipt.pk).update(payment_status="paid")
+        self.assertIn("Bill HV-2026-0003 · Paid", self._page(visit))
+
+    def test_a_cancelled_receipt_is_never_shown(self):
+        visit = self._make("completed")
+        self._receipt(visit, "cancelled")
+        html = self._page(visit)
+        self.assertNotIn("Bill HV-2026-0003", html)
+        self.assertNotIn("₱850.00", html)
+        self.assertNotIn("the bill are below", html)
+
+    def test_only_a_record_or_only_a_bill_still_says_below(self):
+        only_record = self._make("completed")
+        MedicalRecord.objects.create(
+            pet=self.pet, appointment=only_record, record_date=self.today
+        )
+        below = "The vet's notes and the bill are below."
+        self.assertIn(below, self._page(only_record))
+        only_bill = self._visit(days=-2, status=Appointment.COMPLETED)
+        self._receipt(only_bill, "paid", "HV-2026-0009")
+        html = self._page(only_bill)
+        self.assertIn(below, html)
+        self.assertNotIn("Vet's notes and medicines", html)
+
+    def test_an_archived_pet_has_no_notes_link_and_a_plain_book_link(self):
+        visit = self._make("completed")
+        MedicalRecord.objects.create(
+            pet=self.pet, appointment=visit, record_date=self.today
+        )
+        self.pet.is_archived = True
+        self.pet.save()
+        html = self._page(visit)
+        self.assertNotIn("Vet's notes and medicines", html)
+        pet_link = reverse("owner_pet_detail", args=[self.pet.pk])
+        self.assertNotIn(f'href="{pet_link}"', html)
+        found = self._violet(html)
+        self.assertEqual(len(found), 1)
+        self.assertIn(f'href="{reverse("owner_book_appointment")}"', found[0])
+
+    def test_the_detail_rows(self):
+        Pet.objects.filter(pk=self.pet.pk).update(breed="Aspin")
+        visit = self._visit(days=8, hour=12, reason="Not eating since yesterday.")
+        html = self._page(visit)
+        pet_link = reverse("owner_pet_detail", args=[self.pet.pk])
+        self.assertRegex(html, rf'<a href="{pet_link}"[^>]*>Bantay</a> · Dog · Aspin')
+        for label, value in (
+            ("Visit for", "Consultation"),
+            ("Day and time", "Tuesday, Nov 10, 2026 at 12:00 PM"),
+            ("Your note for the vet", "Not eating since yesterday."),
+            ("Booked on", "Nov 2, 2026"),
+        ):
+            with self.subTest(label=label):
+                self.assertRegex(
+                    html, rf"<dt[^>]*>{label}</dt>\s*<dd[^>]*>{value}</dd>"
+                )
+        self.assertNotIn(">Cancelled</dt>", html)
+
+    def test_the_note_row_is_left_out_when_empty(self):
+        html = self._page(self._visit(days=8))
+        self.assertNotIn("Your note for the vet", html)
+
+    def test_a_past_visit_says_was_on(self):
+        html = self._page(self._make("completed"))
+        self.assertIn(">Was on</dt>", html)
+        self.assertNotIn(">Day and time</dt>", html)
+
+    def test_cancelled_rows(self):
+        cases = {
+            "cancelled_owner": ("Cancelled", "Nov 2, 2026 by you"),
+            "cancelled_clinic": ("Cancelled", "Nov 2, 2026 by the clinic"),
+            "declined": ("Declined", "Nov 2, 2026 by the clinic"),
+        }
+        for state, (label, value) in cases.items():
+            with self.subTest(state=state):
+                html = self._page(self._make(state))
+                self.assertRegex(
+                    html, rf"<dt[^>]*>{label}</dt>\s*<dd[^>]*>{value}</dd>"
+                )
+                self.assertIn(">Was on</dt>", html)
+
+    def test_the_internal_notes_never_show(self):
+        for state in BANNERS:
+            with self.subTest(state=state):
+                visit = self._make(state)
+                Appointment.objects.filter(pk=visit.pk).update(
+                    notes="Internal: bite risk"
+                )
+                self.assertNotIn("Internal: bite risk", self._page(visit))
+                self.assertNotIn("Admin Notes", self._page(visit))
+
+    def test_the_buttons_for_each_state(self):
+        change = {"pending", "confirmed"}
+        book = {
+            "completed": "Book another visit",
+            "cancelled_owner": "Book another visit",
+            "no_show": "Book a new visit",
+        }
+        call_book = {"declined", "cancelled_clinic"}
+        for state in BANNERS:
+            with self.subTest(state=state):
+                html = self._page(self._make(state))
+                violet = self._violet(html)
+                has_change = state in change
+                self.assertEqual("Change day or time" in html, has_change)
+                self.assertEqual("Need to change it?" in html, has_change)
+                self.assertEqual('data-dialog-open="cancel-sheet"' in html, has_change)
+                self.assertEqual('href="tel:09542889774"' in html, state in call_book)
+                if state in book:
+                    self.assertEqual(len(violet), 1)
+                    self.assertIn(f"{book[state]}</a>", html)
+                elif state in call_book:
+                    self.assertEqual(len(violet), 1)
+                    self.assertIn("Book again</a>", html)
+                else:
+                    self.assertEqual(violet, [])
+
+    def test_change_and_cancel_buttons(self):
+        pending = self._visit(days=8, status=Appointment.PENDING)
+        confirmed = self._visit(days=8)
+        html = self._page(pending)
+        reschedule = reverse("owner_appointment_reschedule", args=[pending.pk])
+        change = rf'<a href="{reschedule}"[^>]*>(?s:.*?)Change day or time</a>'
+        self.assertRegex(html, change)
+        cancel = r'<button type="button" data-dialog-open="cancel-sheet"[^>]*>'
+        self.assertRegex(html, cancel + r"(?s:.*?)Cancel this request</button>")
+        self.assertIn("Cancel this visit</button>", self._page(confirmed))
+        self.assertNotIn("Cancel this request", self._page(confirmed))
+
+    def test_a_visit_that_has_started_cannot_be_changed(self):
+        html = self._page(self._visit(days=0, hour=9))
+        self.assertNotIn("Need to change it?", html)
+        self.assertNotIn("cancel-sheet", html)
+
+    def test_book_links_go_to_the_pet(self):
+        book = f'{reverse("owner_book_appointment")}?pet={self.pet.pk}'
+        for state in ("completed", "declined", "no_show"):
+            with self.subTest(state=state):
+                found = self._violet(self._page(self._make(state)))
+                self.assertIn(f'href="{book}"', found[0])
+
+    def test_the_call_row_without_a_phone(self):
+        ClinicSettings.objects.update(contact_number="")
+        html = self._page(self._make("declined"))
+        self.assertNotIn("tel:", html)
+        self.assertNotIn(">Call</a>", html)
+        self.assertIn("Book again</a>", html)
+        self.assertEqual(len(self._violet(html)), 1)
+
+    def test_the_call_row_with_a_phone(self):
+        html = self._page(self._make("cancelled_clinic"))
+        self.assertRegex(html, r'<a href="tel:09542889774"[^>]*>(?s:.*?)Call</a>')
+
+    def test_the_cancel_sheet_title_text_and_actions(self):
+        confirmed = self._visit(days=8, hour=12)
+        pending = self._visit(days=8, hour=12, status=Appointment.PENDING)
+        html = self._page(confirmed)
+        self.assertIn("Cancel Bantay's visit?</h2>", html)
+        self.assertIn("Tue, Nov 10 at 12:00 PM · Consultation", html)
+        self.assertIn("Yes, cancel the visit", html)
+        self.assertIn(">Keep the visit</button>", html)
+        html = self._page(pending)
+        self.assertIn("Cancel Bantay's request?</h2>", html)
+        self.assertIn("Yes, cancel the request", html)
+        self.assertIn(">Keep the visit</button>", html)
+
+    def test_the_late_note_only_within_24_hours(self):
+        tomorrow = self._visit(days=1, hour=8)  # 22.5 hours away
+        far = self._visit(days=3, hour=9)
+        late = (
+            "It's less than 24 hours away, "
+            "so the clinic will see this as a late cancel."
+        )
+        html = self._page(tomorrow)
+        self.assertIn(late, html)
+        self.assertIn("If you can, call them instead:", html)
+        self.assertIn(PHONE, html)
+        self.assertIn("bg-orange-50", html)
+        self.assertNotIn("late cancel", self._page(far))
+
+    def test_the_late_note_without_a_phone(self):
+        ClinicSettings.objects.update(contact_number="")
+        html = self._page(self._visit(days=1, hour=8))
+        self.assertIn("as a late cancel.</p>", html)
+        self.assertNotIn("call them instead", html)
+
+    def test_the_late_note_is_never_on_the_page_itself(self):
+        html = self._page(self._visit(days=1, hour=8))
+        before = html.split('<dialog id="cancel-sheet"')[0]
+        self.assertNotIn("late cancel", before)
+
+    def test_the_sheet_reasons_and_the_other_box(self):
+        visit = self._visit(days=8)
+        html = self._page(visit)
+        self.assertIn(">Why are you cancelling?</legend>", html)
+        for value, words in (
+            ("change_of_plans", "Change of plans"),
+            ("pet_unwell", "My pet is unwell"),
+            ("cannot_make_time", "I can't make it at that time"),
+            ("other", "Other reason"),
+        ):
+            with self.subTest(value=value):
+                radio = (
+                    r'<label[^>]*><input type="radio" name="cancellation_reason" '
+                    rf'value="{value}" class="peer sr-only"><span[^>]*>{words}</span>'
+                )
+                self.assertRegex(html, radio)
+        self.assertNotIn('value="declined"', html)
+        self.assertIn(">Tell us a little more</label>", html)
+        self.assertIn('<textarea id="cancel-detail" name="cancellation_detail"', html)
+        self.assertIn("not-group-has-[input[value=other]:checked]/why:hidden", html)
+        self.assertNotIn("checked>", html.split('<dialog id="cancel-sheet"')[1])
+
+    def test_the_sheet_is_a_post_form_with_a_csrf_token(self):
+        visit = self._visit(days=8)
+        html = self._page(visit)
+        url = reverse("owner_appointment_cancel", args=[visit.pk])
+        form = (
+            rf'<form method="post" action="{url}"[^>]*>\s*'
+            r'<input type="hidden" name="csrfmiddlewaretoken" value="[^"]+">'
+        )
+        self.assertRegex(html, form)
+        self.assertNotIn(f'href="{url}"', html)
+        self.assertEqual(len(self._violet(html)), 0)
+
+    def test_no_sheet_for_other_states(self):
+        for state in BANNERS:
+            if state in ("pending", "confirmed"):
+                continue
+            with self.subTest(state=state):
+                self.assertNotIn("cancel-sheet", self._page(self._make(state)))
+
+    def test_another_owners_visit_is_a_404(self):
+        other, theirs = self._other_owner()
+        visit = Appointment.objects.create(
+            owner=other,
+            pet=theirs,
+            date=self.today + datetime.timedelta(days=2),
+            time=datetime.time(9, 0),
+            status=Appointment.CONFIRMED,
+        )
+        for pk in (visit.pk, 999999):
+            response = self.client.get(reverse("owner_appointment_detail", args=[pk]))
+            self.assertEqual(response.status_code, 404)
+
+    def test_the_clinic_is_sent_to_its_own_dashboard(self):
+        visit = self._visit()
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("owner_appointment_detail", args=[visit.pk]))
+        self.assertRedirects(
+            response, reverse("admin_dashboard"), fetch_redirect_response=False
+        )
+
+    def test_markup_rules(self):
+        for state in BANNERS:
+            with self.subTest(state=state):
+                html = self._page(self._make(state))
+                self.assertIsNone(re.search(r"<a\b[^>]*\n", html))
+                scripts = re.findall(r"<script\b[^>]*>", html)
+                self.assertTrue(all(" src=" in tag for tag in scripts))
+                self.assertIsNone(re.search(r"<[a-z][^>]*\son[a-z]+=", html))
+                self.assertNotIn("hx-confirm", html)
+                self.assertLessEqual(len(self._violet(html)), 1)
+
+    def test_the_detail_query_count_is_flat_per_state(self):
+        totals = {}
+        visits = {state: self._make(state) for state in BANNERS}
+        for state, visit in visits.items():
+            if state == "completed":
+                self._receipt(visit, "paid")
+                MedicalRecord.objects.create(
+                    pet=self.pet, appointment=visit, record_date=self.today
+                )
+            totals[state] = self._queries("owner_appointment_detail", [visit.pk])
+        for number in range(6):
+            self._visit(days=-5 - number, status=Appointment.COMPLETED)
+            self._cancelled(self.admin, days=-5 - number)
+        for state, visit in visits.items():
+            with self.subTest(state=state):
+                count = self._queries("owner_appointment_detail", [visit.pk])
+                self.assertEqual(count, totals[state])
+        print(f"VISIT DETAIL QUERIES (whole request, per state): {totals}")
+
+    # ── The clinic's message, the owner's own reason, a missing canceller ────
+
+    MESSAGE = "Message from the clinic:</strong>"
+
+    def test_the_clinic_message_shows_for_a_clinic_cancel_and_a_decline(self):
+        cases = {
+            "cancelled_clinic": self._cancelled(
+                self.admin, cancellation_detail="We are closed that day.\nSorry."
+            ),
+            "declined": self._cancelled(
+                self.admin,
+                Appointment.DECLINED,
+                cancellation_detail="No vet on Friday <b>please</b> rebook.",
+            ),
+        }
+        for state, visit in cases.items():
+            with self.subTest(state=state):
+                html = self._page(visit)
+                self.assertEqual(html.count(self.MESSAGE), 1)
+                self.assertIn(">Message from the clinic:</strong> ", html)
+        clinic = self._page(cases["cancelled_clinic"])
+        self.assertIn("We are closed that day.<br>Sorry.", clinic)
+        url = reverse("owner_appointment_detail", args=[cases["declined"].pk])
+        raw = self.client.get(url).content.decode()  # not decoded: still escaped
+        self.assertIn("No vet on Friday &lt;b&gt;please&lt;/b&gt; rebook.", raw)
+
+    def test_the_clinic_message_is_left_out_when_empty(self):
+        placeholder = self._cancelled(
+            self.admin, Appointment.DECLINED, cancellation_detail="Rejected by clinic."
+        )
+        plain = (self._make("cancelled_clinic"), self._make("declined"))
+        for visit in plain + (placeholder,):
+            with self.subTest(pk=visit.pk):
+                self.assertNotIn("Message from the clinic", self._page(visit))
+
+    def test_a_moved_original_never_shows_the_message(self):
+        original, _new = self._moved(self.admin, Appointment.CONFIRMED)
+        Appointment.objects.filter(pk=original.pk).update(
+            cancellation_detail="Rescheduled by clinic."
+        )
+        html = self._page(original)
+        self.assertNotIn("Message from the clinic", html)
+        self.assertNotIn("Rescheduled by clinic.", html)
+
+    def test_the_internal_notes_never_show_even_with_a_message(self):
+        visit = self._cancelled(self.admin, cancellation_detail="See you soon.")
+        Appointment.objects.filter(pk=visit.pk).update(notes="Internal: bite risk")
+        html = self._page(visit)
+        self.assertIn("See you soon.", html)
+        self.assertNotIn("Internal: bite risk", html)
+
+    def test_other_shows_the_owners_reason_once(self):
+        visit = self._cancelled(
+            self.owner.user, Appointment.OTHER, cancellation_detail="Moving away."
+        )
+        html = self._page(visit)
+        self.assertEqual(html.count("You cancelled this visit"), 1)
+        self.assertEqual(html.count("Your reason: Moving away."), 1)
+        self.assertNotIn("Message from the clinic", html)
+        self.assertIn(">Cancelled</dt>", html)
+
+    def test_other_without_a_detail_falls_back_to_the_plain_line(self):
+        html = self._page(self._cancelled(self.owner.user, Appointment.OTHER))
+        self.assertEqual(html.count("You cancelled this visit"), 2)
+        self.assertNotIn("Your reason:", html)
+
+    def test_cancelled_with_nobody_recorded_counts_as_the_clinic(self):
+        visit = self._cancelled(None, cancellation_detail="Closed.")
+        html = self._page(visit)
+        self.assertIn(">Cancelled by the clinic</p>", html)
+        self.assertIn("Closed.", html)
+        self.assertIn("Nov 2, 2026 by the clinic", html)
+        # and a move whose original has nobody recorded is "Moved by the clinic"
+        original = self._cancelled(None, days=7, hour=15)
+        new = self._visit(days=8, hour=12, rescheduled_from=original)
+        self.assertIn("Moved by the clinic. Was Mon, Nov 9", self._page(new))
+
+
+class OwnerCancelSheetPostTests(_OwnerVisitsBase):
+    def _url(self, visit):
+        return reverse("owner_appointment_cancel", args=[visit.pk])
+
+    def _detail(self, visit):
+        return reverse("owner_appointment_detail", args=[visit.pk])
+
+    def _cancel(self, visit, **data):
+        # Show a page first, so flashes left by an earlier post in the same
+        # test are used up and _messages sees only this post's
+        self.client.get(reverse("owner_appointments"))
+        return self.client.post(self._url(visit), data)
+
+    def _admin_notices(self):
+        return Notification.objects.filter(
+            recipient=self.admin, notification_type="appointment_cancelled"
+        )
+
+    def _assert_untouched(self, visit, status):
+        visit.refresh_from_db()
+        self.assertEqual(visit.status, status)
+        self.assertEqual(visit.cancellation_reason, "")
+        self.assertEqual(visit.cancellation_detail, "")
+        self.assertIsNone(visit.cancelled_by)
+        self.assertFalse(self._admin_notices().exists())
+
+    def test_a_get_goes_back_to_the_visit(self):
+        visit = self._visit()
+        response = self.client.get(self._url(visit))
+        self.assertRedirects(
+            response, self._detail(visit), fetch_redirect_response=False
+        )
+        self.assertEqual(self._messages(response), [])
+        self._assert_untouched(visit, Appointment.CONFIRMED)
+
+    def test_no_reason_is_an_error_flash_and_nothing_changes(self):
+        bad = ("", "declined", "nonsense")
+        for data in [{}] + [{"cancellation_reason": value} for value in bad]:
+            with self.subTest(data=data):
+                visit = self._visit()
+                response = self._cancel(visit, **data)
+                self.assertRedirects(
+                    response, self._detail(visit), fetch_redirect_response=False
+                )
+                self.assertEqual(
+                    self._messages(response), ["Choose why you're cancelling."]
+                )
+                self._assert_untouched(visit, Appointment.CONFIRMED)
+
+    def test_other_without_a_detail_is_an_error_flash(self):
+        for detail in ("", "   "):
+            with self.subTest(detail=detail):
+                visit = self._visit()
+                response = self._cancel(
+                    visit, cancellation_reason="other", cancellation_detail=detail
+                )
+                self.assertEqual(
+                    self._messages(response),
+                    ["Tell us a little more about the reason."],
+                )
+                self._assert_untouched(visit, Appointment.CONFIRMED)
+
+    def test_a_valid_cancel_saves_what_it_always_did(self):
+        for reason in ("change_of_plans", "pet_unwell", "cannot_make_time"):
+            with self.subTest(reason=reason):
+                visit = self._visit()
+                response = self._cancel(visit, cancellation_reason=reason)
+                self.assertRedirects(
+                    response, self._detail(visit), fetch_redirect_response=False
+                )
+                self.assertEqual(self._messages(response), ["Visit cancelled."])
+                visit.refresh_from_db()
+                self.assertEqual(visit.status, Appointment.CANCELLED)
+                self.assertEqual(visit.cancellation_reason, reason)
+                self.assertEqual(visit.cancellation_detail, "")
+                self.assertEqual(visit.cancelled_by, self.owner.user)
+
+    def test_other_with_a_detail(self):
+        visit = self._visit()
+        self._cancel(
+            visit, cancellation_reason="other", cancellation_detail="Moving away."
+        )
+        visit.refresh_from_db()
+        self.assertEqual(visit.status, Appointment.CANCELLED)
+        self.assertEqual(visit.cancellation_reason, Appointment.OTHER)
+        self.assertEqual(visit.cancellation_detail, "Moving away.")
+        self.assertEqual(visit.cancelled_by, self.owner.user)
+
+    def test_a_pending_request_says_request_cancelled(self):
+        visit = self._visit(status=Appointment.PENDING)
+        response = self._cancel(visit, cancellation_reason="change_of_plans")
+        self.assertEqual(self._messages(response), ["Request cancelled."])
+        visit.refresh_from_db()
+        self.assertEqual(visit.status, Appointment.CANCELLED)
+
+    def test_the_admin_is_told_as_before(self):
+        visit = self._visit()
+        self._cancel(visit, cancellation_reason="pet_unwell")
+        notice = self._admin_notices().get()
+        self.assertEqual(notice.title, "Appointment Cancelled")
+        self.assertEqual(
+            notice.message,
+            "Ana Cruz has cancelled their appointment for Bantay on "
+            "November 05, 2026 at 09:00 AM.",
+        )
+        self.assertEqual(notice.related_appointment, visit)
+
+    def test_a_late_cancel_still_works(self):
+        visit = self._visit(days=1, hour=8)
+        self._cancel(visit, cancellation_reason="pet_unwell")
+        visit.refresh_from_db()
+        self.assertEqual(visit.status, Appointment.CANCELLED)
+
+    def test_the_visit_page_after_the_cancel_shows_the_flash_and_the_banner(self):
+        visit = self._visit()
+        response = self.client.post(
+            self._url(visit), {"cancellation_reason": "pet_unwell"}, follow=True
+        )
+        html = unescape(response.content.decode())
+        self.assertIn("Visit cancelled.", html)
+        self.assertIn("You cancelled this visit", html)
+        self.assertIn("You cancelled: pet is unwell.", html)
+
+    def test_only_a_pending_or_confirmed_visit_can_be_cancelled(self):
+        for status in (
+            Appointment.COMPLETED,
+            Appointment.CANCELLED,
+            Appointment.NO_SHOW,
+        ):
+            with self.subTest(status=status):
+                visit = self._visit(days=-1, status=status)
+                response = self._cancel(visit, cancellation_reason="pet_unwell")
+                self.assertRedirects(
+                    response, self._detail(visit), fetch_redirect_response=False
+                )
+                self.assertEqual(
+                    self._messages(response), ["This appointment cannot be cancelled."]
+                )
+                self._assert_untouched(visit, status)
+
+    def test_another_owners_visit_is_a_404_and_unchanged(self):
+        other, theirs = self._other_owner()
+        visit = Appointment.objects.create(
+            owner=other,
+            pet=theirs,
+            date=self.today + datetime.timedelta(days=2),
+            time=datetime.time(9, 0),
+            status=Appointment.CONFIRMED,
+        )
+        response = self._cancel(visit, cancellation_reason="pet_unwell")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self.client.get(self._url(visit)).status_code, 404)
+        self._assert_untouched(visit, Appointment.CONFIRMED)
+
+    def test_the_clinic_cannot_use_the_owner_cancel(self):
+        visit = self._visit()
+        self.client.force_login(self.admin)
+        response = self._cancel(visit, cancellation_reason="pet_unwell")
+        self.assertRedirects(
+            response, reverse("admin_dashboard"), fetch_redirect_response=False
+        )
+        self._assert_untouched(visit, Appointment.CONFIRMED)
+
+
+# ─── Slice 8b-7b: owner Change day or time ───────────────────────────────────
+
+# Thu, Nov 12, 2026: ten days after the frozen "today" (Mon, Nov 2)
+CHANGE_DAY = datetime.date(2026, 11, 12)
+
+
+class _OwnerRescheduleBase(_OwnerVisitsBase):
+    """Mon, Nov 2, 2026 at 9:30 Manila. The owner's Confirmed visit is Tue,
+    Nov 10 at 12:00 PM (self.visit); the day the tests move it to is Thu,
+    Nov 12. The clinic is open every day 8:00-17:00, hourly."""
+
+    def setUp(self):
+        super().setUp()
+        self.visit = self._visit(days=8, hour=12)
+        self.url = reverse("owner_appointment_reschedule", args=[self.visit.pk])
+        self.detail = reverse("owner_appointment_detail", args=[self.visit.pk])
+
+    def _loaded(self, visit):
+        return Appointment.objects.select_related("pet", "service").get(pk=visit.pk)
+
+    def _hold(self, day, hours):
+        """Visits (the owner's pet) holding the slots of day at hours."""
+        for hour in hours:
+            self._visit(days=(day - self.today).days, hour=hour)
+
+    def _rows(self, context):
+        return [row for group in context["time_groups"] for row in group["times"]]
+
+
+class OwnerRescheduleContextTests(_OwnerRescheduleBase):
+    """owner_reschedule_context: the calendar, the picked day, its times."""
+
+    def _context(self, visit=None, **params):
+        visit = self._loaded(visit or self.visit)
+        return owner_reschedule_context(
+            self.owner, visit, params, self.today, timezone.now()
+        )
+
+    def test_the_calendar_marks_the_visits_own_day(self):
+        cells = self._context()["calendar"]["cells"]
+        self.assertEqual([c["date"] for c in cells if c["is_current"]], [BOOK_DAY])
+
+    def test_the_month_follows_month_then_date_then_the_visit(self):
+        self.assertEqual(self._context()["calendar"]["month_value"], "2026-11")
+        context = self._context(month="2026-12")
+        self.assertEqual(context["calendar"]["month_value"], "2026-12")
+        context = self._context(date="2026-12-01")
+        self.assertEqual(context["calendar"]["month_value"], "2026-12")
+        self.assertEqual(context["picked_date"], datetime.date(2026, 12, 1))
+
+    def test_an_open_day_is_picked_with_its_times(self):
+        context = self._context(date=CHANGE_DAY.isoformat())
+        self.assertEqual(context["picked_date"], CHANGE_DAY)
+        self.assertEqual(context["date_error"], "")
+        self.assertEqual(context["new_line"], "Thu, Nov 12")
+        names = [group["name"] for group in context["time_groups"]]
+        self.assertEqual(names, ["Morning", "Afternoon"])
+        self.assertEqual(len(self._rows(context)), 9)
+
+    def test_no_day_asked_for_is_no_error(self):
+        context = self._context()
+        self.assertIsNone(context["picked_date"])
+        self.assertIsNone(context["new_line"])
+        self.assertEqual(context["time_groups"], [])
+        self.assertEqual(context["date_error"], "")
+
+    def test_a_day_that_is_not_open_is_none_with_an_error(self):
+        BlockedDate.objects.create(date=CHANGE_DAY, reason="Holiday")
+        full = CHANGE_DAY + datetime.timedelta(days=1)
+        self._hold(full, range(8, 17))
+        cases = {
+            "closed": CHANGE_DAY.isoformat(),
+            "full": full.isoformat(),
+            "past": "2026-11-01",
+            "beyond the limit": "2026-12-03",
+            "garbage": "nonsense",
+            "not a date": "2026-13-45",
+        }
+        for name, value in cases.items():
+            with self.subTest(case=name):
+                context = self._context(date=value)
+                self.assertIsNone(context["picked_date"])
+                self.assertIsNone(context["new_line"])
+                self.assertEqual(context["time_groups"], [])
+                self.assertEqual(context["date_error"], DAY_NOT_OPEN_MESSAGE)
+
+    def test_the_own_slot_is_is_own_on_its_own_day_only(self):
+        self._hold(BOOK_DAY, [10])  # someone else holds 10:00 that day
+        rows = self._rows(self._context(date=BOOK_DAY.isoformat()))
+        own = [row for row in rows if row.get("is_own")]
+        self.assertEqual([row["label"] for row in own], ["12:00 PM"])
+        self.assertFalse(own[0]["taken"])
+        ten = next(row for row in rows if row["label"] == "10:00 AM")
+        self.assertTrue(ten["taken"])
+        self.assertFalse(ten["is_own"])
+        other = self._rows(self._context(date=CHANGE_DAY.isoformat()))
+        self.assertFalse(any(row.get("is_own") for row in other))
+
+    def test_time_groups_only_add_is_own_when_asked(self):
+        times = [(datetime.time(9, 0), False), (datetime.time(12, 0), True)]
+        plain = time_groups(times, None)
+        self.assertTrue(all("is_own" not in r for g in plain for r in g["times"]))
+        marked = time_groups(times, None, own=datetime.time(12, 0))
+        rows = [row for group in marked for row in group["times"]]
+        self.assertEqual([r["is_own"] for r in rows], [False, True])
+        self.assertEqual([r["taken"] for r in rows], [False, False])
+
+    def test_is_late_inside_24_hours_and_not_beyond(self):
+        soon = self._visit(days=0, hour=15)  # five and a half hours away
+        far = self._visit(days=3, hour=9)
+        self.assertIs(self._context(soon)["is_late"], True)
+        self.assertIs(self._context(far)["is_late"], False)
+        self.assertIs(self._context()["is_late"], False)
+
+    def test_the_lines_and_the_phone(self):
+        context = self._context()
+        self.assertEqual(context["now_line"], "Tue, Nov 10 at 12:00 PM")
+        self.assertEqual(context["phone"], PHONE)
+        self.assertEqual(context["service_words"], "Consultation")
+
+    def test_a_posted_time_is_kept_unless_it_was_taken(self):
+        post = {"date": CHANGE_DAY.isoformat(), "time": "09:00:00"}
+        visit = self._loaded(self.visit)
+        now = timezone.now()
+        kept = owner_reschedule_context(self.owner, visit, post, self.today, now)
+        self.assertEqual(kept["new_time"], "9:00 AM")
+        taken = owner_reschedule_context(
+            self.owner, visit, post, self.today, now, {"taken": "9:00 AM"}
+        )
+        self.assertEqual(taken["new_time"], "")
+        self.assertEqual(taken["taken_time"], "9:00 AM")
+
+    def test_another_owners_visit_is_never_given(self):
+        other, theirs = self._other_owner()
+        visit = Appointment.objects.create(
+            owner=other,
+            pet=theirs,
+            date=BOOK_DAY,
+            time=datetime.time(9, 0),
+            status=Appointment.CONFIRMED,
+        )
+        with self.assertRaises(Http404):
+            owner_reschedule_context(
+                self.owner, self._loaded(visit), {}, self.today, timezone.now()
+            )
+
+    def test_who_can_change_a_visit(self):
+        now = timezone.now()
+        self.assertTrue(owner_can_change(self.visit, now))
+        pending = self._visit(days=8, status=Appointment.PENDING)
+        self.assertTrue(owner_can_change(pending, now))
+        started = self._visit(days=0, hour=9)  # 9:00 began at 9:00, it is 9:30
+        self.assertFalse(owner_can_change(started, now))
+        for status in (
+            Appointment.CANCELLED,
+            Appointment.COMPLETED,
+            Appointment.NO_SHOW,
+        ):
+            with self.subTest(status=status):
+                visit = self._visit(days=8, status=status)
+                self.assertFalse(owner_can_change(visit, now))
+
+    def test_queries_are_flat_for_3_and_30_visits(self):
+        def counts():
+            found = {}
+            visit = self._loaded(self.visit)
+            for name, params in (("no day", {}), ("a day", {"date": "2026-11-12"})):
+                with CaptureQueriesContext(connection) as queries:
+                    owner_reschedule_context(
+                        self.owner, visit, params, self.today, timezone.now()
+                    )
+                found[name] = len(queries)
+            return found
+
+        for i in range(2):
+            self._visit(days=12 + i, hour=10)
+        few = counts()
+        for i in range(27):
+            self._visit(days=12 + i % 15, hour=8 + i % 9)
+        self.assertEqual(Appointment.objects.count(), 30)
+        self.assertEqual(counts(), few)
+        # settings + the calendar's two + (with a day) the day's two
+        self.assertEqual(few, {"no day": 3, "a day": 5})
+
+
+class OwnerReschedulePageTests(_OwnerRescheduleBase):
+    """The Change day or time page (GET) on layouts/owner.html."""
+
+    def _page(self, visit=None, **params):
+        visit = visit or self.visit
+        return self._html("owner_appointment_reschedule", [visit.pk], **params)
+
+    def test_flow_frame_back_to_the_visit_and_no_bottom_tabs(self):
+        html = self._page()
+        back = rf'<a href="{self.detail}"[^>]*>(?s:.*?)Back to Visit</a>'
+        self.assertRegex(html, back)
+        self.assertNotIn('<nav aria-label="Main"', html)
+        self.assertIn('data-bar="one"', html)
+
+    def test_exactly_one_violet_button(self):
+        for params in ({}, {"date": CHANGE_DAY.isoformat()}):
+            with self.subTest(params=params):
+                violet = self._violet(self._page(**params))
+                self.assertEqual(len(violet), 1)
+                self.assertIn('form="reschedule-form"', violet[0])
+
+    def test_title_and_the_pet_line(self):
+        html = self._page()
+        title = '<h1 class="text-2xl font-bold text-gray-900">Change day or time</h1>'
+        self.assertIn(title, html)
+        self.assertIn("Bantay · Consultation", html)
+        visit = self._visit(days=8, hour=13, service=None)
+        self.assertIn("Bantay · Not sure yet", self._page(visit))
+
+    def test_the_late_note_only_within_24_hours(self):
+        soon = self._visit(days=0, hour=15)
+        far = self._page()
+        self.assertNotIn("late change", far)
+        html = self._page(soon)
+        line = "Your visit is less than 24 hours away, so the clinic will see this"
+        self.assertIn(line + " as a late change.", html)
+        self.assertIn('<strong class="font-semibold">call them instead</strong>', html)
+        self.assertIn('href="tel:09542889774"', html)
+
+    def test_the_late_note_without_a_phone_ends_after_late_change(self):
+        ClinicSettings.objects.update(contact_number="")
+        html = self._page(self._visit(days=0, hour=15))
+        self.assertIn("as a late change.</p>", html)
+        self.assertNotIn("call them instead", html)
+        self.assertNotIn("tel:", html)
+
+    def test_now_is_crossed_out(self):
+        html = self._page()
+        self.assertIn(
+            '<p class="text-base font-semibold text-gray-500 line-through">'
+            "Tue, Nov 10 at 12:00 PM</p>",
+            html,
+        )
+
+    def test_the_new_box_states(self):
+        new = r'(?s)<p class="text-base text-violet-800">New</p>\s*(<p.*?</p>)'
+        found = re.search(new, self._page()).group(1)
+        self.assertIn(">Pick a day</p>", found)
+        found = re.search(new, self._page(date=CHANGE_DAY.isoformat())).group(1)
+        self.assertIn("Thu, Nov 12<br>", found)
+        self.assertIn("Pick a time below", found)
+
+    def test_the_current_day_is_dashed_with_a_legend_and_a_link(self):
+        html = self._page()
+        dashed = "outline-2 outline-dashed outline-gray-400 -outline-offset-2"
+        self.assertIn(dashed, html)
+        self.assertIn("Your current day</span>", html)
+        url = re.escape(self.url)
+        link = rf'<a href="{url}\?date=2026-11-10&month=2026-11" '
+        self.assertRegex(html, link + r'aria-label="Nov 10, your current day"')
+
+    def test_day_links_keep_the_month_and_month_links_keep_the_day(self):
+        html = self._page(date=CHANGE_DAY.isoformat())
+        self.assertIn(f"{self.url}?date=2026-11-11&month=2026-11", html)
+        self.assertIn(f"{self.url}?month=2026-12&date=2026-11-12", html)
+
+    def test_the_picked_day_is_the_violet_cell(self):
+        html = self._page(date=CHANGE_DAY.isoformat())
+        picked = r'<span aria-label="[^"]*, picked" aria-current="date" '
+        self.assertRegex(html, picked + r'class="[^"]*">12</span>')
+        self.assertEqual(html.count(", picked"), 1)
+
+    def test_your_time_is_text_not_an_input(self):
+        html = self._page(date=BOOK_DAY.isoformat())
+        self.assertIn(">Your time</span>", html)
+        self.assertNotIn('name="time" value="12:00:00"', html)
+        self.assertIn('name="time" value="13:00:00"', html)
+        other = self._page(date=CHANGE_DAY.isoformat())
+        self.assertNotIn("Your time", other)
+
+    def test_a_taken_time_is_gray_text_and_not_an_input(self):
+        self._hold(CHANGE_DAY, [10])
+        html = self._page(date=CHANGE_DAY.isoformat())
+        taken = '<span class="line-through">10:00 AM</span>'
+        self.assertIn(taken + '<span class="text-sm">Taken</span>', html)
+        self.assertNotIn('name="time" value="10:00:00"', html)
+
+    def test_no_day_and_a_bad_day(self):
+        self.assertIn("Pick a day to see the times.", self._page())
+        html = self._page(date="nonsense")
+        self.assertIn(DAY_NOT_OPEN_MESSAGE, html)
+        self.assertIn("Pick a day to see the times.", html)
+
+    def test_the_reason_box_and_the_blue_note(self):
+        html = self._page(date=CHANGE_DAY.isoformat())
+        self.assertIn(">Why the change?</label>", html)
+        self.assertIn(
+            '<textarea id="reschedule-reason" name="reschedule_reason" rows="3"', html
+        )
+        self.assertIn('placeholder="e.g. I have work on that day"', html)
+        self.assertIn("Needed.", html)
+        self.assertIn(
+            "Your Tue, Nov 10 at 12:00 PM time is given up. "
+            "The new time waits for the clinic to confirm.",
+            html,
+        )
+        # The textarea comes after the times (pick day, then time, then why)
+        times_at = html.index("Times on Thu, Nov 12")
+        self.assertLess(times_at, html.index('id="reschedule-reason"'))
+
+    def test_the_form_posts_the_picked_day(self):
+        html = self._page(date=CHANGE_DAY.isoformat())
+        form = re.search(r'(?s)<form id="reschedule-form".*?</form>', html).group(0)
+        self.assertIn('method="post"', form)
+        self.assertIn('name="date" value="2026-11-12"', form)
+        self.assertIn("csrfmiddlewaretoken", form)
+
+    def test_keep_old_time_is_an_outline_link_to_the_visit(self):
+        html = self._page()
+        keep = rf'<a href="{self.detail}"[^>]*border-gray-300[^>]*>Keep old time</a>'
+        self.assertRegex(html, keep)
+        self.assertIn("Send new time</button>", html)
+
+    def test_a_pending_visit_can_be_changed_too(self):
+        pending = self._visit(days=8, status=Appointment.PENDING)
+        url = reverse("owner_appointment_reschedule", args=[pending.pk])
+        self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_another_owners_visit_is_a_404(self):
+        other, theirs = self._other_owner()
+        visit = Appointment.objects.create(
+            owner=other,
+            pet=theirs,
+            date=BOOK_DAY,
+            time=datetime.time(9, 0),
+            status=Appointment.CONFIRMED,
+        )
+        url = reverse("owner_appointment_reschedule", args=[visit.pk])
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.assertEqual(self.client.post(url, {}).status_code, 404)
+
+    def test_a_visit_that_cannot_be_changed_goes_to_its_page_with_the_flash(self):
+        cases = {
+            "cancelled": self._visit(days=8, status=Appointment.CANCELLED),
+            "completed": self._visit(days=8, status=Appointment.COMPLETED),
+            "no show": self._visit(days=8, status=Appointment.NO_SHOW),
+            "started": self._visit(days=0, hour=9),
+        }
+        for name, visit in cases.items():
+            url = reverse("owner_appointment_reschedule", args=[visit.pk])
+            detail = reverse("owner_appointment_detail", args=[visit.pk])
+            for method in (self.client.get, self.client.post):
+                with self.subTest(case=name, method=method.__name__):
+                    # Show a page first so an earlier flash is used up
+                    self.client.get(reverse("owner_appointments"))
+                    response = method(url)
+                    self.assertRedirects(
+                        response, detail, fetch_redirect_response=False
+                    )
+                    self.assertEqual(self._messages(response), [CANNOT_CHANGE_MESSAGE])
+
+    def test_markup_rules(self):
+        response = self.client.get(self.url, {"date": CHANGE_DAY.isoformat()})
+        html = response.content.decode()
+        self.assertEqual(re.findall(r"<a\b[^>]*$", html, re.M), [])
+        self.assertEqual(re.findall(r"<script(?![^>]*\bsrc=)", html), [])
+        self.assertEqual(re.findall(r"\son[a-z]+=", html), [])
+        self.assertNotIn("hx-confirm", html)
+        self.assertNotIn("<!--", html)
+
+    def test_query_total_is_flat_for_3_and_30_visits(self):
+        # Whole request, measured: 7 without a day, 9 with one (the context
+        # alone is 3 and 5)
+        expected = (({}, 7), ({"date": "2026-11-12"}, 9))
+
+        def check():
+            for params, count in expected:
+                with self.subTest(params=params):
+                    with self.assertNumQueries(count):
+                        response = self.client.get(self.url, params)
+                    self.assertEqual(response.status_code, 200)
+
+        for i in range(2):
+            self._visit(days=12 + i, hour=10)
+        check()
+        for i in range(27):
+            self._visit(days=12 + i % 15, hour=8 + i % 9)
+        self.assertEqual(Appointment.objects.count(), 30)
+        check()
+
+
+class OwnerReschedulePostTests(_OwnerRescheduleBase):
+    """The page's POST: the locked reschedule_by_owner, or the page again."""
+
+    def _send(self, visit=None, **changes):
+        data = {
+            "date": CHANGE_DAY.isoformat(),
+            "time": "09:00:00",
+            "reschedule_reason": "I have work that day",
+        }
+        data.update(changes)
+        url = reverse("owner_appointment_reschedule", args=[(visit or self.visit).pk])
+        # Show a page first so flashes left by an earlier request are used up
+        self.client.get(reverse("owner_appointments"))
+        return self.client.post(url, data)
+
+    def _admin_notices(self):
+        return Notification.objects.filter(
+            recipient=self.admin, title="Appointment Reschedule Request"
+        )
+
+    def _assert_nothing_changed(self):
+        self.visit.refresh_from_db()
+        self.assertEqual(self.visit.status, Appointment.CONFIRMED)
+        self.assertEqual(self.visit.cancellation_reason, "")
+        self.assertIsNone(self.visit.cancelled_by)
+        self.assertEqual(Appointment.objects.count(), 1)
+        self.assertFalse(self._admin_notices().exists())
+
+    def test_no_time_is_a_field_error_and_the_day_and_text_are_kept(self):
+        response = self._send(time="")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["time_error"], PICK_NEW_TIME_MESSAGE)
+        self.assertEqual(response.context["picked_date"], CHANGE_DAY)
+        self.assertEqual(response.context["reason_text"], "I have work that day")
+        html = unescape(response.content.decode())
+        self.assertIn(PICK_NEW_TIME_MESSAGE, html)
+        self.assertIn(">I have work that day</textarea>", html)
+        self._assert_nothing_changed()
+
+    def test_no_reason_is_a_field_error_and_the_time_is_kept(self):
+        for text in ("", "   "):
+            with self.subTest(text=text):
+                response = self._send(reschedule_reason=text)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.context["reason_error"], WHY_MISSING_MESSAGE)
+                self.assertEqual(response.context["new_time"], "9:00 AM")
+                self._assert_nothing_changed()
+
+    def test_a_day_that_is_not_open_shows_the_date_error(self):
+        BlockedDate.objects.create(date=CHANGE_DAY, reason="Holiday")
+        past = (self.today - datetime.timedelta(days=1)).isoformat()
+        for value in (CHANGE_DAY.isoformat(), past, "nonsense", "2026-12-03"):
+            with self.subTest(date=value):
+                response = self._send(date=value)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.context["date_error"], DAY_NOT_OPEN_MESSAGE)
+                self.assertIsNone(response.context["picked_date"])
+                self._assert_nothing_changed()
+
+    def test_no_day_at_all(self):
+        response = self._send(date="")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["date_error"], PICK_DAY_FIRST_MESSAGE)
+        self._assert_nothing_changed()
+
+    def test_the_visits_own_time_is_not_a_new_time(self):
+        response = self._send(date=BOOK_DAY.isoformat(), time="12:00:00")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["time_error"], PICK_NEW_TIME_MESSAGE)
+        self._assert_nothing_changed()
+
+    def test_a_time_taken_at_save_shows_the_red_box(self):
+        with mock.patch("appointments.utils.is_slot_available", return_value=False):
+            response = self._send()
+        self.assertEqual(response.status_code, 200)
+        html = unescape(response.content.decode())
+        self.assertIn("9:00 AM was just taken", html)
+        self.assertIn(
+            "Someone booked it a moment ago. Please pick another time. "
+            "Your note is kept.",
+            html,
+        )
+        self.assertEqual(response.context["picked_date"], CHANGE_DAY)
+        self.assertEqual(response.context["new_time"], "")
+        self.assertNotIn(" checked", html)
+        self.assertIn(">I have work that day</textarea>", html)
+        self._assert_nothing_changed()
+
+    def test_a_time_taken_before_the_post_shows_the_red_box_too(self):
+        self._hold(CHANGE_DAY, [9])
+        response = self._send()
+        self.assertEqual(response.context["taken_time"], "9:00 AM")
+        self.assertContains(response, "9:00 AM was just taken")
+        self.visit.refresh_from_db()
+        self.assertEqual(self.visit.status, Appointment.CONFIRMED)
+        self.assertFalse(self._admin_notices().exists())
+
+    def test_a_valid_send_cancels_the_original_and_makes_a_pending_visit(self):
+        self.visit.reason = "Itchy skin"
+        self.visit.save()
+        response = self._send()
+        new = Appointment.objects.exclude(pk=self.visit.pk).get()
+        self.assertRedirects(
+            response,
+            reverse("owner_appointment_detail", args=[new.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(self._messages(response), [RESCHEDULE_SENT_MESSAGE])
+        self.visit.refresh_from_db()
+        self.assertEqual(self.visit.status, Appointment.CANCELLED)
+        self.assertEqual(self.visit.cancellation_reason, Appointment.OTHER)
+        self.assertEqual(self.visit.cancellation_detail, "Rescheduled by pet owner.")
+        self.assertEqual(self.visit.cancelled_by, self.owner.user)
+        self.assertEqual(new.status, Appointment.PENDING)
+        self.assertEqual(new.rescheduled_from, self.visit)
+        self.assertEqual(new.owner, self.owner)
+        self.assertEqual(new.pet, self.pet)
+        self.assertEqual(new.service, self.service)
+        self.assertEqual((new.date, new.time), (CHANGE_DAY, datetime.time(9, 0)))
+        self.assertEqual(new.reason, "Itchy skin")
+        self.assertEqual(new.reschedule_reason, "I have work that day")
+
+    def test_the_admin_is_told_as_before(self):
+        self._send()
+        new = Appointment.objects.exclude(pk=self.visit.pk).get()
+        notice = self._admin_notices().get()
+        self.assertEqual(notice.related_appointment, new)
+        self.assertIn("has requested to reschedule their appointment", notice.message)
+
+    def test_the_send_goes_through_the_lock_once(self):
+        with mock.patch("appointments.utils.lock_schedule") as lock:
+            self._send()
+        lock.assert_called_once_with()
+        self.assertEqual(Appointment.objects.count(), 2)
+
+    def test_the_new_visit_page_shows_the_flash_and_the_old_time(self):
+        self.client.get(reverse("owner_appointments"))
+        response = self.client.post(
+            self.url,
+            {
+                "date": CHANGE_DAY.isoformat(),
+                "time": "09:00:00",
+                "reschedule_reason": "x",
+            },
+            follow=True,
+        )
+        html = unescape(response.content.decode())
+        # The flash's bold first sentence, then the rest
+        self.assertIn("New time sent.", html)
+        self.assertIn("The clinic will confirm it soon.", html)
+        self.assertIn("You changed the time. Was Tue, Nov 10 at 12:00 PM.", html)
+
+    def test_a_second_post_changes_nothing_and_goes_to_the_original(self):
+        self._send()
+        response = self._send()
+        self.assertRedirects(response, self.detail, fetch_redirect_response=False)
+        self.assertEqual(self._messages(response), [CANNOT_CHANGE_MESSAGE])
+        self.assertEqual(Appointment.objects.count(), 2)
+        self.assertEqual(self._admin_notices().count(), 1)
+
+    def test_an_original_cancelled_meanwhile_changes_nothing(self):
+        def cancelled_by_someone_else():
+            Appointment.objects.filter(pk=self.visit.pk).update(
+                status=Appointment.CANCELLED
+            )
+
+        with mock.patch(
+            "appointments.utils.lock_schedule", side_effect=cancelled_by_someone_else
+        ):
+            response = self._send()
+        self.assertRedirects(response, self.detail, fetch_redirect_response=False)
+        self.assertEqual(self._messages(response), [CANNOT_CHANGE_MESSAGE])
+        self.assertEqual(Appointment.objects.count(), 1)
+        self.assertFalse(self._admin_notices().exists())
+
+    def test_not_own_is_a_404_and_unchanged(self):
+        other, theirs = self._other_owner()
+        visit = Appointment.objects.create(
+            owner=other,
+            pet=theirs,
+            date=BOOK_DAY,
+            time=datetime.time(10, 0),
+            status=Appointment.CONFIRMED,
+        )
+        self.assertEqual(self._send(visit).status_code, 404)
+        visit.refresh_from_db()
+        self.assertEqual(visit.status, Appointment.CONFIRMED)
+        self.assertEqual(Appointment.objects.count(), 2)
+
+    def test_the_session_has_no_booking_draft_to_clash_with(self):
+        self._send()
+        self.assertNotIn("owner_booking", self.client.session)
+
+
+class ClosedDaysLineTests(SimpleTestCase):
+    """Slice 8b-9b: "Closed Saturday, Sunday and holidays" from the schedule."""
+
+    def _line(self, days, holidays=False):
+        row = ClinicSettings(working_days=days)
+        return closed_days_line(row, holidays)
+
+    def test_the_days_missing_from_the_schedule(self):
+        self.assertEqual(
+            self._line([0, 1, 2, 3, 4], True), "Closed Saturday, Sunday and holidays"
+        )
+        self.assertEqual(self._line([0, 1, 2, 3, 4]), "Closed Saturday and Sunday")
+        self.assertEqual(
+            self._line([0, 1, 2, 3, 4, 5], True), "Closed Sunday and holidays"
+        )
+        self.assertEqual(self._line([0, 1, 2, 3, 4, 5]), "Closed Sunday")
+        self.assertEqual(
+            self._line([1, 3], False),
+            "Closed Monday, Wednesday, Friday, Saturday and Sunday",
+        )
+
+    def test_open_every_day_only_says_holidays_when_there_are_some(self):
+        every = [0, 1, 2, 3, 4, 5, 6]
+        self.assertEqual(self._line(every, True), "Closed on holidays")
+        self.assertEqual(self._line(every, False), "")
+
+    def test_never_open_has_no_closed_line(self):
+        self.assertEqual(self._line([], True), "")
+
+    def test_vet_initials_skip_the_title(self):
+        self.assertEqual(vet_initials("Dr. Edgar Sadiwa"), "ES")
+        self.assertEqual(vet_initials("Edgar Antonio Sadiwa"), "EA")
+        self.assertEqual(vet_initials("Aga"), "A")
+        self.assertEqual(vet_initials(""), "")
+
+
+class OwnerClinicInfoPageTests(AppointmentTestBase):
+    """Slice 8b-9b: the owner's Clinic info on layouts/owner.html (frame 5)."""
+
+    PAGE_QUERIES = 4  # session, user, settings, blocked dates (estimated 5)
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("clinic_info")
+        self.row = get_clinic_settings()
+        self.row.contact_number = "0917 000 0000"
+        self.row.email = "clinic@example.com"
+        self.row.working_days = [0, 1, 2, 3, 4]
+        self.row.veterinarian_name = "Dr. Edgar Sadiwa"
+        self.row.veterinarian_license_number = "PRC-VET-0000"
+        self.row.veterinarian_bio = "Cares for pets of Gasan.\n\nAsk about vaccines."
+        self.row.save()
+        self.client.force_login(self.owner.user)
+
+    def _html(self):
+        return self.client.get(self.url).content.decode()
+
+    def _main(self):
+        return self._html().split('<main id="main"')[1].split("</main>")[0]
+
+    def _clear(self, **fields):
+        for name, value in fields.items():
+            setattr(self.row, name, value)
+        self.row.save()
+
+    def test_owner_layout_account_tab_and_back_bar(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        html = response.content.decode()
+        back = reverse("owner_account")
+        self.assertRegex(html, rf'(?s)<a href="{back}"[^>]*>.*?Back to Account</a>')
+        # The Account tab is lit (the back bar's link has no aria-current)
+        lit = rf'<a href="{back}" class="[^"]*" aria-current="page">'
+        self.assertRegex(html, lit)
+        self.assertContains(response, '<h1 class="min-w-0 break-words text-2xl')
+
+    def test_call_is_the_one_violet_button_with_a_tel_link(self):
+        main = self._main()
+        violet = re.findall(r"<a [^>]*bg-violet-600[^>]*>", main)
+        self.assertEqual(len(violet), 1)
+        self.assertIn('href="tel:09170000000"', violet[0])
+        self.assertRegex(main, r"(?s)<a href=\"tel:09170000000\".*?Call</a>")
+
+    def test_email_is_an_outline_mailto_link(self):
+        main = self._main()
+        link = re.search(r'<a href="mailto:clinic@example.com"[^>]*>', main).group(0)
+        self.assertIn("border border-gray-300", link)
+        self.assertNotIn("bg-violet", link)
+        self.assertIn("Email</a>", main)
+
+    def test_a_missing_phone_or_email_leaves_its_button_out(self):
+        self._clear(contact_number="")
+        main = self._main()
+        self.assertNotIn("tel:", main)
+        self.assertNotIn("Call</a>", main)
+        self.assertIn('href="mailto:clinic@example.com"', main)
+        self.assertIn("grid-cols-1", main)
+        self.assertEqual(len(re.findall(r"<a [^>]*bg-violet-600", main)), 0)
+        self._clear(contact_number="0917 000 0000", email="")
+        main = self._main()
+        self.assertIn('href="tel:09170000000"', main)
+        self.assertNotIn("mailto:", main)
+        self.assertIn("grid-cols-1", main)
+
+    def test_neither_phone_nor_email_has_no_button_row(self):
+        self._clear(contact_number="", email="")
+        main = self._main()
+        self.assertNotIn("tel:", main)
+        self.assertNotIn("mailto:", main)
+        self.assertNotIn("grid-cols-", main)
+
+    def test_the_rows_show_hours_closed_days_phone_email_and_address(self):
+        main = self._main()
+        for label, value in (
+            ("Open", "Mon to Fri, 8:00 AM to 5:00 PM"),
+            ("Phone", "0917 000 0000"),
+            ("Email", "clinic@example.com"),
+            ("Address", "Gasan, Marinduque"),
+        ):
+            with self.subTest(row=label):
+                self.assertRegex(
+                    main, rf'(?s)text-gray-600">{label}</p><p class="[^"]*">{value}</p>'
+                )
+        self.assertIn("Closed Saturday and Sunday</p>", main)
+
+    def test_closed_line_adds_holidays_only_for_a_blocked_date_from_today(self):
+        past = self.today - datetime.timedelta(days=2)
+        BlockedDate.objects.create(date=past, reason="Secret reason")
+        self.assertIn("Closed Saturday and Sunday</p>", self._main())
+        BlockedDate.objects.create(date=self.today, reason="Staff day")
+        main = self._main()
+        self.assertIn("Closed Saturday, Sunday and holidays</p>", main)
+        self.assertNotIn("Staff day", main)
+        self.assertNotIn("Secret reason", main)
+
+    def test_a_missing_value_leaves_its_row_out(self):
+        self._clear(contact_number="", email="", address="")
+        main = self._main()
+        for label in ("Phone", "Email", "Address"):
+            with self.subTest(row=label):
+                self.assertNotIn(f'text-gray-600">{label}</p>', main)
+        self.assertIn('text-gray-600">Open</p>', main)
+
+    def test_your_vet_card_with_licence_and_bio(self):
+        main = self._main()
+        self.assertIn(">Your vet</h2>", main)
+        self.assertIn('aria-hidden="true">ES</span>', main)
+        self.assertIn('text-lg font-bold text-gray-900">Dr. Edgar Sadiwa</p>', main)
+        self.assertIn("License no. PRC-VET-0000", main)
+        self.assertIn("<p>Cares for pets of Gasan.</p>", main)
+        self.assertIn("<p>Ask about vaccines.</p>", main)
+
+    def test_your_vet_card_needs_a_vet_name(self):
+        self._clear(veterinarian_name="")
+        main = self._main()
+        self.assertNotIn("Your vet", main)
+        self.assertNotIn("PRC-VET-0000", main)
+
+    def test_licence_and_bio_show_only_when_filled_in_and_there_is_no_nickname(self):
+        self._clear(veterinarian_license_number="", veterinarian_bio="")
+        main = self._main()
+        self.assertIn("Dr. Edgar Sadiwa", main)
+        self.assertNotIn("License no.", main)
+        self.assertNotIn("Cares for pets", main)
+        # ClinicSettings has no nickname field, so the card never shows one
+        field_names = [f.name for f in ClinicSettings._meta.get_fields()]
+        self.assertFalse([n for n in field_names if "nick" in n])
+
+    def test_logo_or_paw_tile(self):
+        main = self._main()
+        self.assertIn("bg-violet-600 text-white", main.split("<h1")[0])
+        self.assertNotIn("<img", main)
+        self._clear(logo="clinic/logo.png")
+        main = self._main()
+        self.assertIn(f'<img src="{self.row.logo.url}"', main)
+        self.assertNotIn("bg-violet-600 text-white", main.split("<h1")[0])
+
+    def test_no_clinic_js_and_no_map_for_owners(self):
+        html = self._html()
+        self.assertNotIn("js/shared/clinic_info", html)
+        self.assertNotIn("css/shared/clinic_info", html)
+        self.assertNotIn("<iframe", html)
+        self.assertNotIn("<script>", html)
+
+    def test_an_admin_still_gets_the_admin_page(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertTemplateUsed(response, "admin/clinic_info.html")
+        self.assertTemplateUsed(response, "layouts/admin.html")
+        self.assertTemplateNotUsed(response, "owner/clinic/info.html")
+        self.assertContains(response, "Open in Google Maps")
+
+    def test_no_settings_row_shows_a_plain_message(self):
+        ClinicSettings.objects.all().delete()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "The clinic details are not available yet.")
+
+    def test_every_link_is_on_one_line(self):
+        from django.template.loader import get_template
+
+        names = (
+            "owner/clinic/info.html",
+            "owner/clinic_parts/header.html",
+            "owner/clinic_parts/buttons.html",
+            "owner/clinic_parts/details.html",
+            "owner/clinic_parts/vet.html",
+        )
+        for name in names:
+            source = get_template(name).template.source
+            for link in re.findall(r"(?s)<a\b.*?</a>", source):
+                with self.subTest(file=name, link=link[:50]):
+                    self.assertNotIn("\n", link)
+
+    def test_no_inline_script_or_handler_or_html_comment(self):
+        main = self._main()
+        self.assertNotIn("<script", main)
+        self.assertNotIn("onclick", main)
+        self.assertNotIn("<!--", main)
+
+    def test_query_total_is_flat_for_3_and_30_blocked_dates(self):
+        for count in (3, 30):
+            BlockedDate.objects.all().delete()
+            for n in range(count):
+                day = self.today + datetime.timedelta(days=n + 1)
+                BlockedDate.objects.create(date=day, reason=f"Reason {n}")
+            with self.subTest(blocked=count):
+                with self.assertNumQueries(self.PAGE_QUERIES):
+                    self.client.get(self.url)
+
+
+class RemovedOwnerUrlsTests(AppointmentTestBase):
+    """Slice 8b-10a: the owner URLs removed in the cleanup are gone."""
+
+    REMOVED = (
+        ("owner_get_slots", [], "/owner/appointments/slots/"),
+        ("owner_dashboard_refresh", [], "/owner/dashboard/refresh/"),
+        ("notification_mark_read", [1], "/notifications/1/read/"),
+    )
+
+    def test_the_names_no_longer_reverse(self):
+        for name, args, _path in self.REMOVED:
+            with self.subTest(name=name):
+                with self.assertRaises(NoReverseMatch):
+                    reverse(name, args=args)
+
+    def test_the_old_paths_are_404_for_a_logged_in_owner(self):
+        self.client.force_login(self.owner.user)
+        for name, _args, path in self.REMOVED:
+            with self.subTest(name=name):
+                self.assertEqual(self.client.get(path).status_code, 404)

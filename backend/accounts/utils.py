@@ -1,15 +1,142 @@
 import uuid
+from functools import wraps
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
+from django.core.cache import cache
 from django.core.mail import send_mail
+from django.http import HttpResponse
+from django.shortcuts import redirect
 from django.template.loader import render_to_string
+from django.urls import reverse
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 
 from pets.models import ContactLink, Pet, PetOwner
 
 User = get_user_model()
+
+
+def owner_profile_required(view):
+    """
+    Use under @login_required on owner views. A pet owner with a PetOwner
+    row gets it as request.owner; one without a row is sent to onboarding
+    step 1 (an HTMX request gets HX-Redirect instead). Other roles reach
+    the view unchanged, so each view's own role check still runs.
+    """
+
+    @wraps(view)
+    def wrapper(request, *args, **kwargs):
+        if request.user.role != User.PET_OWNER:
+            return view(request, *args, **kwargs)
+        owner = PetOwner.objects.filter(user=request.user).first()
+        if owner is None:
+            if request.headers.get("HX-Request"):
+                url = reverse("owner_onboarding_step1")
+                return HttpResponse(headers={"HX-Redirect": url})
+            return redirect("owner_onboarding_step1")
+        request.owner = owner
+        return view(request, *args, **kwargs)
+
+    return wrapper
+
+
+# Which bottom tab each owner page lights up, by URL name. The one place
+# for this mapping. owner_notifications (the bell's page) is on purpose in no
+# tab, and so is any name not listed.
+OWNER_TABS = {
+    "home": ["owner_dashboard"],
+    "pets": [
+        "owner_pet_list",
+        "owner_pet_add",
+        "owner_pet_detail",
+        "owner_pet_edit",
+        "owner_pet_delete_request",
+        "owner_pet_cancel_delete_request",
+        "owner_pet_medical_history",
+        "owner_medical_record",
+        "owner_vaccination_history",
+    ],
+    "visits": [
+        "owner_appointments",
+        "owner_book_appointment",
+        "owner_book_time",
+        "owner_book_check",
+        "owner_book_sent",
+        "owner_appointment_detail",
+        "owner_appointment_cancel",
+        "owner_appointment_reschedule",
+    ],
+    "bills": ["owner_billing_list", "owner_receipt_detail"],
+    "account": [
+        "owner_account",
+        "owner_profile",
+        "owner_profile_edit",
+        "owner_notification_preferences",
+        "clinic_info",
+        "owner_health_article_list",
+        "owner_health_article_detail",
+    ],
+}
+OWNER_TAB_BY_URL_NAME = {
+    url_name: tab for tab, names in OWNER_TABS.items() for url_name in names
+}
+
+
+def owner_tab(url_name):
+    """The bottom tab key ("home", "pets", "visits", "bills", "account") for
+    a URL name, or "" when no tab should be active."""
+    return OWNER_TAB_BY_URL_NAME.get(url_name or "", "")
+
+
+RESEND_SECONDS = 120
+
+
+def verification_pending(user):
+    """
+    True only for an owner who registered with a password and has not
+    confirmed the email yet: pet_owner, inactive, never logged in, a usable
+    password, and no archived PetOwner row. Google sign-ups, walk-ins and
+    clinic-made owners have no usable password; archived owners are inactive
+    on purpose. None of them qualify.
+    """
+    if user.role != User.PET_OWNER or user.is_active:
+        return False
+    if user.last_login is not None or not user.has_usable_password():
+        return False
+    return not has_archived_owner(user)
+
+
+def has_archived_owner(user):
+    """True when the user's PetOwner row exists and is archived."""
+    return PetOwner.objects.filter(user=user, is_archived=True).exists()
+
+
+def is_unconfirmed_login(user, password):
+    """True when this login attempt is the right password on a pending owner."""
+    return (
+        user is not None
+        and verification_pending(user)
+        and user.check_password(password)
+    )
+
+
+def find_pending_owner(email):
+    """The one pending owner with this email (any case, spaces ignored), or
+    None. Zero or several matches both give None."""
+    email = (email or "").strip().lower()
+    if not email:
+        return None
+    users = list(User.objects.filter(email__iexact=email)[:2])
+    if len(users) != 1 or not verification_pending(users[0]):
+        return None
+    return users[0]
+
+
+def resend_allowed(user):
+    """One resend per 2 minutes per account. The cache is per worker process
+    (default locmem), so with several workers the limit is per worker."""
+    return cache.add(f"resend-verification:{user.pk}", 1, RESEND_SECONDS)
 
 
 def send_claim_email(request, user):

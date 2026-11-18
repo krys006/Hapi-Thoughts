@@ -1,70 +1,44 @@
-{% extends 'base_dashboard.html' %}
+{% extends 'layouts/owner.html' %}
+{% load static %}
 
-{% block title %}Dashboard — Hapi Vet{% endblock %}
+{% block title %}Home — Hapi Vet{% endblock %}
+
+{# The dashboard is one normal page: no polling, no HTMX refresh (decision 13). #}
+
+{# See-through top bar over the violet band; static/js/owner/dashboard_bar.js turns it white once the band has scrolled away #}
+{% block top_bar %}
+  {% include "owner/dashboard_parts/top_bar.html" %}
+{% endblock %}
+
+{# The band comes right under the bar and holds the flash messages #}
+{% block flash %}
+  {% include "owner/dashboard_parts/band.html" %}
+{% endblock %}
 
 {% block content %}
-
-<div class="owner-page">
-
-  <section class="owner-hero-card">
-    <div>
-      <p class="owner-greeting">Welcome back</p>
-      <h1 class="owner-page-title">My Dashboard</h1>
-      <p class="owner-page-subtitle">{{ today|date:"l, F j, Y" }}</p>
-    </div>
-
-    <a href="{% url 'owner_profile' %}" class="owner-profile-button" aria-label="View profile">
-      {{ request.user.email|slice:":1"|upper }}
-    </a>
-  </section>
-
-  <section class="owner-quick-actions">
-    <a href="{% url 'owner_book_appointment' %}" class="owner-action-card owner-action-card-primary">
-      <span class="owner-action-icon">＋</span>
-      <span>Book</span>
-    </a>
-
-    <a href="{% url 'owner_pet_add' %}" class="owner-action-card">
-      <span class="owner-action-icon">🐾</span>
-      <span>Add Pet</span>
-    </a>
-
-    <a href="{% url 'owner_appointments' %}" class="owner-action-card">
-      <span class="owner-action-icon">📅</span>
-      <span>Visits</span>
-    </a>
-
-    <a href="{% url 'owner_billing_list' %}" class="owner-action-card">
-      <span class="owner-action-icon">₱</span>
-      <span>Billing</span>
-    </a>
-  </section>
-
-  {% include 'owner/dashboard/_dashboard_partial.html' %}
-
-  <nav class="owner-bottom-nav" aria-label="Pet owner mobile navigation">
-    <a href="{% url 'owner_dashboard' %}" class="owner-bottom-nav-link owner-bottom-nav-active">
-      <span>⌂</span>
-      <small>Home</small>
-    </a>
-    <a href="{% url 'owner_pet_list' %}" class="owner-bottom-nav-link">
-      <span>🐾</span>
-      <small>Pets</small>
-    </a>
-    <a href="{% url 'owner_book_appointment' %}" class="owner-bottom-nav-link owner-bottom-nav-main">
-      <span>＋</span>
-      <small>Book</small>
-    </a>
-    <a href="{% url 'owner_billing_list' %}" class="owner-bottom-nav-link">
-      <span>₱</span>
-      <small>Bills</small>
-    </a>
-    <a href="{% url 'owner_profile' %}" class="owner-bottom-nav-link">
-      <span>☻</span>
-      <small>Profile</small>
-    </a>
-  </nav>
-
+{# The first card overlaps the bottom of the band #}
+<div class="relative -mt-24 space-y-6">
+  {% if is_new_owner %}
+    {% include "owner/dashboard_parts/welcome.html" %}
+    <section aria-labelledby="upcoming-title">
+      <h2 id="upcoming-title" class="mb-2 text-xl font-bold">Upcoming visits</h2>
+      <div class="rounded-2xl border border-dashed border-gray-300 bg-white">
+        {% include "components/empty_state.html" with icon="calendar" title="No visits yet" text="Your booked visits will show here." %}
+      </div>
+    </section>
+  {% else %}
+    {% include "owner/dashboard_parts/next_visit.html" %}
+    <a href="{% url 'owner_book_appointment' %}" class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700">{% include "components/icon.html" with name="plus" class="size-6 shrink-0" %}Book an appointment</a>
+    {% if upcoming %}
+      {% include "owner/dashboard_parts/upcoming.html" %}
+    {% endif %}
+    {% if unpaid_count > 0 %}
+      {% include "owner/dashboard_parts/unpaid.html" %}
+    {% endif %}
+  {% endif %}
 </div>
+{% endblock %}
 
+{% block extra_js %}
+  <script src="{% static 'js/owner/dashboard_bar.js' %}" defer></script>
 {% endblock %}

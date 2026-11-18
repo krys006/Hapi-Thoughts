@@ -1,0 +1,15 @@
+{% load ui_helpers %}
+{% comment %}
+  Bottom tabs of the owner layout: Home, Pets, Visits, Bills, Account.
+  The active tab comes from the page's URL name (owner_tab in accounts/utils.py).
+{% endcomment %}
+{% owner_active_tab as active_tab %}
+<nav aria-label="Main" class="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white pb-[env(safe-area-inset-bottom)]">
+  <div class="mx-auto grid max-w-3xl grid-cols-5">
+    {% include "layouts/owner_parts/tab_link.html" with url_name="owner_dashboard" label="Home" icon="house" key="home" %}
+    {% include "layouts/owner_parts/tab_link.html" with url_name="owner_pet_list" label="Pets" icon="paw-print" key="pets" %}
+    {% include "layouts/owner_parts/tab_link.html" with url_name="owner_appointments" label="Visits" icon="calendar" key="visits" %}
+    {% include "layouts/owner_parts/tab_link.html" with url_name="owner_billing_list" label="Bills" icon="receipt" key="bills" %}
+    {% include "layouts/owner_parts/tab_link.html" with url_name="owner_account" label="Account" icon="user" key="account" %}
+  </div>
+</nav>

@@ -1,0 +1,9 @@
+{% comment %}
+  Upcoming / Past as two links with their counts. The open one has
+  aria-current="page"; each link keeps ?pet=. Needs segments.
+{% endcomment %}
+<nav aria-label="Which visits to show" class="grid grid-cols-2 gap-1 rounded-xl bg-gray-200/70 p-1">
+  {% for seg in segments %}
+  <a href="{% url 'owner_appointments' %}?{{ seg.query }}" class="flex min-h-11 items-center justify-center rounded-lg text-base {% if seg.is_active %}bg-white font-semibold text-gray-900 shadow-sm ring-1 ring-gray-200{% else %}font-medium text-gray-700 hover:bg-gray-100{% endif %}"{% if seg.is_active %} aria-current="page"{% endif %}>{{ seg.label }}</a>
+  {% endfor %}
+</nav>

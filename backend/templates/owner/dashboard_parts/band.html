@@ -1,0 +1,29 @@
+{% comment %}
+  Violet band at the top of the dashboard: paw trail, date line, greeting, and
+  the flash messages (inside the band, so the cards below can overlap its bottom
+  edge without covering a message). The top bar slides under it (-mt-16).
+  Needs: today, owner.
+{% endcomment %}
+<div data-dashboard-band class="relative -mt-16 overflow-hidden bg-violet-700 pb-24 pt-16 text-white">
+  {# Decorative trail of paw prints at 10% opacity, climbing to the right #}
+  <div class="pointer-events-none absolute inset-0 text-white opacity-10" aria-hidden="true">
+    {% include "components/icon.html" with name="paw-print" class="absolute left-[2%] top-[62%] size-9 rotate-[60deg]" stroke="1.5" %}
+    {% include "components/icon.html" with name="paw-print" class="absolute left-[14%] top-[38%] size-9 rotate-[60deg]" stroke="1.5" %}
+    {% include "components/icon.html" with name="paw-print" class="absolute left-[27%] top-[64%] size-9 rotate-[60deg]" stroke="1.5" %}
+    {% include "components/icon.html" with name="paw-print" class="absolute left-[40%] top-[40%] size-9 rotate-[60deg]" stroke="1.5" %}
+    {% include "components/icon.html" with name="paw-print" class="absolute left-[53%] top-[66%] size-9 rotate-[60deg]" stroke="1.5" %}
+    {% include "components/icon.html" with name="paw-print" class="absolute left-[66%] top-[42%] size-9 rotate-[60deg]" stroke="1.5" %}
+    {% include "components/icon.html" with name="paw-print" class="absolute left-[79%] top-[68%] size-9 rotate-[60deg]" stroke="1.5" %}
+    {% include "components/icon.html" with name="paw-print" class="absolute left-[91%] top-[44%] size-9 rotate-[60deg]" stroke="1.5" %}
+  </div>
+
+  <div class="relative mx-auto max-w-3xl px-4 pt-2">
+    <p class="text-base text-violet-100">{{ today|date:"l, F j, Y" }}</p>
+    <h1 class="text-3xl font-bold">Hi, {{ owner.first_name }}</h1>
+    {% if messages %}
+    <div class="mt-4 text-gray-900">
+      {% include "components/flash_messages.html" %}
+    </div>
+    {% endif %}
+  </div>
+</div>

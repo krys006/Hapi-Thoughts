@@ -1,0 +1,12 @@
+{% comment %}
+  The red box for "that time was just taken" (someone booked it first). The
+  day stays, the time is cleared, the other answers are kept. Needs taken_time
+  (like "2:00 PM"). note_kept=True (change-time page) ends "Your note is kept."
+{% endcomment %}
+<div role="alert" class="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-4 text-red-900">
+  {% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-6 shrink-0" %}
+  <div>
+    <p class="text-lg font-semibold">{{ taken_time }} was just taken</p>
+    <p class="mt-0.5 text-base">Someone booked it a moment ago. Please pick another time. {% if note_kept %}Your note is kept.{% else %}Your other answers are kept.{% endif %}</p>
+  </div>
+</div>

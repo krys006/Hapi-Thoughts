@@ -1,4 +1,5 @@
 import logging
+from urllib.parse import urlencode
 
 from django.conf import settings as django_settings
 from django.contrib import messages
@@ -19,6 +20,7 @@ from django.db import IntegrityError, transaction
 from django.shortcuts import redirect, render
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import (
+    url_has_allowed_host_and_scheme,
     urlsafe_base64_decode,
     urlsafe_base64_encode,
 )
@@ -28,6 +30,11 @@ from accounts.utils import (
     WALKIN_NO_EMAIL_TAKEN,
     WALKIN_SAVE_FAILED,
     create_walkin_owner,
+    find_pending_owner,
+    has_archived_owner,
+    is_unconfirmed_login,
+    owner_profile_required,
+    resend_allowed,
     send_claim_email,
 )
 from appointments.utils import get_clinic_settings
@@ -36,6 +43,18 @@ from .forms import PetOwnerRegistrationForm
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+VERIFICATION_EMAIL_FAILED = (
+    "Your account was created, but we couldn't send the email just now. "
+    "Please contact the clinic so they can help."
+)
+
+RESEND_REPLY = (
+    "If that email has an account waiting to be confirmed, we sent the link "
+    "again. It may take a minute. Check Spam too."
+)
+REMEMBER_ME_SECONDS = 60 * 60 * 24 * 30  # 30 days, as before this redesign
+ACCOUNT_CLOSED_MESSAGE = "This account is closed. Please contact the clinic."
 
 # ─── Role-based redirect helper ───────────────────────────────────────────────
 
@@ -55,51 +74,90 @@ def owner_login(request):
     if request.user.is_authenticated:
         return redirect_by_role(request.user)
 
-    if request.method == "POST":
-        email = request.POST.get("email", "").strip().lower()
-        password = request.POST.get("password", "")
+    if request.method != "POST":
+        # "Keep me logged in" starts unticked
+        return render(request, "owner/login.html", {"remember": False})
 
-        from django.contrib.auth import get_user_model
+    email = request.POST.get("email", "").strip().lower()
+    password = request.POST.get("password", "")
+    remember = bool(request.POST.get("remember"))
+    context = {"email": email, "remember": remember}
 
-        User = get_user_model()
+    user_obj = User.objects.filter(email=email).first()
+    user = None
+    if user_obj is not None:
+        user = authenticate(request, username=user_obj.username, password=password)
 
-        try:
-            user_obj = User.objects.get(email=email)
-            user = authenticate(request, username=user_obj.username, password=password)
-        except User.DoesNotExist:
-            user = None
-
-        if user is None:
-            messages.error(request, "Invalid email or password.")
-            return render(request, "owner/login.html", {"email": email})
-
-        if user.role != "pet_owner":
-            messages.error(request, "Please use the admin login page.")
-            return render(request, "owner/login.html", {"email": email})
-
-        if not user.is_active:
-            messages.error(
-                request,
-                "Your account is not verified yet. Please check your email for the verification link.",
-            )
-            return render(request, "owner/login.html", {"email": email})
-
-        login(request, user)
-
-        # Remember Me
-        if request.POST.get("remember_me"):
-            # Stay logged in for 30 days
-            request.session.set_expiry(60 * 60 * 24 * 30)
+    if user is None:
+        # Right password on an owner who hasn't confirmed the email yet: the
+        # only case that gets the "not confirmed" box (never logged in).
+        # Every other failure gets the one generic box.
+        if is_unconfirmed_login(user_obj, password):
+            context["unconfirmed_email"] = user_obj.email
         else:
-            # Session expires when browser closes
-            request.session.set_expiry(0)
+            context["login_failed"] = True
+        return render(request, "owner/login.html", context)
 
-        if not user.is_onboarded:
-            return redirect("owner_onboarding")
+    if user.role != "pet_owner":
+        messages.error(request, "Please use the admin login page.")
+        return render(request, "owner/login.html", context)
 
-        return redirect("owner_dashboard")
+    login(request, user)
+    # Ticked: 30 days, as before. Unticked: the session
+    # ends when the browser closes.
+    request.session.set_expiry(REMEMBER_ME_SECONDS if remember else 0)
 
-    return render(request, "owner/login.html")
+    if not user.is_onboarded:
+        return redirect("owner_onboarding")
+    return redirect("owner_dashboard")
+
+
+# ─── allauth pages → our own pages ───────────────────────────────────────────
+
+
+def _redirect_keeping_next(request, url_name):
+    """Redirect to url_name, keeping a safe ?next= when present."""
+    url = reverse(url_name)
+    next_url = request.GET.get("next", "")
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}
+    ):
+        url = f"{url}?{urlencode({'next': next_url})}"
+    return redirect(url)
+
+
+def allauth_login_redirect(request):
+    """/accounts/login/ → the owner login page."""
+    return _redirect_keeping_next(request, "owner_login")
+
+
+def allauth_signup_redirect(request):
+    """/accounts/signup/ → the owner register page."""
+    return _redirect_keeping_next(request, "owner_register")
+
+
+ACCOUNT_INACTIVE_MESSAGE = (
+    "This account can't log in yet. Check your email for the link, "
+    "or contact the clinic."
+)
+
+
+def allauth_password_redirect(request, key=None):
+    """allauth's password reset pages (start, done, key, key done) → our
+    forgot-password page."""
+    return redirect("forgot_password")
+
+
+def allauth_confirm_email_redirect(request, key=None):
+    """allauth's confirm-email pages → the owner login page (owners verify
+    through our own link, see owner_verify_email)."""
+    return redirect("owner_login")
+
+
+def allauth_inactive_redirect(request):
+    """/accounts/inactive/ → the owner login page, with the reason."""
+    messages.error(request, ACCOUNT_INACTIVE_MESSAGE)
+    return redirect("owner_login")
 
 
 # ─── Admin Login ──────────────────────────────────────────────────────────────
@@ -159,24 +217,59 @@ def owner_register(request):
     if request.user.is_authenticated:
         return redirect_by_role(request.user)
 
-    if request.method == "POST":
-        form = PetOwnerRegistrationForm(request.POST)
-        if form.is_valid():
-            user = form.save()
+    is_post = request.method == "POST"
+    form = PetOwnerRegistrationForm(request.POST if is_post else None)
+    if is_post and form.is_valid():
+        user = form.save()
+        try:
             _send_verification_email(request, user)
-            return redirect("owner_register_pending")
-        # Form invalid — re-render with errors
-        return render(request, "owner/register.html", {"form": form})
+        except Exception:
+            # The account stays; the error goes to the log, never the page
+            logger.exception("Verification email not sent to user %s", user.pk)
+            messages.warning(request, VERIFICATION_EMAIL_FAILED)
+        # Only the address, so "Check your email" can show it
+        request.session["pending_email"] = user.email
+        return redirect("owner_register_pending")
 
-    form = PetOwnerRegistrationForm()
-    return render(request, "owner/register.html", {"form": form})
+    context = {
+        "form": form,
+        "terms_url": django_settings.TERMS_URL,
+        "privacy_url": django_settings.PRIVACY_URL,
+    }
+    return render(request, "owner/register.html", context)
 
 
 def owner_register_pending(request):
     """
     Shown after registration — tells user to check their email.
     """
-    return render(request, "owner/register_pending.html")
+    context = {"pending_email": request.session.get("pending_email", "")}
+    return render(request, "owner/register_pending.html", context)
+
+
+def owner_resend_verification(request):
+    """
+    POST: sends the verification link again to an owner who is still waiting
+    to confirm. The reply is always the same (one message, one page) whether
+    or not an account matched, was throttled, was sent or failed, so the
+    page never tells anyone which emails have accounts. A GET sends nothing.
+    """
+    if request.method != "POST":
+        return redirect("owner_login")
+
+    user = find_pending_owner(request.POST.get("email", ""))
+    if user is not None and resend_allowed(user):
+        try:
+            _send_verification_email(request, user)
+        except Exception as error:
+            # Class name only: the message could hold the address or link
+            logger.error(
+                "Verification email not resent to user %s (%s)",
+                user.pk,
+                type(error).__name__,
+            )
+    messages.info(request, RESEND_REPLY)
+    return redirect("owner_register_pending")
 
 
 def owner_verify_email(request, uidb64, token):
@@ -194,7 +287,14 @@ def owner_verify_email(request, uidb64, token):
     except (TypeError, ValueError, OverflowError, User.DoesNotExist):
         user = None
 
+    if user is not None and user.role != User.PET_OWNER:
+        user = None  # only pet owners verify here: same as an invalid link
+
     if user is not None and default_token_generator.check_token(user, token):
+        if has_archived_owner(user):
+            # Archived on purpose: a valid link must not turn the account on
+            messages.error(request, ACCOUNT_CLOSED_MESSAGE)
+            return redirect("owner_login")
         user.is_active = True
         user.save()
         messages.success(
@@ -250,14 +350,36 @@ def _send_verification_email(request, user):
 # ─── Logout ───────────────────────────────────────────────────────────────────
 
 
-@login_required
 def user_logout(request):
-    """Logs out any user; admins go to admin login, others to owner login."""
+    """
+    POST logs out any user; admins go to admin login, others to owner login.
+    A GET never logs out: a logged-in user goes to their dashboard, a
+    logged-out visitor to the owner login page (so is a POST with no one
+    logged in).
+    """
+    if not request.user.is_authenticated:
+        return redirect("owner_login")
+    if request.method != "POST":
+        return redirect_by_role(request.user)
     # Read the role first: logout() replaces request.user with AnonymousUser
     was_admin = request.user.is_admin
     logout(request)
-    messages.success(request, "You have been logged out.")
+    messages.success(request, "You're logged out.")
     return redirect("admin_login" if was_admin else "owner_login")
+
+
+@login_required
+@owner_profile_required
+def owner_account(request):
+    """
+    Pet Owner view — the account hub: the owner's name and email, links to
+    My details, Email notifications, Clinic info and the Health library, and
+    the Log out form. The template lists the links, so none are passed here.
+    (The unread count comes from the shell's context processor, not here.)
+    """
+    if request.user.role != User.PET_OWNER:
+        return redirect("admin_dashboard")
+    return render(request, "owner/account/index.html", {"owner": request.owner})
 
 
 @login_required

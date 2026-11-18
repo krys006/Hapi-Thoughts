@@ -1,0 +1,29 @@
+{% extends "layouts/owner.html" %}
+
+{% block title %}{{ pet.name }} · {{ service_words }} — Hapi Vet{% endblock %}
+
+{% block top_bar %}{% url 'owner_appointments' as visits_url %}{% include "layouts/owner_parts/back_bar.html" with url=visits_url label="Visits" %}{% endblock %}
+
+{# One visit in any status: who and when, a coloured banner, link cards (completed), details, the buttons for its state, and the cancel sheet #}
+{% block content %}
+<div class="space-y-5">
+  <div class="flex items-center gap-4">
+    {% include "components/pet_avatar.html" with pet=pet size="lg" muted=pet.is_archived %}
+    <div class="min-w-0">
+      <h1 class="text-2xl font-bold leading-7 text-gray-900">{{ pet.name }} · {{ service_words }}</h1>
+      <p class="mt-1 text-lg font-semibold text-gray-800">{{ when_friendly }}</p>
+    </div>
+  </div>
+
+  {% include "owner/visits_parts/banner.html" %}
+  {% if links %}{% include "owner/visits_parts/links.html" %}{% endif %}
+  {% include "owner/visits_parts/details.html" %}
+  {% include "owner/visits_parts/actions.html" %}
+</div>
+
+{# The cancel sheet: only for a visit that can still be cancelled #}
+{% if buttons == "change" %}
+  {% url 'owner_appointment_cancel' appointment.pk as cancel_url %}
+  {% include "components/bottom_sheet.html" with id="cancel-sheet" title=sheet.title text=sheet.text action_url=cancel_url action_label=sheet.action_label action_icon="calendar-x" keep_label="Keep the visit" body_template="owner/visits_parts/cancel_body.html" %}
+{% endif %}
+{% endblock %}

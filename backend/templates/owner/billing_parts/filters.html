@@ -1,0 +1,18 @@
+{% comment %}
+  The History filter: a GET form, so it works without JavaScript. Search and period travel together in the
+  one form. Needs q, period, period_options. It never touches the Unpaid bills above it.
+{% endcomment %}
+<form method="get" action="{% url 'owner_billing_list' %}" class="space-y-3">
+  <label class="relative block">
+    <span class="sr-only">Search by receipt number or pet name</span>
+    <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">{% include "components/icon.html" with name="search" %}</span>
+    <input type="search" name="q" value="{{ q }}" placeholder="Receipt no. or pet name" class="block min-h-12 w-full rounded-xl border border-gray-300 bg-white pl-12 pr-4 text-base text-gray-900 placeholder:text-gray-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200">
+  </label>
+  <label class="flex items-center gap-3">
+    <span class="shrink-0 text-base font-semibold text-gray-900">Show</span>
+    <select name="period" class="block min-h-12 w-full rounded-xl border border-gray-300 bg-white px-4 text-base text-gray-900 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200">
+      {% for value, label in period_options %}<option value="{{ value }}"{% if value == period %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </label>
+  <button type="submit" class="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-4 text-base font-semibold text-gray-800 hover:bg-gray-50">{% include "components/icon.html" with name="search" %}Search</button>
+</form>

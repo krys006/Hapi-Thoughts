@@ -9,6 +9,11 @@ urlpatterns = [
         "register/pending/", views.owner_register_pending, name="owner_register_pending"
     ),
     path(
+        "resend-verification/",
+        views.owner_resend_verification,
+        name="owner_resend_verification",
+    ),
+    path(
         "verify-email/<uidb64>/<token>/",
         views.owner_verify_email,
         name="owner_verify_email",
@@ -16,6 +21,8 @@ urlpatterns = [
     path("logout/", views.user_logout, name="logout"),
     # Admin auth
     path("admin-login/", views.admin_login, name="admin_login"),
+    # Pet Owner account hub
+    path("owner/account/", views.owner_account, name="owner_account"),
     # onboarding
     path("owner/onboarding/", views.owner_onboarding, name="owner_onboarding"),
     # Walk-in client registration (Admin only)

@@ -1,0 +1,9 @@
+{% comment %}
+  About / Vaccines / Records as real links (?tab=), the open one marked with
+  aria-current="page". Needs tabs, tab.
+{% endcomment %}
+<nav aria-label="About this pet" class="grid grid-cols-3 gap-1 rounded-xl bg-gray-200 p-1">
+  {% for item in tabs %}
+    <a href="{{ item.url }}" class="flex min-h-11 items-center justify-center rounded-lg text-base {% if item.key == tab %}bg-white font-semibold text-gray-900 shadow-sm ring-1 ring-gray-300{% else %}font-medium text-gray-700 hover:bg-gray-100{% endif %}"{% if item.key == tab %} aria-current="page"{% endif %}>{{ item.label }}</a>
+  {% endfor %}
+</nav>

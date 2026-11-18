@@ -16,6 +16,23 @@ urlpatterns = [
         views.onboarding_step2,
         name="owner_onboarding_step2",
     ),
+    path(
+        "owner/onboarding/step3/",
+        views.onboarding_step3,
+        name="owner_onboarding_step3",
+    ),
+    # HTMX, for the owner (step 1 runs before a PetOwner row exists): the
+    # address form's Barangay options and the pet form's Breed options
+    path(
+        "owner/address/barangays/",
+        views.owner_address_barangays,
+        name="owner_address_barangays",
+    ),
+    path(
+        "owner/pets/breed-options/",
+        views.owner_pet_breed_options,
+        name="owner_pet_breed_options",
+    ),
     # --- Profile ---
     path(
         "owner/profile/",

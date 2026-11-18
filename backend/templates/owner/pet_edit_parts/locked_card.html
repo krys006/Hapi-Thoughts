@@ -1,0 +1,17 @@
+{% comment %}
+  "Only the clinic can change these": the locked rows, each with a lock icon,
+  and who to tell. An empty value shows a gray "None". Needs locked_rows,
+  clinic_phone ("" when the clinic has no number).
+{% endcomment %}
+<section class="rounded-2xl border border-gray-200 bg-gray-50 px-4 pb-2 pt-4" aria-labelledby="locked-title">
+  <h2 id="locked-title" class="text-lg font-bold text-gray-900">Only the clinic can change these</h2>
+  <p class="mt-1 text-base text-gray-700">Something wrong here? Tell the clinic at your next visit{% if clinic_phone %} or call {{ clinic_phone }}{% endif %}.</p>
+  <dl class="mt-1 divide-y divide-gray-200">
+    {% for label, value in locked_rows %}
+      <div class="flex items-center justify-between gap-4 py-3">
+        <dt class="text-base text-gray-700">{{ label }}</dt>
+        <dd class="flex items-center gap-2 text-base font-semibold text-gray-800">{% if value %}{{ value }}{% else %}<span class="font-normal text-gray-500">None</span>{% endif %}{% include "components/icon.html" with name="lock" class="size-4 shrink-0 text-gray-600" %}</dd>
+      </div>
+    {% endfor %}
+  </dl>
+</section>

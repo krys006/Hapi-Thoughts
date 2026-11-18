@@ -21,9 +21,10 @@ from .forms import (
     AdminPetForm,
     AdminPetOwnerForm,
     ContactLinkFormSet,
-    PetDeletionRequestForm,
-    PetForm,
-    PetOwnerProfileForm,
+    OwnerDetailsForm,
+    OwnerOnboardingForm,
+    OwnerPetEditForm,
+    OwnerPetForm,
 )
 
 from .models import (
@@ -44,15 +45,27 @@ from .utils import (
     owner_account_state,
     owner_detail_context,
     owner_list_context,
+    owner_pet_edit_context,
+    owner_pet_profile_context,
+    owner_pets_context,
     pet_detail_context,
     pet_archive_refusal,
     pet_list_context,
     pet_restore_refusal,
+    contact_link_initial,
+    onboarding_owner,
+    onboarding_step1_context,
+    request_pet_removal,
+    save_owner_profile,
+    species_from_params,
+    take_back_removal_request,
+    town_from_params,
 )
 
 from accounts.utils import (
     WALKIN_NO_EMAIL_TAKEN,
     WALKIN_SAVE_FAILED,
+    owner_profile_required,
     send_claim_email,
 )
 
@@ -88,26 +101,23 @@ def onboarding_step1(request):
     if guard:
         return guard
 
-    # If already onboarded, skip the whole flow
-    if request.user.is_onboarded:
+    # A second visit (Back, a new browser session) works on the saved row
+    existing = PetOwner.objects.filter(user=request.user).first()
+
+    # If already onboarded, skip the whole flow. A user flagged onboarded
+    # but with no PetOwner row must still fill in step 1 (no redirect loop).
+    if request.user.is_onboarded and existing:
         return redirect("owner_dashboard")
 
     if request.method == "POST":
-        profile_form = PetOwnerProfileForm(request.POST, request.FILES)
+        # The address is required here (OwnerOnboardingForm)
+        profile_form = OwnerOnboardingForm(
+            request.POST, request.FILES, instance=existing
+        )
         link_formset = ContactLinkFormSet(request.POST, prefix="links")
 
         if profile_form.is_valid() and link_formset.is_valid():
-            # Save the PetOwner record linked to this user
-            pet_owner = profile_form.save(commit=False)
-            pet_owner.user = request.user
-            pet_owner.save()
-
-            # Save contact links — skip blank rows
-            for form in link_formset:
-                if form.is_valid() and not form.is_empty():
-                    link = form.save(commit=False)
-                    link.owner = pet_owner
-                    link.save()
+            pet_owner = save_owner_profile(profile_form, link_formset, request.user)
 
             # Store the new owner's PK in the session so Step 2 can find it
             # without a DB query on the user object.
@@ -117,19 +127,13 @@ def onboarding_step1(request):
             return redirect("owner_onboarding_step2")
 
     else:
-        profile_form = PetOwnerProfileForm()
-        link_formset = ContactLinkFormSet(prefix="links")
+        profile_form = OwnerOnboardingForm(instance=existing)
+        link_formset = ContactLinkFormSet(
+            prefix="links", initial=contact_link_initial(existing)
+        )
 
-    return render(
-        request,
-        "owner/onboarding/step1.html",
-        {
-            "profile_form": profile_form,
-            "link_formset": link_formset,
-            # Used by the template to show which step is active
-            "current_step": 1,
-        },
-    )
+    context = onboarding_step1_context(profile_form, link_formset)
+    return render(request, "owner/onboarding/step1.html", context)
 
 
 # ---------------------------------------------------------------------------
@@ -148,17 +152,10 @@ def onboarding_step2(request):
     if request.user.is_onboarded:
         return redirect("owner_dashboard")
 
-    # Guard: Step 2 requires Step 1 to have been completed first.
-    # If someone navigates directly to step 2 without a session key,
-    # send them back to step 1.
-    owner_id = request.session.get("onboarding_owner_id")
-    if not owner_id:
-        return redirect("owner_onboarding_step1")
-
-    # Safely fetch the PetOwner — if something is wrong, restart onboarding
-    try:
-        pet_owner = PetOwner.objects.get(pk=owner_id, user=request.user)
-    except PetOwner.DoesNotExist:
+    # Step 2 needs step 1 done first: no session key (or a wrong one) means
+    # back to step 1
+    pet_owner = onboarding_owner(request.session, request.user)
+    if pet_owner is None:
         return redirect("owner_onboarding_step1")
 
     if request.method == "POST":
@@ -168,31 +165,51 @@ def onboarding_step2(request):
             _complete_onboarding(request)
             return redirect("owner_dashboard")
 
-        # --- Pet form submitted ---
-        pet_form = PetForm(request.POST, request.FILES)
-        if pet_form.is_valid():
-            pet = pet_form.save(commit=False)
+        # --- Pet form submitted --- (the owner is the one from step 1,
+        # never a posted value)
+        form = OwnerPetForm(request.POST, request.FILES)
+        if form.is_valid():
+            pet = form.save(commit=False)
             pet.owner = pet_owner
             pet.save()
 
             _complete_onboarding(request)
-            messages.success(
-                request,
-                f"{pet.name} has been added. Welcome to Hapi Vet!",
-            )
-            return redirect("owner_dashboard")
+            # Step 3 shows this pet
+            request.session["onboarding_pet_id"] = pet.pk
+            return redirect("owner_onboarding_step3")
 
     else:
-        pet_form = PetForm()
+        form = OwnerPetForm()
 
     return render(
         request,
         "owner/onboarding/step2.html",
-        {
-            "pet_form": pet_form,
-            "pet_owner": pet_owner,
-            "current_step": 2,
-        },
+        {"form": form, "pet_owner": pet_owner},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Onboarding — Step 3: Pet added
+# ---------------------------------------------------------------------------
+
+
+@login_required
+@owner_profile_required
+def onboarding_step3(request):
+    guard = _require_pet_owner(request)
+    if guard:
+        return guard
+
+    # Only right after step 2 saved a pet (the session key); a refresh works
+    pets = Pet.objects.filter(owner=request.owner, is_archived=False).order_by("pk")
+    pet = pets.filter(pk=request.session.get("onboarding_pet_id")).first()
+    if pet is None:
+        return redirect("owner_dashboard")
+
+    return render(
+        request,
+        "owner/onboarding/step3.html",
+        {"pet": pet, "pets": pets},
     )
 
 
@@ -218,33 +235,13 @@ def _complete_onboarding(request):
 
 
 @login_required
+@owner_profile_required
 def owner_profile(request):
-    # Role check
+    """The old read-only profile page: My details replaces it (8b-9a)."""
     guard = _require_pet_owner(request)
     if guard:
         return guard
-
-    # Fetch the owner record — if missing, something went wrong in onboarding
-    try:
-        pet_owner = PetOwner.objects.get(user=request.user)
-    except PetOwner.DoesNotExist:
-        # Safety net — reset onboarding flag and send them back through
-        request.user.is_onboarded = False
-        request.user.save(update_fields=["is_onboarded"])
-        return redirect("owner_onboarding_step1")
-
-    contact_links = pet_owner.contact_links.all()
-    preference = request.user.notification_preference
-
-    return render(
-        request,
-        "owner/profile/index.html",
-        {
-            "pet_owner": pet_owner,
-            "contact_links": contact_links,
-            "preference": preference,
-        },
-    )
+    return redirect("owner_profile_edit")
 
 
 # ---------------------------------------------------------------------------
@@ -253,62 +250,39 @@ def owner_profile(request):
 
 
 @login_required
+@owner_profile_required
 def owner_profile_edit(request):
-    # Role check
+    """My details (Account tab): name, mobile, address, photo and contact
+    links of the signed-in owner. The email is shown, never posted."""
     guard = _require_pet_owner(request)
     if guard:
         return guard
 
-    try:
-        pet_owner = PetOwner.objects.get(user=request.user)
-    except PetOwner.DoesNotExist:
-        request.user.is_onboarded = False
-        request.user.save(update_fields=["is_onboarded"])
-        return redirect("owner_onboarding_step1")
+    pet_owner = request.owner
+    # Read before the form is bound: a posted photo would replace it
+    photo_url = pet_owner.profile_photo.url if pet_owner.profile_photo else ""
 
     if request.method == "POST":
-        profile_form = PetOwnerProfileForm(
-            request.POST,
-            request.FILES,
-            instance=pet_owner,
-        )
+        profile_form = OwnerDetailsForm(request.POST, request.FILES, instance=pet_owner)
         link_formset = ContactLinkFormSet(request.POST, prefix="links")
 
         if profile_form.is_valid() and link_formset.is_valid():
-            profile_form.save()
+            # Profile and links save together; links are replaced, not
+            # matched row by row (see save_owner_profile)
+            save_owner_profile(profile_form, link_formset, request.user)
 
-            # Handle contact links:
-            # Delete all existing links and replace with new ones.
-            # Simpler and safer than trying to match and update individual rows.
-            pet_owner.contact_links.all().delete()
-            for form in link_formset:
-                if form.is_valid() and not form.is_empty():
-                    link = form.save(commit=False)
-                    link.owner = pet_owner
-                    link.save()
-
-            messages.success(request, "Profile updated successfully.")
-            return redirect("owner_profile")
+            messages.success(request, "Your details are saved.")
+            return redirect("owner_account")
 
     else:
-        profile_form = PetOwnerProfileForm(instance=pet_owner)
-        # Pre-populate formset with existing contact links
-        existing_links = pet_owner.contact_links.all()
-        initial_data = [
-            {"platform": link.platform, "url_or_handle": link.url_or_handle}
-            for link in existing_links
-        ]
-        link_formset = ContactLinkFormSet(prefix="links", initial=initial_data)
+        profile_form = OwnerDetailsForm(instance=pet_owner)
+        link_formset = ContactLinkFormSet(
+            prefix="links", initial=contact_link_initial(pet_owner)
+        )
 
-    return render(
-        request,
-        "owner/profile/edit.html",
-        {
-            "profile_form": profile_form,
-            "link_formset": link_formset,
-            "pet_owner": pet_owner,
-        },
-    )
+    context = onboarding_step1_context(profile_form, link_formset)
+    context.update(pet_owner=pet_owner, photo_url=photo_url)
+    return render(request, "owner/profile/edit.html", context)
 
 
 # ---------------------------------------------------------------------------
@@ -317,33 +291,15 @@ def owner_profile_edit(request):
 
 
 @login_required
+@owner_profile_required
 def owner_pet_list(request):
     guard = _require_pet_owner(request)
     if guard:
         return guard
 
-    pet_owner = get_object_or_404(PetOwner, user=request.user)
-
-    # Only show active (non-archived) pets
-    pets = Pet.objects.filter(owner=pet_owner, is_archived=False)
-
-    # Check which pets have a pending deletion request
-    # Used in template to show the "Pending deletion" badge
-    pending_deletion_pks = set(
-        PetDeletionRequest.objects.filter(
-            pet__in=pets,
-            status=PetDeletionRequest.PENDING,
-        ).values_list("pet_id", flat=True)
-    )
-
-    return render(
-        request,
-        "owner/pets/list.html",
-        {
-            "pets": pets,
-            "pending_deletion_pks": pending_deletion_pks,
-        },
-    )
+    # The owner's own non-archived pets, search and type filter (8b-4)
+    context = owner_pets_context(request.owner, request.GET)
+    return render(request, "owner/pets/list.html", context)
 
 
 # ---------------------------------------------------------------------------
@@ -352,38 +308,21 @@ def owner_pet_list(request):
 
 
 @login_required
+@owner_profile_required
 def owner_pet_detail(request, pk):
     guard = _require_pet_owner(request)
     if guard:
         return guard
 
-    pet_owner = get_object_or_404(PetOwner, user=request.user)
-    pet = get_object_or_404(Pet, pk=pk, owner=pet_owner, is_archived=False)
+    pet = get_object_or_404(Pet, pk=pk, owner=request.owner, is_archived=False)
 
-    pending_deletion = PetDeletionRequest.objects.filter(
-        pet=pet,
-        status=PetDeletionRequest.PENDING,
-    ).first()
-
-    # Medical history — public notes only, no private_notes in context
-    medical_records = MedicalRecord.objects.filter(
-        pet=pet,
-    ).order_by("-record_date")
-
-    vaccinations = Vaccination.objects.filter(
-        pet=pet,
-    ).order_by("-date_administered")
-
-    return render(
-        request,
-        "owner/pets/detail.html",
-        {
-            "pet": pet,
-            "pending_deletion": pending_deletion,
-            "medical_records": medical_records,
-            "vaccinations": vaccinations,
-        },
+    # One clock read (Manila); ?tab=about|vaccines|records picks the panel.
+    # The page never loads private_notes or correction_note.
+    now = timezone.now()
+    context = owner_pet_profile_context(
+        request.owner, pet, request.GET, timezone.localdate(now), now
     )
+    return render(request, "owner/pets/detail.html", context)
 
 
 # ---------------------------------------------------------------------------
@@ -392,30 +331,46 @@ def owner_pet_detail(request, pk):
 
 
 @login_required
+@owner_profile_required
 def owner_pet_add(request):
     guard = _require_pet_owner(request)
     if guard:
         return guard
 
-    pet_owner = get_object_or_404(PetOwner, user=request.user)
+    pet_owner = request.owner
+    # ?next=book (or the hidden field after a failed save) is a fixed choice,
+    # never a URL: anything else is ignored.
+    next_value = request.POST.get("next") or request.GET.get("next")
+    back_to_booking = next_value == "book"
 
     if request.method == "POST":
-        form = PetForm(request.POST, request.FILES)
+        form = OwnerPetForm(request.POST, request.FILES)
         if form.is_valid():
             pet = form.save(commit=False)
             pet.owner = pet_owner
             pet.save()
+            if back_to_booking:
+                messages.success(
+                    request, f"{pet.name} was added. Now pick what the visit is for."
+                )
+                book_url = reverse("owner_book_appointment")
+                return redirect(f"{book_url}?pet={pet.pk}")
             messages.success(request, f"{pet.name} has been added.")
             return redirect("owner_pet_detail", pk=pet.pk)
 
     else:
-        form = PetForm()
+        form = OwnerPetForm()
 
+    # The back bar: "Back to booking" with ?next=book, else "Back to My Pets"
+    back_name = "owner_book_appointment" if back_to_booking else "owner_pet_list"
     return render(
         request,
         "owner/pets/add.html",
         {
             "form": form,
+            "next_value": "book" if back_to_booking else "",
+            "back_url": reverse(back_name),
+            "back_label": "booking" if back_to_booking else "My Pets",
         },
     )
 
@@ -426,44 +381,38 @@ def owner_pet_add(request):
 
 
 @login_required
+@owner_profile_required
 def owner_pet_edit(request, pk):
     guard = _require_pet_owner(request)
     if guard:
         return guard
 
-    pet_owner = get_object_or_404(PetOwner, user=request.user)
-    pet = get_object_or_404(Pet, pk=pk, owner=pet_owner, is_archived=False)
+    pet = get_object_or_404(Pet, pk=pk, owner=request.owner, is_archived=False)
 
-    # Block editing if a deletion request is pending
-    pending_deletion = PetDeletionRequest.objects.filter(
-        pet=pet,
-        status=PetDeletionRequest.PENDING,
-    ).first()
-    if pending_deletion:
+    # No editing while the clinic is looking at a removal request
+    waiting = PetDeletionRequest.objects.filter(
+        pet=pet, status=PetDeletionRequest.PENDING
+    )
+    if waiting.exists():
         messages.warning(
             request,
-            "You cannot edit a pet while a deletion request is pending.",
+            f"You can't edit {pet.name} while a removal request is waiting.",
         )
         return redirect("owner_pet_detail", pk=pet.pk)
 
+    # Read from the saved pet, before the form changes it in memory
+    context = owner_pet_edit_context(pet)
     if request.method == "POST":
-        form = PetForm(request.POST, request.FILES, instance=pet)
+        form = OwnerPetEditForm(request.POST, request.FILES, instance=pet)
         if form.is_valid():
-            form.save()
-            messages.success(request, f"{pet.name} has been updated.")
+            pet = form.save()
+            messages.success(request, f"{pet.name}'s details were saved.")
             return redirect("owner_pet_detail", pk=pet.pk)
-
     else:
-        form = PetForm(instance=pet)
+        form = OwnerPetEditForm(instance=pet)
 
-    return render(
-        request,
-        "owner/pets/edit.html",
-        {
-            "form": form,
-            "pet": pet,
-        },
-    )
+    context["form"] = form
+    return render(request, "owner/pets/edit.html", context)
 
 
 # ---------------------------------------------------------------------------
@@ -472,52 +421,21 @@ def owner_pet_edit(request, pk):
 
 
 @login_required
+@owner_profile_required
 def owner_pet_delete_request(request, pk):
     guard = _require_pet_owner(request)
     if guard:
         return guard
 
-    pet_owner = get_object_or_404(PetOwner, user=request.user)
-    pet = get_object_or_404(Pet, pk=pk, owner=pet_owner, is_archived=False)
+    pet = get_object_or_404(Pet, pk=pk, owner=request.owner, is_archived=False)
 
-    # Prevent duplicate pending requests
-    existing_request = PetDeletionRequest.objects.filter(
-        pet=pet,
-        status=PetDeletionRequest.PENDING,
-    ).first()
-    if existing_request:
-        messages.warning(
-            request,
-            "A deletion request for this pet is already pending.",
-        )
-        return redirect("owner_pet_detail", pk=pet.pk)
-
+    # The sheet on the profile posts here. A GET changes nothing; the answer
+    # is always a flash on the profile (no reason picked: an error, no row).
     if request.method == "POST":
-        form = PetDeletionRequestForm(request.POST)
-        if form.is_valid():
-            deletion_request = form.save(commit=False)
-            deletion_request.pet = pet
-            deletion_request.requested_by = request.user
-            deletion_request.status = PetDeletionRequest.PENDING
-            deletion_request.save()
-            messages.success(
-                request,
-                f"Deletion request for {pet.name} has been submitted. "
-                "The clinic will review your request.",
-            )
-            return redirect("owner_pet_detail", pk=pet.pk)
+        level, text = request_pet_removal(pet, request.user, request.POST.get("reason"))
+        messages.add_message(request, level, text)
 
-    else:
-        form = PetDeletionRequestForm()
-
-    return render(
-        request,
-        "owner/pets/delete_request.html",
-        {
-            "form": form,
-            "pet": pet,
-        },
-    )
+    return redirect("owner_pet_detail", pk=pet.pk)
 
 
 # ---------------------------------------------------------------------------
@@ -526,29 +444,25 @@ def owner_pet_delete_request(request, pk):
 
 
 @login_required
+@owner_profile_required
 def owner_pet_cancel_delete_request(request, pk):
     guard = _require_pet_owner(request)
     if guard:
         return guard
 
-    pet_owner = get_object_or_404(PetOwner, user=request.user)
+    pet_owner = request.owner
     pet = get_object_or_404(Pet, pk=pk, owner=pet_owner, is_archived=False)
 
-    # Only allow cancelling PENDING requests
-    deletion_request = get_object_or_404(
-        PetDeletionRequest,
-        pet=pet,
-        requested_by=request.user,
-        status=PetDeletionRequest.PENDING,
-    )
-
-    # Only process on POST — prevents accidental cancellation via GET
+    # POST only: a GET changes nothing. The request is kept as CANCELLED
+    # (never deleted), so the clinic's history stays whole.
     if request.method == "POST":
-        deletion_request.delete()
-        messages.success(
-            request,
-            f"Deletion request for {pet.name} has been cancelled.",
-        )
+        if take_back_removal_request(pet, request.user):
+            messages.success(
+                request,
+                f"Removal request taken back. {pet.name} stays on your account.",
+            )
+        else:
+            messages.info(request, "There's no removal request to take back.")
 
     return redirect("owner_pet_detail", pk=pet.pk)
 
@@ -715,11 +629,28 @@ def admin_address_barangays(request):
     if guard:
         return guard
 
-    town = request.GET.get("town", request.GET.get("address_town", ""))
     return render(
         request,
         "admin/pets/_barangay_options.html",
-        {"options": barangay_choices(town)},
+        {"options": barangay_choices(town_from_params(request.GET))},
+    )
+
+
+@login_required
+def owner_address_barangays(request):
+    """
+    HTMX, for the owner: the same Barangay <option> list as the admin one
+    (same partial, same ?town= / ?address_town= params). No PetOwner row is
+    needed: onboarding step 1 uses it before the row exists.
+    """
+    guard = _require_pet_owner(request)
+    if guard:
+        return guard
+
+    return render(
+        request,
+        "admin/pets/_barangay_options.html",
+        {"options": barangay_choices(town_from_params(request.GET))},
     )
 
 
@@ -734,11 +665,28 @@ def admin_pet_breed_options(request):
     if guard:
         return guard
 
-    species = request.GET.get("species", request.GET.get("species_choice", ""))
     return render(
         request,
         "admin/pets/_breed_options.html",
-        {"options": breed_choices(species)},
+        {"options": breed_choices(species_from_params(request.GET))},
+    )
+
+
+@login_required
+def owner_pet_breed_options(request):
+    """
+    HTMX, for the owner: the same Breed <option> list as the admin one (same
+    partial, same ?species= / ?species_choice= params). No PetOwner row is
+    needed: onboarding step 2 can use it as soon as step 1 is saved.
+    """
+    guard = _require_pet_owner(request)
+    if guard:
+        return guard
+
+    return render(
+        request,
+        "admin/pets/_breed_options.html",
+        {"options": breed_choices(species_from_params(request.GET))},
     )
 
 

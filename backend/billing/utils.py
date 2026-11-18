@@ -1,17 +1,21 @@
 """Shared billing logic for the receipt views (Slice 6)."""
 
+import calendar
+import datetime
 from decimal import Decimal
+from itertools import groupby
 from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
-from django.db.models.functions import Lower
+from django.db.models.functions import Coalesce, Lower
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateformat import format as date_format
 from django.utils.text import capfirst
 
 from appointments.models import Appointment
@@ -24,7 +28,7 @@ from appointments.utils import (
     walkin_owner_list,
 )
 from medical.utils import short_date
-from notifications.utils import notify
+from notifications.utils import compact_message, notify
 from pets.models import Pet, PetOwner
 
 from .forms import SERVICE_STATUS_CHOICES, billable_services, peso, service_options
@@ -116,19 +120,36 @@ def mark_receipt_cancelled(receipt):
 
 
 def receipt_paid_title(receipt):
-    """ "Receipt HV-2026-0012 for Bantay" ("Receipt HV-2026-0012" with no pet)."""
-    title = f"Receipt {receipt.receipt_number}"
-    return f"{title} for {receipt.pet.name}" if receipt.pet else title
+    """The owner notification's short title: "Bill paid: ₱1,450.00"."""
+    return f"Bill paid: {peso(receipt.total_amount)}"
+
+
+def receipt_paid_compact(receipt, today):
+    """The compact message: "Bantay · HV-2026-0012. Paid on Fri, Nov 6."
+    (no pet: "HV-2026-0012. Paid on Fri, Nov 6."; the year only when the
+    payment date isn't in this year)."""
+    detail = (
+        f"{receipt.receipt_number}. "
+        f"Paid on {short_date(receipt.payment_date, today)}."
+    )
+    return compact_message(receipt.pet.name if receipt.pet else "", detail)
 
 
 def receipt_paid_message(receipt, today):
     """ "Paid ₱1,450.00 on Fri, Nov 6. You can view or print it in Billing."
-    (the year only when the payment date isn't in this year)."""
+    (the year only when the payment date isn't in this year). The email body."""
     return (
         f"Paid {peso(receipt.total_amount)} on "
         f"{short_date(receipt.payment_date, today)}. "
         "You can view or print it in Billing."
     )
+
+
+def receipt_paid_subject(receipt):
+    """The email subject, which names the pet: "Receipt HV-2026-0012 for
+    Bantay — Hapi Vet" ("Receipt HV-2026-0012 — Hapi Vet" with no pet)."""
+    for_pet = f" for {receipt.pet.name}" if receipt.pet else ""
+    return f"Receipt {receipt.receipt_number}{for_pet} — Hapi Vet"
 
 
 def notify_receipt_paid(receipt):
@@ -137,14 +158,16 @@ def notify_receipt_paid(receipt):
     if not (receipt.owner and receipt.owner.user):
         return
     title = receipt_paid_title(receipt)
+    today = timezone.localdate()
     notify(
         recipient=receipt.owner.user,
         notification_type="billing_generated",
         title=title,
-        message=receipt_paid_message(receipt, timezone.localdate()),
+        message=receipt_paid_compact(receipt, today),
         related_billing=receipt,
         related_pet=receipt.pet,
-        email_subject=f"{title} — Hapi Vet",
+        email_subject=receipt_paid_subject(receipt),
+        email_body=receipt_paid_message(receipt, today),
     )
 
 
@@ -157,6 +180,173 @@ def owner_receipts(owner):
     return BillingReceipt.objects.filter(
         owner=owner, payment_status__in=OWNER_RECEIPT_STATUSES
     )
+
+
+# ── Owner bills page (Slice 8a-2a) ───────────────────────────────────────────
+
+OWNER_BILLS_PAGE_SIZE = 25
+
+
+def owner_period_options(today):
+    """The History "Show" options as (value, label), All time first."""
+    return [
+        ("all", "All time"),
+        ("month", "This month"),
+        ("3m", "Last 3 months"),
+        ("year", f"This year ({today.year})"),
+        ("last_year", f"Last year ({today.year - 1})"),
+    ]
+
+
+def _months_ago(day, months):
+    """The date `months` calendar months before day (the day number is cut to
+    the month's length: May 31 minus 3 months is Feb 28)."""
+    year, month_index = divmod(day.year * 12 + day.month - 1 - months, 12)
+    last = calendar.monthrange(year, month_index + 1)[1]
+    return datetime.date(year, month_index + 1, min(day.day, last))
+
+
+def _paid_period_filter(period, today):
+    """A Q on paid_on for one period value ("all" keeps everything)."""
+    if period == "month":
+        first = today.replace(day=1)
+        last = first.replace(day=calendar.monthrange(first.year, first.month)[1])
+        return Q(paid_on__range=(first, last))
+    if period == "3m":
+        return Q(paid_on__gt=_months_ago(today, 3))
+    if period in ("year", "last_year"):
+        year = today.year - (period == "last_year")
+        first, last = datetime.date(year, 1, 1), datetime.date(year, 12, 31)
+        return Q(paid_on__range=(first, last))
+    return Q()
+
+
+def _bills_history(owner, q, period, today):
+    """Paid receipts, newest paid first, narrowed by search and period.
+    Every word in q must match the receipt number, the pet's name or one of
+    the items' descriptions (case-insensitive)."""
+    rows = (
+        owner_receipts(owner)
+        .filter(payment_status=BillingReceipt.PAID)
+        .select_related("pet")
+        # Paid date; the billing date for a receipt with no payment date
+        .annotate(paid_on=Coalesce("payment_date", "billing_date"))
+        .filter(_paid_period_filter(period, today))
+    )
+    for word in q.split():
+        # A subquery (not a join on items) keeps one row per receipt
+        with_item = BillingItem.objects.filter(description__icontains=word)
+        rows = rows.filter(
+            Q(receipt_number__icontains=word)
+            | Q(pet__name__icontains=word)
+            | Q(pk__in=with_item.values("receipt_id"))
+        )
+    return rows.order_by("-paid_on", "-pk")
+
+
+def owner_bill_groups(receipts):
+    """The history rows (each with paid_on) under month headings
+    ("October 2026"), in their order."""
+    groups = []
+    for _key, rows in groupby(receipts, key=lambda r: r.paid_on.strftime("%Y-%m")):
+        rows = list(rows)
+        label = date_format(rows[0].paid_on, "F Y")
+        groups.append({"label": label, "receipts": rows})
+    return groups
+
+
+def owner_bills_context(owner, params, today):
+    """
+    Context for the owner's Bills page. to_pay is every unpaid receipt, oldest
+    first, never filtered (with to_pay_count and to_pay_total). history is the
+    page of paid receipts, newest paid first, narrowed by ?q= and ?period=
+    (unknown period → all), 25 a page, and history_groups the same rows under
+    month headings. has_history is whether the owner has any paid receipt at
+    all, whatever the filter; has_bills adds the unpaid ones. receipts (every
+    visible receipt, as the old page reads it) stays. Cancelled receipts appear
+    nowhere. Three queries however many receipts: unpaid, history count,
+    history page (a filter with no match adds one more to see whether any bill
+    is paid at all).
+    """
+    q = params.get("q", "").strip()
+    period = params.get("period")
+    if period not in {value for value, _ in owner_period_options(today)}:
+        period = "all"
+
+    to_pay = list(
+        owner_receipts(owner)
+        .filter(payment_status=BillingReceipt.PENDING)
+        .select_related("pet")
+        .order_by("billing_date", "created_at", "pk")
+    )
+    page_obj = Paginator(
+        _bills_history(owner, q, period, today), OWNER_BILLS_PAGE_SIZE
+    ).get_page(params.get("page"))
+    kept = {"q": q, "period": "" if period == "all" else period}
+    page_query = urlencode({name: v for name, v in kept.items() if v})
+    is_filtering = bool(q) or period != "all"
+    has_history = bool(page_obj.paginator.count) or (
+        is_filtering and _bills_history(owner, "", "all", today).exists()
+    )
+    return {
+        "receipts": owner_receipts(owner)
+        .select_related("pet")
+        .order_by("-billing_date", "-created_at"),
+        "to_pay": to_pay,
+        "to_pay_count": len(to_pay),
+        "to_pay_total": sum((r.total_amount for r in to_pay), Decimal("0")),
+        "history": list(page_obj),
+        "history_groups": owner_bill_groups(page_obj),
+        "has_history": has_history,
+        "has_bills": bool(to_pay) or has_history,
+        "page_obj": page_obj,
+        "q": q,
+        "period": period,
+        "period_options": owner_period_options(today),
+        "is_filtering": is_filtering,
+        "today": today,
+        **paging_links(page_obj, page_query),
+    }
+
+
+def owner_discount_text(receipt):
+    """What goes in the brackets after "Discount" on the owner's receipt:
+    "Loyal client, 10%", "10%", a peso discount's reason, or "" (no discount)."""
+    if not receipt.has_discount:
+        return ""
+    if receipt.discount_type != BillingReceipt.PERCENTAGE:
+        return receipt.discount_note
+    percent = f"{_plain_number(receipt.discount_value)}%"
+    note = receipt.discount_note
+    return f"{note}, {percent}" if note else percent
+
+
+def owner_receipt_visit_line(visit):
+    """ "Consultation · Nov 2, 3:00 PM" for the visit a receipt is for, or ""."""
+    if visit is None:
+        return ""
+    service = visit.service.service_name if visit.service else "Visit"
+    when = f"{date_format(visit.date, 'M j')}, {date_format(visit.time, 'g:i A')}"
+    return f"{service} · {when}"
+
+
+def owner_receipt_context(receipt):
+    """
+    Context for the owner's receipt page. receipt comes from
+    owner_receipts() with pet, owner and the visit (and its service) loaded.
+    The items are one query. is_paid shows the paid banner and Print; the
+    visit line is "" when the receipt has no visit. discount_label is the
+    printout's wording, discount_text the page's.
+    """
+    return {
+        "receipt": receipt,
+        "items": list(receipt_items(receipt)),
+        "is_paid": receipt.payment_status == BillingReceipt.PAID,
+        "discount_label": discount_label(receipt),
+        "discount_text": owner_discount_text(receipt),
+        "visit": receipt.appointment,
+        "visit_line": owner_receipt_visit_line(receipt.appointment),
+    }
 
 
 def _save_with_new_number(receipt):

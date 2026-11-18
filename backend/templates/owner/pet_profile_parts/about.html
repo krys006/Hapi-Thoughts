@@ -1,0 +1,30 @@
+{% comment %}
+  About tab: the pet's next visit (one link; blue for Confirmed, yellow for
+  Waiting for approval; nothing without one), the Details card with Edit, and
+  the quiet Remove button. Edit and Remove are left out while a removal is
+  waiting. Needs pet, next_visit, details, pending.
+{% endcomment %}
+<div class="space-y-4">
+  {% if next_visit %}
+    <a href="{% url 'owner_appointment_detail' next_visit.pk %}" class="flex items-center gap-4 rounded-2xl border p-4 {% if next_visit.status == 'pending' %}border-yellow-300 bg-yellow-50 text-yellow-900{% else %}border-blue-200 bg-blue-50 text-blue-900{% endif %}"><span class="grid w-14 shrink-0 place-content-center rounded-xl bg-white py-1.5 text-center ring-1 {% if next_visit.status == 'pending' %}ring-yellow-300{% else %}ring-blue-200{% endif %}"><span class="text-sm font-semibold uppercase">{{ next_visit.date|date:"M" }}</span><span class="text-xl font-bold leading-6">{{ next_visit.date|date:"j" }}</span></span><span class="min-w-0 flex-1"><span class="block text-base font-semibold">Next visit</span><span class="block text-base">{% if next_visit.service %}{{ next_visit.service.service_name }}{% else %}Visit{% endif %} · {{ next_visit.time|time:"g:i A" }} · {% if next_visit.status == 'pending' %}Waiting for approval{% else %}Confirmed{% endif %}</span></span>{% include "components/icon.html" with name="chevron-right" class="size-5 shrink-0" %}</a>
+  {% endif %}
+
+  <section aria-labelledby="details-title" class="rounded-2xl border border-gray-200 bg-white px-4 shadow-sm">
+    <div class="flex items-center justify-between pt-3">
+      <h2 id="details-title" class="text-lg font-bold text-gray-900">Details</h2>
+      {% if not pending %}<a href="{% url 'owner_pet_edit' pet.pk %}" class="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-base font-medium text-blue-600 hover:underline">{% include "components/icon.html" with name="pencil" class="size-4 shrink-0" %}Edit</a>{% endif %}
+    </div>
+    <dl class="divide-y divide-gray-100">
+      {% for label, value in details %}
+        <div class="flex justify-between gap-4 py-3">
+          <dt class="text-base text-gray-700">{{ label }}</dt>
+          <dd class="text-right text-base font-semibold text-gray-900">{% if value %}{{ value }}{% else %}<span class="font-normal text-gray-500">None</span>{% endif %}</dd>
+        </div>
+      {% endfor %}
+    </dl>
+  </section>
+
+  {% if not pending %}
+    <button type="button" data-dialog-open="remove-sheet" class="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-medium text-red-700 hover:bg-red-50">{% include "components/icon.html" with name="archive" class="size-5 shrink-0" %}Remove {{ pet.name }} from my pets</button>
+  {% endif %}
+</div>

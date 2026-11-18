@@ -40,6 +40,10 @@ Nothing is linked (connect()) until every check has passed.
         model default (pet_owner) and allauth redirects to
         ACCOUNT_SIGNUP_REDIRECT_URL (/owner/onboarding/).
 
+Google sign-ups never get the login's "not confirmed" box or a resent
+verification link (they have no usable password; `verification_pending` in
+accounts/utils.py is False for them) - added 2026-11-17.
+
 "Verified" means Google's own extra_data["email_verified"] (or the older
 "verified_email" key) is True or the string "true". Missing or anything else
 means not verified. We do not use sociallogin.email_addresses[].verified,
@@ -54,8 +58,20 @@ Settings (hapivet/settings.py):
 - SOCIALACCOUNT_EMAIL_AUTHENTICATION left unset (False), so allauth never
   links accounts by email on its own. Only the adapter does.
 
-Template (templates/owner/login.html): the Google button is a POST form to
-{% provider_login_url 'google' %} with {% csrf_token %}, not a link.
+Template (templates/owner/auth_parts/google_button.html, since Slice 8b-2): the
+Google button is a POST form to {% provider_login_url 'google' %} with
+{% csrf_token %}, not a link. Look: Google's official "Light, no text, square"
+sign-in icon, white button, gray border (#747775), the coloured G from
+static/img/google_g.svg (the white square and border shapes removed from the
+file, viewBox "10 10 20 20"), text "Continue with Google" on Log in and
+"Sign up with Google" on Create account. The old google-button.css and
+gsi-material-button markup are no longer used.
+
+allauth's own Google pages are overridden in templates/socialaccount/ on
+layouts/owner_auth.html (same names allauth uses): login.html (the
+confirmation page, "Continue with Google?", a POST form), authentication_error.html
+(red box) and login_cancelled.html (blue box), each with a "Back to log in"
+link. Login and callback behaviour is unchanged.
 
 Removed: accounts/signals.py (dead role receiver), ready() in
 accounts/apps.py, and the adapter's save_user and get_connect_redirect_url

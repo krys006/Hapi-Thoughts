@@ -1,397 +1,69 @@
-{% extends 'base_dashboard.html' %}
+{% extends "layouts/owner.html" %}
+{% load billing_extras static %}
 
-{% block title %}{{ receipt.receipt_number }} — Hapi Vet{% endblock %}
+{% block title %}Bill {{ receipt.receipt_number }} — Hapi Vet{% endblock %}
 
+{# Back bar to the Bills list; the Bills tab stays lit (see OWNER_TABS) #}
+{% block top_bar %}{% url 'owner_billing_list' as bills_url %}{% include "layouts/owner_parts/back_bar.html" with url=bills_url label="Bills" %}{% endblock %}
+
+{# Read-only. A cancelled receipt never gets here (404). Print only when paid. #}
 {% block content %}
+<div class="space-y-4">
+  {% if is_paid %}
+    <div class="flex items-start gap-3 rounded-xl border border-green-200 bg-green-50 px-4 py-4 text-green-900">{% include "components/icon.html" with name="circle-check" class="mt-0.5 size-6 shrink-0" %}<div><p class="text-lg font-semibold">Paid on {{ receipt.payment_date|default:receipt.billing_date|date:"M j, Y" }}</p><p class="mt-0.5 text-base">Thank you! Keep this as your receipt.</p></div></div>
+  {% else %}
+    <div class="flex items-start gap-3 rounded-xl border border-yellow-300 bg-yellow-50 px-4 py-4 text-yellow-900">{% include "components/icon.html" with name="receipt" class="mt-0.5 size-6 shrink-0" %}<div><p class="text-lg font-semibold">Please pay {{ receipt.total_amount|peso }} at the clinic</p><p class="mt-0.5 text-base">Cash only. The clinic will mark it paid when you pay.</p></div></div>
+  {% endif %}
 
-<style>
-
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
-
-.owner-page{
-    max-width:430px;
-    margin:0 auto;
-    padding:20px;
-    font-family:'Poppins',sans-serif;
-}
-
-/* HEADER */
-
-.owner-page-header{
-    margin-bottom:25px;
-}
-
-.owner-page-title{
-    color:white;
-    font-size:1.9rem;
-    font-weight:800;
-    margin-bottom:15px;
-}
-
-.header-actions{
-    display:flex;
-    flex-wrap:wrap;
-    gap:10px;
-}
-
-.btn-secondary,
-.btn-link{
-    text-decoration:none;
-    border:none;
-    cursor:pointer;
-    color:white;
-    background:rgba(255,255,255,.15);
-    backdrop-filter:blur(12px);
-    border:1px solid rgba(255,255,255,.2);
-    padding:12px 16px;
-    border-radius:14px;
-    font-size:.9rem;
-}
-
-/* MAIN CARD */
-
-.detail-card{
-
-    background:rgba(255,255,255,.15);
-
-    backdrop-filter:blur(18px);
-
-    border:1px solid rgba(255,255,255,.2);
-
-    border-radius:28px;
-
-    padding:22px;
-
-    box-shadow:
-    0 10px 30px rgba(0,0,0,.12);
-}
-
-/* INFO GRID */
-
-.detail-grid{
-    display:flex;
-    flex-direction:column;
-    gap:14px;
-    margin-bottom:25px;
-}
-
-.detail-row{
-    display:flex;
-    justify-content:space-between;
-    gap:15px;
-}
-
-.detail-label{
-    color:rgba(255,255,255,.75);
-    font-weight:500;
-}
-
-.detail-value{
-    color:white;
-    font-weight:700;
-    text-align:right;
-}
-
-/* STATUS */
-
-.status-badge{
-    padding:6px 12px;
-    border-radius:20px;
-    font-size:.75rem;
-    font-weight:700;
-    text-transform:uppercase;
-}
-
-.status-paid{
-    background:#34d399;
-    color:white;
-}
-
-.status-pending{
-    background:#fbbf24;
-    color:#222;
-}
-
-.status-overdue{
-    background:#ef4444;
-    color:white;
-}
-
-/* ITEMS */
-
-.items-title{
-    color:white;
-    font-size:1.1rem;
-    font-weight:700;
-    margin-bottom:15px;
-}
-
-.items-list{
-    display:flex;
-    flex-direction:column;
-    gap:12px;
-    margin-bottom:25px;
-}
-
-.item-card{
-    background:rgba(255,255,255,.10);
-    border-radius:18px;
-    padding:14px;
-}
-
-.item-name{
-    color:white;
-    font-weight:600;
-    margin-bottom:8px;
-}
-
-.item-meta{
-    display:flex;
-    justify-content:space-between;
-    color:rgba(255,255,255,.85);
-    font-size:.9rem;
-}
-
-.item-total{
-    color:white;
-    font-weight:700;
-    margin-top:8px;
-    text-align:right;
-}
-
-/* TOTALS */
-
-.receipt-totals{
-    border-top:1px solid rgba(255,255,255,.2);
-    padding-top:20px;
-}
-
-.receipt-total-row{
-    display:flex;
-    justify-content:space-between;
-    margin-bottom:12px;
-    color:white;
-}
-
-.receipt-total-row--discount{
-    color:#ffdb6e;
-}
-
-.text-discount{
-    color:#ffdb6e;
-    font-weight:700;
-}
-
-.receipt-total-row--grand{
-    font-size:1.25rem;
-    font-weight:800;
-    padding-top:12px;
-    border-top:1px solid rgba(255,255,255,.2);
-}
-
-/* MOBILE */
-
-@media(max-width:480px){
-
-    .owner-page-title{
-        font-size:1.6rem;
-    }
-
-    .detail-row{
-        flex-direction:column;
-        gap:4px;
-    }
-
-    .detail-value{
-        text-align:left;
-    }
-
-}
-
-@media print{
-
-    .no-print{
-        display:none !important;
-    }
-
-}
-
-</style>
-
-<div class="owner-page">
-
-    <div class="owner-page-header">
-
-        <h1 class="owner-page-title">
-            {{ receipt.receipt_number }}
-        </h1>
-
-        <div class="header-actions">
-
-            <button
-                type="button"
-                class="btn-secondary no-print"
-                onclick="window.print()">
-
-                🖨 Print / Save PDF
-
-            </button>
-
-            <a href="{% url 'owner_billing_list' %}"
-               class="btn-link no-print">
-
-                ← Back to Billing
-
-            </a>
-
-        </div>
-
+  <article class="rounded-2xl border border-gray-200 bg-white shadow-sm">
+    <div class="flex items-start justify-between gap-3 border-b border-gray-100 p-4">
+      <div>
+        <p class="text-base text-gray-600">Receipt</p>
+        <h1 class="text-xl font-bold text-gray-900">{{ receipt.receipt_number }}</h1>
+      </div>
+      {% include "components/status_badge.html" with status=receipt.payment_status label=receipt.status_label %}
     </div>
 
-    <div class="detail-card">
+    <dl class="grid grid-cols-2 gap-3 border-b border-gray-100 p-4 text-base">
+      {% if receipt.pet %}
+        <div><dt class="text-gray-600">Pet</dt><dd class="font-semibold text-gray-900">{{ receipt.pet.name }}</dd></div>
+      {% endif %}
+      <div><dt class="text-gray-600">Bill date</dt><dd class="font-semibold text-gray-900">{{ receipt.billing_date|date:"M j, Y" }}</dd></div>
+      {% if visit %}
+        <div class="col-span-2"><dt class="text-gray-600">For the visit</dt><dd class="font-semibold"><a href="{% url 'owner_appointment_detail' visit.pk %}" class="inline-flex min-h-11 items-center text-blue-600 underline underline-offset-2">{{ visit_line }}</a></dd></div>
+      {% endif %}
+    </dl>
 
-        <!-- RECEIPT INFO -->
-
-        <div class="detail-grid">
-
-            <div class="detail-row">
-                <span class="detail-label">Receipt No.</span>
-                <span class="detail-value">{{ receipt.receipt_number }}</span>
-            </div>
-
-            <div class="detail-row">
-                <span class="detail-label">Date</span>
-                <span class="detail-value">
-                    {{ receipt.billing_date|date:"F j, Y" }}
-                </span>
-            </div>
-
-            {% if receipt.pet %}
-            <div class="detail-row">
-                <span class="detail-label">Pet</span>
-                <span class="detail-value">
-                    🐾 {{ receipt.pet.name }}
-                </span>
-            </div>
-            {% endif %}
-
-            <div class="detail-row">
-                <span class="detail-label">Status</span>
-                <span class="detail-value">
-
-                    <span class="status-badge status-{{ receipt.payment_status }}">
-                        {{ receipt.status_label }}
-                    </span>
-
-                </span>
-            </div>
-
-            {% if receipt.payment_date %}
-            <div class="detail-row">
-                <span class="detail-label">Payment Date</span>
-                <span class="detail-value">
-                    {{ receipt.payment_date|date:"F j, Y" }}
-                </span>
-            </div>
-            {% endif %}
-
-        </div>
-
-        <!-- ITEMS -->
-
-        {% if items %}
-
-        <h3 class="items-title">
-            Billing Items
-        </h3>
-
-        <div class="items-list">
-
-            {% for item in items %}
-
-            <div class="item-card">
-
-                <div class="item-name">
-                    {{ item.description }}
-                </div>
-
-                <div class="item-meta">
-
-                    <span>
-                        Qty: {{ item.quantity }}
-                    </span>
-
-                    <span>
-                        ₱{{ item.unit_price|floatformat:2 }}
-                    </span>
-
-                </div>
-
-                <div class="item-total">
-                    ₱{{ item.subtotal|floatformat:2 }}
-                </div>
-
-            </div>
-
-            {% endfor %}
-
-        </div>
-
+    <div class="p-4">
+      <h2 class="mb-2 text-lg font-bold text-gray-900">What it's for</h2>
+      <ul class="divide-y divide-gray-100">
+        {% for item in items %}
+          <li class="flex items-start justify-between gap-3 py-3"><span class="min-w-0"><span class="block break-words text-base font-semibold text-gray-900">{{ item.description }}</span><span class="block text-base text-gray-600">Qty {{ item.quantity }}</span></span><span class="text-base font-semibold tabular-nums text-gray-900">{{ item.subtotal|peso }}</span></li>
+        {% endfor %}
+      </ul>
+      <dl class="mt-2 space-y-2 border-t border-gray-200 pt-3 text-base">
+        <div class="flex justify-between gap-3"><dt class="text-gray-700">Subtotal</dt><dd class="tabular-nums text-gray-900">{{ receipt.subtotal|peso }}</dd></div>
+        {% if receipt.has_discount %}
+          <div class="flex justify-between gap-3"><dt class="text-gray-700">Discount{% if discount_text %} <span class="text-gray-600">({{ discount_text }})</span>{% endif %}</dt><dd class="shrink-0 tabular-nums text-green-700">−{{ receipt.discount_amount|peso }}</dd></div>
         {% endif %}
-
-        <!-- TOTALS -->
-
-        <div class="receipt-totals">
-
-            <div class="receipt-total-row">
-                <span>Subtotal</span>
-                <span>₱{{ receipt.subtotal|floatformat:2 }}</span>
-            </div>
-
-            {% if receipt.discount_value %}
-            <div class="receipt-total-row receipt-total-row--discount">
-
-                <span>
-
-                    Discount
-
-                    {% if receipt.discount_type == 'percentage' %}
-                        ({{ receipt.discount_value }}% off)
-                    {% endif %}
-
-                    {% if receipt.discount_note %}
-                        — {{ receipt.discount_note }}
-                    {% endif %}
-
-                </span>
-
-                <span class="text-discount">
-                    -₱{{ receipt.discount_amount|floatformat:2 }}
-                </span>
-
-            </div>
-            {% endif %}
-
-            <div class="receipt-total-row receipt-total-row--grand">
-
-                <span>Total</span>
-
-                <span>
-                    ₱{{ receipt.total_amount|floatformat:2 }}
-                </span>
-
-            </div>
-
-        </div>
-
+        <div class="flex justify-between gap-3 border-t border-gray-200 pt-3 text-xl font-bold text-gray-900"><dt>Total</dt><dd class="tabular-nums">{{ receipt.total_amount|peso }}</dd></div>
+        {% if is_paid %}
+          <div class="flex justify-between gap-3"><dt class="text-gray-700">Paid by</dt><dd class="text-gray-900">{{ receipt.payment_method|default:"Cash" }}{% if receipt.payment_date %} · {{ receipt.payment_date|date:"M j, Y" }}{% endif %}</dd></div>
+        {% endif %}
+      </dl>
     </div>
+  </article>
 
+  {% if is_paid %}
+    <button type="button" data-print class="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-gray-300 bg-white text-base font-semibold text-gray-800 hover:bg-gray-50">{% include "components/icon.html" with name="printer" %}Print or save as PDF</button>
+  {% else %}
+    <p class="flex items-start gap-2 text-base text-gray-600">{% include "components/icon.html" with name="info" class="mt-0.5 size-5 shrink-0" %}<span>Something looks wrong? {% if shell.clinic.contact_number %}Ask at the clinic or call {{ shell.clinic.contact_number }}.{% else %}Ask at the clinic.{% endif %} Only the clinic can change a bill.</span></p>
+  {% endif %}
 </div>
-
 {% endblock %}
 
-{# extra_js renders straight inside <body>, so the printout is a direct #}
-{# child of <body> (its print styles hide every other child of <body>) #}
 {% block extra_js %}
-{% include "shared/billing/_receipt_print.html" %}
+  {% if is_paid %}<script src="{% static 'js/shared/receipt_detail.js' %}" defer></script>{% endif %}
+  {# The printout: this block renders straight inside <body>, outside <main> (no transform or filter above it) #}
+  {% with clinic_settings=shell.clinic %}{% include "shared/billing/_receipt_print.html" %}{% endwith %}
 {% endblock %}

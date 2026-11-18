@@ -1,0 +1,31 @@
+{% extends "layouts/owner.html" %}
+
+{% block title %}Request sent — Hapi Vet{% endblock %}
+
+{# End of the flow: no tabs and no back, only where to go next #}
+{% block top_bar %}
+<header class="sticky top-0 z-20 border-b border-gray-200 bg-white">
+  <div class="mx-auto flex h-16 max-w-3xl items-center px-4">
+    <p class="text-lg font-bold text-gray-900">Book a visit</p>
+  </div>
+</header>
+{% endblock %}
+
+{% block content %}
+<div class="flex flex-col items-center px-2 py-8 text-center">
+  <span class="grid size-24 place-content-center rounded-full bg-green-50 text-green-700 ring-1 ring-green-200">{% include "components/icon.html" with name="circle-check" class="size-14 shrink-0" stroke="1.5" %}</span>
+  <h1 class="mt-5 text-2xl font-bold text-gray-900">Request sent</h1>
+  <p class="mt-2 text-base text-gray-700">{{ appointment.pet.name }} · {% if appointment.service %}{{ appointment.service.service_name }}{% else %}Not sure yet{% endif %}<br><b class="text-gray-900">{{ appointment.date|date:"D, M j" }} at {{ appointment.time|time:"g:i A" }}</b></p>
+  <p class="mt-4">{% include "owner/booking_parts/status_badge.html" with status=appointment.status %}</p>
+  <p class="mt-4 text-base text-gray-700">We'll let you know when the clinic confirms. You can see it anytime in Visits.</p>
+</div>
+{% endblock %}
+
+{% block bottom_bar %}
+<div class="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white pb-[env(safe-area-inset-bottom)]" data-bar="tall">
+  <div class="mx-auto max-w-3xl space-y-2 px-4 pb-5 pt-3">
+    <a href="{% url 'owner_appointments' %}" class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700">{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}See my visits</a>
+    <a href="{% url 'owner_dashboard' %}" class="flex min-h-12 w-full items-center justify-center rounded-2xl text-lg font-medium text-gray-700 hover:bg-gray-100">Back to home</a>
+  </div>
+</div>
+{% endblock %}

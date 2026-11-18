@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Medical Record v1</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { background:#e7e5e4; font-family:"Segoe UI", system-ui, sans-serif; }
+  .phone { width:390px; height:844px; overflow-y:auto; position:relative; }
+  .phone::-webkit-scrollbar { width:0; }
+</style>
+</head>
+<body class="p-6 text-gray-900 antialiased">
+
+<header class="mx-auto mb-6 max-w-[1750px]">
+  <h1 class="text-2xl font-bold">Medical record v1 — what the vet wrote after a visit</h1>
+  <p class="mt-1 text-base text-gray-700">Opened from a Records card on the pet profile. Read-only. Only what the owner may see: no private notes. Sections that have nothing in them are left out, not shown empty. Medicines get the most space, since that's what owners come back for.</p>
+</header>
+
+<div class="mx-auto flex max-w-[1750px] flex-wrap justify-center gap-8" id="frames"></div>
+
+<script>
+// ---------- Icons (Lucide shapes, mockup only) ----------
+const P = {
+  house:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  calCheck:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="m9 16 2 2 4-4"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  back:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  chev:'<path d="m9 18 6-6-6-6"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  steth:'<path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/>',
+  pill:'<path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"/><path d="m8.5 8.5 7 7"/>',
+  flask:'<path d="M10 2v7.527a2 2 0 0 1-.211.896L4.72 20.55a1 1 0 0 0 .9 1.45h12.76a1 1 0 0 0 .9-1.45l-5.069-10.127A2 2 0 0 1 14 9.527V2"/><path d="M8.5 2h7"/><path d="M7 16h10"/>',
+  note:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  file:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
+  image:'<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+  syringe:'<path d="m18 2 4 4"/><path d="m17 7 3-3"/><path d="M19 9 8.7 19.3c-1 1-2.5 1-3.4 0l-.6-.6c-1-1-1-2.5 0-3.4L15 5"/><path d="m9 11 4 4"/><path d="m5 19-3 3"/><path d="m14 4 6 6"/>',
+  printer:'<path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+};
+const ic = (n, c='size-5 shrink-0') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// ---------- Shell ----------
+const backBar = `
+<div class="sticky top-0 z-20 flex h-16 shrink-0 items-center border-b border-gray-200 bg-white px-2">
+  <a class="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-base font-medium text-gray-800 hover:bg-gray-100">${ic('back','size-6')}Browny</a>
+</div>`;
+const tabs = `
+<nav class="sticky bottom-0 z-10 mt-auto grid shrink-0 grid-cols-5 border-t border-gray-200 bg-white pb-2">
+  ${[['house','Home'],['paw','Pets'],['calendar','Visits'],['receipt','Bills'],['user','Account']].map(([i,l]) =>
+    `<a class="flex min-h-14 flex-col items-center justify-center gap-0.5 pt-2 text-sm font-medium ${l==='Pets' ? 'text-violet-700' : 'text-gray-600'}"${l==='Pets' ? ' aria-current="page"' : ''}>
+      ${ic(i,'size-6')}${l}<span class="mt-0.5 h-1 w-6 rounded-full ${l==='Pets' ? 'bg-violet-600' : ''}"></span></a>`).join('')}
+</nav>`;
+const page = inner => `<div class="relative flex min-h-full flex-col">${backBar}${inner}${tabs}</div>`;
+
+// Section card with an icon heading
+const sec = (icon, tone, title, inner) => `
+<section class="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+  <h2 class="flex items-center gap-3 text-lg font-bold"><span class="grid size-9 place-content-center rounded-lg ${tone}">${ic(icon,'size-5')}</span>${title}</h2>
+  <div class="mt-3 space-y-3">${inner}</div>
+</section>`;
+const qa = (q, a) => `<div><p class="text-base text-gray-600">${q}</p><p class="text-base font-semibold leading-7">${a}</p></div>`;
+
+const recordTop = (date, title) => `
+<div>
+  <p class="text-base text-gray-600">${date}</p>
+  <h1 class="text-2xl font-bold leading-8">${title}</h1>
+  <p class="mt-1 text-base text-gray-700">Browny · seen by Dr. Edgar Sadiwa</p>
+</div>`;
+
+// ---------- Full record ----------
+const followUp = `
+<section class="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+  <p class="flex items-center gap-2 text-lg font-semibold text-blue-900">${ic('calendar','size-6')}Follow-up around Nov 15</p>
+  <p class="mt-1 text-base text-blue-900">Dr. Aga wants to see Browny again to check the skin.</p>
+  <a class="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 text-base font-semibold text-white shadow-sm">${ic('plus','size-5')}Book the follow-up</a>
+</section>`;
+
+const med = (name, dose, often, howLong, note='') => `
+<div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
+  <p class="text-lg font-bold">${name}</p>
+  <dl class="mt-2 grid grid-cols-3 gap-2 text-base">
+    <div><dt class="text-gray-600">How much</dt><dd class="font-semibold">${dose}</dd></div>
+    <div><dt class="text-gray-600">How often</dt><dd class="font-semibold">${often}</dd></div>
+    <div><dt class="text-gray-600">For</dt><dd class="font-semibold">${howLong}</dd></div>
+  </dl>
+  ${note ? `<p class="mt-2 flex items-start gap-1.5 text-base text-gray-700">${ic('info','mt-0.5 size-4 shrink-0')}${note}</p>` : ''}
+</div>`;
+
+const fileRow = (icon, name, kind) => `
+<a class="flex min-h-14 items-center gap-3 rounded-xl border border-gray-200 px-3 py-2">
+  <span class="grid size-10 shrink-0 place-content-center rounded-lg bg-gray-100 text-gray-700">${ic(icon,'size-5')}</span>
+  <span class="flex-1"><span class="block text-base font-semibold">${name}</span><span class="block text-base text-gray-600">${kind}</span></span>
+  <span class="text-base font-medium text-blue-600">Open</span>
+</a>`;
+
+const linkCard = (icon, title, sub) => `
+<a class="flex items-center gap-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+  <span class="grid size-10 shrink-0 place-content-center rounded-xl bg-gray-100 text-gray-700">${ic(icon,'size-5')}</span>
+  <span class="flex-1"><span class="block text-base font-semibold">${title}</span><span class="block text-base text-gray-600">${sub}</span></span>
+  ${ic('chev','size-5 text-gray-400')}
+</a>`;
+
+const full = page(`
+<main class="flex-1 space-y-4 px-4 py-5">
+  ${recordTop('Oct 31, 2026 · Consultation', 'Mild skin allergy')}
+  ${followUp}
+  ${sec('steth','bg-green-50 text-green-700','What Dr. Aga found',
+    qa('Signs seen','Itchy paws and belly, red skin between the toes.') +
+    qa('Diagnosis','Mild skin allergy, likely from new grass or a new soap.') +
+    qa('Done at the clinic','Cleaned the paws, gave an anti-itch shot.'))}
+  ${sec('pill','bg-violet-50 text-violet-700','Medicines to give at home',
+    med('Cetirizine 10 mg','½ tablet','Once a day','7 days','Give with food.') +
+    med('Hydrocortisone cream','Thin layer','Twice a day','5 days','Don\'t let Browny lick it for 10 minutes.'))}
+  ${sec('flask','bg-blue-50 text-blue-700','Test results',
+    `<p class="text-base leading-7">Skin scraping: no mites found.</p>` +
+    fileRow('image','Skin scraping photo','Picture') +
+    fileRow('file','Lab result','PDF'))}
+  ${sec('note','bg-gray-100 text-gray-700','Notes from Dr. Aga',
+    `<p class="text-base leading-7">Use a mild pet shampoo once a week. If the itching gets worse or Browny stops eating, call the clinic.</p>`)}
+  <section class="space-y-3">
+    <h2 class="text-lg font-bold">From the same visit</h2>
+    ${linkCard('calCheck','Visit · Oct 31, 2:00 PM','Consultation · Done')}
+    ${linkCard('receipt','Bill HV-2026-0003','₱850.00 · Paid')}
+  </section>
+  <a class="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-gray-300 bg-white text-base font-semibold text-gray-800">${ic('printer','size-5')}Print or save as PDF</a>
+</main>`);
+
+// ---------- Simple record (no medicines, tests or follow-up) ----------
+const simple = page(`
+<main class="flex-1 space-y-4 px-4 py-5">
+  ${recordTop('Sep 30, 2026 · Vaccination', 'Healthy check, 5-in-1 given')}
+  ${sec('steth','bg-green-50 text-green-700','What Dr. Aga found',
+    qa('Diagnosis','Healthy. No problems found.') +
+    qa('Done at the clinic','Full check-up and 5-in-1 vaccine.'))}
+  ${sec('syringe','bg-green-50 text-green-700','Vaccine given',
+    `<div class="flex items-start justify-between gap-3"><div><p class="text-base font-semibold">5-in-1 (DHPP)</p><p class="text-base text-gray-600">Next one due Sep 30, 2027</p></div></div>`)}
+  <section class="space-y-3">
+    <h2 class="text-lg font-bold">From the same visit</h2>
+    ${linkCard('calCheck','Visit · Sep 30, 10:00 AM','Vaccination · Done')}
+  </section>
+</main>`);
+
+// ---------- Follow-up already booked ----------
+const booked = page(`
+<main class="flex-1 space-y-4 px-4 py-5">
+  ${recordTop('Oct 31, 2026 · Consultation', 'Mild skin allergy')}
+  <a class="flex items-center gap-4 rounded-2xl border border-blue-200 bg-blue-50 p-4">
+    <span class="grid size-10 shrink-0 place-content-center rounded-xl bg-white text-blue-700 ring-1 ring-blue-200">${ic('calCheck','size-5')}</span>
+    <span class="flex-1"><span class="block text-base font-semibold text-blue-900">Follow-up booked</span><span class="block text-base text-blue-900">Fri, Nov 13 at 2:00 PM · Confirmed</span></span>
+    ${ic('chev','size-5 text-blue-700')}
+  </a>
+  ${sec('steth','bg-green-50 text-green-700','What Dr. Aga found',
+    qa('Signs seen','Itchy paws and belly, red skin between the toes.') +
+    qa('Diagnosis','Mild skin allergy, likely from new grass or a new soap.'))}
+  <p class="text-center text-base text-gray-500">… medicines, tests and notes as in phone 1</p>
+</main>`);
+
+// ---------- Frames ----------
+const frame = (lbl, note, body) => `
+<figure class="flex flex-col items-center">
+  <figcaption class="mb-3 w-[390px]"><p class="text-lg font-bold">${lbl}</p><p class="text-base text-gray-700">${note}</p></figcaption>
+  <div class="phone rounded-[2rem] bg-gray-50 shadow-xl ring-8 ring-gray-900">${body}</div>
+</figure>`;
+
+document.getElementById('frames').innerHTML =
+  frame('1 · Full record', 'Follow-up first (it needs action), then findings, medicines, tests, notes, links to the visit and bill, and Print.', full) +
+  frame('2 · Simple record', 'A check-up with a vaccine. No medicines, tests or follow-up, so those sections simply don\'t appear.', simple) +
+  frame('3 · Follow-up already booked', 'Once a visit is booked for the follow-up, the blue box links to it instead of asking to book.', booked);
+</script>
+</body>
+</html>

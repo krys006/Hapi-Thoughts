@@ -108,16 +108,17 @@ views/
 All templates live in the top-level `backend/templates/` folder.
 Never use per-app template folders.
 
-- `base_dashboard.html` is the base for logged-in owner pages (header,
-  bell, sidebar, flash messages). No admin page uses it.
+- `layouts/owner.html` is the base for every logged-in owner page (§10, "Owner
+  layout"). The old `base_dashboard.html` and `base.html` are dead (8b-10a):
+  no page extends them, and they are listed for deletion in HANDOFF §5.
 - `layouts/admin.html` is the base for every admin page (see §10). Every
   admin page is redesigned: there is no `legacy_css` block, no `legacy`
   cascade layer and no `static/css/admin/` stylesheet to import (removed in
   Slice 7b-5).
 - `layouts/auth.html` is the base for the admin login: a standalone card
   with no sidebar (see §10).
-- `base.html` is the base for standalone auth pages (login, register,
-  password reset, email verification, onboarding).
+- `layouts/owner_auth.html` is the base for the owner auth pages (login,
+  register, password reset, email verification).
 - HTMX partials are prefixed with `_` and never extend a base template.
 - `components/` holds include-only building blocks for the new admin UI
   (see §11). They have no `_` prefix (that prefix means "HTMX partial")
@@ -130,8 +131,6 @@ Never use per-app template folders.
 
 ```
 templates/
-├── base.html                         ← Auth/standalone page base
-├── base_dashboard.html               ← Dashboard base (owner pages)
 ├── components/                       ← Include-only UI building blocks (§11)
 │   ├── icon.html
 │   ├── pet_avatar.html
@@ -139,18 +138,19 @@ templates/
 │   ├── form_field.html
 │   ├── status_badge.html
 │   ├── flash_messages.html
+│   ├── bottom_sheet.html
 │   └── empty_state.html
 ├── layouts/                          ← New bases (§10, §11)
 │   ├── admin.html
 │   ├── admin_sidebar.html
 │   ├── admin_nav_link.html           ← one sidebar link, highlighted by URL name (match / also); a page in another section's URL names sets nav_section (the pet's medical history and vaccinations)
 │   ├── auth.html
-│   └── bell_count.html
+│   ├── bell_count.html
+│   ├── owner.html                    ← owner layout (§10)
+│   ├── owner_auth.html               ← owner auth pages
+│   └── owner_parts/                  ← tabs.html, tab_link.html, back_bar.html, save_bar.html
 ├── shared/                           ← Used by both roles
-│   ├── clinic_info.html
-│   ├── modals.html
 │   ├── sidebar_admin.html
-│   ├── sidebar_owner.html
 │   ├── _global_search_results.html
 │   ├── _owner_search_results.html
 │   ├── billing/
@@ -479,9 +479,9 @@ static/
 │   ├── owner/              ← Pet owner page styles
 │   └── shared/             ← Styles used by both roles (header, clinic info)
 ├── js/
-│   ├── admin/              ← Admin page scripts; dialogs.js and auto_submit.js are loaded by layouts/admin.html on every page; photo_input.js by admin/pets/owner_form.html, pet_form.html and admin/medical/record_detail.html (the Add file dialog), owner_form.js / pet_form.js / record_form.js / vaccination_form.js only by their form, receipt_detail.js (print buttons, Add item prefill, discount sign) only by the receipt page and service_form.js (price sets, closed note) only by the service form (extra_js)
+│   ├── admin/              ← Admin page scripts; auto_submit.js is loaded by layouts/admin.html on every page; record_form.js / vaccination_form.js only by their form, receipt_detail.js (print buttons, Add item prefill, discount sign) only by the receipt page and service_form.js (price sets, closed note) only by the service form (extra_js)
 │   ├── owner/              ← Pet owner page scripts
-│   └── shared/             ← Scripts used by both roles
+│   └── shared/             ← Scripts used by both roles (a script both the admin and the owner pages need lives here, not in admin/): dialogs.js, flash.js, password_toggle.js; since 8b-3 photo_input.js (photo cards and the record page's Add file dialog), pet_form.js (species / breed boxes) and address_form.js (Province switch, barangay select), loaded by the admin owner / pet forms and the owner onboarding and Add pet pages
 ├── vendor/
 │   └── htmx-2.0.11.min.js  ← Pinned HTMX for new admin pages
 └── images/
@@ -507,6 +507,9 @@ static/
 > names them any more; Krys deletes the files), `css/admin/receipt_form.css`
 > (Slice 6a-3: the receipt edit page is gone). Other old files still
 > mention them in comments; those comments go when their own pages migrate.
+> Slice 8b-3: `js/admin/photo_input.js`, `pet_form.js` and `owner_form.js` moved
+> to `js/shared/` (`owner_form.js` held only address code, now
+> `shared/address_form.js`); the old files are unused (Krys deletes them).
 > Template gone with them: `admin/appointments/_pet_options.html` (Slice 6a-3;
 > Krys deletes it).
 > Slice 5b-2: `admin/medical/record_detail.html` no longer loads
@@ -743,6 +746,9 @@ def admin_only_view(request):
     # rest of view
 ```
 
+Owner views use `@owner_profile_required` (from `accounts.utils`) after
+`@login_required` and read `request.owner`, never `request.user.petowner`.
+
 ---
 
 ## 8. Model Conventions
@@ -837,17 +843,35 @@ class AppointmentBookingForm(forms.ModelForm):
         return cleaned_data
 ```
 
+### Shared form parts (Slice 8b-3)
+- `AddressFieldsMixin` (`pets/forms.py`, a `forms.Form` subclass so its fields
+  are collected) holds the Province / Town / Barangay fields and the address
+  rules. `address_required = False` (admin owner form) or `True` (owner
+  onboarding, `OwnerOnboardingForm`); `address_barangays_url` names the HTMX
+  endpoint (`admin_address_barangays` or `owner_address_barangays`). Put it
+  before the ModelForm in the bases: `class X(ErrorCountMixin,
+  AddressFieldsMixin, SomeModelForm)`.
+- `SpeciesBreedFieldsMixin` (same idea; `breed_options_url`) and
+  `PetBasicsCleanMixin` (sex, weight, birthday checks) are shared by
+  `AdminPetForm` and `OwnerPetForm`.
+- Owner and admin pages share the same HTMX partials
+  (`admin/pets/_barangay_options.html`, `_breed_options.html`) through
+  separate role-checked views; the param readers are `town_from_params` and
+  `species_from_params` in `pets/utils.py`.
+
 ---
 
 ## 10. Template Conventions
 
-### Four base templates
+### Base templates
 | Base | Used by | What it provides |
 |---|---|---|
-| `layouts/admin.html` | Every admin page (e.g. `admin/dashboard/index.html`, `admin/health/article_list.html`). No admin page has a legacy layer | Sidebar with count badges and logout, top bar with search ("Find a pet or owner"; the appointments, pet owners, pets, vaccinations and medical records lists and the deletion requests page put their own search there) and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/admin/dialogs.js`, `static/js/admin/auto_submit.js`, CSRF + `X-Admin-Layout` via `hx-headers`. No confirm modal: confirmations are native `<dialog>`s (see Dialogs) |
+| `layouts/owner.html` | Every logged-in owner page (since 8b-9b) | See "Owner layout" below |
+| `layouts/admin.html` | Every admin page (e.g. `admin/dashboard/index.html`, `admin/health/article_list.html`). No admin page has a legacy layer | Sidebar with count badges and logout, top bar with search ("Find a pet or owner"; the appointments, pet owners, pets, vaccinations and medical records lists and the deletion requests page put their own search there) and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/shared/dialogs.js`, `static/js/shared/flash.js`, `static/js/admin/auto_submit.js`, CSRF + `X-Admin-Layout` via `hx-headers`. No confirm modal: confirmations are native `<dialog>`s (see Dialogs) |
 | `layouts/auth.html` | `admin/login.html` | Admin login: standalone card on a violet background, `app.css`, no HTMX |
-| `base_dashboard.html` | Logged-in owner pages (e.g. `owner/pets/list.html`; `shared/clinic_info.html` for owners, which gets its base from the view) | Header with search and bell, owner sidebar, flash messages, Tailwind + HTMX, CSRF header for HTMX, confirm modal (`shared/modals.html`, owners only) |
-| `base.html` | Standalone auth pages (e.g. `owner/login.html`, `owner/register.html`, password reset, `owner/onboarding/step1.html`) | Bare page with Tailwind + HTMX, no header or sidebar |
+| `layouts/owner_auth.html` | The owner auth pages (`owner/login.html`, `owner/register.html`, password reset, the `socialaccount/` pages) | Standalone page, compiled `app.css`, `js/shared/flash.js`, `js/shared/password_toggle.js` |
+
+No page extends `base_dashboard.html` or `base.html` any more (8b-10a); both are listed for deletion in HANDOFF §5.
 
 `layouts/admin.html` shell sizes: Sidebar 224 px (w-56). The sidebar's logo
 block and the top bar are both h-16, so the nav starts level with the page
@@ -885,28 +909,75 @@ that needs styles uses Tailwind classes.
 {% block content %}{% endblock %}     ← the card, centred inside <main>
 {% block extra_js %}{% endblock %}    ← page JS, end of <body>
 
-<!-- base_dashboard.html -->
-{% block title %}Hapi Vet{% endblock %}
-{% block extra_css %}{% endblock %}   ← page CSS link, in <head>
-{% block content %}{% endblock %}     ← page body, inside <main>
-{% block extra_js %}{% endblock %}    ← page JS, end of <body>; the owner
-                                         receipt page puts the print partial
-                                         here too, so it is a direct child of
-                                         <body> (since 6a-4)
-
-<!-- base.html -->
-{% block title %}Hapi Vet{% endblock %}
-{% block tailwind %}…{% endblock %}   ← Tailwind CDN script (overridable)
-{% block htmx %}…{% endblock %}       ← HTMX script (overridable)
-{% block preload_assets %}{% endblock %}
-{% block extra_css %}{% endblock %}
-{% block content %}{% endblock %}
-{% block extra_js %}{% endblock %}
+<!-- layouts/owner.html: see "Owner layout" below -->
 ```
 
-### Dialogs (admin layout)
-`layouts/admin.html` loads `static/js/admin/dialogs.js` (deferred) on every
-page. Use a native `<dialog>` with data attributes, no inline handlers:
+### Owner layout (`layouts/owner.html`, since Slice 8b-1)
+Mobile first, one centred `max-w-3xl` column on wide screens, light only.
+Loads compiled `app.css`, vendored HTMX, `js/shared/dialogs.js` and
+`js/shared/flash.js`: no Tailwind CDN, no legacy CSS, no `shared/modals.html`.
+- Blocks: `title`, `extra_head`, `top_bar`, `flash`, `content`, `main_padding`
+  (default `pb-28`, room for the tabs), `bottom_bar`, `extra_js`. A skip link
+  ("Skip to content") comes first in `<body>`; `<main id="main">`.
+- Top bar (`top_bar`): clinic logo (or the paw tile) + "Hapi Tutz" to the
+  owner dashboard, and the bell, a link to `owner_notifications` (badge from
+  `shell.unread_count`, capped "9+", hidden at 0, `aria-label` has the real
+  count). Detail pages replace it with the back bar:
+  `{% block top_bar %}{% include "layouts/owner_parts/back_bar.html" with url=... label="Pets" %}{% endblock %}`
+  ("← Back to Pets", 44 px tall).
+- Bottom tabs (`bottom_bar`, default `layouts/owner_parts/tabs.html`): Home,
+  Pets, Visits, Bills, Account, fixed to the bottom on every width with
+  safe-area padding. Flows (booking, onboarding) override `bottom_bar` with
+  Back / Next (and `main_padding` if they need other room).
+- Flow frame (booking, Slice 8b-6): top bar with Back, "Book a visit", Cancel,
+  "Step N of 3 · name" and a 3-part `role="progressbar"`; bottom bar with an
+  outline Back and the one violet Next / Send; no bottom tabs. Parts in
+  `owner/booking_parts/`, state in one session draft.
+- Which tab is lit comes from the URL name, in one place: `OWNER_TABS` /
+  `owner_tab(url_name)` in `accounts/utils.py`, read by the `owner_active_tab`
+  tag (`accounts/templatetags/ui_helpers.py`). Add a new owner URL name there.
+  `owner_notifications` (the bell's page) and unknown names light no tab.
+- Flash messages: block `flash`, right under the top bar. Same component as
+  admin (`components/flash_messages.html`): colour + icon per level, bold first
+  sentence when there are two or more (`flash_lead` filter), stays until the
+  Close button is pressed (`js/shared/flash.js`; no auto-hide). Both layouts
+  and the admin login (`layouts/auth.html`) load `flash.js`.
+- Bottom sheet (`components/bottom_sheet.html`): a native `<dialog>`, opened by
+  `data-dialog-open="<id>"`; a bottom sheet on phones, a centred card from `sm`.
+  Include it with parameters (no block pattern):
+  `{% include "components/bottom_sheet.html" with id="logout-sheet" title="Log out of Hapi Tutz?" text="…" action_url=logout_url action_label="Yes, log out" action_icon="log-out" keep_label="Stay logged in" %}`.
+  The action is a POST form with csrf; the keep button is the same size and
+  has `autofocus`; Escape, backdrop and keep close it. Optional
+  `body_template="…"` includes a template inside that form, above the action
+  button (the pet profile's reason radios, 8b-5).
+- Error pages: `templates/404.html`, `403.html`, `500.html` are standalone
+  (own `<html>`, `app.css`, no layout, no `{% url %}`, no context values, no
+  database), one button "Go to the home page" to `/`. Django's default
+  handlers use them; no `handler40x` in `urls.py`. A logged-out visitor
+  only sees the 404 on public paths (the middleware sends them to log in
+  first on any other missing URL).
+
+### Owner sign-in layout (`layouts/owner_auth.html`, since Slice 8b-2)
+For every logged-out owner page (log in, create account, check your email,
+forgot / new password, done, the allauth Google pages in
+`templates/socialaccount/`). Not for the admin login (`layouts/auth.html`).
+Loads `app.css`, `js/shared/flash.js` and `js/shared/password_toggle.js`
+(no HTMX). A violet band (`bg-violet-700`) with the clinic logo in a white
+tile (the paw tile when the shell has no logo) and "Hapi Tutz Vet", and a
+white `max-w-md` card overlapping it; flash messages sit at the card's top.
+No bottom tabs, no staff link. Blocks: `title`, `card_title`, `card_subtitle`
+(write the whole `<p>`), `content`, `below_card` (footer links).
+- Shared parts in `templates/owner/auth_parts/` (plain includes with
+  parameters): `email_field.html`, `password_field.html` (eye button inside
+  the box, `data-password-toggle`; `rules=True` adds `password_rules.html`;
+  `forgot_url` adds the link), `google_button.html` (POST form, official look,
+  `img/google_g.svg`), `or_line.html`, `alert_box.html` (red / blue / green).
+- One violet button per page; Terms and Privacy only on Create account.
+
+### Dialogs (admin and owner layouts)
+Both layouts load `static/js/shared/dialogs.js` (deferred; moved from
+`static/js/admin/` in Slice 8b-1) on every page. Use a native `<dialog>` with
+data attributes, no inline handlers:
 ```html
 <button type="button" class="btn btn-outline" data-dialog-open="move-dialog">Move</button>
 <dialog id="move-dialog">
@@ -1022,6 +1093,8 @@ Admin dates are in Manila time (`timezone.localdate()`).
   `friendly_date_on(value, today, style=None)` (same output as
   `long_date` / `friendly_date`), e.g. `resolve_period` in
   `appointments/utils.py`.
+- Calendar weeks: the owner booking calendar (`owner_booking_calendar`) starts
+  on Sunday; the admin calendars start on Monday.
 - Templates whose wording must follow the view's `today` (not the clock)
   use the same functions as tags: `{% friendly_date_on value today %}`,
   `{% long_date_on value today "mid" %}`, or `{% friendly_date_on due_until today as until %}`
@@ -1044,10 +1117,9 @@ Admin dates are in Manila time (`timezone.localdate()`).
 ### Two setups during the admin UI overhaul
 | Pages | Tailwind | Loaded by |
 |---|---|---|
-| Every admin page (since Slice 1.5; no legacy layer since Slice 7b-5) and the admin login | Compiled `static/css/app.css` (Tailwind v4.3.3, standalone CLI) | `layouts/admin.html`, `layouts/auth.html` |
-| Everything else (owner pages, owner auth pages) | Play CDN `https://cdn.tailwindcss.com` | `base.html`, `base_dashboard.html` |
+| Every admin page (since Slice 1.5; no legacy layer since Slice 7b-5), the admin login, every owner page and the error pages | Compiled `static/css/app.css` (Tailwind v4.3.3, standalone CLI) | `layouts/admin.html`, `layouts/auth.html`, `layouts/owner.html`, `layouts/owner_auth.html`, `404.html` / `403.html` / `500.html` |
 
-- Never load the CDN script in the new layout, and never load `app.css` from the old bases.
+- No layout loads the Tailwind CDN script (the old `base.html` and `base_dashboard.html` did; both are dead since 8b-10a).
 - A migrated page loads no file from `static/css/admin/`.
 
 ### Building app.css
@@ -1103,12 +1175,13 @@ The main admin user is an elderly vet. Every migrated admin page follows these:
 ### Components (`templates/components/`)
 | Component | Usage |
 |---|---|
-| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 59 icons (`tag` added for the Services and prices sidebar link, 2026-11-16; `printer`, `percent` and `ban` added in Slice 6b-2, `calendar-check` added in dashboard v5, `archive` in Slice 4a-2, `map-pin`, `link`, `pencil`, `rotate-ccw`, `send` in Slice 4a-3, `upload` in Slice 4a-4, `pill` and `chevron-down` in Slice 5b-2). To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
+| `icon.html` | `{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}`. Optional `stroke="1.5"` (default 2). Lucide 1.66.0 (ISC), 60 icons (`hourglass` added in Slice 8b-5; `tag` added for the Services and prices sidebar link, 2026-11-16; `printer`, `percent` and `ban` added in Slice 6b-2, `calendar-check` added in dashboard v5, `archive` in Slice 4a-2, `map-pin`, `link`, `pencil`, `rotate-ccw`, `send` in Slice 4a-3, `upload` in Slice 4a-4, `pill` and `chevron-down` in Slice 5b-2). To add one, copy its shapes from the official `lucide-static@1.66.0` SVG file (never from memory). |
 | `pet_avatar.html` | `{% include "components/pet_avatar.html" with pet=appointment.pet size="lg" %}`. `lg` 64px (`size-16 rounded-2xl`), `sm` 40px (`size-10 rounded-xl`). The pet's photo, or a violet tile with the `species_icon` icon (dog, cat, rabbit, bird, paw-print) at stroke 1.5, labelled "No photo of {name} yet". Optional `muted=True`: gray tile (`bg-gray-100 text-gray-600 ring-gray-300`) for archived pets, or every pet of an archived owner (owner page); a photo is unchanged. |
 | `owner_avatar.html` | `{% include "components/owner_avatar.html" with owner=appointment.owner size="xs" %}`. Circle; `lg` 64px (`size-16`, `text-xl` initials; owner page header), `sm` 40px, `xs` 32px. The profile photo, or initials (one letter when the last name is blank). Optional `muted=True`: gray initials tile (`bg-gray-100 text-gray-700 ring-gray-300`) for archived owners (owners list Archived tab, owner page). |
 | `form_field.html` | `{% include "components/form_field.html" with field=form.email %}`. Label, control, help text, errors (red text with the `triangle-alert` icon). Optional `optional=True` adds a gray "(optional)" after the label; `required=True` adds the red * for a field only `clean()` requires (the pet form's "Type the species"). Needs a fieldset/legend branch before a RadioSelect or CheckboxSelectMultiple field uses it. |
 | `status_badge.html` | `{% include "components/status_badge.html" with status=obj.status label=obj.get_status_display %}` |
-| `flash_messages.html` | Rendered once by the admin layout; pages must not loop over `messages`. |
+| `flash_messages.html` | Rendered once by the admin and owner layouts; pages must not loop over `messages`. Colour + icon per level, bold lead sentence, Close button, no auto-hide. |
+| `bottom_sheet.html` | Owner confirmation sheet (native `<dialog>`); see "Owner layout". |
 | `empty_state.html` | `{% include "components/empty_state.html" with icon="calendar" title="No appointments on this day" text="Pick another date on the calendar." %}`. Optional `live=True` makes the title a polite live region (results that change as you type). |
 
 ### Status badge convention

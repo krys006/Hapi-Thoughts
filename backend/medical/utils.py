@@ -15,13 +15,27 @@ from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
+from django.utils.text import Truncator
 
 from appointments.models import Appointment
-from appointments.utils import get_clinic_settings, paging_links
+from appointments.utils import (
+    OWNER_STATUS_WORDS,
+    get_clinic_settings,
+    paging_links,
+    time_label,
+)
 from notifications.models import Notification
-from notifications.utils import EMAIL_NO_ADDRESS, EMAIL_OFF, EMAIL_SENT, notify
+from notifications.utils import (
+    EMAIL_NO_ADDRESS,
+    EMAIL_OFF,
+    EMAIL_SENT,
+    compact_message,
+    notify,
+    short_day,
+    when_line,
+)
 from pets.models import Pet
-from pets.utils import ARCHIVED_PET, pet_state
+from pets.utils import ARCHIVED_PET, RECORD_HEADING_CHARS, pet_state
 
 from .models import MedicalRecord, Vaccination
 
@@ -129,6 +143,34 @@ def followups_due(today, days=DUE_DAYS):
     )
 
 
+# A visit in one of these states counts as "follow-up booked"
+FOLLOW_UP_VISIT_STATUSES = (
+    Appointment.PENDING,
+    Appointment.CONFIRMED,
+    Appointment.COMPLETED,
+)
+
+
+def follow_up_visit(record):
+    """
+    The visit that answers a record's follow-up: the earliest appointment for
+    the record's pet dated on or after follow_up_date that is Pending,
+    Confirmed or Completed (by date, time, pk), or None. None too when the
+    record needs no follow-up or has no date. One query.
+    """
+    if not (record.follow_up_required and record.follow_up_date):
+        return None
+    return (
+        Appointment.objects.filter(
+            pet_id=record.pet_id,
+            date__gte=record.follow_up_date,
+            status__in=FOLLOW_UP_VISIT_STATUSES,
+        )
+        .order_by("date", "time", "pk")
+        .first()
+    )
+
+
 def vaccination_reminder_refusal(vaccination):
     """Why the Send reminder button can't remind about this dose, or None.
     (Archived pets and owners are refused before this.)"""
@@ -197,49 +239,57 @@ def reminder_flash(owner, notification):
     )
 
 
-def send_vaccination_reminder(vaccination):
+def send_vaccination_reminder(vaccination, today):
     """notify() the owner that the next dose is due; reminder_flash's
-    (level, text). Needs a next_due_date (vaccination_reminder_refusal)."""
+    (level, text). Needs a next_due_date (vaccination_reminder_refusal).
+    The app shows "Bantay · Anti-rabies, due Nov 9"; the email, the sentence."""
     pet = vaccination.pet
+    due = short_day(vaccination.next_due_date, today)
     notification = notify(
         recipient=pet.owner.user,
         notification_type=Notification.VACCINATION_REMINDER,
-        title=f"Vaccination Reminder — {pet.name}",
-        message=(
+        title="Vaccine due soon",
+        message=compact_message(
+            pet.name, f"{vaccination.display_vaccine_name}, due {due}"
+        ),
+        related_pet=pet,
+        email_subject="Vaccination Reminder — Hapi Vet",
+        email_body=(
             f"This is a reminder that {pet.name}'s "
             f"{vaccination.display_vaccine_name} vaccination is due on "
             f"{message_date(vaccination.next_due_date)}. "
             f"Please contact the clinic to schedule an appointment."
         ),
-        related_pet=pet,
-        email_subject="Vaccination Reminder — Hapi Vet",
     )
     return reminder_flash(pet.owner, notification)
 
 
-def send_followup_reminder(record):
+def send_followup_reminder(record, today):
     """notify() the owner about the record's follow-up visit;
     reminder_flash's (level, text)."""
     pet = record.pet
     if record.follow_up_date:
-        message = (
+        detail = f"Follow-up on {short_day(record.follow_up_date, today)}"
+        email_body = (
             f"This is a reminder that {pet.name} has a follow-up visit "
             f"scheduled for {message_date(record.follow_up_date)}. "
             f"Please contact the clinic to confirm your appointment."
         )
     else:
-        message = (
+        detail = "A follow-up visit is recommended"
+        email_body = (
             f"This is a reminder that {pet.name} has a follow-up visit "
             f"recommended. Please contact the clinic to schedule."
         )
     notification = notify(
         recipient=pet.owner.user,
         notification_type=Notification.FOLLOWUP_REMINDER,
-        title=f"Follow-up Reminder — {pet.name}",
-        message=message,
+        title="Follow-up visit",
+        message=compact_message(pet.name, detail),
         related_appointment=record.appointment,
         related_pet=pet,
         email_subject="Follow-up Reminder — Hapi Vet",
+        email_body=email_body,
     )
     return reminder_flash(pet.owner, notification)
 
@@ -682,21 +732,26 @@ def record_form_context(pet, appointment, record, today):
     }
 
 
-def notify_record_created(record):
-    """Tell the owner a medical record was written for their pet."""
+def notify_record_created(record, today):
+    """Tell the owner a medical record was written for their pet: a short
+    title and "Bantay · Record for Mon, Nov 2" in the app, the full
+    sentence in the email."""
     pet = record.pet
     notify(
         recipient=pet.owner.user,
         notification_type="appointment_approved",
-        title="Medical Record Created",
-        message=(
-            f"A medical record has been created for {pet.name} "
-            f"on {message_date(record.record_date)}. "
-            f"You can view the details in your pet's medical history."
+        title="New medical record",
+        message=compact_message(
+            pet.name, f"Record for {short_date(record.record_date, today)}"
         ),
         related_appointment=record.appointment,
         related_pet=pet,
         email_subject="Medical Record Created — Hapi Vet",
+        email_body=(
+            f"A medical record has been created for {pet.name} "
+            f"on {message_date(record.record_date)}. "
+            f"You can view the details in your pet's medical history."
+        ),
     )
 
 
@@ -774,6 +829,165 @@ def record_detail_context(record, today):
         "today": today,
         "prescription_items": medicines,
         "test_files": active_files,
+    }
+
+
+# ── Owner's record page (Slice 8a-2c) ────────────────────────────────────────
+
+
+def owner_record_queryset():
+    """Records for the owner's page: the pet and the visit loaded, and
+    private_notes never read (so no page can show it)."""
+    return MedicalRecord.objects.select_related(
+        "pet", "appointment", "appointment__service"
+    ).defer("private_notes")
+
+
+def owner_test_files(record):
+    """The record's files that are not archived, as text only (decision 8):
+    dicts with title (the description, else the file's base name) and added
+    (the Manila date it was added). No file object, URL or path leaves here."""
+    files = record.test_result_files.filter(is_archived=False).order_by(
+        "uploaded_at", "pk"
+    )
+    return [
+        {
+            "title": row.description or os.path.basename(row.file.name),
+            "added": timezone.localtime(row.uploaded_at).date(),
+        }
+        for row in files
+    ]
+
+
+def owner_follow_up(record, today):
+    """None unless a follow-up is required; else the date, the days from
+    today (None with no date) and the visit that answers it (or None)."""
+    if not record.follow_up_required:
+        return None
+    return {
+        "date": record.follow_up_date,
+        "days": _follow_up_days(record, today),
+        "visit": follow_up_visit(record),
+    }
+
+
+def owner_visit_receipt(record):
+    """The receipt of the record's visit when the owner may see it (Unpaid or
+    Paid, never Cancelled), else None."""
+    if record.appointment_id is None:
+        return None
+    # Imported here: billing.utils imports this module
+    from billing.utils import owner_receipts
+
+    return (
+        owner_receipts(record.pet.owner_id)
+        .filter(appointment_id=record.appointment_id)
+        .first()
+    )
+
+
+def owner_record_header(record):
+    """The top of the page: the date, the visit's service ("" when there is
+    none) and the title: the diagnosis cut short, "Visit record" when empty."""
+    visit = record.appointment
+    service = visit.service if visit else None
+    diagnosis = " ".join(record.diagnosis.split())
+    return {
+        "date": record.record_date,
+        "service": service.service_name if service else "",
+        "title": Truncator(diagnosis).chars(RECORD_HEADING_CHARS) or "Visit record",
+    }
+
+
+def owner_follow_up_box(follow_up, today):
+    """What the blue box says, or None (no follow-up, or no date). state is
+    "booked" (a visit answers it), "passed" (the date is past, nothing booked)
+    or "due"; visit_line is the booked visit's day, time and status."""
+    if not follow_up or not follow_up["date"]:
+        return None
+    visit = follow_up["visit"]
+    if visit is not None:
+        state = "booked"
+    elif follow_up["days"] < 0:
+        state = "passed"
+    else:
+        state = "due"
+    box = {"state": state, "date": follow_up["date"], "visit": visit}
+    if visit is not None:
+        words = OWNER_STATUS_WORDS.get(visit.status, "")
+        box["visit_line"] = f"{when_line(visit.date, visit.time, today)} · {words}"
+    return box
+
+
+def owner_found_rows(record):
+    """The "What Dr. Aga found" rows that have text, in the mockup's order."""
+    rows = (
+        ("Signs seen", record.symptoms),
+        ("Diagnosis", record.diagnosis),
+        ("Done at the clinic", record.treatment_given),
+    )
+    return [{"label": label, "text": text} for label, text in rows if text.strip()]
+
+
+def owner_same_visit_links(visit, receipt):
+    """The "From the same visit" link cards: the visit, then the bill (the
+    receipt already passed owner_visit_receipt: Unpaid or Paid only)."""
+    links = []
+    if visit is not None:
+        words = OWNER_STATUS_WORDS.get(visit.status, "")
+        parts = [visit.service.service_name if visit.service else "", words]
+        when = f"{date_format(visit.date, 'M j')}, {time_label(visit.time)}"
+        links.append(
+            {
+                "icon": "calendar-check",
+                "title": f"Visit · {when}",
+                "text": " · ".join(part for part in parts if part),
+                "url": reverse("owner_appointment_detail", args=[visit.pk]),
+            }
+        )
+    if receipt is not None:
+        paid = receipt.payment_status == receipt.PAID
+        links.append(
+            {
+                "icon": "receipt",
+                "title": f"Bill {receipt.receipt_number}",
+                "amount": receipt.total_amount,
+                "word": "Paid" if paid else "Unpaid",
+                "url": reverse("owner_receipt_detail", args=[receipt.pk]),
+            }
+        )
+    return links
+
+
+def owner_record_context(record, today):
+    """
+    Context for the owner's medical record page. record comes from
+    owner_record_queryset() (pet and visit loaded, private_notes deferred).
+    Query count is flat: medicines, files, doses, the follow-up visit and the
+    receipt are one query each however many rows there are. Doses are loaded
+    without correction_note: owners only see "Corrected by the clinic".
+    """
+    follow_up = owner_follow_up(record, today)
+    receipt = owner_visit_receipt(record)
+    return {
+        "record": record,
+        "pet": record.pet,
+        "medicines": list(record.prescription_items.order_by("created_at", "pk")),
+        "test_files": owner_test_files(record),
+        "vaccinations": list(
+            record.vaccinations.defer("correction_note").order_by(
+                "-date_administered", "-pk"
+            )
+        ),
+        "follow_up": follow_up,
+        "visit": record.appointment,
+        "receipt": receipt,
+        "today": today,
+        "header": owner_record_header(record),
+        "follow_up_box": owner_follow_up_box(follow_up, today),
+        "found_rows": owner_found_rows(record),
+        "same_visit_links": owner_same_visit_links(record.appointment, receipt),
+        "back_url": f"{reverse('owner_pet_detail', args=[record.pet_id])}?tab=records",
     }
 
 

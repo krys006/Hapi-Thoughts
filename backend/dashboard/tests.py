@@ -1,11 +1,16 @@
 import re
 from datetime import date, datetime, time, timedelta
 from datetime import timezone as dt_timezone
+from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
+from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
+from django.contrib.messages.storage.base import Message
 from django.db import connection
 from django.template import engines
 from django.template.loader import render_to_string
@@ -15,6 +20,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from appointments.models import Appointment
+from appointments.utils import get_clinic_settings
 from billing.models import BillingReceipt, Service
 from dashboard.context_processors import shell
 from dashboard.templatetags.friendly_dates import (
@@ -29,6 +35,7 @@ from dashboard.utils import (
     day_schedule,
     month_cells,
     month_day_counts,
+    owner_dashboard_context,
     pending_requests,
     resolve_month,
     resolve_picked,
@@ -255,14 +262,15 @@ class LogoutRedirectTests(ShellTestBase):
 
     def test_admin_goes_to_admin_login(self):
         self.client.force_login(self.admin)
-        response = self.client.get(reverse("logout"))
+        # Slice 8a-1b: logging out is a POST (a GET no longer logs out)
+        response = self.client.post(reverse("logout"))
         self.assertRedirects(
             response, reverse("admin_login"), fetch_redirect_response=False
         )
 
     def test_owner_goes_to_owner_login(self):
         self.client.force_login(self.owner.user)
-        response = self.client.get(reverse("logout"))
+        response = self.client.post(reverse("logout"))
         self.assertRedirects(
             response, reverse("owner_login"), fetch_redirect_response=False
         )
@@ -279,7 +287,9 @@ class ClinicInfoFrameTests(ShellTestBase):
     def test_owner_gets_owner_dashboard(self):
         self.client.force_login(self.owner.user)
         response = self.client.get(reverse("clinic_info"))
-        self.assertTemplateUsed(response, "base_dashboard.html")
+        # 8b-9b: the owner layout (was base_dashboard.html)
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertTemplateNotUsed(response, "base_dashboard.html")
 
 
 class SidebarTests(ShellTestBase):
@@ -416,16 +426,17 @@ class TopbarSearchTests(ShellTestBase):
         self.assertIn('id="bell-button"', html)
 
     def test_layout_loads_dialogs_js(self):
+        # Slice 8b-1: dialogs.js moved to js/shared/ (was js/admin/)
         response = self.client.get(reverse("admin_dashboard"))
         self.assertRegex(
             response.content.decode(),
-            r'<script src="/static/js/admin/dialogs\.[0-9a-f]+\.js" defer></script>',
+            r'<script src="/static/js/shared/dialogs\.[0-9a-f]+\.js" defer></script>',
         )
 
 
 class LegacyLayerRetiredTests(ShellTestBase):
-    """Slice 7b-5: admin pages have no legacy CSS layer and no shared modal;
-    owner pages keep shared/modals.html."""
+    """Slice 7b-5: admin pages have no legacy CSS layer and no shared modal
+    (8b-10a: shared/modals.html is deleted, so no page has it)."""
 
     def test_admin_pages_have_no_legacy_layer_or_shared_modal(self):
         self.client.force_login(self.admin)
@@ -445,14 +456,6 @@ class LegacyLayerRetiredTests(ShellTestBase):
         for word in ("legacy_css", "layer(legacy)", "shared/modals.html"):
             with self.subTest(word=word):
                 self.assertNotIn(word, source)
-
-    def test_owner_page_still_includes_shared_modals(self):
-        self.client.force_login(self.owner.user)
-        response = self.client.get(reverse("clinic_info"))
-        self.assertTemplateUsed(response, "base_dashboard.html")
-        self.assertTemplateUsed(response, "shared/modals.html")
-        self.assertContains(response, 'id="confirm-modal-overlay"')
-        self.assertContains(response, "openConfirmModal")
 
 
 class OwnerSearchReceiptTests(ShellTestBase):
@@ -1634,3 +1637,630 @@ class DashboardMarkupTests(DashboardV5TestBase):
             self._html(),
             r'<span id="bell-count" class="rounded-full[^"]*">2 new</span>',
         )
+
+
+# ─── Slice 8a-2b: owner dashboard context ────────────────────────────────────
+
+MANILA = ZoneInfo("Asia/Manila")
+# 00:30 on Tue, Nov 3, 2026 in Manila (still Nov 2 in UTC)
+OWNER_NOW = datetime(2026, 11, 3, 0, 30, tzinfo=MANILA)
+OWNER_TODAY = date(2026, 11, 3)
+
+
+class OwnerDashboardContextTests(DashboardV5TestBase):
+    """owner_dashboard_context(owner, today, now) and the page that uses it."""
+
+    def _owner_context(self, now=OWNER_NOW, owner=None):
+        return owner_dashboard_context(owner or self.owner, now.date(), now)
+
+    def _at(self, day, hour, minute=0):
+        return datetime(2026, 11, day, hour, minute, tzinfo=MANILA)
+
+    def _receipt(self, status, amount, owner=None):
+        number = BillingReceipt.objects.count() + 1
+        return BillingReceipt.objects.create(
+            receipt_number=f"HV-2026-{number:04d}",
+            owner=owner or self.owner,
+            payment_status=status,
+            total_amount=Decimal(amount),
+        )
+
+    def _new_owner(self, name="Ben"):
+        user = User.objects.create_user(
+            username=name.lower(),
+            email=f"{name.lower()}@example.com",
+            password="unused-pass-123",
+            role=User.PET_OWNER,
+            is_onboarded=True,
+        )
+        return PetOwner.objects.create(user=user, first_name=name, last_name="Reyes")
+
+    # next_visit
+
+    def test_next_visit_is_the_soonest_pending_or_confirmed(self):
+        later = self._booking(date(2026, 11, 5), 10, Appointment.CONFIRMED)
+        soon = self._booking(date(2026, 11, 4), 9, Appointment.PENDING)
+        context = self._owner_context()
+        self.assertEqual(context["next_visit"], soon)
+        self.assertIs(context["is_pending"], True)
+        self.assertEqual(context["upcoming"], [later])
+        Appointment.objects.filter(pk=soon.pk).update(status=Appointment.CONFIRMED)
+        context = self._owner_context()
+        self.assertEqual(context["next_visit"], soon)
+        self.assertIs(context["is_pending"], False)
+
+    def test_no_visits_means_no_next_visit(self):
+        context = self._owner_context()
+        self.assertIsNone(context["next_visit"])
+        self.assertIs(context["is_pending"], False)
+        self.assertEqual(context["upcoming"], [])
+        self.assertEqual(context["today"], OWNER_TODAY)
+
+    def test_a_visit_in_progress_is_still_the_next_visit(self):
+        visit = self._booking(OWNER_TODAY, 14, Appointment.CONFIRMED)
+        # No clinic settings: a 60 minute slot, so 14:00 runs to 15:00
+        for now in (self._at(3, 14, 0), self._at(3, 14, 30), self._at(3, 14, 59)):
+            with self.subTest(now=now):
+                self.assertEqual(self._owner_context(now)["next_visit"], visit)
+
+    def test_a_visit_that_just_ended_is_not(self):
+        self._booking(OWNER_TODAY, 14, Appointment.CONFIRMED)
+        evening = self._booking(OWNER_TODAY, 16, Appointment.CONFIRMED)
+        for now in (self._at(3, 15, 0), self._at(3, 15, 1)):
+            with self.subTest(now=now):
+                context = self._owner_context(now)
+                self.assertEqual(context["next_visit"], evening)
+                self.assertEqual(context["upcoming"], [])
+        self.assertIsNone(self._owner_context(self._at(3, 17, 0))["next_visit"])
+
+    def test_the_slot_length_comes_from_the_clinic_settings(self):
+        clinic = get_clinic_settings(create=True)
+        clinic.slot_duration_minutes = 30
+        clinic.save()
+        visit = self._booking(OWNER_TODAY, 14, Appointment.CONFIRMED)
+        self.assertEqual(self._owner_context(self._at(3, 14, 29))["next_visit"], visit)
+        self.assertIsNone(self._owner_context(self._at(3, 14, 30))["next_visit"])
+
+    def test_a_request_for_a_day_that_has_passed_is_not_next(self):
+        self._booking(date(2026, 11, 2), 9, Appointment.PENDING)
+        self.assertIsNone(self._owner_context()["next_visit"])
+
+    def test_another_owners_visits_are_left_out(self):
+        other = self._new_owner()
+        pet = Pet.objects.create(owner=other, name="Rex", species="Dog")
+        Appointment.objects.create(
+            owner=other,
+            pet=pet,
+            date=date(2026, 11, 4),
+            time=time(9, 0),
+            status=Appointment.CONFIRMED,
+        )
+        self.assertIsNone(self._owner_context()["next_visit"])
+        self.assertIsNotNone(self._owner_context(owner=other)["next_visit"])
+
+    # upcoming
+
+    def test_upcoming_is_the_next_three_after_the_next_visit(self):
+        visits = [
+            self._booking(date(2026, 11, 4 + n), 10, Appointment.CONFIRMED)
+            for n in range(6)
+        ]
+        context = self._owner_context()
+        self.assertEqual(context["next_visit"], visits[0])
+        self.assertEqual(context["upcoming"], visits[1:4])
+
+    def test_upcoming_includes_later_visits_today(self):
+        first = self._booking(OWNER_TODAY, 9, Appointment.CONFIRMED)
+        second = self._booking(OWNER_TODAY, 13, Appointment.PENDING)
+        context = self._owner_context(self._at(3, 8, 0))
+        self.assertEqual(context["next_visit"], first)
+        self.assertEqual(context["upcoming"], [second])
+
+    def test_upcoming_never_has_completed_no_show_or_cancelled(self):
+        soon = self._booking(date(2026, 11, 4), 9, Appointment.CONFIRMED)
+        self._booking(date(2026, 11, 5), 9, Appointment.COMPLETED)
+        self._booking(date(2026, 11, 6), 9, Appointment.NO_SHOW)
+        self._booking(date(2026, 11, 7), 9, Appointment.CANCELLED)
+        last = self._booking(date(2026, 11, 8), 9, Appointment.PENDING)
+        context = self._owner_context()
+        self.assertEqual(context["next_visit"], soon)
+        self.assertEqual(context["upcoming"], [last])
+
+    def test_completed_and_no_show_are_never_the_next_visit(self):
+        self._booking(OWNER_TODAY, 9, Appointment.COMPLETED)
+        self._booking(OWNER_TODAY, 10, Appointment.NO_SHOW)
+        context = self._owner_context(self._at(3, 8, 0))
+        self.assertIsNone(context["next_visit"])
+        self.assertEqual(context["upcoming"], [])
+
+    # unpaid
+
+    def test_unpaid_count_and_total_leave_out_paid_and_cancelled(self):
+        self._receipt(BillingReceipt.PENDING, "100.00")
+        self._receipt(BillingReceipt.PENDING, "250.50")
+        self._receipt(BillingReceipt.PAID, "999.00")
+        self._receipt(BillingReceipt.CANCELLED, "888.00")
+        self._receipt(BillingReceipt.PENDING, "70.00", owner=self._new_owner())
+        context = self._owner_context()
+        self.assertEqual(context["unpaid_count"], 2)
+        self.assertEqual(context["unpaid_total"], Decimal("350.50"))
+
+    def test_no_unpaid_bills(self):
+        self._receipt(BillingReceipt.PAID, "100.00")
+        context = self._owner_context()
+        self.assertEqual(context["unpaid_count"], 0)
+        self.assertEqual(context["unpaid_total"], Decimal("0"))
+
+    # new owner, pets, clinic
+
+    def test_a_new_owner_has_no_pets_and_no_visits(self):
+        context = self._owner_context(owner=self._new_owner())
+        self.assertIs(context["is_new_owner"], True)
+        self.assertEqual(context["pets"], [])
+
+    def test_an_owner_with_a_pet_or_a_visit_is_not_new(self):
+        self.assertIs(self._owner_context()["is_new_owner"], False)
+        other = self._new_owner()
+        pet = Pet.objects.create(
+            owner=other, name="Old", species="Cat", is_archived=True
+        )
+        # Only an archived pet and no visits: still a new owner
+        self.assertIs(self._owner_context(owner=other)["is_new_owner"], True)
+        Appointment.objects.create(
+            owner=other,
+            pet=pet,
+            date=date(2026, 11, 1),
+            time=time(9, 0),
+            status=Appointment.CANCELLED,
+        )
+        self.assertIs(self._owner_context(owner=other)["is_new_owner"], False)
+
+    def test_pets_are_not_archived_and_in_name_order(self):
+        Pet.objects.create(owner=self.owner, name="Zed", species="Dog")
+        Pet.objects.create(owner=self.owner, name="Alpha", species="Cat")
+        Pet.objects.create(
+            owner=self.owner, name="Gone", species="Cat", is_archived=True
+        )
+        names = [pet.name for pet in self._owner_context()["pets"]]
+        self.assertEqual(names, ["Alpha", "Bantay", "Zed"])
+
+    def test_clinic_is_the_settings_row_or_none(self):
+        self.assertIsNone(self._owner_context()["clinic"])
+        clinic = get_clinic_settings(create=True)
+        self.assertEqual(self._owner_context()["clinic"], clinic)
+
+    def test_query_count_is_flat(self):
+        def count():
+            with CaptureQueriesContext(connection) as queries:
+                self._owner_context()
+            return len(queries)
+
+        for n in range(3):
+            self._booking(date(2026, 11, 4 + n), 9, Appointment.CONFIRMED)
+            self._receipt(BillingReceipt.PENDING, "10.00")
+        few = count()
+        for n in range(27):
+            self._booking(date(2026, 11, 4 + n % 20), 10, Appointment.CONFIRMED)
+            self._receipt(BillingReceipt.PENDING, "10.00")
+        self.assertEqual(count(), few)
+        self.assertLessEqual(few, 5)
+
+    # the page
+
+    def _page(self):
+        self.client.force_login(self.owner.user)
+        response = self.client.get(reverse("owner_dashboard"))
+        self.assertEqual(response.status_code, 200)
+        return response
+
+    @mock.patch("django.utils.timezone.now", return_value=OWNER_NOW)
+    def test_the_page_keeps_the_old_keys_and_has_the_new_ones(self, _now):
+        visit = self._booking(date(2026, 11, 4), 9, Appointment.PENDING)
+        response = self._page()
+        for key in (
+            "today",
+            "upcoming_appointments",
+            "my_pets",
+            "recent_notifications",
+            "next_visit",
+            "is_pending",
+            "upcoming",
+            "unpaid_count",
+            "unpaid_total",
+            "pets",
+            "is_new_owner",
+            "clinic",
+        ):
+            with self.subTest(key=key):
+                self.assertIn(key, response.context)
+        self.assertEqual(response.context["today"], OWNER_TODAY)
+        self.assertEqual(list(response.context["upcoming_appointments"]), [visit])
+        self.assertEqual([p.name for p in response.context["my_pets"]], ["Bantay"])
+        # (8b-4, on purpose: was "Upcoming Appointments", the old heading)
+        self.assertContains(response, "Next visit")
+
+    @mock.patch("django.utils.timezone.now", return_value=OWNER_NOW)
+    def test_the_old_upcoming_list_no_longer_shows_completed_visits(self, _now):
+        self._booking(OWNER_TODAY, 9, Appointment.COMPLETED)
+        self._booking(OWNER_TODAY, 10, Appointment.NO_SHOW)
+        response = self._page()
+        self.assertEqual(response.context["upcoming_appointments"], [])
+        # (8b-4, on purpose: was "No upcoming appointments", the old empty text)
+        self.assertContains(response, "No visits booked")
+
+    @mock.patch("django.utils.timezone.now", return_value=OWNER_NOW)
+    def test_the_page_has_no_polling_attributes(self, _now):
+        html = self._page().content.decode()
+        self.assertNotIn("every 30s", html)
+        # 8b-10a: the URL is gone, so the path is written out
+        self.assertNotIn("/owner/dashboard/refresh/", html)
+        # (8b-4: re-anchored to the whole page; the old widgets block and its
+        # "owner-dashboard-content" div are gone, and so is the click-driven
+        # Recent Notifications button)
+        self.assertNotIn("hx-trigger", html)
+        self.assertNotIn('hx-swap="outerHTML"', html)
+
+    @mock.patch("django.utils.timezone.now", return_value=OWNER_NOW)
+    def test_the_page_query_count_is_flat(self, _now):
+        def count():
+            self.client.force_login(self.owner.user)
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.get(reverse("owner_dashboard"))
+            self.assertEqual(response.status_code, 200)
+            return len(queries)
+
+        for n in range(3):
+            self._booking(date(2026, 11, 4 + n), 9, Appointment.CONFIRMED)
+            self._receipt(BillingReceipt.PENDING, "10.00")
+        few = count()
+        for n in range(27):
+            self._booking(date(2026, 11, 4 + n % 20), 10, Appointment.CONFIRMED)
+            self._receipt(BillingReceipt.PENDING, "10.00")
+        self.assertEqual(count(), few)
+
+
+# ─── Slice 8b-4: the owner dashboard page ────────────────────────────────────
+
+VIOLET_BUTTON = r"<(?:a|button)\b[^>]*\bbg-violet-600\b[^>]*>"
+INLINE_SCRIPT = r"<script(?![^>]*\bsrc=)[^>]*>"
+
+
+def _source(name):
+    return engines["django"].get_template(name).template.source
+
+
+@mock.patch("django.utils.timezone.now", return_value=OWNER_NOW)
+class OwnerDashboardPageTests(DashboardV5TestBase):
+    """owner_dashboard on layouts/owner.html. "Now" is Tue, Nov 3, 2026 in
+    Manila, so Nov 6 is "Fri, Nov 6" and Nov 4 is "Tomorrow"."""
+
+    def _receipt(self, status, amount, owner=None):
+        number = BillingReceipt.objects.count() + 1
+        return BillingReceipt.objects.create(
+            receipt_number=f"HV-2026-{number:04d}",
+            owner=owner or self.owner,
+            payment_status=status,
+            total_amount=Decimal(amount),
+        )
+
+    def _other_owner(self, with_pet=True):
+        user = User.objects.create_user(
+            username="ben",
+            email="ben@example.com",
+            password="unused-pass-123",
+            role=User.PET_OWNER,
+            is_onboarded=True,
+        )
+        owner = PetOwner.objects.create(user=user, first_name="Ben", last_name="Reyes")
+        if with_pet:
+            Pet.objects.create(owner=owner, name="Rex", species="Dog")
+        return owner
+
+    def _get(self, user=None):
+        self.client.force_login(user or self.owner.user)
+        response = self.client.get(reverse("owner_dashboard"))
+        self.assertEqual(response.status_code, 200)
+        return response
+
+    def _html(self, user=None):
+        return self._get(user).content.decode()
+
+    def _section(self, html, label_id):
+        found = re.search(
+            rf'(?s)<section aria-labelledby="{label_id}".*?</section>', html
+        )
+        self.assertIsNotNone(found, label_id)
+        return found.group(0)
+
+    # layout, band, bar
+
+    def test_layout_and_the_home_tab(self, _now):
+        response = self._get()
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertTemplateNotUsed(response, "base_dashboard.html")
+        html = response.content.decode()
+        nav = re.search(r'(?s)<nav aria-label="Main"[^>]*>(.*?)</nav>', html).group(1)
+        self.assertEqual(nav.count('aria-current="page"'), 1)
+        current = re.search(r'<a href="([^"]+)"[^>]*aria-current="page"', nav)
+        self.assertEqual(current.group(1), reverse("owner_dashboard"))
+
+    def test_violet_band_greeting_and_a_hidden_paw_trail(self, _now):
+        html = self._html()
+        band = re.search(r'<div data-dashboard-band class="([^"]*)">', html)
+        self.assertIn("bg-violet-700", band.group(1).split())
+        self.assertIn("Hi, Ana", html)
+        self.assertIn("Tuesday, November 3, 2026", html)
+        trail = re.search(
+            r'(?s)<div class="[^"]*opacity-10[^"]*" aria-hidden="true">(.*?)</div>',
+            html,
+        )
+        self.assertIsNotNone(trail)
+        self.assertGreaterEqual(trail.group(1).count("<svg"), 5)
+        self.assertIn('<circle cx="11" cy="4" r="2"', trail.group(1))  # paw-print
+
+    def test_flash_messages_sit_inside_the_band(self, _now):
+        self.assertNotIn("data-flash", self._html())
+        band = render_to_string(
+            "owner/dashboard_parts/band.html",
+            {
+                "today": OWNER_TODAY,
+                "owner": SimpleNamespace(first_name="Ana"),
+                "messages": [Message(25, "Pet added. Say hello to Bantay.")],
+            },
+        )
+        self.assertIn("data-flash", band)
+        self.assertIn('<strong class="font-semibold">Pet added.</strong>', band)
+        self.assertLess(band.index("Hi, Ana"), band.index("data-flash"))
+
+    def test_the_top_bar_is_white_unless_the_script_marks_it(self, _now):
+        html = self._html()
+        bar = re.search(r'<header data-dashboard-bar class="([^"]*)">', html)
+        classes = bar.group(1).split()
+        self.assertIn("bg-white", classes)
+        self.assertIn("data-on-band:bg-transparent", classes)
+        self.assertIn("motion-reduce:transition-none", classes)
+        # The server never sets the attribute: no JavaScript means a white bar
+        self.assertIsNone(re.search(r"<header[^>]*\sdata-on-band[\s>=]", html))
+        header = html.split("<header", 1)[1].split("</header>", 1)[0]
+        self.assertIn("group-data-on-band:text-white", header)
+        self.assertIn("min-h-11", header)  # the logo link
+        self.assertIn("size-11", header)  # the bell
+        self.assertIn("Hapi Tutz", header)
+        self.assertIn(reverse("owner_notifications"), header)
+
+    def test_the_bar_script_is_loaded_and_is_a_plain_file(self, _now):
+        html = self._html()
+        self.assertRegex(
+            html, r'<script src="/static/js/owner/dashboard_bar\.[0-9a-f]+\.js" defer>'
+        )
+        scripts = Path(settings.BASE_DIR) / "static" / "js" / "owner"
+        source = (scripts / "dashboard_bar.js").read_text(encoding="utf-8")
+        self.assertIn("IntersectionObserver", source)
+        self.assertIn("data-on-band", source)
+        self.assertIn("data-dashboard-band", source)
+
+    def test_no_polling_or_htmx_refresh_on_the_page(self, _now):
+        html = self._html()
+        self.assertNotRegex(html, r"hx-(get|post|trigger|swap)=")
+        # 8b-10a: the URL is gone, so the path is written out
+        self.assertNotIn("/owner/dashboard/refresh/", html)
+
+    # next visit
+
+    def test_next_visit_card_each_status(self, _now):
+        for status, words, colours in (
+            (
+                Appointment.PENDING,
+                "Waiting for approval",
+                "bg-yellow-100 text-yellow-800",
+            ),
+            (Appointment.CONFIRMED, "Confirmed", "bg-blue-100 text-blue-800"),
+        ):
+            with self.subTest(status=status):
+                Appointment.objects.all().delete()
+                visit = self._booking(date(2026, 11, 6), 15, status)
+                card = self._section(self._html(), "next-visit-title")
+                self.assertIn("Next visit", card)
+                self.assertIn("Bantay", card)
+                self.assertIn("Fri, Nov 6 · 3:00 PM", card)
+                self.assertIn(f'<span class="badge {colours}">{words}</span>', card)
+                link = reverse("owner_appointment_detail", args=[visit.pk])
+                self.assertIn(f'<a href="{link}"', card)
+                self.assertIn("View details", card)
+
+    def test_next_visit_says_today_and_tomorrow_in_words(self, _now):
+        self._booking(OWNER_TODAY, 15, Appointment.CONFIRMED)
+        self.assertIn("Today · 3:00 PM", self._html())
+        Appointment.objects.all().delete()
+        self._booking(date(2026, 11, 4), 9, Appointment.CONFIRMED)
+        self.assertIn("Tomorrow · 9:00 AM", self._html())
+
+    def test_no_visits_booked_line(self, _now):
+        html = self._html()
+        self.assertIn("No visits booked", self._section(html, "next-visit-title"))
+        self.assertNotIn("View details", html)
+        self.assertNotIn("Upcoming visits", html)
+
+    def test_one_violet_button_book_an_appointment(self, _now):
+        for n in range(3):
+            self._booking(date(2026, 11, 4 + n), 10, Appointment.CONFIRMED)
+        self._receipt(BillingReceipt.PENDING, "100.00")
+        html = self._html()
+        buttons = re.findall(VIOLET_BUTTON, html)
+        self.assertEqual(len(buttons), 1)
+        self.assertIn(f'href="{reverse("owner_book_appointment")}"', buttons[0])
+        self.assertIn("Book an appointment", html)
+
+    # upcoming
+
+    def test_upcoming_is_three_visits_as_links_with_see_all(self, _now):
+        visits = [
+            self._booking(
+                date(2026, 11, 4 + n),
+                10,
+                Appointment.PENDING if n == 2 else Appointment.CONFIRMED,
+            )
+            for n in range(6)
+        ]
+        section = self._section(self._html(), "upcoming-title")
+        row = r'<a href="([^"]+)" class="flex items-center gap-4'
+        links = re.findall(row, section)
+        expected = [reverse("owner_appointment_detail", args=[v.pk]) for v in visits]
+        self.assertEqual(links, expected[1:4])
+        self.assertIn("Upcoming visits", section)
+        self.assertIn(f'<a href="{reverse("owner_appointments")}"', section)
+        self.assertIn("See all visits", section)
+        self.assertEqual(section.count("Waiting for approval"), 1)
+        self.assertEqual(section.count("Confirmed"), 2)
+
+    def test_completed_no_show_and_cancelled_visits_are_not_upcoming(self, _now):
+        self._booking(date(2026, 11, 4), 9, Appointment.CONFIRMED)
+        for day, status in (
+            (5, Appointment.COMPLETED),
+            (6, Appointment.NO_SHOW),
+            (7, Appointment.CANCELLED),
+        ):
+            self._booking(date(2026, 11, day), 9, status)
+        self.assertNotIn("Upcoming visits", self._html())
+
+    # unpaid
+
+    def test_unpaid_box_only_above_zero_with_the_peso_total(self, _now):
+        self.assertNotIn("unpaid bill", self._html())
+        self._receipt(BillingReceipt.PAID, "999.00")
+        self.assertNotIn("unpaid bill", self._html())
+        self._receipt(BillingReceipt.PENDING, "100.00")
+        html = self._html()
+        self.assertIn("1 unpaid bill<", html)
+        self.assertIn("₱100.00 to pay", html)
+        self._receipt(BillingReceipt.PENDING, "1250.50")
+        html = self._html()
+        box = re.search(
+            r'(?s)<a href="([^"]+)" class="[^"]*border-yellow-300[^"]*">(.*?)</a>',
+            html,
+        )
+        self.assertEqual(box.group(1), reverse("owner_billing_list"))
+        self.assertIn("2 unpaid bills", box.group(2))
+        self.assertIn("₱1,350.50 to pay", box.group(2))
+        self.assertIn("See bills", box.group(2))
+
+    def test_cancelled_receipts_are_never_counted_or_shown(self, _now):
+        self._receipt(BillingReceipt.CANCELLED, "888.00")
+        self.assertNotIn("unpaid bill", self._html())
+        self._receipt(BillingReceipt.PENDING, "100.00")
+        html = self._html()
+        self.assertIn("1 unpaid bill<", html)
+        self.assertIn("₱100.00 to pay", html)
+        self.assertNotIn("₱888", html)
+
+    # new owner
+
+    def test_new_owner_card_and_no_book_button(self, _now):
+        html = self._html(self._other_owner(with_pet=False).user)
+        self.assertIn("Welcome to Hapi Tutz!", html)
+        self.assertIn("Hi, Ben", html)
+        buttons = re.findall(VIOLET_BUTTON, html)
+        self.assertEqual(len(buttons), 1)
+        self.assertIn(f'href="{reverse("owner_pet_add")}"', buttons[0])
+        self.assertIn("Add your first pet", html)
+        self.assertNotIn("Book an appointment", html)
+        self.assertNotIn("Next visit", html)
+        self.assertIn("No visits yet", html)
+
+    # privacy
+
+    def test_another_owners_data_is_never_shown(self, _now):
+        other = self._other_owner()
+        visit = Appointment.objects.create(
+            owner=other,
+            pet=Pet.objects.get(owner=other),
+            date=date(2026, 11, 4),
+            time=time(9, 0),
+            status=Appointment.CONFIRMED,
+        )
+        self._receipt(BillingReceipt.PENDING, "777.00", owner=other)
+        html = self._html()
+        self.assertNotIn("Rex", html)
+        self.assertNotIn("₱777", html)
+        self.assertNotIn("unpaid bill", html)
+        self.assertNotIn(reverse("owner_appointment_detail", args=[visit.pk]), html)
+        self.assertIn("No visits booked", html)
+
+    def test_internal_notes_are_never_shown(self, _now):
+        Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=date(2026, 11, 4),
+            time=time(9, 0),
+            status=Appointment.CONFIRMED,
+            notes="INTERNAL-NOTE clinic only",
+            cancellation_detail="INTERNAL-DETAIL",
+        )
+        html = self._html()
+        self.assertIn("Next visit", html)
+        self.assertNotIn("INTERNAL", html)
+
+    # queries and markup rules
+
+    def test_page_query_count_is_flat_with_pets_visits_and_receipts(self, _now):
+        def count():
+            self.client.force_login(self.owner.user)
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.get(reverse("owner_dashboard"))
+            self.assertEqual(response.status_code, 200)
+            return len(queries)
+
+        extra_pets = [
+            Pet.objects.create(owner=self.owner, name=f"Pet{n}", species="Cat")
+            for n in range(2)
+        ]
+        for n in range(3):
+            self._booking(date(2026, 11, 4 + n), 9, Appointment.CONFIRMED)
+            self._receipt(BillingReceipt.PENDING, "10.00")
+        few = count()
+        for n in range(27):
+            Appointment.objects.create(
+                owner=self.owner,
+                pet=extra_pets[n % 2],
+                date=date(2026, 11, 4 + n % 20),
+                time=time(10, 0),
+                status=Appointment.CONFIRMED,
+            )
+            self._receipt(BillingReceipt.PENDING, "10.00")
+        self.assertEqual(count(), few)
+        # (printed so the page total can be written in HANDOFF)
+        print(f"\nowner dashboard page queries: {few}")
+
+    def test_every_link_is_on_one_line(self, _now):
+        for n in range(4):
+            self._booking(date(2026, 11, 4 + n), 9, Appointment.CONFIRMED)
+        self._receipt(BillingReceipt.PENDING, "10.00")
+        for tag in re.findall(r"<a\b[^>]*>", self._html()):
+            self.assertNotIn("\n", tag)
+        names = [
+            "owner/dashboard/index.html",
+            "owner/dashboard_parts/top_bar.html",
+            "owner/dashboard_parts/band.html",
+            "owner/dashboard_parts/next_visit.html",
+            "owner/dashboard_parts/upcoming.html",
+            "owner/dashboard_parts/unpaid.html",
+            "owner/dashboard_parts/welcome.html",
+            "owner/dashboard_parts/visit_badge.html",
+        ]
+        for name in names:
+            for link in re.findall(r"(?s)<a\b.*?</a>", _source(name)):
+                with self.subTest(file=name, link=link[:40]):
+                    self.assertNotIn("\n", link)
+
+    def test_no_inline_script_handler_or_html_comment(self, _now):
+        html = self._html()
+        self.assertEqual(re.findall(INLINE_SCRIPT, html), [])
+        self.assertIsNone(re.search(r"\son[a-z]+\s*=", html))
+        self.assertNotIn("hx-confirm", html)
+        for name in (
+            "owner/dashboard/index.html",
+            "owner/dashboard_parts/top_bar.html",
+            "owner/dashboard_parts/band.html",
+        ):
+            with self.subTest(file=name):
+                self.assertNotIn("<!--", _source(name))

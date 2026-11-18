@@ -1,0 +1,14 @@
+{% comment %}
+  About you: first and last name, mobile number (optional). Needs form (the
+  step 1 form).
+{% endcomment %}
+<section class="card" aria-labelledby="about-title">
+  <h2 id="about-title" class="text-xl font-semibold text-gray-900">About you</h2>
+  <div class="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-2">
+    {% include "components/form_field.html" with field=form.first_name %}
+    {% include "components/form_field.html" with field=form.last_name %}
+    <div class="sm:col-span-2">
+      {% include "components/form_field.html" with field=form.contact_number optional=True %}
+    </div>
+  </div>
+</section>

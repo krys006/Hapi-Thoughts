@@ -1,217 +1,29 @@
-{% extends 'base.html' %}
-{% load static %}
+{% extends "layouts/owner_auth.html" %}
 
-{% block title %}Create Account — Hapi Vet{% endblock %}
+{% block title %}Create account — Hapi Vet{% endblock %}
 
-{% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/owner/auth.css' %}">
-{% endblock %}
+{% block card_title %}Create an account{% endblock %}
+{% block card_subtitle %}<p class="mt-1 text-base text-gray-700">For pet owners of Hapi Tutz. It's free.</p>{% endblock %}
 
 {% block content %}
-<div class="auth-page">
+  {% include "owner/auth_parts/google_button.html" with label="Sign up with Google" %}
+  {% include "owner/auth_parts/or_line.html" %}
 
-    <img
-        src="{% static 'images/clinic/auth-bg.png' %}"
-        alt="Background"
-        class="auth-bg"
-    >
+  {% for error in form.non_field_errors %}
+    {% include "owner/auth_parts/alert_box.html" with tone="red" title=error %}
+  {% endfor %}
 
-    <div class="auth-bg-overlay"></div>
-
-    <div class="auth-container">
-        <div class="auth-card">
-
-            <div class="auth-logo-wrap">
-                <img
-                    src="{% static 'images/clinic/logo.png' %}"
-                    alt="Hapi Vet Logo"
-                    class="auth-logo"
-                >
-            </div>
-
-            <div class="auth-header">
-                <h1 class="auth-title">Create Account</h1>
-                <p class="auth-subtitle">Join Hapi Vet and manage your pet’s care</p>
-            </div>
-
-            {% if messages %}
-                <div class="auth-messages">
-                    {% for message in messages %}
-                        <div class="auth-message
-                            {% if message.tags == 'error' %}
-                                auth-message-error
-                            {% elif message.tags == 'success' %}
-                                auth-message-success
-                            {% endif %}">
-                            {{ message }}
-                        </div>
-                    {% endfor %}
-                </div>
-            {% endif %}
-
-            {% if form.non_field_errors %}
-                <div class="auth-messages">
-                    {% for error in form.non_field_errors %}
-                        <div class="auth-message auth-message-error">
-                            {{ error }}
-                        </div>
-                    {% endfor %}
-                </div>
-            {% endif %}
-
-            <form method="POST" action="{% url 'owner_register' %}" class="auth-form">
-                {% csrf_token %}
-
-                <div>
-                    <label for="email" class="sr-only">Email Address</label>
-
-                    <div class="auth-field">
-                        <span class="auth-field-icon" aria-hidden="true">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8m-18 8h18a2 2 0 002-2V6a2 2 0 00-2-2H3a2 2 0 00-2 2v8a2 2 0 002 2z"
-                                />
-                            </svg>
-                        </span>
-
-                        <input
-                            type="email"
-                            id="email"
-                            name="email"
-                            value="{{ form.email.value|default:'' }}"
-                            placeholder="Email Address"
-                            required
-                            autofocus
-                            class="auth-input"
-                            {% if form.email.errors %}aria-invalid="true"{% endif %}
-                        >
-                    </div>
-
-                    {% if form.email.errors %}
-                        <div class="auth-error" role="alert">
-                            {% for error in form.email.errors %}
-                                <p>{{ error }}</p>
-                            {% endfor %}
-                        </div>
-                    {% endif %}
-                </div>
-
-                <div>
-                    <label for="password1" class="sr-only">Password</label>
-
-                    <div class="auth-field">
-                        <span class="auth-field-icon" aria-hidden="true">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11c1.104 0 2-.896 2-2V7a2 2 0 10-4 0v2c0 1.104.896 2 2 2z" />
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 11h14v9H5z" />
-                            </svg>
-                        </span>
-
-                        <input
-                            type="password"
-                            id="password1"
-                            name="password1"
-                            placeholder="Password"
-                            required
-                            class="auth-input"
-                            {% if form.password1.errors %}aria-invalid="true"{% endif %}
-                        >
-
-                        <button
-                            type="button"
-                            data-password-toggle="password1"
-                            class="auth-password-toggle"
-                            aria-label="Show password"
-                        ></button>
-
-                    </div>
-
-                    <!-- Validation errors -->
-                    {% if form.password1.errors %}
-                        <div class="auth-error" role="alert">
-                            {% for error in form.password1.errors %}
-                                <p>{{ error }}</p>
-                            {% endfor %}
-                        </div>
-                    {% endif %}
-
-                </div>
-
-                <div>
-                    <label for="password2" class="sr-only">Confirm Password</label>
-
-                    <div class="auth-field">
-                        <span class="auth-field-icon" aria-hidden="true">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11c1.104 0 2-.896 2-2V7a2 2 0 10-4 0v2c0 1.104.896 2 2 2z" />
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 11h14v9H5z" />
-                            </svg>
-                        </span>
-
-                        <input
-                            type="password"
-                            id="password2"
-                            name="password2"
-                            placeholder="Confirm Password"
-                            required
-                            class="auth-input"
-                        >
-
-                        <button
-                            type="button"
-                            data-password-toggle="password2"
-                            class="auth-password-toggle"
-                            aria-label="Show password"
-                        ></button>
-                    </div>
-                </div>
-
-                <p class="auth-subtitle text-center">
-                    By continuing, you agree to our Terms and Privacy Policy.
-                </p>
-
-                <button type="submit" class="auth-button">
-                    Create Account
-                </button>
-            </form>
-
-            <div class="auth-footer-text">
-                Already have an account?
-                <a href="{% url 'owner_login' %}" class="font-semibold underline">
-                    Sign in
-                </a>
-            </div>
-
-            <div class="auth-footer">
-                <a
-                    href="https://paws.org.ph/downloads/awa_ao54-_code_of_standards_for_veterinary_clinics_and_hospitals_for_small_companion_animals.pdf"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="auth-footer-link"
-                >
-                    Terms & Conditions
-                </a>
-
-                <span class="auth-footer-dot">•</span>
-
-                <a
-                    href="https://privacy.gov.ph/data-privacy-act/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="auth-footer-link"
-                >
-                    Privacy Policy
-                </a>
-            </div>
-
-        </div>
-    </div>
-</div>
+  <form method="post" action="{% url 'owner_register' %}" class="space-y-3.5">
+    {% csrf_token %}
+    {% include "owner/auth_parts/email_field.html" with field_id=form.email.id_for_label field_name="email" label="Email address" value=form.email.value errors=form.email.errors %}
+    {% include "owner/auth_parts/password_field.html" with field_id=form.password1.id_for_label field_name="password1" label="Password" errors=form.password1.errors autocomplete="new-password" rules=True %}
+    {% include "owner/auth_parts/password_field.html" with field_id=form.password2.id_for_label field_name="password2" label="Type the password again" errors=form.password2.errors autocomplete="new-password" %}
+    {# Terms and Privacy links come from settings.TERMS_URL / PRIVACY_URL; only this page has them #}
+    <p class="text-center text-base text-gray-700">By creating an account, you agree to our <a href="{{ terms_url }}" target="_blank" rel="noopener" class="font-medium text-blue-600 underline underline-offset-2">Terms<span class="sr-only"> (opens in a new tab)</span></a> and <a href="{{ privacy_url }}" target="_blank" rel="noopener" class="font-medium text-blue-600 underline underline-offset-2">Privacy Policy<span class="sr-only"> (opens in a new tab)</span></a>.</p>
+    <button type="submit" class="btn btn-primary min-h-12 w-full text-lg font-semibold">Create account</button>
+  </form>
 {% endblock %}
 
-{% block extra_js %}
-<script src="{% static 'js/owner/auth.js' %}"></script>
+{% block below_card %}
+  <p class="text-center text-base text-gray-700">Already have an account? <a href="{% url 'owner_login' %}" class="inline-flex min-h-11 items-center font-semibold text-blue-600">Log in</a></p>
 {% endblock %}

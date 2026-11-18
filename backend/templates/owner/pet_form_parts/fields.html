@@ -1,0 +1,10 @@
+{% comment %}
+  The owner's pet form fields, in order: photo, about the pet, more details.
+  Used by onboarding step 2 and the Add pet page. Needs form (OwnerPetForm).
+  Help text and errors are text-base (large).
+{% endcomment %}
+{% with large=True %}
+  {% include "owner/pet_form_parts/photo_card.html" %}
+  {% include "owner/pet_form_parts/about_card.html" %}
+  {% include "owner/pet_form_parts/more_card.html" %}
+{% endwith %}

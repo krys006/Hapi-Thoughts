@@ -1,0 +1,24 @@
+/*
+  Photo cards (admin and owner forms) and the record page's Add file dialog:
+  the chosen file's name shows under the "Choose a photo" / "Choose a file"
+  button. Markup: [data-photo] holds the [data-photo-input] file input and
+  the [data-photo-name] line. Moved from static/js/admin/ in Slice 8b-3.
+*/
+(function () {
+  "use strict";
+
+  function showFileName(input) {
+    var card = input.closest("[data-photo]");
+    var line = card && card.querySelector("[data-photo-name]");
+    if (!line) return;
+    var file = input.files && input.files[0];
+    line.textContent = file ? "Chosen: " + file.name : "";
+    line.hidden = !file;
+  }
+
+  document.addEventListener("change", function (event) {
+    if (event.target.matches("[data-photo-input]")) {
+      showFileName(event.target);
+    }
+  });
+})();

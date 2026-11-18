@@ -1,7 +1,12 @@
 # notifications/utils.py
 
+import datetime
+
 from django.core.mail import send_mail
-from django.conf import settings
+from django.core.paginator import Paginator
+from django.urls import reverse
+from django.utils import timezone
+from django.utils.dateformat import format as date_format
 from notifications.models import Notification, NotificationPreference
 
 # Maps notification_type to the NotificationPreference field that controls it.
@@ -150,3 +155,178 @@ def _should_send_email(recipient, notification_type):
     except NotificationPreference.DoesNotExist:
         # Preference row missing — fail open (send the email)
         return True
+
+
+# ── Compact owner text (Slice 8a-2b) ─────────────────────────────────────────
+# Owner notifications use a short title and a compact message
+# ("Visit confirmed" / "Bantay · Mon, Nov 2 at 3:00 PM"); the email gets the
+# full sentence through notify(email_body=...). Old rows keep their long text.
+
+
+def short_day(day, today):
+    """'Nov 9', with the year when it isn't today's year ('Nov 9, 2027')."""
+    text = date_format(day, "M j")
+    return text if day.year == today.year else f"{text}, {day.year}"
+
+
+def when_line(date, time, today):
+    """'Mon, Nov 2 at 3:00 PM'; the year only when it isn't today's year
+    ('Tue, Jan 5, 2027 at 3:00 PM'); just the date when there is no time."""
+    text = date_format(date, "D, M j")
+    if date.year != today.year:
+        text = f"{text}, {date.year}"
+    return f"{text} at {date_format(time, 'g:i A')}" if time else text
+
+
+def compact_message(pet_name, detail):
+    """'Bantay · Mon, Nov 2 at 3:00 PM' (an empty pet name leaves the detail)."""
+    return f"{pet_name} · {detail}" if pet_name else detail
+
+
+# ── Where a notification leads, and its icon ─────────────────────────────────
+
+# Icon names from components/icon.html, by notification_type. The follow-up
+# icon is calendar-clock because the mockup's stethoscope isn't in the set.
+NOTIFICATION_ICONS = {
+    Notification.APPOINTMENT_APPROVED: "calendar-check",
+    Notification.APPOINTMENT_REJECTED: "calendar-x",
+    Notification.APPOINTMENT_CANCELLED: "calendar-x",
+    Notification.APPOINTMENT_REMINDER: "clock",
+    Notification.BILLING_GENERATED: "receipt",
+    Notification.VACCINATION_REMINDER: "syringe",
+    Notification.FOLLOWUP_REMINDER: "calendar-clock",
+    Notification.PET_DELETION_ANSWERED: "paw-print",
+}
+DEFAULT_NOTIFICATION_ICON = "bell"
+
+
+def notification_icon(notification):
+    """The icon name for the notification's type ('bell' for any other)."""
+    return NOTIFICATION_ICONS.get(
+        notification.notification_type, DEFAULT_NOTIFICATION_ICON
+    )
+
+
+def notification_target(notification):
+    """
+    The URL the recipient should land on: the visit, then the bill, then the
+    pet (admin or owner pages by the recipient's role). None when the
+    notification points at nothing (e.g. a removed pet). Use select_related
+    ("recipient") when calling this for a list.
+    """
+    admin = notification.recipient.is_admin
+    if notification.related_appointment_id:
+        name = "admin_appointment_detail" if admin else "owner_appointment_detail"
+        return reverse(name, kwargs={"pk": notification.related_appointment_id})
+    if notification.related_billing_id:
+        name = "admin_receipt_detail" if admin else "owner_receipt_detail"
+        return reverse(name, kwargs={"pk": notification.related_billing_id})
+    if notification.related_pet_id:
+        name = "admin_pet_detail" if admin else "owner_pet_detail"
+        return reverse(name, kwargs={"pk": notification.related_pet_id})
+    return None
+
+
+def notification_link_label(notification):
+    """
+    The words at the end of an owner notification card: "See visit", "See
+    bill", "See pet", "Book a visit" (when the target is the booking page),
+    or "Open" for any other target. None when the notification points at
+    nothing: then the card has no label.
+    """
+    target = notification_target(notification)
+    if target is None:
+        return None
+    if target == reverse("owner_book_appointment"):
+        return "Book a visit"
+    if notification.related_appointment_id:
+        return "See visit"
+    if notification.related_billing_id:
+        return "See bill"
+    if notification.related_pet_id:
+        return "See pet"
+    return "Open"
+
+
+def _plural(count, word):
+    return f"{count} {word}{'' if count == 1 else 's'} ago"
+
+
+def notification_when(created_at, now):
+    """
+    How long ago a notification arrived, by the Manila clock: "Just now"
+    (under a minute), "5 minutes ago", "1 hour ago" / "3 hours ago" (the
+    same Manila day), "Yesterday", then the date ("Oct 31", with the year
+    when it isn't this year). Both arguments are aware datetimes; `now`
+    comes from the caller, so this reads no clock.
+    """
+    seconds = (now - created_at).total_seconds()
+    if seconds < 60:
+        return "Just now"
+    today = timezone.localtime(now).date()
+    day = timezone.localtime(created_at).date()
+    if day == today:
+        minutes = int(seconds // 60)
+        if minutes < 60:
+            return _plural(minutes, "minute")
+        return _plural(minutes // 60, "hour")
+    if day == today - datetime.timedelta(days=1):
+        return "Yesterday"
+    return short_day(day, today)
+
+
+# ── Owner notifications page ─────────────────────────────────────────────────
+
+OWNER_NOTIFICATIONS_PAGE_SIZE = 25
+
+
+def owner_notifications_context(user, params, today, now):
+    """
+    The owner notifications page: the user's notifications, newest first, 25
+    a page, split into today's ("Today") and the rest ("Earlier") by Manila
+    date. Each row: notification, title, message, icon (the template picks
+    the tile colour from it), is_unread, target (a notification_open URL, so
+    a click marks it read; None when notification_target is None),
+    link_label (None with no target), when ("1 hour ago") and created_at.
+    Also unread_count (all pages) and the pager links. 3 queries however
+    many rows. today and now come from one clock read in the view.
+    """
+    from appointments.utils import paging_links  # appointments imports this module
+
+    queryset = (
+        Notification.objects.filter(recipient=user)
+        .select_related("recipient")
+        .order_by("-created_at", "-pk")
+    )
+    page_obj = Paginator(queryset, OWNER_NOTIFICATIONS_PAGE_SIZE).get_page(
+        params.get("page")
+    )
+    today_rows, earlier_rows = [], []
+    for notification in page_obj:
+        opens = notification_target(notification) is not None
+        row = {
+            "notification": notification,
+            "title": notification.title,
+            "message": notification.message,
+            "icon": notification_icon(notification),
+            "is_unread": not notification.is_read,
+            "link_label": notification_link_label(notification),
+            "when": notification_when(notification.created_at, now),
+            "target": (
+                reverse("notification_open", kwargs={"pk": notification.pk})
+                if opens
+                else None
+            ),
+            "created_at": notification.created_at,
+        }
+        is_today = timezone.localtime(notification.created_at).date() == today
+        (today_rows if is_today else earlier_rows).append(row)
+    return {
+        "today_rows": today_rows,
+        "earlier_rows": earlier_rows,
+        "page_obj": page_obj,
+        "unread_count": Notification.objects.filter(
+            recipient=user, is_read=False
+        ).count(),
+        **paging_links(page_obj, ""),
+    }

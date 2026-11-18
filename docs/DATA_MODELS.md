@@ -183,7 +183,7 @@ Tracks pet deletion requests from pet owners pending Admin approval.
 | `requested_by` | ForeignKey | User, on_delete=CASCADE, related_name='pet_deletion_requests' | Pet owner who requested |
 | `reason` | CharField | max_length=50, choices=REASON_CHOICES | Predefined reason |
 | `reason_detail` | TextField | blank=True | Used when reason is 'other' |
-| `status` | CharField | max_length=20, choices=STATUS_CHOICES, default=PENDING | PENDING / APPROVED / REJECTED |
+| `status` | CharField | max_length=20, choices=STATUS_CHOICES, default=PENDING | PENDING / APPROVED / REJECTED / CANCELLED |
 | `reviewed_by` | ForeignKey | User, null=True, blank=True, on_delete=SET_NULL, related_name='reviewed_deletion_requests' | Admin who reviewed |
 | `reviewed_at` | DateTimeField | null=True, blank=True | — |
 | `created_at` | DateTimeField | auto_now_add=True | — |
@@ -201,12 +201,13 @@ OTHER = 'other'
 PENDING = 'pending'
 APPROVED = 'approved'
 REJECTED = 'rejected'
+CANCELLED = 'cancelled'  # label: "Taken back by the owner"
 ```
 
 **Meta:** `ordering = ["-created_at"]`
 
 **Rules:**
-- No deletion allowed — preserved as audit trail. Not true yet: when the owner cancels a pending request (`owner_pet_cancel_delete_request`) the row is deleted; the fix (a CANCELLED status) is planned in HANDOFF §5 SCHEMA CHANGES
+- No deletion allowed — preserved as audit trail. Taking back a pending request sets CANCELLED (Slice 8a-1b); `reviewed_by` and `reviewed_at` stay empty, and the admin's "Already answered" list shows only APPROVED and REJECTED.
 - Admin approves → pet is soft deleted (`is_archived = True`)
 - Admin rejects → pet remains active, request closed
 - The clinic can also archive a pet directly, with no owner request (Slice 4b-3, `admin_pet_archive`). A row is still created, so it shows in the deletion history: `requested_by` is then the admin user, the row is created already APPROVED, and `reviewed_by` / `reviewed_at` are the same admin and time. No field changes; "by the clinic" is told apart by `requested_by.role == "admin"`.
@@ -310,7 +311,10 @@ CHANGE_OF_PLANS = 'change_of_plans'
 PET_UNWELL = 'pet_unwell'
 CANNOT_MAKE_TIME = 'cannot_make_time'
 OTHER = 'other'
+DECLINED = 'declined'  # label: "Declined by the clinic"
 ```
+
+`DECLINED` is set when the clinic declines a request (in use since Slice 8a-1b: `admin_appointment_reject`). Older declines are stored as 'other'; not backfilled. The cancel forms do not offer it.
 
 **Rules:**
 - No two appointments can share the same `date` + `time` combination
@@ -578,7 +582,7 @@ Meta: `ordering = ["-billing_date", "-created_at"]`. Choice labels shown on the 
 - `payment_status` / `payment_date` change only via the Mark as Paid / Cancel Receipt actions, never via the receipt form
 - Mark as Paid needs at least one item ("Add at least one item first."); a ₱0 total with items is allowed. It sets PAID, `payment_date` = today (Manila) and `payment_method` = "Cash". Cancel sets CANCELLED (a void; can't be undone).
 - **Owners see PENDING and PAID receipts only, never CANCELLED** (owner list, owner receipt page = 404, owner search; `owner_receipts` in `billing/utils.py`). Page labels: `status_label` "Unpaid" / "Paid" / "Cancelled" (a model property, not `choices`).
-- **Notification**: one, when a receipt is marked paid (after the commit; nothing on create): type `billing_generated`, `related_billing` + `related_pet`, title "Receipt {number} for {pet}" ("Receipt {number}" with no pet), message "Paid ₱1,450.00 on Fri, Nov 6. You can view or print it in Billing." (the payment date; the year only when it isn't this year), email subject "{title} — Hapi Vet". Sent only when the owner has a user account; the email follows `email_billing`.
+- **Notification**: one, when a receipt is marked paid (after the commit; nothing on create): type `billing_generated`, `related_billing` + `related_pet`, title "Bill paid: ₱1,450.00", message "Bantay · HV-2026-0012. Paid on Fri, Nov 6." (no pet: "HV-2026-0012. Paid on Fri, Nov 6."; the year only when the payment date isn't this year), email subject "{title} — Hapi Vet", email body "Paid ₱1,450.00 on Fri, Nov 6. You can view or print it in Billing." (8a-2b; before it the title was "Receipt {number} for {pet}" and the message the full sentence). Sent only when the owner has a user account; the email follows `email_billing`.
 - Row locks: every status change, item add/remove and discount change runs in `transaction.atomic()` with the receipt row locked (`select_for_update`, `lock_pending_receipt` in `billing/utils.py`) and acts only if the receipt is still PENDING. Status, discount and totals are saved with `update_fields`, so a stale copy of the receipt never writes an old status back.
 - Discount (form rules, `BillingReceiptForm`): negative refused; a type with no amount refused; an amount with no type refused; a percentage over 100 refused; a peso amount over the current subtotal (sum of the items) refused. "No discount" saves `discount_value` 0 and `discount_note` "".
 - Totals (`calculate_totals()`): subtotal = sum of the item subtotals; discount = the percentage of the subtotal or the peso amount, **capped at the subtotal** (removing an item later can shrink it), rounded to 2 decimals with ROUND_HALF_UP; `total_amount` = subtotal - discount, never below 0. Saved with `update_fields=["subtotal", "total_amount", "updated_at"]`. `discount_amount` returns the same capped, rounded value (so subtotal - discount = total on the page and the printout); `has_discount` is True when it is above 0.
@@ -653,6 +657,7 @@ PET_DELETION_ANSWERED = 'pet_deletion_answered'
 - Admin warned via EMAIL_FAILED notification type when email fails
 - Admin manually clears notifications (all or read only)
 - Notifications linked to related objects for easy navigation
+- Owner notifications use a short `title` and a compact `message` ("Bantay · Mon, Nov 2 at 3:00 PM"); the email gets the full text (`notify(email_body=...)`). Rows written before Slice 8a-2b keep their long text (owner decision 9). Notifications to the admin are unchanged. No model change.
 
 ---
 

@@ -1,0 +1,28 @@
+{% extends "layouts/owner.html" %}
+
+{% block title %}Visits — Hapi Vet{% endblock %}
+
+{# The Visits tab: Upcoming / Past links (?show=), pet chips (?pet=), cards grouped by month, a pager for Past #}
+{% block content %}
+{% if show_no_pets_page %}
+  {% include "owner/visits_parts/no_pets.html" %}
+{% else %}
+  <div class="space-y-4">
+    {% include "owner/visits_parts/header.html" %}
+    {% include "owner/visits_parts/segments.html" %}
+    {% if show_pet_chips %}{% include "owner/visits_parts/chips.html" %}{% endif %}
+
+    {% if has_cards %}
+      {% for group in groups %}
+        <h2 class="pt-2 text-base font-semibold text-gray-700">{{ group.label }}</h2>
+        <div class="space-y-3">
+          {% for card in group.cards %}{% include "owner/visits_parts/card.html" %}{% endfor %}
+        </div>
+      {% endfor %}
+      {% include "owner/visits_parts/pager.html" %}
+    {% else %}
+      {% include "owner/visits_parts/empty.html" %}
+    {% endif %}
+  </div>
+{% endif %}
+{% endblock %}

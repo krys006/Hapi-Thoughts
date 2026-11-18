@@ -89,6 +89,11 @@ urlpatterns = [
         name="owner_pet_medical_history",
     ),
     path(
+        "owner/pets/<int:pet_pk>/medical/<int:pk>/",
+        views.owner_medical_record,
+        name="owner_medical_record",
+    ),
+    path(
         "owner/pets/<int:pk>/vaccinations/",
         views.owner_vaccination_history,
         name="owner_vaccination_history",

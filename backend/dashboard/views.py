@@ -6,6 +6,7 @@ from django.http import HttpResponseForbidden
 from django.shortcuts import redirect, render
 from django.utils import timezone
 
+from accounts.utils import owner_profile_required
 from appointments.models import Appointment
 from appointments.utils import get_clinic_settings
 from billing.models import BillingReceipt
@@ -13,6 +14,7 @@ from billing.utils import owner_receipts
 from dashboard.utils import (
     dashboard_calendar_context,
     day_schedule,
+    owner_dashboard_context,
     pending_requests,
     picked_day,
 )
@@ -134,31 +136,24 @@ def _run_global_search(query):
 
 def _get_owner_dashboard_context(request):
     """
-    Builds the widget context for the pet owner dashboard.
-    Shared by the full-page view and the HTMX polling partial.
+    Builds the context for the pet owner dashboard: owner_dashboard_context
+    (the new keys), the owner (for the greeting), and the old keys the tests
+    still read (no template reads them since 8b-4).
+    The old upcoming_appointments is the next visit and the ones after it
+    (Pending or Confirmed only, so no Completed or No show visit shows).
     """
-    owner = request.user.petowner
-    today = timezone.localdate()
-
-    upcoming_appointments = (
-        Appointment.objects.filter(owner=owner, date__gte=today)
-        .exclude(status=Appointment.CANCELLED)
-        .select_related("pet", "service")
-        .order_by("date", "time")[:5]
+    now = timezone.localtime()  # one read of the clock (Manila)
+    context = owner_dashboard_context(request.owner, now.date(), now)
+    context["owner"] = request.owner
+    next_visit = context["next_visit"]
+    context["upcoming_appointments"] = (
+        [next_visit, *context["upcoming"]] if next_visit else []
     )
-
-    my_pets = Pet.objects.filter(owner=owner, is_archived=False).order_by("name")[:6]
-
-    recent_notifications = Notification.objects.filter(
+    context["my_pets"] = context["pets"][:6]
+    context["recent_notifications"] = Notification.objects.filter(
         recipient=request.user,
     ).order_by("is_read", "-created_at")[:5]
-
-    return {
-        "today": today,
-        "upcoming_appointments": upcoming_appointments,
-        "my_pets": my_pets,
-        "recent_notifications": recent_notifications,
-    }
+    return context
 
 
 def _run_owner_search(owner, query):
@@ -304,6 +299,7 @@ def admin_global_search(request):
 
 
 @login_required
+@owner_profile_required
 def owner_dashboard(request):
     """Owner dashboard — full page, widgets render server-side first."""
     if request.user.role != "pet_owner":
@@ -316,21 +312,7 @@ def owner_dashboard(request):
 
 
 @login_required
-def owner_dashboard_partial(request):
-    """
-    Returns the owner dashboard widgets block only.
-    Polled automatically every 30s by the block itself.
-    """
-    if request.user.role != "pet_owner":
-        return redirect("admin_dashboard")
-    if not request.user.is_onboarded:
-        return redirect("owner_onboarding")
-
-    context = _get_owner_dashboard_context(request)
-    return render(request, "owner/dashboard/_dashboard_partial.html", context)
-
-
-@login_required
+@owner_profile_required
 def owner_global_search(request):
     """
     HTMX view — header scoped search for pet owners. Returns a grouped
@@ -340,7 +322,7 @@ def owner_global_search(request):
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
-    owner = request.user.petowner
+    owner = request.owner
     query = request.GET.get("q", "").strip()
 
     if len(query) < 2:

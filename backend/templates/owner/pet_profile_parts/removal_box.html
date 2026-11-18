@@ -1,0 +1,12 @@
+{% comment %}
+  Yellow box while a removal request is waiting: what the owner said and the
+  button that opens the take-back sheet. Needs pet, pending_line.
+{% endcomment %}
+<section class="flex items-start gap-3 rounded-xl border border-yellow-300 bg-yellow-50 px-4 py-4 text-yellow-900" aria-labelledby="removal-title">
+  {% include "components/icon.html" with name="hourglass" class="mt-0.5 size-6 shrink-0" %}
+  <div class="flex-1">
+    <h2 id="removal-title" class="text-lg font-semibold">Removal requested</h2>
+    <p class="mt-0.5 text-base">{{ pending_line }}</p>
+    <button type="button" data-dialog-open="take-back-sheet" class="mt-3 inline-flex min-h-11 items-center rounded-xl border border-yellow-500 bg-white px-4 text-base font-medium text-yellow-900 hover:bg-yellow-100">Take back my request</button>
+  </div>
+</section>

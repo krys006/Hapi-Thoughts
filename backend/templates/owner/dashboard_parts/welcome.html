@@ -1,0 +1,10 @@
+{% comment %}
+  Welcome card for a new owner (no pets, no visits yet). "Add your first pet" is
+  the page's one violet button; there is no Book button until a pet exists.
+{% endcomment %}
+<section class="rounded-2xl border border-gray-200 bg-white p-5 text-center shadow-md">
+  <span class="mx-auto grid size-20 place-content-center rounded-full bg-violet-50 text-violet-600 ring-1 ring-violet-200">{% include "components/icon.html" with name="paw-print" class="size-10 shrink-0" stroke="1.5" %}</span>
+  <h2 class="mt-4 text-xl font-bold">Welcome to Hapi Tutz!</h2>
+  <p class="mt-1 text-base text-gray-700">Start by adding your pet. Then you can book a visit with Dr. Aga.</p>
+  <a href="{% url 'owner_pet_add' %}" class="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700">{% include "components/icon.html" with name="plus" class="size-6 shrink-0" %}Add your first pet</a>
+</section>

@@ -1,0 +1,16 @@
+{% comment %}
+  My details, Contact: the mobile number, and the email as plain text (decision
+  3: only the clinic changes an owner's email, so it is never a field). Needs
+  form and user.
+{% endcomment %}
+<section class="card" aria-labelledby="contact-title">
+  <h2 id="contact-title" class="text-xl font-semibold text-gray-900">Contact</h2>
+  <div class="mt-4 space-y-5">
+    {% include "components/form_field.html" with field=form.contact_number %}
+    <div>
+      <p class="text-base font-medium text-gray-800">Email</p>
+      <p class="mt-1 text-base text-gray-900" id="owner-email">{{ user.email }}</p>
+      <p class="text-base text-gray-600">To change your email, contact the clinic.</p>
+    </div>
+  </div>
+</section>

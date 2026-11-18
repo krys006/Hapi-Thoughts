@@ -1,0 +1,37 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Hapi Vet{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  <script src="{% static 'js/shared/flash.js' %}" defer></script>
+  <script src="{% static 'js/shared/password_toggle.js' %}" defer></script>
+</head>
+{# Owner sign-in pages (logged out): violet band, white card overlapping it, links below. No tabs, no staff link. #}
+<body class="min-h-screen bg-gray-50">
+  <div class="flex min-h-screen flex-col">
+    <header class="flex flex-col items-center bg-violet-700 px-6 pb-16 pt-8 text-center text-white">
+      {# Clinic logo (from shell when logged in, auth_shell when logged out); the paw tile when none is uploaded #}
+      <span class="grid size-14 place-content-center overflow-hidden rounded-2xl bg-white text-violet-700">{% if shell.clinic.logo %}<img src="{{ shell.clinic.logo.url }}" alt="" class="size-12 object-contain">{% elif auth_shell.clinic.logo %}<img src="{{ auth_shell.clinic.logo.url }}" alt="" class="size-12 object-contain">{% else %}{% include "components/icon.html" with name="paw-print" class="size-8 shrink-0" %}{% endif %}</span>
+      <p class="mt-2 text-xl font-bold">Hapi Tutz Vet</p>
+    </header>
+
+    <main id="main" class="relative -mt-10 w-full max-w-md shrink-0 self-center px-4">
+      <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-md">
+        {% include "components/flash_messages.html" %}
+        <h1 class="text-2xl font-bold text-gray-900">{% block card_title %}{% endblock %}</h1>
+        {% block card_subtitle %}{% endblock %}
+        <div class="mt-5 space-y-3.5">
+          {% block content %}{% endblock %}
+        </div>
+      </div>
+    </main>
+
+    <div class="w-full max-w-md self-center px-4 py-2">
+      {% block below_card %}{% endblock %}
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{% comment %}
+  Your photo (optional): a label styled as a button around a visually hidden
+  file input; shared/photo_input.js shows the chosen file's name. Needs form
+  (the step 1 form).
+{% endcomment %}
+<section class="card" aria-labelledby="photo-title" data-photo>
+  <h2 id="photo-title" class="text-xl font-semibold text-gray-900">Your photo <span class="text-base font-normal text-gray-600">(optional)</span></h2>
+  <div class="mt-4 flex flex-wrap items-center gap-4">
+    <span class="grid size-16 shrink-0 place-content-center rounded-full bg-gray-100 text-gray-600 ring-1 ring-gray-300">{% include "components/icon.html" with name="user" class="size-7 shrink-0" %}</span>
+    <div class="min-w-0 space-y-2">
+      <label for="{{ form.profile_photo.id_for_label }}" class="btn btn-outline min-h-12 font-semibold has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-violet-600">
+        {% include "components/icon.html" with name="upload" %}{% if form.instance.profile_photo %}Choose a new photo{% else %}Choose a photo{% endif %}
+        <input type="file" name="{{ form.profile_photo.html_name }}" id="{{ form.profile_photo.id_for_label }}" accept="image/*" class="sr-only" aria-describedby="photo-help" data-photo-input>
+      </label>
+      <p class="text-base font-medium text-gray-800" aria-live="polite" hidden data-photo-name></p>
+      <p id="photo-help" class="text-base text-gray-600">{% if form.instance.profile_photo %}Leave it as it is to keep the current photo.{% else %}So the clinic can put a face to your name.{% endif %}</p>
+      {% if form.errors %}
+        <p class="text-base font-medium text-gray-800">Choose the photo again. Browsers can't keep it after a problem.</p>
+      {% endif %}
+      {% for error in form.profile_photo.errors %}<p class="flex items-start gap-1 text-base font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0" %}{{ error }}</p>{% endfor %}
+    </div>
+  </div>
+</section>

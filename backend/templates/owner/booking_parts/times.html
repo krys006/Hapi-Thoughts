@@ -1,0 +1,40 @@
+{% comment %}
+  The times of the picked day, Morning then Afternoon, as radio cards (three
+  per row, 48 px). A taken time is gray with a line through it and the word
+  "Taken": plain text, not an input. Works without JavaScript (peer-checked).
+  Needs picked_date, time_groups, slot_length, time_error; the page's POST
+  form (id="time-form") wraps it. Reusable by the change-time page (8b-7b),
+  where the visit's own time (is_own) reads "Your time", not an input.
+{% endcomment %}
+{% if picked_date %}
+  <section class="space-y-3" aria-labelledby="times-title">
+    <div>
+      <h2 id="times-title" class="text-xl font-bold text-gray-900">Times on {{ picked_date|date:"D, M j" }}</h2>
+      <p class="text-base text-gray-600">Each visit is {{ slot_length }}.</p>
+    </div>
+    {% for group in time_groups %}
+      <fieldset>
+        <legend class="mb-2 text-base font-semibold text-gray-700">{{ group.name }}</legend>
+        <div class="grid grid-cols-3 gap-2">
+          {% for time in group.times %}
+            {% if time.is_own %}
+              <span class="flex min-h-12 flex-col items-center justify-center rounded-xl border border-dashed border-gray-400 bg-gray-50 text-base font-semibold text-gray-700"><span>{{ time.label }}</span><span class="text-sm font-normal">Your time</span></span>
+            {% elif time.taken %}
+              <span class="flex min-h-12 flex-col items-center justify-center rounded-xl bg-gray-100 text-base text-gray-500"><span class="line-through">{{ time.label }}</span><span class="text-sm">Taken</span></span>
+            {% else %}
+              <label class="relative block cursor-pointer">
+                <input type="radio" name="time" value="{{ time.value }}" class="peer sr-only"{% if time.checked %} checked{% endif %}>
+                <span class="flex min-h-12 items-center justify-center rounded-xl bg-white text-base font-semibold text-gray-900 ring-1 ring-gray-300 hover:ring-violet-400 peer-checked:bg-violet-600 peer-checked:text-white peer-checked:ring-violet-600 peer-focus-visible:ring-2 peer-focus-visible:ring-violet-800">{{ time.label }}</span>
+              </label>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </fieldset>
+    {% empty %}
+      <p class="text-base text-gray-700">No times are left on this day. Please pick another day.</p>
+    {% endfor %}
+    {% if time_error %}{% include "owner/booking_parts/field_error.html" with message=time_error %}{% endif %}
+  </section>
+{% else %}
+  <p class="flex items-center gap-2 text-base text-gray-700">{% include "components/icon.html" with name="calendar" class="size-5 shrink-0" %}Pick a day to see the times.</p>
+{% endif %}

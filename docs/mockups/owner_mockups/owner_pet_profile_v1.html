@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pet Profile v1</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { background:#e7e5e4; font-family:"Segoe UI", system-ui, sans-serif; }
+  .phone { width:390px; height:844px; overflow-y:auto; position:relative; }
+  .phone::-webkit-scrollbar { width:0; }
+  .locked { overflow:hidden; }
+</style>
+</head>
+<body class="p-6 text-gray-900 antialiased">
+
+<header class="mx-auto mb-6 max-w-[2350px]">
+  <h1 class="text-2xl font-bold">Pet profile v1 — one pet's page</h1>
+  <p class="mt-1 text-base text-gray-700">Opened from a My Pets card. Photo and key facts on top, one "Book a visit" button, then three tabs: About, Vaccines, Health records. Phone 1 works: switch the tabs. Only the clinic adds vaccines and records; owners read them.</p>
+</header>
+
+<div class="mx-auto flex max-w-[2350px] flex-wrap justify-center gap-8" id="frames"></div>
+
+<script>
+// ---------- Icons (Lucide shapes, mockup only) ----------
+const P = {
+  house:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  back:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  chev:'<path d="m9 18 6-6-6-6"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  pencil:'<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>',
+  syringe:'<path d="m18 2 4 4"/><path d="m17 7 3-3"/><path d="M19 9 8.7 19.3c-1 1-2.5 1-3.4 0l-.6-.6c-1-1-1-2.5 0-3.4L15 5"/><path d="m9 11 4 4"/><path d="m5 19-3 3"/><path d="m14 4 6 6"/>',
+  steth:'<path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/>',
+  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  hourglass:'<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>',
+  archive:'<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
+  image:'<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+  cat:'<path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z"/><path d="M8 14v.5"/><path d="M16 14v.5"/><path d="M11.25 16.25h1.5L12 17l-.75-.75Z"/>',
+  file:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
+};
+const ic = (n, c='size-5 shrink-0') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+const thin = (n, c) => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// ---------- Shell ----------
+const backBar = `
+<div class="sticky top-0 z-20 flex h-16 shrink-0 items-center border-b border-gray-200 bg-white px-2">
+  <a class="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-base font-medium text-gray-800 hover:bg-gray-100">${ic('back','size-6')}My Pets</a>
+</div>`;
+const tabs = `
+<nav class="sticky bottom-0 z-10 mt-auto grid shrink-0 grid-cols-5 border-t border-gray-200 bg-white pb-2">
+  ${[['house','Home'],['paw','Pets'],['calendar','Visits'],['receipt','Bills'],['user','Account']].map(([i,l]) =>
+    `<a class="flex min-h-14 flex-col items-center justify-center gap-0.5 pt-2 text-sm font-medium ${l==='Pets' ? 'text-violet-700' : 'text-gray-600'}"${l==='Pets' ? ' aria-current="page"' : ''}>
+      ${ic(i,'size-6')}${l}<span class="mt-0.5 h-1 w-6 rounded-full ${l==='Pets' ? 'bg-violet-600' : ''}"></span></a>`).join('')}
+</nav>`;
+const page = inner => `<div class="relative flex min-h-full flex-col">${backBar}${inner}${tabs}</div>`;
+
+// ---------- Top of the profile ----------
+const fact = t => `<span class="rounded-full bg-gray-100 px-3 py-1 text-base font-medium text-gray-800">${t}</span>`;
+const hero = (pet) => `
+<section class="flex flex-col items-center text-center">
+  ${pet.photo
+    ? `<span class="grid size-36 place-content-center rounded-3xl bg-gradient-to-br ${pet.photo} text-white shadow-sm ring-1 ring-black/10" role="img" aria-label="Photo of ${pet.name}">${ic('image','size-10')}</span>`
+    : `<span class="grid size-36 place-content-center rounded-3xl bg-violet-50 text-violet-500 ring-1 ring-violet-200" role="img" aria-label="No photo of ${pet.name} yet">${thin(pet.sp,'size-20')}</span>`}
+  <h1 class="mt-4 text-3xl font-bold">${pet.name}</h1>
+  <p class="text-lg text-gray-700">${pet.kind}</p>
+  <div class="mt-3 flex flex-wrap justify-center gap-2">${pet.facts.map(fact).join('')}</div>
+</section>`;
+const browny = {name:'Browny', sp:'dog', photo:'from-amber-200 to-amber-500', kind:'Dog · Aspin', facts:['Male','3 years old','12.5 kg']};
+const mingming = {name:'Mingming', sp:'cat', photo:'', kind:'Cat · Puspin', facts:['Female','1 year old']};
+
+const bookBtn = name => `<a class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm">${ic('plus','size-6')}Book a visit for ${name}</a>`;
+
+// Tabs inside the profile (segmented)
+const segCls = on => `seg min-h-11 rounded-lg text-base ${on ? 'bg-white font-semibold text-gray-900 shadow-sm ring-1 ring-gray-200' : 'font-medium text-gray-600'}`;
+const segs = active => `
+<div class="grid grid-cols-3 gap-1 rounded-xl bg-gray-200/70 p-1" role="tablist" aria-label="About this pet">
+  ${[['about','About'],['vax','Vaccines'],['rec','Records']].map(([k,l]) => `<button type="button" role="tab" data-tab="${k}" aria-selected="${k===active}" class="${segCls(k===active)}">${l}</button>`).join('')}
+</div>`;
+
+// ---------- About ----------
+const row = (t, d) => `<div class="flex justify-between gap-4 py-3"><dt class="text-base text-gray-600">${t}</dt><dd class="text-right text-base font-semibold">${d}</dd></div>`;
+const about = `
+<div class="space-y-4" data-panel="about">
+  <a class="flex items-center gap-4 rounded-2xl border border-blue-200 bg-blue-50 p-4">
+    <span class="grid w-14 shrink-0 place-content-center rounded-xl bg-white py-1.5 text-center ring-1 ring-blue-200"><span class="text-sm font-semibold uppercase text-blue-800">Nov</span><span class="text-xl font-bold leading-6">10</span></span>
+    <span class="flex-1"><span class="block text-base font-semibold text-blue-900">Next visit</span><span class="block text-base text-blue-900">Consultation · 12:00 PM · Confirmed</span></span>
+    ${ic('chev','size-5 text-blue-700')}
+  </a>
+  <section class="rounded-2xl border border-gray-200 bg-white px-4 shadow-sm">
+    <div class="flex items-center justify-between pt-3"><h2 class="text-lg font-bold">Details</h2>
+      <a class="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-base font-medium text-blue-600">${ic('pencil','size-4')}Edit</a></div>
+    <dl class="divide-y divide-gray-100">
+      ${row('Species','Dog')}${row('Breed','Aspin')}${row('Color','Brown and white')}${row('Male or female','Male')}
+      ${row('Birthday','Jun 15, 2022 (3 years)')}${row('Weight','12.5 kg')}${row('Registration no.','<span class="font-normal text-gray-500">None</span>')}
+    </dl>
+  </section>
+  <a class="removeLink flex min-h-12 items-center justify-center gap-2 text-base font-medium text-red-700">${ic('archive','size-5')}Remove Browny from my pets</a>
+</div>`;
+
+// ---------- Vaccines ----------
+const vaxRow = (name, given, next, tone, note='') => `
+<li class="py-4">
+  <div class="flex items-start gap-3">
+    <span class="grid size-10 shrink-0 place-content-center rounded-xl bg-green-50 text-green-700">${ic('syringe','size-5')}</span>
+    <div class="flex-1">
+      <p class="text-base font-semibold">${name}</p>
+      <p class="text-base text-gray-700">Given ${given}</p>
+      ${next ? `<p class="mt-1 inline-block rounded-full px-2.5 py-0.5 text-sm font-medium ${tone}">Next: ${next}</p>` : ''}
+      ${note ? `<p class="mt-2 flex items-start gap-1.5 rounded-lg bg-gray-50 px-3 py-2 text-base text-gray-700">${ic('info','mt-0.5 size-4 shrink-0')}<span><b>Corrected by the clinic:</b> ${note}</span></p>` : ''}
+    </div>
+  </div>
+</li>`;
+const vaccines = `
+<div class="space-y-4" data-panel="vax">
+  <div class="flex items-start gap-3 rounded-xl border border-orange-300 bg-orange-50 px-4 py-3 text-orange-900">${ic('alert','mt-0.5 size-5 shrink-0')}
+    <div><p class="text-base font-semibold">Anti-rabies is due on Nov 9</p><p class="text-base">That's in 7 days. Book a visit so Browny stays protected.</p></div></div>
+  <section class="rounded-2xl border border-gray-200 bg-white px-4 shadow-sm">
+    <h2 class="pt-4 text-lg font-bold">Vaccine history</h2>
+    <ul class="divide-y divide-gray-100">
+      ${vaxRow('Anti-rabies','Nov 9, 2025','Nov 9, 2026 (in 7 days)','bg-orange-100 text-orange-800')}
+      ${vaxRow('5-in-1 (DHPP)','Sep 30, 2026','Sep 30, 2027','bg-gray-100 text-gray-800', 'Date given was Sep 3, changed to Sep 30.')}
+      ${vaxRow('Deworming','Aug 2, 2026','')}
+    </ul>
+  </section>
+</div>`;
+
+// ---------- Health records ----------
+const recCard = (date, title, sub, tag='') => `
+<a class="flex items-start gap-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+  <span class="grid size-11 shrink-0 place-content-center rounded-xl bg-green-50 text-green-700">${ic('steth','size-6')}</span>
+  <span class="flex-1">
+    <span class="block text-base text-gray-600">${date}</span>
+    <span class="block text-lg font-bold leading-6">${title}</span>
+    <span class="mt-0.5 block text-base text-gray-700">${sub}</span>
+    ${tag}
+  </span>
+  ${ic('chev','mt-1 size-5 text-gray-400')}
+</a>`;
+const records = `
+<div class="space-y-3" data-panel="rec">
+  <p class="text-base text-gray-700">What Dr. Aga wrote after each visit. Tap one to see medicines and test results.</p>
+  ${recCard('Oct 31, 2026 · Consultation','Mild skin allergy','Itchy paws and belly. Given cream and an allergy tablet.',
+    `<span class="mt-2 inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-1 text-sm font-medium text-blue-800">${ic('calendar','size-4')}Follow-up around Nov 15</span>`)}
+  ${recCard('Sep 30, 2026 · Vaccination','Healthy check, 5-in-1 given','No problems found.')}
+  ${recCard('Jul 12, 2026 · Consultation','Upset stomach','Ate something bad. Better after 2 days of medicine.',
+    `<span class="mt-2 inline-flex items-center gap-1 text-sm text-gray-600">${ic('file','size-4')}1 test result</span>`)}
+</div>`;
+
+const profile = (active) => page(`
+<main class="flex-1 space-y-5 px-4 py-5">
+  ${hero(browny)}
+  ${bookBtn('Browny')}
+  ${segs(active)}
+  ${about.replace('data-panel="about"', `data-panel="about" ${active==='about' ? '' : 'hidden'}`)}
+  ${vaccines.replace('data-panel="vax"', `data-panel="vax" ${active==='vax' ? '' : 'hidden'}`)}
+  ${records.replace('data-panel="rec"', `data-panel="rec" ${active==='rec' ? '' : 'hidden'}`)}
+</main>`);
+
+// ---------- Remove sheet ----------
+const reasons = [['passed','My pet has passed away'],['rehomed','My pet has a new home'],['dup','I added this pet twice'],['other','Other reason']];
+const removeSheet = profile('about') + `
+<div class="absolute inset-0 z-30 flex items-end bg-gray-900/50">
+  <div role="dialog" aria-modal="true" aria-labelledby="rm" class="max-h-[92%] w-full overflow-y-auto rounded-t-3xl bg-white px-5 pb-6 pt-3 shadow-2xl">
+    <span class="mx-auto mb-4 block h-1.5 w-12 rounded-full bg-gray-300"></span>
+    <h2 id="rm" class="text-xl font-bold">Remove Browny from your pets?</h2>
+    <p class="mt-1 text-base text-gray-700">The clinic will check your request first. Browny's health records are kept safe either way.</p>
+    <fieldset class="mt-4 space-y-2">
+      <legend class="mb-2 text-base font-semibold">What happened?</legend>
+      ${reasons.map(([k,l],i) => `
+      <label class="flex min-h-14 cursor-pointer items-center gap-3 rounded-2xl border px-4 ${i===1 ? 'border-violet-500 bg-violet-50 ring-2 ring-violet-200' : 'border-gray-200 bg-white'}">
+        <input type="radio" name="rm" ${i===1 ? 'checked' : ''} class="size-6 accent-violet-600"><span class="text-base font-semibold">${l}</span>
+      </label>`).join('')}
+    </fieldset>
+    <div class="mt-5 space-y-3">
+      <button class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-red-600 text-lg font-semibold text-white">${ic('archive','size-5')}Send request</button>
+      <button class="flex min-h-14 w-full items-center justify-center rounded-2xl border border-gray-300 bg-white text-lg font-medium text-gray-800">Keep Browny</button>
+    </div>
+  </div>
+</div>`;
+
+// ---------- Removal pending (no photo pet) ----------
+const pendingRemoval = page(`
+<main class="flex-1 space-y-5 px-4 py-5">
+  ${hero(mingming)}
+  <div class="flex items-start gap-3 rounded-xl border border-yellow-300 bg-yellow-50 px-4 py-4 text-yellow-900">
+    ${ic('hourglass','mt-0.5 size-6 shrink-0')}
+    <div class="flex-1"><p class="text-lg font-semibold">Removal requested</p><p class="mt-0.5 text-base">You said Mingming has a new home. The clinic will review it soon.</p>
+      <button class="mt-3 inline-flex min-h-11 items-center rounded-xl border border-yellow-400 bg-white px-4 text-base font-medium text-yellow-900">Take back my request</button></div>
+  </div>
+  ${segs('vax')}
+  <div class="flex flex-col items-center rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-8 text-center">
+    <span class="grid size-12 place-content-center rounded-full bg-gray-100 text-gray-500">${ic('syringe','size-6')}</span>
+    <p class="mt-3 text-base font-semibold">No vaccines yet</p>
+    <p class="mt-1 text-base text-gray-600">The clinic adds them here after each shot.</p>
+  </div>
+</main>`);
+
+// ---------- Frames ----------
+const frame = (lbl, note, body, id='', cls='') => `
+<figure class="flex flex-col items-center">
+  <figcaption class="mb-3 w-[390px]"><p class="text-lg font-bold">${lbl}</p><p class="text-base text-gray-700">${note}</p></figcaption>
+  <div ${id ? `id="${id}"` : ''} class="phone ${cls} rounded-[2rem] bg-gray-50 shadow-xl ring-8 ring-gray-900">${body}</div>
+</figure>`;
+
+document.getElementById('frames').innerHTML =
+  frame('1 · About (try the tabs)', 'Next visit, all the details with an Edit link, and a quiet red "Remove" link at the very bottom.', profile('about'), 'live') +
+  frame('2 · Vaccines', 'A due-soon note on top when one is coming. Each shot shows when it was given and when the next is due. Corrections from the clinic are shown, never hidden.', profile('vax')) +
+  frame('3 · Health records', 'One card per visit record, newest first. Public notes only. Follow-ups and test files are tagged.', profile('rec')) +
+  frame('4 · Remove Browny?', 'Gentle wording for the 4 reasons. Explains the clinic reviews it and records are kept. Keep is just as big.', removeSheet, '', 'locked') +
+  frame('5 · Removal requested', 'Pet with no photo. Yellow note while the clinic reviews it, with a way to take it back. Also shows an empty Vaccines tab.', pendingRemoval);
+
+// ---------- Make phone 1's tabs work ----------
+const root = document.getElementById('live');
+root.querySelectorAll('.seg').forEach(b => b.addEventListener('click', () => {
+  root.querySelectorAll('.seg').forEach(x => { const on = x === b; x.setAttribute('aria-selected', on); x.className = segCls(on); });
+  root.querySelectorAll('[data-panel]').forEach(p => p.hidden = p.dataset.panel !== b.dataset.tab);
+}));
+</script>
+</body>
+</html>

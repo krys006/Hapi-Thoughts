@@ -5,6 +5,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 
 from .forms import HealthArticleForm
 from .models import HealthArticle
+from .utils import article_sections, owner_health_back_url, owner_health_list_context
 
 # ── Admin — Health Library ──────────────────────────────────────────────────
 
@@ -134,17 +135,8 @@ def owner_health_article_list(request):
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
-    query = request.GET.get("q", "").strip()
-    articles = HealthArticle.objects.filter(is_published=True)
-
-    if query:
-        articles = articles.filter(title__icontains=query)
-
-    return render(
-        request,
-        "owner/health/article_list.html",
-        {"articles": articles, "query": query},
-    )
+    context = owner_health_list_context(request.GET)
+    return render(request, "owner/health/article_list.html", context)
 
 
 @login_required
@@ -159,4 +151,9 @@ def owner_health_article_detail(request, pk):
 
     article = get_object_or_404(HealthArticle, pk=pk, is_published=True)
 
-    return render(request, "owner/health/article_detail.html", {"article": article})
+    context = {
+        "article": article,
+        "sections": article_sections(article),
+        "back_url": owner_health_back_url(request.GET),
+    }
+    return render(request, "owner/health/article_detail.html", context)

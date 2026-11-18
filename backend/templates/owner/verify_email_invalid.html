@@ -1,73 +1,15 @@
-{% extends 'base.html' %}
-{% load static %}
+{% extends "layouts/owner_auth.html" %}
 
-{% block title %}Invalid Link — Hapi Vet{% endblock %}
+{% block title %}Link doesn't work — Hapi Vet{% endblock %}
 
-{% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/owner/auth.css' %}">
-{% endblock %}
+{% block card_title %}This link doesn't work{% endblock %}
 
 {% block content %}
-<div class="auth-page">
+  {% include "owner/auth_parts/alert_box.html" with tone="red" title="This confirmation link can't be used." text="It may have been used already, be too old, or be copied wrongly." %}
+  <p class="text-base text-gray-700">If you already confirmed your email, just log in. If not, register again to get a new link. If it keeps happening, please contact the clinic.</p>
+  <a href="{% url 'owner_register' %}" class="btn btn-primary min-h-12 w-full text-lg font-semibold">Register again</a>
+{% endblock %}
 
-    <img
-        src="{% static 'images/clinic/auth-bg.png' %}"
-        alt="Background"
-        class="auth-bg"
-    >
-
-    <div class="auth-bg-overlay"></div>
-
-    <div class="auth-container">
-        <div class="auth-card">
-
-            <div class="auth-logo-wrap">
-                <img
-                    src="{% static 'images/clinic/logo.png' %}"
-                    alt="Hapi Vet Logo"
-                    class="auth-logo"
-                >
-            </div>
-
-            <div class="auth-icon">
-                ⚠️
-            </div>
-
-            <div class="auth-header">
-                <h1 class="auth-title">
-                    Invalid Verification Link
-                </h1>
-
-                <p class="auth-subtitle">
-                    This verification link is no longer valid.
-                </p>
-            </div>
-
-            <div class="auth-info-box">
-                The link may have:
-                <ul class="auth-info-list">
-                    <li>Already been used</li>
-                    <li>Expired</li>
-                    <li>Been copied incorrectly</li>
-                </ul>
-            </div>
-
-            <div class="mt-6">
-                <a
-                    href="{% url 'owner_register' %}"
-                    class="auth-button block text-center"
-                >
-                    Register Again
-                </a>
-            </div>
-
-            <div class="auth-footer-text">
-                If you continue experiencing issues,
-                please contact the clinic.
-            </div>
-
-        </div>
-    </div>
-
-</div>
+{% block below_card %}
+  <p class="mt-4 text-center"><a href="{% url 'owner_login' %}" class="inline-flex min-h-11 items-center gap-1.5 text-base font-medium text-blue-600">{% include "components/icon.html" with name="arrow-left" %}Back to log in</a></p>
 {% endblock %}

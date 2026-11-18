@@ -1,0 +1,6 @@
+{% load billing_extras %}
+{% comment %}
+  Unpaid-bill box, shown by the page only when unpaid_count is above 0.
+  Needs unpaid_count and unpaid_total. Yellow = Unpaid (OWNER_MOCKUPS).
+{% endcomment %}
+<a href="{% url 'owner_billing_list' %}" class="flex items-center gap-4 rounded-2xl border border-yellow-300 bg-yellow-50 p-4 shadow-sm hover:bg-yellow-100">{% include "components/icon.html" with name="receipt" class="size-8 shrink-0 text-yellow-800" %}<span class="min-w-0 flex-1"><span class="block text-base font-semibold text-gray-900">{{ unpaid_count }} unpaid bill{{ unpaid_count|pluralize }}</span><span class="block text-base text-gray-800">{{ unpaid_total|peso }} to pay</span></span><span class="inline-flex min-h-11 items-center gap-1 text-base font-medium text-blue-700">See bills{% include "components/icon.html" with name="chevron-right" class="size-4 shrink-0" %}</span></a>

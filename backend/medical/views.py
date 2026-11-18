@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.urls import reverse
 from django.utils import timezone
 
 from .models import MedicalRecord, PrescriptionItem, TestResultFile, Vaccination
@@ -19,6 +20,8 @@ from .utils import (
     new_vaccination_initial,
     next_dose_help,
     notify_record_created,
+    owner_record_context,
+    owner_record_queryset,
     record_detail_context,
     record_for_vaccination,
     record_form_context,
@@ -39,8 +42,7 @@ from .utils import (
     visit_stop,
 )
 
-from django.db.models import Prefetch
-
+from accounts.utils import owner_profile_required
 from pets.utils import archived_pet_refusal
 
 # ── Admin — Medical Records ───────────────────────────────────────────────────
@@ -82,7 +84,7 @@ def admin_medical_record_create(request, pet_pk):
         if form.is_valid():
             record, created = save_new_record(form, pet, appointment, request.user)
             if created:
-                notify_record_created(record)
+                notify_record_created(record, today)
                 messages.success(request, "Medical record created.")
             else:
                 messages.error(request, RECORD_EXISTS)
@@ -471,7 +473,7 @@ def admin_trigger_vaccination_reminder(request, pk):
             return redirect(back)
 
         # The flash says how it reached the owner (app, email, or why not)
-        level, text = send_vaccination_reminder(vaccination)
+        level, text = send_vaccination_reminder(vaccination, timezone.localdate())
         messages.add_message(request, level, text)
 
     return redirect(back)
@@ -499,7 +501,7 @@ def admin_trigger_followup_reminder(request, pk):
 
     if request.method == "POST":
         if record.follow_up_required:
-            level, text = send_followup_reminder(record)
+            level, text = send_followup_reminder(record, timezone.localdate())
             messages.add_message(request, level, text)
         else:
             messages.error(request, "This record does not have a follow-up scheduled.")
@@ -511,64 +513,55 @@ def admin_trigger_followup_reminder(request, pk):
 
 
 @login_required
+@owner_profile_required
 def owner_pet_medical_history(request, pk):
     """
-    Pet Owner view — view their pet's medical history.
-    Read-only. The template never shows private_notes, and archived test
-    files never reach it (active_test_files).
+    Old URL kept: the pet's health records now live on the pet profile
+    (Records tab). The same owner checks run, then it redirects (302).
     """
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
     from pets.models import Pet
 
-    owner = request.user.petowner
-    pet = get_object_or_404(Pet, pk=pk, owner=owner, is_archived=False)
+    pet = get_object_or_404(Pet, pk=pk, owner=request.owner, is_archived=False)
+    return redirect(f"{reverse('owner_pet_detail', args=[pet.pk])}?tab=records")
 
-    records = (
-        MedicalRecord.objects.filter(pet=pet)
-        .order_by("-record_date")
-        .prefetch_related(
-            "prescription_items",
-            Prefetch(
-                "test_result_files",
-                queryset=TestResultFile.objects.filter(is_archived=False),
-                to_attr="active_test_files",
-            ),
-        )
-    )
 
+@login_required
+@owner_profile_required
+def owner_medical_record(request, pet_pk, pk):
+    """
+    Pet Owner view — one medical record, read-only. The pet must be the
+    owner's own and not archived, and the record must be that pet's (never
+    a lookup by record pk alone). private_notes is never loaded.
+    """
+    if request.user.role != "pet_owner":
+        return redirect("admin_dashboard")
+
+    from pets.models import Pet
+
+    pet = get_object_or_404(Pet, pk=pet_pk, owner=request.owner, is_archived=False)
+    record = get_object_or_404(owner_record_queryset(), pk=pk, pet=pet)
+    today = timezone.localdate()
     return render(
         request,
-        "owner/medical/history.html",
-        {
-            "pet": pet,
-            "records": records,
-        },
+        "owner/medical/record.html",
+        owner_record_context(record, today),
     )
 
 
 @login_required
+@owner_profile_required
 def owner_vaccination_history(request, pk):
     """
-    Pet Owner view — view their pet's vaccination history.
-    Read-only.
+    Old URL kept: the pet's vaccines now live on the pet profile (Vaccines
+    tab). The same owner checks run, then it redirects (302).
     """
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
     from pets.models import Pet
 
-    owner = request.user.petowner
-    pet = get_object_or_404(Pet, pk=pk, owner=owner, is_archived=False)
-
-    vaccinations = Vaccination.objects.filter(pet=pet).order_by("-date_administered")
-
-    return render(
-        request,
-        "owner/medical/vaccination_history.html",
-        {
-            "pet": pet,
-            "vaccinations": vaccinations,
-        },
-    )
+    pet = get_object_or_404(Pet, pk=pk, owner=request.owner, is_archived=False)
+    return redirect(f"{reverse('owner_pet_detail', args=[pet.pk])}?tab=vaccines")

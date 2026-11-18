@@ -1,0 +1,17 @@
+{% comment %}
+  Email box with the mail icon inside (owner sign-in pages).
+  Parameters: field_id, field_name, label, value, errors (list), autofocus,
+  autocomplete (default "email").
+{% endcomment %}
+<div>
+  <label for="{{ field_id }}" class="block text-base font-medium text-gray-800">{{ label }}</label>
+  <div class="relative mt-1.5">
+    <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">{% include "components/icon.html" with name="mail" class="size-5 shrink-0" %}</span>
+    <input type="email" id="{{ field_id }}" name="{{ field_name }}" value="{{ value|default:'' }}" autocomplete="{{ autocomplete|default:'email' }}" required{% if autofocus %} autofocus{% endif %}{% if errors %} aria-invalid="true" aria-describedby="{{ field_id }}-errors"{% endif %} class="input min-h-12 pl-12 text-lg{% if errors %} border-red-600{% endif %}">
+  </div>
+  {% if errors %}
+    <div id="{{ field_id }}-errors">
+      {% for error in errors %}<p class="mt-1.5 flex items-start gap-1.5 text-base font-medium text-red-700">{% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0" %}{{ error }}</p>{% endfor %}
+    </div>
+  {% endif %}
+</div>

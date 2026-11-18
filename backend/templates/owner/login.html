@@ -1,198 +1,46 @@
-{% extends 'base.html' %}
-{% load static %}
-{% load socialaccount %}
+{% extends "layouts/owner_auth.html" %}
 
-{% block title %}Login — Hapi Vet{% endblock %}
+{% block title %}Log in — Hapi Vet{% endblock %}
 
-{% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/owner/auth.css' %}">
-<link rel="stylesheet" href="{% static 'css/owner/google-button.css' %}">
-{% endblock %}
+{% block card_title %}Welcome back{% endblock %}
+{% block card_subtitle %}{% if not login_failed and not unconfirmed_email %}<p class="mt-1 text-base text-gray-700">Log in to see your pets, visits and bills.</p>{% endif %}{% endblock %}
 
 {% block content %}
-<div class="auth-page">
+  {# Every failed login gets this one box: it never says which part was wrong #}
+  {% if login_failed %}
+    {% include "owner/auth_parts/alert_box.html" with tone="red" title="That email and password don't match" text="Check for typos, or tap “Forgot password?” to make a new one." %}
+  {% endif %}
 
-    <img
-        src="{% static 'images/clinic/auth-bg.png' %}"
-        alt="Background"
-        class="auth-bg"
-    >
+  {# Only for the right password on an owner who hasn't confirmed the email yet (8a-2d) #}
+  {% if unconfirmed_email %}
+    {% with sent_text="We sent a link to "|add:unconfirmed_email|add:" when you signed up. Open it, then log in here." %}
+      {% include "owner/auth_parts/alert_box.html" with tone="blue" icon="mail" title="Please confirm your email first" text=sent_text %}
+    {% endwith %}
+    <form method="post" action="{% url 'owner_resend_verification' %}">
+      {% csrf_token %}
+      <input type="hidden" name="email" value="{{ unconfirmed_email }}">
+      <button type="submit" class="btn btn-outline min-h-12 w-full font-semibold">{% include "components/icon.html" with name="mail" %}Send the link again</button>
+    </form>
+  {% endif %}
 
-    <div class="auth-bg-overlay"></div>
+  <form method="post" action="{% url 'owner_login' %}" class="space-y-3.5">
+    {% csrf_token %}
+    {# The cursor starts in the email box, or in the password box when the email was kept #}
+    {% if email %}
+      {% include "owner/auth_parts/email_field.html" with field_id="id_email" field_name="email" label="Email address" value=email %}
+    {% else %}
+      {% include "owner/auth_parts/email_field.html" with field_id="id_email" field_name="email" label="Email address" autofocus=True %}
+    {% endif %}
+    {% url 'forgot_password' as forgot_url %}
+    {% include "owner/auth_parts/password_field.html" with field_id="id_password" field_name="password" label="Password" forgot_url=forgot_url autofocus=email %}
+    <label class="flex min-h-11 cursor-pointer items-center gap-3 text-base text-gray-800"><input type="checkbox" name="remember" class="size-5 shrink-0 accent-violet-600"{% if remember %} checked{% endif %}>Keep me logged in</label>
+    <button type="submit" class="btn btn-primary min-h-12 w-full text-lg font-semibold">Log in</button>
+  </form>
 
-    <div class="auth-container">
-        <div class="auth-card">
-
-            <div class="auth-logo-wrap">
-                <img
-                    src="{% static 'images/clinic/logo.png' %}"
-                    alt="Hapi Vet Logo"
-                    class="auth-logo"
-                >
-            </div>
-
-            <div class="auth-header">
-                <h1 class="auth-title">Welcome Back</h1>
-                <p class="auth-subtitle">Sign in to your Hapi Vet account</p>
-            </div>
-
-            {% if messages %}
-                <div class="auth-messages">
-                    {% for message in messages %}
-                        <div class="auth-message
-                            {% if message.tags == 'error' %}
-                                auth-message-error
-                            {% elif message.tags == 'success' %}
-                                auth-message-success
-                            {% endif %}">
-                            {{ message }}
-                        </div>
-                    {% endfor %}
-                </div>
-            {% endif %}
-
-            <form method="POST" action="{% url 'owner_login' %}" class="auth-form">
-                {% csrf_token %}
-
-                <div>
-                    <label for="email" class="sr-only">Email Address</label>
-
-                    <div class="auth-field">
-                        <span class="auth-field-icon" aria-hidden="true">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8m-18 8h18a2 2 0 002-2V6a2 2 0 00-2-2H3a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                            </svg>
-                        </span>
-
-                        <input
-                            type="email"
-                            id="email"
-                            name="email"
-                            value="{{ email|default:'' }}"
-                            placeholder="Email Address"
-                            required
-                            autofocus
-                            class="auth-input"
-                        >
-                    </div>
-                </div>
-
-                <div>
-                    <label for="password" class="sr-only">Password</label>
-
-                    <div class="auth-field">
-                        <span class="auth-field-icon" aria-hidden="true">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11c1.104 0 2-.896 2-2V7a2 2 0 10-4 0v2c0 1.104.896 2 2 2z" />
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 11h14v9H5z" />
-                            </svg>
-                        </span>
-
-                        <input
-                            type="password"
-                            id="password"
-                            name="password"
-                            placeholder="Password"
-                            required
-                            class="auth-input"
-                        >
-
-                        <button
-                            type="button"
-                            data-password-toggle="password"
-                            class="auth-password-toggle"
-                            aria-label="Show password"
-                        >
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-
-                <div class="auth-row">
-                    <label class="auth-checkbox-label">
-                        <input
-                            type="checkbox"
-                            name="remember_me"
-                            id="remember_me"
-                            class="auth-checkbox"
-                        >
-                        Remember me
-                    </label>
-
-                    <a href="{% url 'forgot_password' %}" class="auth-link">
-                        Forgot password?
-                    </a>
-                </div>
-
-                <button type="submit" class="auth-button">
-                    Sign In
-                </button>
-            </form>
-
-            <div class="auth-divider">
-                <div class="auth-divider-line"></div>
-                <span class="auth-divider-text">or sign in with</span>
-                <div class="auth-divider-line"></div>
-            </div>
-
-            {# POST + CSRF: Google sign-in must not start from a plain link (SOCIALACCOUNT_LOGIN_ON_GET is off) #}
-            <form method="post" action="{% provider_login_url 'google' %}" class="block w-full">
-                {% csrf_token %}
-                <button type="submit" class="gsi-material-button w-full">
-                    <div class="gsi-material-button-state"></div>
-                    <div class="gsi-material-button-content-wrapper">
-                        <div class="gsi-material-button-icon">
-                            <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" style="display: block;">
-                                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
-                                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
-                                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
-                                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
-                                <path fill="none" d="M0 0h48v48H0z"></path>
-                            </svg>
-                        </div>
-                        <span class="gsi-material-button-contents">Sign in with Google</span>
-                        <span style="display: none;">Sign in with Google</span>
-                    </div>
-                </button>
-            </form>
-
-            <div class="auth-footer-text">
-                Don't have an account?
-                <a href="{% url 'owner_register' %}" class="font-semibold underline">
-                    Create Account
-                </a>
-            </div>
-
-            <div class="auth-footer">
-                <a
-                    href="https://paws.org.ph/downloads/awa_ao54-_code_of_standards_for_veterinary_clinics_and_hospitals_for_small_companion_animals.pdf"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="auth-footer-link"
-                >
-                    Terms & Conditions
-                </a>
-
-                <span class="auth-footer-dot">•</span>
-
-                <a
-                    href="https://privacy.gov.ph/data-privacy-act/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="auth-footer-link"
-                >
-                    Privacy Policy
-                </a>
-            </div>
-
-        </div>
-    </div>
-</div>
+  {% include "owner/auth_parts/or_line.html" %}
+  {% include "owner/auth_parts/google_button.html" with label="Continue with Google" %}
 {% endblock %}
 
-{% block extra_js %}
-<script src="{% static 'js/owner/auth.js' %}"></script>
+{% block below_card %}
+  <p class="text-center text-base text-gray-700">New here? <a href="{% url 'owner_register' %}" class="inline-flex min-h-11 items-center font-semibold text-blue-600">Create an account</a></p>
 {% endblock %}

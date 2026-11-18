@@ -8,19 +8,25 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from allauth.socialaccount.models import SocialAccount
+from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, Exists, F, OuterRef, Prefetch, Q, Value
 from django.db.models.functions import Replace
+from django.http import Http404
+from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateformat import format as date_format
+from django.utils.text import Truncator
 
 from accounts.utils import create_owner_user
 from appointments.models import Appointment
-from appointments.utils import paging_links
+from appointments.utils import get_clinic_settings, paging_links
 from notifications.models import Notification
-from notifications.utils import notify
+from notifications.utils import compact_message, notify
 
 from .models import Pet, PetDeletionRequest, PetOwner
+from .templatetags.pet_display import weight_kg
 
 logger = logging.getLogger(__name__)
 
@@ -91,9 +97,9 @@ def barangay_choices(town):
 
 # ── Pet species and breeds ───────────────────────────────────────────────────
 
-# Keep in sync with PET_SPECIES_OPTIONS / PET_BREEDS_BY_SPECIES in
-# static/js/shared/pet_species_breed.js (the owner-side pet forms use it).
-# Same names, same order. "Other" is not a species; the forms add it.
+# The species / breed lists for the pet forms (no JS copy any more; the
+# forms render the dropdowns on the server). "Other" is not a species; the
+# forms add it.
 PET_BREEDS_BY_SPECIES = {
     "Dog": [
         "Aspin (Native)",
@@ -170,6 +176,18 @@ def breed_choices(species):
         return [("", "Choose the species first")]
     breeds = [(name, name) for name in breeds_for(species)]
     return [("", "Not sure")] + breeds + [(PET_OTHER, "Other (type it)")]
+
+
+def town_from_params(params):
+    """The town an HTMX barangay request asks for: ?town=, or the Town
+    select's own name ?address_town= (the admin and owner endpoints)."""
+    return params.get("town", params.get("address_town", ""))
+
+
+def species_from_params(params):
+    """The species an HTMX breed request asks for: ?species=, or the Species
+    select's own name ?species_choice= (the admin and owner endpoints)."""
+    return params.get("species", params.get("species_choice", ""))
 
 
 # ── Admin owners list ────────────────────────────────────────────────────────
@@ -314,6 +332,61 @@ def create_owner(form):
     return owner
 
 
+def contact_link_initial(owner):
+    """Initial rows for the contact links formset (none without a row)."""
+    if owner is None:
+        return []
+    return [
+        {"platform": link.platform, "url_or_handle": link.url_or_handle}
+        for link in owner.contact_links.all()
+    ]
+
+
+def onboarding_owner(session, user):
+    """The PetOwner saved by step 1 (session key onboarding_owner_id), or
+    None when there is no key or it isn't this user's row."""
+    owner_id = session.get("onboarding_owner_id")
+    if not owner_id:
+        return None
+    return PetOwner.objects.filter(pk=owner_id, user=user).first()
+
+
+def onboarding_step1_context(profile_form, link_formset):
+    """Context of onboarding step 1: both forms, the number of things to fix
+    for the red box (fields, plus link rows with a problem), and whether the
+    links box opens (saved or mistyped links)."""
+    bad_rows = [form for form in link_formset if form.errors]
+    has_text = any(
+        form["platform"].value() or form["url_or_handle"].value()
+        for form in link_formset
+    )
+    return {
+        "profile_form": profile_form,
+        "link_formset": link_formset,
+        "error_count": profile_form.error_count + len(bad_rows),
+        "links_open": bool(bad_rows) or bool(has_text),
+    }
+
+
+def save_owner_profile(profile_form, link_formset, user):
+    """
+    Saves the owner's profile (onboarding step 1 and profile edit) and
+    replaces their contact links, all in one transaction: if re-adding a
+    link fails, the old links and the old profile stay. Returns the owner.
+    """
+    with transaction.atomic():
+        owner = profile_form.save(commit=False)
+        owner.user = user
+        owner.save()
+        owner.contact_links.all().delete()
+        for form in link_formset:
+            if form.is_valid() and not form.is_empty():
+                link = form.save(commit=False)
+                link.owner = owner
+                link.save()
+    return owner
+
+
 # ── Admin pets list ──────────────────────────────────────────────────────────
 
 # A pet is on the Archived tab when it is archived or its owner is
@@ -433,8 +506,12 @@ def deletion_requests_context(params):
     pending = list(
         requests.filter(status=PetDeletionRequest.PENDING).order_by("created_at", "pk")
     )
+    # Only answers: a request the owner took back (CANCELLED) was never
+    # answered by the clinic, so it is not history here
     resolved = (
-        requests.exclude(status=PetDeletionRequest.PENDING)
+        requests.filter(
+            status__in=[PetDeletionRequest.APPROVED, PetDeletionRequest.REJECTED]
+        )
         .select_related("reviewed_by")
         .order_by(F("reviewed_at").desc(nulls_last=True), "-pk")
     )
@@ -457,9 +534,32 @@ def deletion_requests_context(params):
     }
 
 
+def take_back_removal_request(pet, user):
+    """
+    The owner takes back their waiting removal request for pet: it becomes
+    CANCELLED (reviewed_by and reviewed_at stay empty; the row is kept).
+    Returns False when the user has no PENDING request for the pet. The row
+    is locked while it changes, so a clinic answer at the same moment wins
+    or loses cleanly.
+    """
+    with transaction.atomic():
+        waiting = (
+            PetDeletionRequest.objects.select_for_update()
+            .filter(pet=pet, requested_by=user, status=PetDeletionRequest.PENDING)
+            .first()
+        )
+        if waiting is None:
+            return False
+        waiting.status = PetDeletionRequest.CANCELLED
+        waiting.save(update_fields=["status"])
+    return True
+
+
 def deletion_answer_refusal(deletion_request, approve):
     """Why Archive (approve) or Keep can't be saved, or None."""
     pet = deletion_request.pet
+    if deletion_request.status == PetDeletionRequest.CANCELLED:
+        return "The owner took this request back."
     if deletion_request.status != PetDeletionRequest.PENDING:
         return "This request was already answered."
     if approve and pet.is_archived:
@@ -499,19 +599,38 @@ def notify_deletion_answer(pet, approved):
     answer stays saved. notify() itself records a failed send on the row.
     """
     if approved:
-        title = f"{pet.name} was removed"
-        message = f"The clinic removed {pet.name} from your account, as you asked."
+        title = "Pet removed"
+        message = compact_message(pet.name, "Removed from your account, as you asked.")
+        email_body = f"The clinic removed {pet.name} from your account, as you asked."
     else:
-        title = f"{pet.name} stays on your account"
-        message = (
+        title = "Pet stays on your account"
+        message = compact_message(
+            pet.name, "The clinic kept your pet. Call us if you still want it removed."
+        )
+        email_body = (
             f"The clinic kept {pet.name} on your account. If you still want it "
             "removed, please contact the clinic."
         )
-    _send_removal_notice(pet, title, message, related_pet=None if approved else pet)
+    # The email subject names the pet; the in-app title stays short
+    subject = (
+        f"{pet.name} was removed — Hapi Vet"
+        if approved
+        else f"{pet.name} stays on your account — Hapi Vet"
+    )
+    _send_removal_notice(
+        pet,
+        title,
+        message,
+        email_body,
+        related_pet=None if approved else pet,
+        subject=subject,
+    )
 
 
-def _send_removal_notice(pet, title, message, related_pet):
-    """notify() the pet's owner (PET_DELETION_ANSWERED); never raises."""
+def _send_removal_notice(pet, title, message, email_body, related_pet, subject):
+    """notify() the pet's owner (PET_DELETION_ANSWERED): a short title and
+    compact message in the app, the full sentence in the email, whose subject
+    names the pet. Never raises."""
     try:
         notify(
             recipient=pet.owner.user,
@@ -519,7 +638,8 @@ def _send_removal_notice(pet, title, message, related_pet):
             title=title,
             message=message,
             related_pet=related_pet,
-            email_subject=f"{title} — Hapi Vet",
+            email_subject=subject,
+            email_body=email_body,
         )
     except Exception:
         logger.exception("Deletion answer not sent to the owner of pet %s", pet.pk)
@@ -564,9 +684,11 @@ def archive_pet_directly(pet, admin, reason, reason_detail):
     reason_label = deletion_request.get_reason_display().lower()
     _send_removal_notice(
         pet,
-        f"{pet.name} was removed",
+        "Pet removed",
+        compact_message(pet.name, f"Removed by the clinic ({reason_label})."),
         f"The clinic removed {pet.name} from your account (reason: {reason_label}).",
         related_pet=None,
+        subject=f"{pet.name} was removed — Hapi Vet",
     )
     return deletion_request
 
@@ -680,4 +802,416 @@ def pet_detail_context(pet, today):
         "pending_deletion": pending_deletion,
         "archive_request": archive_request(pet),
         "show_archive_button": state == "active" and pending_deletion is None,
+    }
+
+
+# ── Owner My Pets (Slice 8b-4) ───────────────────────────────────────────────
+
+# The type chips, in order: (key, label). "other" is any species that is not
+# Dog or Cat, including an empty one.
+OWNER_PET_TYPES = (
+    ("all", "All"),
+    ("dog", "Dogs"),
+    ("cat", "Cats"),
+    ("other", "Others"),
+)
+# The search box and chips show from this many pets up
+OWNER_PET_FILTERS_FROM = 4
+
+_PET_TYPE_FILTERS = {
+    "dog": Q(species__iexact="Dog"),
+    "cat": Q(species__iexact="Cat"),
+    "other": ~(Q(species__iexact="Dog") | Q(species__iexact="Cat")),
+}
+
+
+def _owner_pet_chips(counts, active_type, q):
+    """The chips to show: All, and every type the owner has (or has open).
+    Each link keeps the search text."""
+    chips = []
+    for key, label in OWNER_PET_TYPES:
+        if key != "all" and not counts[key] and key != active_type:
+            continue
+        query = {"type": "" if key == "all" else key, "q": q}
+        chips.append(
+            {
+                "key": key,
+                "label": label,
+                "count": counts[key],
+                "is_active": key == active_type,
+                "query": urlencode({k: v for k, v in query.items() if v}),
+            }
+        )
+    return chips
+
+
+def owner_pets_context(owner, params):
+    """
+    Context for the owner's My Pets page from the request's GET params: the
+    owner's own pets that are not archived, by name then pk. ?q= matches the
+    pet's name (icontains, spaces collapsed); ?type=all|dog|cat|other (default
+    and anything unknown: all). The chip counts cover all of the owner's pets
+    and ignore ?q=. Two queries however many pets: the counts and the list.
+    """
+    q = " ".join(params.get("q", "").split())
+    active_type = params.get("type")
+    if active_type not in _PET_TYPE_FILTERS:
+        active_type = "all"
+
+    own = Pet.objects.filter(owner=owner, is_archived=False)
+    totals = own.aggregate(
+        total=Count("pk"),
+        dog=Count("pk", filter=_PET_TYPE_FILTERS["dog"]),
+        cat=Count("pk", filter=_PET_TYPE_FILTERS["cat"]),
+        other=Count("pk", filter=_PET_TYPE_FILTERS["other"]),
+    )
+    counts = {
+        "all": totals["total"],
+        "dog": totals["dog"],
+        "cat": totals["cat"],
+        "other": totals["other"],
+    }
+
+    pets = own
+    if q:
+        pets = pets.filter(name__icontains=q)
+    if active_type != "all":
+        pets = pets.filter(_PET_TYPE_FILTERS[active_type])
+    waiting = PetDeletionRequest.objects.filter(
+        pet=OuterRef("pk"), status=PetDeletionRequest.PENDING
+    )
+    pets = list(
+        pets.annotate(has_pending_removal=Exists(waiting)).order_by("name", "pk")
+    )
+    return {
+        "pets": pets,
+        "total_count": counts["all"],
+        "counts": counts,
+        "chips": _owner_pet_chips(counts, active_type, q),
+        "show_filters": counts["all"] >= OWNER_PET_FILTERS_FROM,
+        "q": q,
+        "active_type": active_type,
+        "is_filtering": bool(q) or active_type != "all",
+    }
+
+
+# ── Owner pet profile, edit and remove (Slice 8b-5) ──────────────────────────
+# Every helper takes today / now from the view and never reads the clock.
+
+PROFILE_TABS = (
+    ("about", "About"),
+    ("vaccines", "Vaccines"),
+    ("records", "Records"),
+)
+# The four reasons on the remove sheet: (value saved, words shown). They are
+# the model's own choices, so nothing changes in the database.
+REMOVAL_REASONS = (
+    (PetDeletionRequest.PASSED_AWAY, "My pet has passed away"),
+    (PetDeletionRequest.REHOMED, "My pet has a new home"),
+    (PetDeletionRequest.DUPLICATE, "I added this pet twice"),
+    (PetDeletionRequest.OTHER, "Other reason"),
+)
+# What the yellow "Removal requested" box says the owner chose
+REMOVAL_REASON_LINES = {
+    PetDeletionRequest.PASSED_AWAY: "You said {name} has passed away.",
+    PetDeletionRequest.REHOMED: "You said {name} has a new home.",
+    PetDeletionRequest.DUPLICATE: "You said {name} was added twice.",
+}
+RECORD_HEADING_CHARS = 60
+RECORD_LINE_CHARS = 90
+
+
+def pet_age_phrase(born, today):
+    """The pet's age in words: "3 years", "1 year", "8 months", "1 month" or
+    "under 1 month". "" without a birthday."""
+    if born is None:
+        return ""
+    months = (today.year - born.year) * 12 + today.month - born.month
+    if today.day < born.day:
+        months -= 1
+    if months >= 12:
+        years = months // 12
+        return f"{years} year{'s' if years != 1 else ''}"
+    if months >= 1:
+        return f"{months} month{'s' if months != 1 else ''}"
+    return "under 1 month"
+
+
+def pet_age_chip(born, today):
+    """ "3 years old", "8 months old" or "Under 1 month old"; "" without a
+    birthday (no chip)."""
+    phrase = pet_age_phrase(born, today)
+    if not phrase:
+        return ""
+    if phrase == "under 1 month":
+        return "Under 1 month old"
+    return f"{phrase} old"
+
+
+def pet_facts(pet, today):
+    """The chips under the pet's name: sex (left out when not known), age and
+    weight (each left out when empty)."""
+    sex = {Pet.MALE: "Male", Pet.FEMALE: "Female"}.get(pet.gender, "")
+    weight = f"{weight_kg(pet.weight)} kg" if pet.weight is not None else ""
+    return [
+        chip for chip in (sex, pet_age_chip(pet.date_of_birth, today), weight) if chip
+    ]
+
+
+def _sex_words(pet):
+    return {Pet.MALE: "Male", Pet.FEMALE: "Female"}.get(pet.gender, "Not sure")
+
+
+def pet_detail_rows(pet, today):
+    """The About tab's Details card: (label, value) pairs; an empty value is
+    None, which the template shows as a gray "None"."""
+    birthday = None
+    if pet.date_of_birth:
+        day = date_format(pet.date_of_birth, "M j, Y")
+        birthday = f"{day} ({pet_age_phrase(pet.date_of_birth, today)})"
+    weight = f"{weight_kg(pet.weight)} kg" if pet.weight is not None else None
+    return [
+        ("Species", pet.species or None),
+        ("Breed", pet.breed or None),
+        ("Color", pet.color or None),
+        ("Male or female", _sex_words(pet)),
+        ("Birthday", birthday),
+        ("Weight", weight),
+        ("Registration no.", pet.registration_number or None),
+    ]
+
+
+def pet_locked_rows(pet):
+    """The edit page's "Only the clinic can change these" rows."""
+    birthday = date_format(pet.date_of_birth, "M j, Y") if pet.date_of_birth else None
+    return [
+        ("Species", pet.species or None),
+        ("Male or female", _sex_words(pet)),
+        ("Birthday", birthday),
+        ("Registration no.", pet.registration_number or None),
+    ]
+
+
+def owner_pet_next_visit(owner, pet, now):
+    """The pet's soonest Pending or Confirmed visit whose slot hasn't ended
+    (one in progress still counts), or None. Two queries: the settings (the
+    slot length) and the visit."""
+    # Imported here: dashboard.utils imports this app's models
+    from dashboard.utils import _owner_visits_not_ended, slot_minutes
+
+    minutes = slot_minutes(get_clinic_settings())
+    return (
+        _owner_visits_not_ended(owner, now, minutes)
+        .filter(pet=pet)
+        .order_by("date", "time", "pk")
+        .first()
+    )
+
+
+def _vaccine_due_note(pet, row):
+    """The orange note for the dose that is due (or overdue)."""
+    day = date_format(row["next"], "M j")
+    days = row["days"]
+    protect = f"Book a visit so {pet.name} stays protected."
+    if row["state"] == "overdue":
+        return {"title": f"{row['name']} was due on {day}", "text": protect}
+    if days == 0:
+        when = "That's today."
+    else:
+        when = f"That's in {days} day{'s' if days != 1 else ''}."
+    return {"title": f"{row['name']} is due on {day}", "text": f"{when} {protect}"}
+
+
+def owner_pet_vaccines(pet, today):
+    """
+    The Vaccines tab: (history rows, due note). One query. Rows are newest
+    given first: name, given, next, is_due (the shared due rule, so a dose a
+    later one replaced is never due), is_corrected (never the correction
+    note). The note is for the earliest due or overdue dose, or None.
+    pet.owner must already be loaded.
+    """
+    # Imported here: medical.utils imports this module
+    from medical.utils import later_dose_exists, vaccination_due_state
+
+    doses = (
+        pet.vaccinations.defer("correction_note")
+        .annotate(is_superseded=later_dose_exists())
+        .order_by("-date_administered", "-pk")
+    )
+    rows = []
+    for dose in doses:
+        state, days = vaccination_due_state(dose, today)
+        rows.append(
+            {
+                "name": dose.display_vaccine_name,
+                "given": dose.date_administered,
+                "next": dose.next_due_date,
+                "state": state,
+                "days": days,
+                "is_due": bool(state),
+                "is_corrected": dose.is_corrected,
+            }
+        )
+    due = [row for row in rows if row["is_due"]]
+    note = _vaccine_due_note(pet, min(due, key=lambda r: r["next"])) if due else None
+    return rows, note
+
+
+def _record_line(record, heading):
+    """One short line from the public fields only, never the heading again."""
+    for text in (record.treatment_given, record.symptoms, record.public_notes):
+        text = " ".join(text.split())
+        if text and text != heading:
+            return Truncator(text).chars(RECORD_LINE_CHARS)
+    return ""
+
+
+def owner_pet_records(pet):
+    """
+    The Records tab: one dict per record, newest first. One query: private_notes
+    is deferred (owner_record_queryset), files are counted, and the visit's
+    service is joined. heading is the diagnosis (the record page's own title
+    when there is none), line is one short public line, follow_up is the date
+    when a follow-up is required, files counts the files not removed.
+    """
+    # Imported here: medical.utils imports this module
+    from medical.utils import owner_record_queryset
+
+    records = (
+        owner_record_queryset()
+        .select_related("appointment__service")
+        .filter(pet=pet)
+        .annotate(
+            file_count=Count(
+                "test_result_files", filter=Q(test_result_files__is_archived=False)
+            )
+        )
+        .order_by("-record_date", "-pk")
+    )
+    rows = []
+    for record in records:
+        service = record.appointment.service if record.appointment else None
+        diagnosis = " ".join(record.diagnosis.split())
+        heading = Truncator(diagnosis).chars(RECORD_HEADING_CHARS) or "Visit record"
+        follow_up = record.follow_up_date if record.follow_up_required else None
+        rows.append(
+            {
+                "pk": record.pk,
+                "date": record.record_date,
+                "kind": service.service_name if service else "Visit",
+                "heading": heading,
+                "line": _record_line(record, diagnosis),
+                "follow_up": follow_up,
+                "files": record.file_count,
+            }
+        )
+    return rows
+
+
+def removal_pending_line(pet, deletion_request):
+    """The yellow box's line naming the reason in plain words."""
+    line = REMOVAL_REASON_LINES.get(deletion_request.reason)
+    if line is None:
+        return "The clinic will review your request soon."
+    return f"{line.format(name=pet.name)} The clinic will review it soon."
+
+
+def _profile_sheets(pet):
+    """The words on the remove and take-back sheets."""
+    return {
+        "remove_title": f"Remove {pet.name} from your pets?",
+        "remove_text": (
+            "The clinic will check your request first. "
+            f"{pet.name}'s health records are kept safe either way."
+        ),
+        "remove_keep": f"Keep {pet.name}",
+        "take_back_title": "Take back your request?",
+        "take_back_text": f"{pet.name} stays on your account.",
+    }
+
+
+def owner_pet_profile_context(owner, pet, params, today, now):
+    """
+    Context for the owner's pet profile. 404 unless the pet is the owner's
+    own and not archived. ?tab=about|vaccines|records (anything else: about);
+    only the open tab's queries run. Queries: the waiting removal request, plus
+    About 2 (settings, visit), Vaccines 1, Records 1, however many rows.
+    """
+    if pet.owner_id != owner.pk or pet.is_archived:
+        raise Http404("No pet matches the given query.")
+    pet.owner = owner  # already known: the due rule reads pet.owner
+    tab = params.get("tab")
+    if tab not in dict(PROFILE_TABS):
+        tab = "about"
+    base = reverse("owner_pet_detail", args=[pet.pk])
+    pending = PetDeletionRequest.objects.filter(
+        pet=pet, status=PetDeletionRequest.PENDING
+    ).first()
+    context = {
+        "pet": pet,
+        "today": today,
+        "tab": tab,
+        "tabs": [
+            {"key": key, "label": label, "url": f"{base}?tab={key}"}
+            for key, label in PROFILE_TABS
+        ],
+        "kind_line": " · ".join(part for part in (pet.species, pet.breed) if part),
+        "facts": pet_facts(pet, today),
+        "pending": pending,
+        "pending_line": removal_pending_line(pet, pending) if pending else "",
+        "removal_reasons": REMOVAL_REASONS,
+        "sheets": _profile_sheets(pet),
+    }
+    if tab == "about":
+        context["next_visit"] = owner_pet_next_visit(owner, pet, now)
+        context["details"] = pet_detail_rows(pet, today)
+    elif tab == "vaccines":
+        context["vaccines"], context["due_note"] = owner_pet_vaccines(pet, today)
+    else:
+        context["records"] = owner_pet_records(pet)
+    return context
+
+
+def request_pet_removal(pet, user, reason):
+    """
+    The owner asks the clinic to remove the pet. Returns (message level, text)
+    for the flash. No reason, or one that isn't on the sheet, creates nothing.
+    A waiting request makes a second one impossible (the pet row is locked
+    while it is checked, so two taps can't both pass).
+    """
+    if reason not in dict(REMOVAL_REASONS):
+        return messages.ERROR, "Choose what happened, then send the request."
+    with transaction.atomic():
+        Pet.objects.select_for_update().get(pk=pet.pk)
+        waiting = PetDeletionRequest.objects.filter(
+            pet=pet, status=PetDeletionRequest.PENDING
+        )
+        if waiting.exists():
+            return (
+                messages.WARNING,
+                f"A removal request for {pet.name} is already waiting.",
+            )
+        PetDeletionRequest.objects.create(
+            pet=pet,
+            requested_by=user,
+            reason=reason,
+            status=PetDeletionRequest.PENDING,
+        )
+    return messages.SUCCESS, "Request sent. The clinic will review it soon."
+
+
+def owner_pet_edit_context(pet):
+    """
+    What the edit page shows besides the form, read from the saved pet (call
+    it before the form touches the pet): name, photo_url, the locked rows,
+    and the clinic's phone ("" when there is none).
+    """
+    clinic = get_clinic_settings()
+    return {
+        "pet": pet,
+        "pet_name": pet.name,
+        "photo_url": pet.photo.url if pet.photo else "",
+        "locked_rows": pet_locked_rows(pet),
+        "clinic_phone": (clinic.contact_number if clinic else "").strip(),
+        "profile_url": reverse("owner_pet_detail", args=[pet.pk]),
     }

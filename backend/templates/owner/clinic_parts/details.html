@@ -1,0 +1,28 @@
+{% comment %}
+  The white card of rows: Open, Phone, Email, Address. A missing value leaves its row out.
+  "Closed ..." comes from the working days (and any blocked date), never the blocked-date reasons.
+{% endcomment %}
+<section class="divide-y divide-gray-100 rounded-2xl border border-gray-200 bg-white px-4 shadow-sm" aria-label="Clinic details">
+  <div class="flex items-start gap-4 py-4">
+    {% include "components/icon.html" with name="clock" class="size-10 shrink-0 rounded-xl bg-gray-100 p-2.5 text-gray-700" %}
+    <div class="min-w-0 flex-1"><p class="text-base text-gray-600">Open</p><p class="text-base font-semibold text-gray-900">{{ hours_line }}</p>{% if closed_line %}<p class="mt-1 text-base text-gray-600">{{ closed_line }}</p>{% endif %}</div>
+  </div>
+  {% if clinic.contact_number %}
+  <div class="flex items-start gap-4 py-4">
+    {% include "components/icon.html" with name="phone" class="size-10 shrink-0 rounded-xl bg-gray-100 p-2.5 text-gray-700" %}
+    <div class="min-w-0 flex-1"><p class="text-base text-gray-600">Phone</p><p class="text-base font-semibold text-gray-900">{{ clinic.contact_number }}</p></div>
+  </div>
+  {% endif %}
+  {% if clinic.email %}
+  <div class="flex items-start gap-4 py-4">
+    {% include "components/icon.html" with name="mail" class="size-10 shrink-0 rounded-xl bg-gray-100 p-2.5 text-gray-700" %}
+    <div class="min-w-0 flex-1"><p class="text-base text-gray-600">Email</p><p class="break-words text-base font-semibold text-gray-900">{{ clinic.email }}</p></div>
+  </div>
+  {% endif %}
+  {% if clinic.address %}
+  <div class="flex items-start gap-4 py-4">
+    {% include "components/icon.html" with name="map-pin" class="size-10 shrink-0 rounded-xl bg-gray-100 p-2.5 text-gray-700" %}
+    <div class="min-w-0 flex-1"><p class="text-base text-gray-600">Address</p><p class="break-words text-base font-semibold text-gray-900">{{ clinic.address }}</p></div>
+  </div>
+  {% endif %}
+</section>

@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Book a Visit v1</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { background:#e7e5e4; font-family:"Segoe UI", system-ui, sans-serif; }
+  .phone { width:390px; height:844px; overflow-y:auto; position:relative; }
+  .phone::-webkit-scrollbar { width:0; }
+</style>
+</head>
+<body class="p-6 text-gray-900 antialiased">
+
+<header class="mx-auto mb-6 max-w-[2550px]">
+  <h1 class="text-2xl font-bold">Book a visit v1 — 3 steps, then "Request sent"</h1>
+  <p class="mt-1 text-base text-gray-700">Mirrors the admin walk-in flow: 1 Pet and reason, 2 Date and time, 3 Check and send. While booking, the bottom tabs are replaced by Back / Next so the owner can't wander off mid-way. Phone 2 works: tap a date, then a time.</p>
+</header>
+
+<div class="mx-auto flex max-w-[2550px] flex-wrap justify-center gap-8" id="frames"></div>
+
+<script>
+// ---------- Icons (Lucide shapes, mockup only) ----------
+const P = {
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  back:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  next:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  chevL:'<path d="m15 18-6-6 6-6"/>',
+  chevR:'<path d="m9 18 6-6-6-6"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  checkCircle:'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  send:'<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>',
+  pencil:'<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>',
+  image:'<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+  dog:'<path d="M11.25 16.25h1.5L12 17z"/><path d="M16 14v.5"/><path d="M4.42 11.247A13.152 13.152 0 0 0 4 14.556C4 18.728 7.582 21 12 21s8-2.272 8-6.444a11.702 11.702 0 0 0-.493-3.309"/><path d="M8 14v.5"/><path d="M8.5 8.5c-.384 1.05-1.083 2.028-2.344 2.5-1.931.722-3.576-.297-3.656-1-.113-.994 1.177-6.53 4-7 1.923-.321 3.651.845 3.651 2.235A7.497 7.497 0 0 1 14 5.277c0-1.39 1.844-2.598 3.767-2.277 2.823.47 4.113 6.006 4 7-.08.703-1.725 1.722-3.656 1-1.261-.472-1.855-1.45-2.239-2.5"/>',
+  cat:'<path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z"/><path d="M8 14v.5"/><path d="M16 14v.5"/><path d="M11.25 16.25h1.5L12 17l-.75-.75Z"/>',
+};
+const ic = (n, c='size-5 shrink-0') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+const thin = (n, c) => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// ---------- Flow shell: header with Back, step progress, sticky footer ----------
+const steps = ['Pet and reason','Date and time','Check and send'];
+const flowHeader = step => `
+<div class="sticky top-0 z-20 shrink-0 border-b border-gray-200 bg-white">
+  <div class="flex h-16 items-center gap-2 px-2">
+    <a class="grid size-11 place-content-center rounded-full text-gray-800 hover:bg-gray-100" aria-label="Back">${ic('back','size-6')}</a>
+    <span class="flex-1 text-lg font-bold">Book a visit</span>
+    <a class="inline-flex min-h-11 items-center rounded-lg px-3 text-base font-medium text-gray-700 hover:bg-gray-100">Cancel</a>
+  </div>
+  <div class="px-4 pb-3">
+    <p class="text-base text-gray-700"><span class="font-semibold text-gray-900">Step ${step} of 3</span> · ${steps[step-1]}</p>
+    <div class="mt-2 grid grid-cols-3 gap-1.5">${[1,2,3].map(i => `<span class="h-1.5 rounded-full ${i <= step ? 'bg-violet-600' : 'bg-gray-200'}"></span>`).join('')}</div>
+  </div>
+</div>`;
+
+const footer = (nextLabel, nextIcon='next', disabled=false, showBack=true) => `
+<div class="sticky bottom-0 z-10 mt-auto flex shrink-0 gap-3 border-t border-gray-200 bg-white px-4 pb-5 pt-3">
+  ${showBack ? `<a class="inline-flex min-h-14 items-center justify-center gap-2 rounded-2xl border border-gray-300 bg-white px-5 text-lg font-medium text-gray-800">${ic('back','size-5')}Back</a>` : ''}
+  <button type="button" class="next flex min-h-14 flex-1 items-center justify-center gap-2 rounded-2xl text-lg font-semibold ${disabled ? 'cursor-not-allowed bg-gray-200 text-gray-500' : 'bg-violet-600 text-white shadow-sm'}" ${disabled ? 'disabled' : ''}>${nextLabel}${ic(nextIcon,'size-5')}</button>
+</div>`;
+
+const page = (head, inner, foot) => `<div class="flex min-h-full flex-col">${head}${inner}${foot}</div>`;
+
+// Selectable card (radio look)
+const choice = (on, inner, extra='') => `
+<label class="flex min-h-14 cursor-pointer items-center gap-3 rounded-2xl border bg-white px-4 py-3 ${on ? 'border-violet-500 bg-violet-50 ring-2 ring-violet-200' : 'border-gray-200'} ${extra}">
+  ${inner}
+  <span class="grid size-6 shrink-0 place-content-center rounded-full border-2 ${on ? 'border-violet-600 bg-violet-600 text-white' : 'border-gray-400'}">${on ? ic('check','size-4') : ''}</span>
+</label>`;
+
+const sectionTitle = (t, sub='') => `<div><h2 class="text-xl font-bold">${t}</h2>${sub ? `<p class="text-base text-gray-600">${sub}</p>` : ''}</div>`;
+
+// ---------- Step 1: pet, service, reason ----------
+const petPic = (sp, photo) => photo
+  ? `<span class="grid size-12 shrink-0 place-content-center rounded-xl bg-gradient-to-br ${photo} text-white">${ic('image','size-5')}</span>`
+  : `<span class="grid size-12 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-600 ring-1 ring-violet-200">${thin(sp,'size-7')}</span>`;
+const petChoice = (on, sp, photo, name, line) => choice(on, `${petPic(sp, photo)}<span class="flex-1"><span class="block text-lg font-bold leading-6">${name}</span><span class="block text-base text-gray-600">${line}</span></span>`);
+
+const services = ['Consultation','Vaccination','Check-up','Grooming','Deworming'];
+const serviceChoice = (name, on) => choice(on, `<span class="flex-1 text-base font-semibold">${name}</span>`);
+
+const step1 = page(flowHeader(1), `
+<main class="flex-1 space-y-6 px-4 py-5">
+  <section class="space-y-3">
+    ${sectionTitle('Which pet is this for?')}
+    ${petChoice(true,'dog','from-amber-200 to-amber-500','Browny','Dog · Aspin')}
+    ${petChoice(false,'cat','','Mingming','Cat · Puspin')}
+    ${petChoice(false,'dog','','Choco','Dog · Shih Tzu')}
+  </section>
+  <section class="space-y-3">
+    ${sectionTitle('What is the visit for?', 'Not sure? Pick "Not sure yet" and Dr. Aga will check.')}
+    ${services.map((s,i) => serviceChoice(s, i===0)).join('')}
+    ${serviceChoice('Not sure yet', false)}
+  </section>
+  <section class="space-y-2">
+    <label for="why" class="block text-xl font-bold">Anything the vet should know? <span class="text-base font-normal text-gray-600">(optional)</span></label>
+    <textarea id="why" rows="4" class="block w-full rounded-xl border border-gray-300 bg-white p-4 text-base placeholder:text-gray-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200" placeholder="For example: not eating since yesterday, limping on the back leg"></textarea>
+  </section>
+</main>`, footer('Next', 'next', false, false));
+
+// ---------- Step 2: calendar + time slots ----------
+// November 2026: Nov 1 is a Sunday. Today is Mon Nov 2 (past today's booking cutoff).
+// Open Mon–Fri; Nov 30 is a holiday (blocked); Nov 6 is fully booked; bookable up to 30 days ahead.
+const dayState = d => {
+  const wd = (d - 1) % 7; // 0 = Sun
+  if (d < 2) return 'past';
+  if (d === 2) return 'today-closed';
+  if (wd === 0 || wd === 6) return 'closed';
+  if (d === 30) return 'closed';
+  if (d === 6) return 'full';
+  return 'open';
+};
+const dayCell = (d, sel) => {
+  const st = dayState(d);
+  const base = 'relative grid h-12 place-content-center rounded-xl text-lg';
+  const label = {past:'past', 'today-closed':'today, no more bookings', closed:'clinic closed', full:'fully booked', open:'available'}[st];
+  if (st === 'open') return `<button type="button" data-day="${d}" aria-pressed="${d===sel}" aria-label="November ${d}, ${label}" class="day ${base} font-semibold ${d===sel ? 'bg-violet-600 text-white' : 'bg-white text-gray-900 ring-1 ring-gray-200 hover:ring-violet-400'}">${d}</button>`;
+  if (st === 'full') return `<span aria-label="November ${d}, ${label}" class="${base} bg-gray-100 text-gray-400 line-through">${d}</span>`;
+  if (st === 'today-closed') return `<span aria-label="November ${d}, ${label}" class="${base} text-gray-400 ring-2 ring-gray-300">${d}</span>`;
+  return `<span aria-label="November ${d}, ${label}" class="${base} text-gray-300">${d}</span>`;
+};
+const calendar = sel => `
+<section class="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+  <div class="mb-3 flex items-center justify-between">
+    <button type="button" class="grid size-11 place-content-center rounded-full text-gray-300" aria-label="Previous month" disabled>${ic('chevL','size-6')}</button>
+    <p class="text-lg font-bold">November 2026</p>
+    <button type="button" class="grid size-11 place-content-center rounded-full text-gray-800 hover:bg-gray-100" aria-label="Next month">${ic('chevR','size-6')}</button>
+  </div>
+  <div class="grid grid-cols-7 gap-1 text-center text-sm font-semibold text-gray-600">${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => `<span class="py-1">${d}</span>`).join('')}</div>
+  <div class="mt-1 grid grid-cols-7 gap-1">${Array.from({length:30}, (_,i) => dayCell(i+1, sel)).join('')}</div>
+  <div class="mt-4 flex flex-wrap gap-x-4 gap-y-2 border-t border-gray-100 pt-3 text-base text-gray-700">
+    <span class="inline-flex items-center gap-2"><span class="size-4 rounded bg-white ring-1 ring-gray-300"></span>Open</span>
+    <span class="inline-flex items-center gap-2"><span class="size-4 rounded bg-gray-100"></span><span class="line-through">Full</span></span>
+    <span class="inline-flex items-center gap-2"><span class="text-gray-300">00</span>Closed</span>
+  </div>
+</section>`;
+
+// Slots: 8 AM–5 PM, 1 hour each. Taken slots differ by day (mockup data).
+const slotTimes = [['Morning',['8:00 AM','9:00 AM','10:00 AM','11:00 AM']],['Afternoon',['12:00 PM','1:00 PM','2:00 PM','3:00 PM','4:00 PM']]];
+const takenFor = d => ({3:['8:00 AM','9:00 AM','1:00 PM'],10:['9:00 AM','2:00 PM'],13:['10:00 AM','2:00 PM','3:00 PM'],20:['8:00 AM']}[d] || ['11:00 AM']);
+const dayLabel = d => `${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][(d-1)%7]}, Nov ${d}`;
+const slots = (d, sel, justTaken='') => `
+<section class="slots space-y-3">
+  ${sectionTitle(`Times on ${dayLabel(d)}`, 'Each visit is 1 hour.')}
+  ${slotTimes.map(([part, times]) => `
+    <div>
+      <p class="mb-2 text-base font-semibold text-gray-700">${part}</p>
+      <div class="grid grid-cols-3 gap-2">
+        ${times.map(t => {
+          const taken = takenFor(d).includes(t) || t === justTaken;
+          if (taken) return `<span class="flex min-h-12 flex-col items-center justify-center rounded-xl bg-gray-100 text-base text-gray-400"><span class="line-through">${t}</span><span class="text-sm">Taken</span></span>`;
+          const on = t === sel;
+          return `<button type="button" data-slot="${t}" aria-pressed="${on}" class="slot min-h-12 rounded-xl text-base font-semibold ${on ? 'bg-violet-600 text-white' : 'bg-white text-gray-900 ring-1 ring-gray-300 hover:ring-violet-400'}">${t}</button>`;
+        }).join('')}
+      </div>
+    </div>`).join('')}
+</section>`;
+
+const chosenPet = `
+<div class="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3">
+  ${petPic('dog','from-amber-200 to-amber-500')}
+  <span class="flex-1"><span class="block text-lg font-bold leading-6">Browny</span><span class="block text-base text-gray-600">Consultation</span></span>
+</div>`;
+
+const step2 = page(flowHeader(2), `
+<main class="flex-1 space-y-5 px-4 py-5">
+  ${chosenPet}
+  ${sectionTitle('Pick a day', 'You can book up to 30 days ahead.')}
+  <div class="cal">${calendar(10)}</div>
+  <div class="slotwrap">${slots(10, '')}</div>
+</main>`, footer('Next', 'next', true));
+
+// Step 2 after the chosen time was taken by someone else (same as walk-in "{time} was just taken")
+const step2taken = page(flowHeader(2), `
+<main class="flex-1 space-y-5 px-4 py-5">
+  <div role="alert" class="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-4 text-red-900">
+    ${ic('alert','mt-0.5 size-6 shrink-0')}
+    <div><p class="text-lg font-semibold">2:00 PM was just taken</p><p class="mt-0.5 text-base">Someone booked it a moment ago. Please pick another time. Your other answers are kept.</p></div>
+  </div>
+  ${chosenPet}
+  ${calendar(13)}
+  ${slots(13, '')}
+</main>`, footer('Next', 'next', true));
+
+// ---------- Step 3: check and send ----------
+const row = (label, value, edit=true) => `
+<div class="flex items-start gap-3 py-3">
+  <div class="flex-1"><dt class="text-base text-gray-600">${label}</dt><dd class="text-lg font-semibold">${value}</dd></div>
+  ${edit ? `<a class="inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-base font-medium text-blue-600">${ic('pencil','size-4')}Change</a>` : ''}
+</div>`;
+const step3 = page(flowHeader(3), `
+<main class="flex-1 space-y-5 px-4 py-5">
+  ${sectionTitle('Check your request')}
+  <dl class="divide-y divide-gray-100 rounded-2xl border border-gray-200 bg-white px-4 shadow-sm">
+    ${row('Pet','Browny')}
+    ${row('Visit for','Consultation')}
+    ${row('Day and time','Tue, Nov 10, 2026 at 12:00 PM')}
+    ${row('Note for the vet','Not eating since yesterday.')}
+  </dl>
+  <div class="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-4 text-blue-900">
+    ${ic('info','mt-0.5 size-6 shrink-0')}
+    <p class="text-base">This is a <b>request</b>. The clinic will confirm it, and you'll get a notification when they do.</p>
+  </div>
+</main>`, footer('Send request', 'send'));
+
+// ---------- Done ----------
+const done = page(`
+<div class="sticky top-0 z-20 flex h-16 shrink-0 items-center border-b border-gray-200 bg-white px-4">
+  <span class="text-lg font-bold">Book a visit</span>
+</div>`, `
+<main class="flex flex-1 flex-col items-center justify-center px-6 py-10 text-center">
+  <span class="grid size-24 place-content-center rounded-full bg-green-50 text-green-700 ring-1 ring-green-200">${thin('checkCircle','size-14')}</span>
+  <h1 class="mt-5 text-2xl font-bold">Request sent</h1>
+  <p class="mt-2 text-base text-gray-700">Browny · Consultation<br><b>Tue, Nov 10 at 12:00 PM</b></p>
+  <span class="mt-4 inline-block rounded-full bg-yellow-100 px-3 py-1 text-base font-medium text-yellow-800">Waiting for approval</span>
+  <p class="mt-4 text-base text-gray-700">We'll let you know when the clinic confirms. You can see it anytime in Visits.</p>
+</main>`, `
+<div class="sticky bottom-0 mt-auto shrink-0 space-y-2 border-t border-gray-200 bg-white px-4 pb-5 pt-3">
+  <a class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm">${ic('calendar','size-5')}See my visits</a>
+  <a class="flex min-h-12 w-full items-center justify-center rounded-2xl text-lg font-medium text-gray-700">Back to home</a>
+</div>`);
+
+// ---------- Frames ----------
+const frame = (label, note, body, id='') => `
+<figure class="flex flex-col items-center">
+  <figcaption class="mb-3 w-[390px]"><p class="text-lg font-bold">${label}</p><p class="text-base text-gray-700">${note}</p></figcaption>
+  <div ${id ? `id="${id}"` : ''} class="phone rounded-[2rem] bg-gray-50 shadow-xl ring-8 ring-gray-900">${body}</div>
+</figure>`;
+
+document.getElementById('frames').innerHTML =
+  frame('1 · Pet and reason', 'Big tap targets. If they started from a pet\'s page, that pet is already picked; with one pet, this list is skipped.', step1) +
+  frame('2 · Date and time (try it)', 'Only open days can be tapped. Today is past the cutoff, weekends and Nov 30 are closed, Nov 6 is full. Next stays grey until a time is picked.', step2, 'live') +
+  frame('2b · Time was just taken', 'If someone else got the slot first, they land back here with a plain message and everything else kept.', step2taken) +
+  frame('3 · Check and send', 'Every answer in one place with a Change link. Says clearly it\'s a request, not a booking yet.', step3) +
+  frame('4 · Request sent', 'Plain success screen. Shows it\'s waiting for approval and where to find it.', done);
+
+// ---------- Make phone 2 work ----------
+const root = document.getElementById('live');
+let day = 10, time = '';
+const setNext = on => {
+  const b = root.querySelector('.next');
+  b.disabled = !on;
+  b.className = `next flex min-h-14 flex-1 items-center justify-center gap-2 rounded-2xl text-lg font-semibold ${on ? 'bg-violet-600 text-white shadow-sm' : 'cursor-not-allowed bg-gray-200 text-gray-500'}`;
+};
+const render = () => {
+  root.querySelector('.cal').innerHTML = calendar(day);
+  root.querySelector('.slotwrap').innerHTML = slots(day, time);
+  setNext(!!time);
+};
+root.addEventListener('click', e => {
+  const d = e.target.closest('.day'), s = e.target.closest('.slot');
+  if (d) { day = +d.dataset.day; time = ''; render(); }
+  if (s) { time = s.dataset.slot; render(); }
+});
+</script>
+</body>
+</html>

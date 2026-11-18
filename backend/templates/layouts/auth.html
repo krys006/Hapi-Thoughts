@@ -6,6 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Hapi Vet{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  {# The admin login shows flash messages, so their Close button needs this #}
+  <script src="{% static 'js/shared/flash.js' %}" defer></script>
 </head>
 {# Standalone page (no sidebar) on a soft violet background, card centred #}
 <body class="min-h-screen bg-gradient-to-b from-violet-100 to-violet-50">

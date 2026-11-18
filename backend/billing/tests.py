@@ -25,16 +25,17 @@ from billing.forms import BillingItemForm, BillingReceiptForm, ServiceForm
 from billing.models import BillingItem, BillingReceipt, Service
 from billing.templatetags.billing_extras import peso
 from billing.utils import (
+    LOCKED_MESSAGE,
     NO_ITEMS_MESSAGE,
     PICK_PET_MESSAGE,
     RECEIPT_EXISTS,
     RECEIPT_TABS,
     notify_receipt_paid,
+    owner_bills_context,
     receipt_paid_message,
     save_new_receipt,
     services_list_context,
 )
-from billing.views import LOCKED_MESSAGE
 from notifications.models import Notification
 from pets.models import Pet, PetOwner
 
@@ -3079,7 +3080,9 @@ class ReceiptDialogTests(FrozenBillingTestBase):
 
 # ── Slice 6a-4: owner side, notification, services ──────────────────────────
 
-OWNER_LIST_QUERIES = 5
+# 5 until 8a-2a; the Bills page now also loads the unpaid list and the paid
+# History (a count and a page): 3 more, still flat
+OWNER_LIST_QUERIES = 8
 # 7 until 6b-1; the shared Billing tabs add the receipt counts (one aggregate)
 SERVICES_LIST_QUERIES = 7
 
@@ -3129,10 +3132,11 @@ class OwnerBillingTests(FrozenBillingTestBase):
             {self.pending.pk, self.paid.pk},
         )
         self.assertNotContains(response, self.cancelled.receipt_number)
-        # Badges: the labels, with the existing badge classes
+        # Badges: the labels. 8b-8: the shared status badge component (was the
+        # page's own class="status-badge status-pending" / "status-paid" span)
         html = response.content.decode()
-        self.assertRegex(html, r'class="status-badge status-pending">\s*Unpaid\s*<')
-        self.assertRegex(html, r'class="status-badge status-paid">\s*Paid\s*<')
+        self.assertRegex(html, r'class="badge bg-yellow-100 text-yellow-800">Unpaid<')
+        self.assertRegex(html, r'class="badge bg-green-100 text-green-800">Paid<')
         self.assertNotRegex(html, r">\s*Pending\s*<")
 
     def _list_queries(self, count):
@@ -3151,14 +3155,18 @@ class OwnerBillingTests(FrozenBillingTestBase):
         self.assertEqual(thirty, OWNER_LIST_QUERIES)
 
     def test_detail_shows_unpaid_and_paid(self):
-        for receipt, label in [(self.pending, "Unpaid"), (self.paid, "Paid")]:
+        # 8b-8: the shared status badge (was class="status-badge status-<status>")
+        cases = [
+            (self.pending, "Unpaid", "yellow"),
+            (self.paid, "Paid", "green"),
+        ]
+        for receipt, label, colour in cases:
             with self.subTest(label=label):
                 response = self._detail(receipt)
                 self.assertEqual(response.status_code, 200)
                 self.assertRegex(
                     response.content.decode(),
-                    rf'class="status-badge status-{receipt.payment_status}">'
-                    rf"\s*{label}\s*<",
+                    rf'class="badge bg-{colour}-100 text-{colour}-800">{label}<',
                 )
 
     def test_detail_of_a_cancelled_receipt_is_a_404(self):
@@ -3204,19 +3212,29 @@ class ReceiptPaidNotificationTests(FrozenBillingTestBase):
         receipt.calculate_totals()
         self._mark_paid(receipt)
         notification = Notification.objects.get()
-        title = f"Receipt {receipt.receipt_number} for Bantay"
+        # 8a-2b: the title was "Receipt HV-… for Bantay" and the message the
+        # full sentence (now the email body)
+        title = "Bill paid: ₱1,250.00"
         self.assertEqual(notification.notification_type, "billing_generated")
         self.assertEqual(notification.title, title)
         # 00:30 Manila on Sat, Nov 7 (still Nov 6 in UTC): paid on Nov 7
         self.assertEqual(
             notification.message,
-            "Paid ₱1,250.00 on Sat, Nov 7. You can view or print it in Billing.",
+            f"Bantay · {receipt.receipt_number}. Paid on Sat, Nov 7.",
         )
         self.assertEqual(notification.related_billing, receipt)
         self.assertEqual(notification.related_pet, self.pet)
         self.assertEqual(len(mail.outbox), 1)
-        self.assertEqual(mail.outbox[0].subject, f"{title} — Hapi Vet")
-        self.assertEqual(mail.outbox[0].body, notification.message)
+        # 8a-2c: the subject names the receipt and the pet again (8a-2b:
+        # f"{title} — Hapi Vet", i.e. "Bill paid: ₱1,250.00 — Hapi Vet")
+        self.assertEqual(
+            mail.outbox[0].subject,
+            f"Receipt {receipt.receipt_number} for Bantay — Hapi Vet",
+        )
+        self.assertEqual(
+            mail.outbox[0].body,
+            "Paid ₱1,250.00 on Sat, Nov 7. You can view or print it in Billing.",
+        )
 
     def test_title_without_a_pet(self):
         receipt = BillingReceipt.objects.create(
@@ -3226,8 +3244,14 @@ class ReceiptPaidNotificationTests(FrozenBillingTestBase):
         receipt.calculate_totals()
         self._mark_paid(receipt)
         notification = Notification.objects.get()
-        self.assertEqual(notification.title, f"Receipt {receipt.receipt_number}")
+        # 8a-2b: was f"Receipt {number}" (title and subject)
+        self.assertEqual(notification.title, "Bill paid: ₱100.00")
+        self.assertEqual(
+            notification.message, f"{receipt.receipt_number}. Paid on Sat, Nov 7."
+        )
         self.assertIsNone(notification.related_pet)
+        # 8a-2c: the subject is back to the receipt number (8a-2b: "Bill paid:
+        # ₱100.00 — Hapi Vet")
         self.assertEqual(
             mail.outbox[0].subject, f"Receipt {receipt.receipt_number} — Hapi Vet"
         )
@@ -4365,7 +4389,8 @@ RECEIPT_PAGE_SOURCES = [
     *sorted((BILLING_TEMPLATES / "receipt_detail_parts").glob("*.html")),
     SHARED_BILLING / "_receipt_print.html",
 ]
-RECEIPT_JS = Path(settings.BASE_DIR) / "static" / "js" / "admin" / "receipt_detail.js"
+# 8b-8: moved from static/js/admin/ (the owner receipt page prints with it too)
+RECEIPT_JS = Path(settings.BASE_DIR) / "static" / "js" / "shared" / "receipt_detail.js"
 LINK = "font-medium text-blue-600 underline underline-offset-2"
 
 
@@ -4505,7 +4530,7 @@ class ReceiptPageTests(FrozenBillingTestBase):
         ):
             with self.subTest(old=old):
                 self.assertNotContains(response, old)
-        self.assertContains(response, "js/admin/receipt_detail.js")
+        self.assertContains(response, "js/shared/receipt_detail.js")
 
     def test_templates_use_no_legacy_files_modals_or_inline_handlers(self):
         source = (BILLING_TEMPLATES / "receipt_detail.html").read_text(encoding="utf-8")
@@ -5406,7 +5431,7 @@ class ReceiptPageTests(FrozenBillingTestBase):
                 self.assertLess(printout, html.index("</body>"))
         # On the admin page the script comes first, then the printout
         self.assertLess(
-            admin_html.index("js/admin/receipt_detail.js"),
+            admin_html.index("js/shared/receipt_detail.js"),
             admin_html.index('id="printable-receipt"'),
         )
 
@@ -5587,7 +5612,8 @@ class ServicesListPageTests(FrozenBillingTestBase):
         scripts = re.findall(r'<script src="([^"]+)"', self._html())
         self.assertEqual(
             [s.rsplit("/", 1)[-1] for s in scripts],
-            ["htmx-2.0.11.min.js", "dialogs.js", "auto_submit.js"],
+            # Slice 8b-1: flash.js joined the layout's scripts
+            ["htmx-2.0.11.min.js", "dialogs.js", "flash.js", "auto_submit.js"],
         )
 
     def test_one_primary_button_add_service(self):
@@ -6540,3 +6566,906 @@ class ServiceFormPageTests(FrozenBillingTestBase):
         bad = ServiceForm(self._data(pricing_type="nonsense"))
         self.assertEqual(bad.pricing_shown, "fixed")
         self.assertTrue(ServiceForm(instance=self.closed).is_closed)
+
+
+class OwnerBillsContextTests(FrozenBillingTestBase):
+    """Slice 8a-2a: owner_bills_context on Sat, Nov 7, 2026 (00:30 Manila,
+    still Nov 6 in UTC). to_pay is never filtered; history is paid only."""
+
+    def setUp(self):
+        super().setUp()
+        self.number = 0
+        self.mingming = Pet.objects.create(
+            owner=self.owner, name="Mingming", species="Cat"
+        )
+
+    def _bill(self, status, paid=None, billed=None, pet=None, item="Consultation"):
+        """A receipt with one item (100.00) in the given status. paid is the
+        payment date (paid receipts), billed the billing date."""
+        self.number += 1
+        receipt = BillingReceipt.objects.create(
+            receipt_number=f"HV-2026-{self.number:04d}",
+            owner=self.owner,
+            pet=pet or self.pet,
+            payment_status=status,
+            payment_date=paid,
+            billing_date=billed or paid or TODAY,
+        )
+        self._item(receipt, "100.00", description=item)
+        receipt.calculate_totals()
+        return receipt
+
+    def _paid(self, paid, **fields):
+        return self._bill(BillingReceipt.PAID, paid=paid, **fields)
+
+    def _unpaid(self, billed=TODAY, **fields):
+        return self._bill(BillingReceipt.PENDING, billed=billed, **fields)
+
+    def _context(self, **params):
+        return owner_bills_context(self.owner, params, TODAY)
+
+    def _history(self, **params):
+        return [r.pk for r in self._context(**params)["history"]]
+
+    def _days(self, n):
+        return TODAY + datetime.timedelta(days=n)
+
+    # ─── To pay ───────────────────────────────────────────────────────────────
+
+    def test_to_pay_is_every_unpaid_receipt_oldest_first_and_never_filtered(self):
+        newer = self._unpaid(billed=self._days(-2))
+        older = self._unpaid(billed=self._days(-20))
+        newest = self._unpaid(billed=self._days(0), pet=self.mingming)
+        self._paid(self._days(-1))
+        for params in ({}, {"q": "nothing matches this", "period": "last_year"}):
+            with self.subTest(params=params):
+                context = self._context(**params)
+                self.assertEqual(
+                    [r.pk for r in context["to_pay"]],
+                    [older.pk, newer.pk, newest.pk],
+                )
+                self.assertEqual(context["to_pay_count"], 3)
+                self.assertEqual(context["to_pay_total"], Decimal("300.00"))
+
+    def test_to_pay_is_empty_with_nothing_unpaid(self):
+        self._paid(TODAY)
+        context = self._context()
+        self.assertEqual(context["to_pay"], [])
+        self.assertEqual(context["to_pay_count"], 0)
+        self.assertEqual(context["to_pay_total"], Decimal("0"))
+
+    # ─── History ──────────────────────────────────────────────────────────────
+
+    def test_history_is_paid_only_newest_paid_first(self):
+        old = self._paid(self._days(-40))
+        new = self._paid(self._days(-1))
+        mid = self._paid(self._days(-10))
+        self._unpaid()
+        self._bill(BillingReceipt.CANCELLED, billed=TODAY)
+        self.assertEqual(self._history(), [new.pk, mid.pk, old.pk])
+
+    def test_a_cancelled_receipt_is_nowhere(self):
+        cancelled = self._bill(BillingReceipt.CANCELLED, paid=TODAY)
+        self._paid(TODAY)
+        self._unpaid()
+        context = self._context(q=cancelled.receipt_number)
+        every_pk = (
+            [r.pk for r in context["to_pay"]]
+            + [r.pk for r in context["history"]]
+            + [r.pk for r in context["receipts"]]
+        )
+        self.assertNotIn(cancelled.pk, every_pk)
+        self.assertEqual(context["history"], [])
+
+    def test_another_owners_receipts_are_never_listed(self):
+        other_user = User.objects.create_user(
+            username="other",
+            email="other@example.com",
+            password="unused-pass-123",
+            role=User.PET_OWNER,
+            is_onboarded=True,
+        )
+        other = PetOwner.objects.create(
+            user=other_user, first_name="Ben", last_name="Reyes"
+        )
+        BillingReceipt.objects.create(
+            receipt_number="HV-2026-9001", owner=other, payment_status="paid"
+        )
+        BillingReceipt.objects.create(receipt_number="HV-2026-9002", owner=other)
+        context = self._context()
+        self.assertEqual((context["to_pay"], context["history"]), ([], []))
+
+    # ─── Search ───────────────────────────────────────────────────────────────
+
+    def test_search_by_number_part_pet_and_item(self):
+        by_number = self._paid(TODAY, item="Checkup")  # HV-2026-0001
+        by_pet = self._paid(TODAY, pet=self.mingming, item="Checkup")
+        by_item = self._paid(TODAY, item="Deworming tablets")
+        cases = {
+            "0001": [by_number],
+            "hv-2026-0001": [by_number],
+            "mingming": [by_pet],
+            "MINGMING": [by_pet],
+            "deworm": [by_item],
+            "  deworming   ": [by_item],
+            "nothing": [],
+        }
+        for q, expected in cases.items():
+            with self.subTest(q=q):
+                self.assertEqual(self._history(q=q), [r.pk for r in expected])
+
+    def test_every_word_must_match(self):
+        both = self._paid(TODAY, item="Vaccine shot")
+        self._paid(TODAY, pet=self.mingming, item="Vaccine shot")
+        self._paid(TODAY, item="Checkup")
+        self.assertEqual(self._history(q="bantay vaccine"), [both.pk])
+        self.assertEqual(self._history(q="bantay mingming"), [])
+
+    def test_a_receipt_with_two_matching_items_is_listed_once(self):
+        receipt = self._paid(TODAY, item="Vaccine A")
+        self._item(receipt, "50.00", description="Vaccine B")
+        self.assertEqual(self._history(q="vaccine"), [receipt.pk])
+        self.assertEqual(self._context(q="vaccine")["page_obj"].paginator.count, 1)
+
+    def test_search_never_narrows_to_pay(self):
+        unpaid = self._unpaid(item="Vaccine")
+        self._paid(TODAY, item="Checkup")
+        context = self._context(q="checkup")
+        self.assertEqual([r.pk for r in context["to_pay"]], [unpaid.pk])
+
+    # ─── Period ───────────────────────────────────────────────────────────────
+
+    def test_each_period_and_its_edges(self):
+        # Today is Nov 7, 2026
+        dates = {
+            "nov_1": datetime.date(2026, 11, 1),
+            "oct_31": datetime.date(2026, 10, 31),
+            "aug_8": datetime.date(2026, 8, 8),
+            "aug_7": datetime.date(2026, 8, 7),
+            "jan_1": datetime.date(2026, 1, 1),
+            "dec_31_2025": datetime.date(2025, 12, 31),
+            "jan_1_2025": datetime.date(2025, 1, 1),
+            "dec_31_2024": datetime.date(2024, 12, 31),
+        }
+        pks = {key: self._paid(day).pk for key, day in dates.items()}
+        expected = {
+            "all": set(dates),
+            "month": {"nov_1"},
+            # after Aug 7: the day three months back itself is out
+            "3m": {"nov_1", "oct_31", "aug_8"},
+            "year": {"nov_1", "oct_31", "aug_8", "aug_7", "jan_1"},
+            "last_year": {"dec_31_2025", "jan_1_2025"},
+        }
+        for period, keys in expected.items():
+            with self.subTest(period=period):
+                self.assertEqual(
+                    set(self._history(period=period)), {pks[key] for key in keys}
+                )
+
+    def test_a_missing_or_unknown_period_is_all_time(self):
+        self._paid(datetime.date(2020, 1, 1))
+        for params in ({}, {"period": ""}, {"period": "decade"}, {"period": "2025"}):
+            with self.subTest(params=params):
+                context = self._context(**params)
+                self.assertEqual(context["period"], "all")
+                self.assertEqual(len(context["history"]), 1)
+                self.assertFalse(context["is_filtering"])
+
+    def test_the_three_month_edge_is_cut_to_the_month_length(self):
+        # May 31 minus 3 months is Feb 28
+        today = datetime.date(2026, 5, 31)
+        on_edge = self._paid(datetime.date(2026, 2, 28))
+        after = self._paid(datetime.date(2026, 3, 1))
+        context = owner_bills_context(self.owner, {"period": "3m"}, today)
+        self.assertEqual([r.pk for r in context["history"]], [after.pk])
+        self.assertNotIn(on_edge.pk, [r.pk for r in context["history"]])
+
+    def test_a_paid_receipt_without_a_payment_date_uses_its_billing_date(self):
+        receipt = self._bill(BillingReceipt.PAID, billed=TODAY)
+        self.assertEqual(self._history(period="month"), [receipt.pk])
+
+    def test_period_options_and_labels(self):
+        context = self._context()
+        self.assertEqual(
+            context["period_options"],
+            [
+                ("all", "All time"),
+                ("month", "This month"),
+                ("3m", "Last 3 months"),
+                ("year", "This year (2026)"),
+                ("last_year", "Last year (2025)"),
+            ],
+        )
+
+    # ─── Keys, paging ─────────────────────────────────────────────────────────
+
+    def test_the_keys_and_is_filtering(self):
+        context = self._context(q="  bantay ", period="month")
+        for key in (
+            "receipts",
+            "to_pay",
+            "to_pay_count",
+            "to_pay_total",
+            "history",
+            "q",
+            "period",
+            "period_options",
+            "is_filtering",
+            "page_obj",
+            "prev_page_query",
+            "next_page_query",
+            "today",
+        ):
+            with self.subTest(key=key):
+                self.assertIn(key, context)
+        self.assertEqual((context["q"], context["period"]), ("bantay", "month"))
+        self.assertEqual(context["today"], TODAY)
+        self.assertTrue(context["is_filtering"])
+        self.assertTrue(self._context(q="x")["is_filtering"])
+        self.assertTrue(self._context(period="year")["is_filtering"])
+        self.assertFalse(self._context()["is_filtering"])
+
+    def test_25_a_page_and_the_links_keep_q_and_period(self):
+        for _ in range(30):
+            self._paid(TODAY)
+        first = self._context(q="consultation", period="year")
+        self.assertEqual(len(first["history"]), 25)
+        self.assertEqual(first["prev_page_query"], "")
+        self.assertEqual(first["next_page_query"], "?q=consultation&period=year&page=2")
+        second = self._context(q="consultation", period="year", page="2")
+        self.assertEqual(len(second["history"]), 5)
+        self.assertEqual(
+            second["prev_page_query"], "?q=consultation&period=year&page=1"
+        )
+        self.assertEqual(second["next_page_query"], "")
+        self.assertEqual(
+            {r.pk for r in first["history"]} & {r.pk for r in second["history"]},
+            set(),
+        )
+
+    def test_the_links_without_a_filter_and_with_a_bad_page(self):
+        for _ in range(30):
+            self._paid(TODAY)
+        self.assertEqual(self._context()["next_page_query"], "?page=2")
+        # period only, or q only
+        self.assertEqual(
+            self._context(period="month")["next_page_query"], "?period=month&page=2"
+        )
+        self.assertEqual(
+            self._context(q="bantay")["next_page_query"], "?q=bantay&page=2"
+        )
+        # A bad or too-high page falls back like Paginator.get_page
+        for page in ("abc", "0", "99"):
+            with self.subTest(page=page):
+                self.assertTrue(self._context(page=page)["history"])
+
+    # ─── The page, query count ────────────────────────────────────────────────
+
+    def test_the_old_page_still_renders(self):
+        paid = self._paid(TODAY)
+        unpaid = self._unpaid()
+        cancelled = self._bill(BillingReceipt.CANCELLED, billed=TODAY)
+        self.client.force_login(self.owner.user)
+        for query in ("", "?q=bantay&period=month", "?period=nonsense&page=9"):
+            with self.subTest(query=query):
+                response = self.client.get(reverse("owner_billing_list") + query)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(
+                    {r.pk for r in response.context["receipts"]},
+                    {paid.pk, unpaid.pk},
+                )
+                self.assertContains(response, paid.receipt_number)
+                self.assertContains(response, unpaid.receipt_number)
+                self.assertNotContains(response, cancelled.receipt_number)
+
+    def _helper_queries(self, count):
+        BillingReceipt.objects.all().delete()
+        for _ in range(count):
+            self._paid(TODAY)
+        for _ in range(2):
+            self._unpaid()
+        self._bill(BillingReceipt.CANCELLED, billed=TODAY)
+        with CaptureQueriesContext(connection) as queries:
+            self._context(q="consultation", period="year")
+        return len(queries)
+
+    def test_query_count_is_flat(self):
+        three, thirty = self._helper_queries(3), self._helper_queries(30)
+        self.assertEqual(three, thirty)
+        # The unpaid list, the History count, the History page
+        self.assertEqual(thirty, 3)
+
+
+# ── Slice 8b-8: the owner's Bills page and receipt page ─────────────────────
+
+# The whole request: session, user, owner row, the bell's unread count, the
+# clinic (logo), and the context's three (unpaid, History count, History page)
+BILLS_PAGE_QUERIES = 8
+# Session, user, owner row, the receipt (pet, owner, visit joined), its items,
+# the clinic (the back bar has no bell, so no unread count)
+RECEIPT_PAGE_QUERIES = 6
+NO_PET = "no pet"
+# The owner layout's own files, which every owner page includes
+OWNER_LAYOUT_TEMPLATES = (
+    "layouts/owner.html",
+    "layouts/owner_parts/back_bar.html",
+    "layouts/owner_parts/tabs.html",
+    "layouts/owner_parts/tab_link.html",
+)
+
+
+def template_sources(*names):
+    """The files under templates/ that the names point to ("dir/*" is every
+    .html file in that folder), as Paths."""
+    base = Path(settings.BASE_DIR) / "templates"
+    paths = []
+    for name in names:
+        if name.endswith("/*"):
+            paths += sorted((base / name[:-2]).glob("*.html"))
+        else:
+            paths.append(base / name)
+    return paths
+
+
+class OwnerBillingPageBase(FrozenBillingTestBase):
+    """Helpers for the owner's Bills and receipt page tests, on Sat, Nov 7,
+    2026 (00:30 Manila). The owner is logged in."""
+
+    def setUp(self):
+        super().setUp()
+        self.number = 0
+        self.client.force_login(self.owner.user)
+
+    def _bill(
+        self, status, paid=None, billed=None, pet="own", item="Consultation", **fields
+    ):
+        """A receipt with one item (100.00) in the given status."""
+        self.number += 1
+        receipt = BillingReceipt.objects.create(
+            receipt_number=f"HV-2026-{self.number:04d}",
+            owner=self.owner,
+            pet=None if pet == NO_PET else self.pet,
+            payment_status=status,
+            payment_date=paid,
+            billing_date=billed or paid or TODAY,
+            **fields,
+        )
+        self._item(receipt, "100.00", description=item)
+        receipt.calculate_totals()
+        return receipt
+
+    def _paid(self, paid=TODAY, **fields):
+        return self._bill(BillingReceipt.PAID, paid=paid, **fields)
+
+    def _unpaid(self, billed=TODAY, **fields):
+        return self._bill(BillingReceipt.PENDING, billed=billed, **fields)
+
+    def _main(self, response):
+        """Just the page's own markup, between <main> and </main>."""
+        return response.content.decode().split("<main")[1].split("</main>")[0]
+
+    def _clinic(self, phone=""):
+        ClinicSettings.objects.create(
+            clinic_name="Hapi Vet",
+            address="Gasan",
+            contact_number=phone,
+            opening_time=datetime.time(8, 0),
+            closing_time=datetime.time(17, 0),
+            same_day_cutoff_time=datetime.time(15, 0),
+        )
+
+    def _tab(self, response):
+        """The href of the one lit bottom tab."""
+        html = response.content.decode()
+        nav = re.search(r'(?s)<nav aria-label="Main"[^>]*>(.*?)</nav>', html).group(1)
+        return re.search(r'<a href="([^"]+)"[^>]*aria-current="page"', nav).group(1)
+
+    def _assert_plain_markup(self, main, *templates):
+        self.assertIn("<a ", main)
+        # Links are checked in the page template and every file it includes
+        # (a rendered icon's svg runs over several lines)
+        for path in template_sources(*OWNER_LAYOUT_TEMPLATES, *templates):
+            for link in re.findall(r"(?s)<a\b.*?</a>", path.read_text("utf-8")):
+                with self.subTest(file=path.name, link=link[:40]):
+                    self.assertNotIn("\n", link)
+        for text in ("<!--", "onclick", "<script", "hx-confirm"):
+            with self.subTest(text=text):
+                self.assertNotIn(text, main)
+
+
+@PLAIN_STATIC
+class OwnerBillsPageTests(OwnerBillingPageBase):
+    """Slice 8b-8: the Bills list on layouts/owner.html."""
+
+    def _get(self, **params):
+        return self.client.get(reverse("owner_billing_list"), params)
+
+    # ── Layout ──────────────────────────────────────────────────────────────
+
+    def test_layout_title_and_the_bills_tab(self):
+        self._unpaid()
+        response = self._get()
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertTemplateNotUsed(response, "base_dashboard.html")
+        self.assertEqual(self._tab(response), reverse("owner_billing_list"))
+        self.assertRegex(self._main(response), r"<h1[^>]*>Bills</h1>")
+
+    # ── To pay and all paid ─────────────────────────────────────────────────
+
+    def test_the_to_pay_box_has_the_total_and_the_count(self):
+        self._unpaid()
+        self._unpaid(billed=TODAY - datetime.timedelta(days=3))
+        main = page_text(self._main(self._get()))
+        self.assertIn("To pay ₱200.00", main)
+        self.assertIn("2 unpaid bills. Please pay in cash at the clinic.", main)
+        self.assertNotIn("You're all paid up", main)
+
+    def test_one_unpaid_bill_is_singular_and_listed_under_unpaid(self):
+        bill = self._unpaid()
+        response = self._get()
+        main = self._main(response)
+        self.assertIn("1 unpaid bill. Please pay in cash", page_text(main))
+        self.assertEqual(re.findall(r"<h2[^>]*>(.*?)</h2>", main), ["Unpaid"])
+        link = reverse("owner_receipt_detail", args=[bill.pk])
+        self.assertIn(f'<a href="{link}"', main)
+
+    def test_nothing_unpaid_shows_the_green_all_paid_box(self):
+        self._paid()
+        main = self._main(self._get())
+        text = page_text(main)
+        self.assertIn("You're all paid up No unpaid bills right now.", text)
+        self.assertIn("border-green-200 bg-green-50", main)
+        self.assertNotIn("To pay", text)
+        self.assertEqual(re.findall(r"<h2[^>]*>(.*?)</h2>", main), ["History"])
+
+    def test_no_bills_at_all_is_the_empty_page_with_no_filter_or_button(self):
+        # A cancelled bill is not a bill the owner can see
+        self._bill(BillingReceipt.CANCELLED, billed=TODAY)
+        main = self._main(self._get())
+        text = page_text(main)
+        self.assertIn("No bills yet", text)
+        self.assertIn(
+            "After a visit, the clinic will add your bill here so you can see what "
+            "it was for.",
+            text,
+        )
+        for word in ("<form", 'name="q"', "History", "Show all bills", "<a "):
+            with self.subTest(word=word):
+                self.assertNotIn(word, main)
+        self.assertNotIn("bg-violet-600", main)
+
+    # ── History: filter, groups, pager ──────────────────────────────────────
+
+    def test_unpaid_bills_are_never_hidden_by_the_search_or_the_period(self):
+        unpaid = self._unpaid()
+        self._paid()
+        for params in (
+            {"q": "no such thing"},
+            {"period": "last_year"},
+            {"q": "zzz", "period": "last_year"},
+        ):
+            with self.subTest(params=params):
+                main = self._main(self._get(**params))
+                self.assertIn(unpaid.receipt_number, main)
+                self.assertIn("To pay", main)
+                self.assertIn("No bills match", main)
+
+    def test_search_and_period_keep_each_other_in_the_form_and_the_links(self):
+        for _ in range(30):
+            self._paid()
+        main = self._main(self._get(q="bantay", period="year"))
+        self.assertIn('name="q" value="bantay"', main)
+        self.assertIn('<option value="year" selected>This year (2026)</option>', main)
+        self.assertNotIn('<option value="all" selected', main)
+        self.assertIn('href="?q=bantay&amp;period=year&amp;page=2"', main)
+        second = self._main(self._get(q="bantay", period="year", page=2))
+        self.assertIn('href="?q=bantay&amp;period=year&amp;page=1"', second)
+
+    def test_the_form_has_its_label_placeholder_period_options_and_button(self):
+        self._paid()
+        main = self._main(self._get())
+        action = reverse("owner_billing_list")
+        self.assertIn(f'<form method="get" action="{action}"', main)
+        self.assertIn("Search by receipt number or pet name</span>", main)
+        self.assertIn('placeholder="Receipt no. or pet name"', main)
+        labels = re.findall(r'<option value="[^"]*"[^>]*>(.*?)</option>', main)
+        self.assertEqual(
+            labels,
+            [
+                "All time",
+                "This month",
+                "Last 3 months",
+                "This year (2026)",
+                "Last year (2025)",
+            ],
+        )
+        self.assertRegex(main, r'<button type="submit" class="[^"]*min-h-12[^"]*">')
+        self.assertIn("Search</button>", main)
+
+    def test_show_all_bills_only_when_filtering(self):
+        self._paid()
+        plain = reverse("owner_billing_list")
+        self.assertNotIn("Show all bills", self._main(self._get()))
+        main = self._main(self._get(q="bantay"))
+        self.assertEqual(main.count("Show all bills"), 1)
+        self.assertIn(f'<a href="{plain}"', main)
+
+    def test_no_match_box(self):
+        self._paid()
+        main = self._main(self._get(q="no such pet"))
+        text = page_text(main)
+        self.assertIn("No bills match", text)
+        self.assertIn("Try another name or receipt number, or show All time.", text)
+        self.assertEqual(main.count("Show all bills"), 1)
+        self.assertNotIn("HV-2026-0001", main)
+
+    def test_history_is_in_month_groups_by_the_paid_date(self):
+        self._paid(datetime.date(2026, 10, 31))
+        self._paid(datetime.date(2026, 10, 20))
+        self._paid(datetime.date(2026, 9, 30))
+        self._unpaid()
+        main = self._main(self._get())
+        months = re.findall(r"<h3[^>]*>(.*?)</h3>", main)
+        self.assertEqual(months, ["October 2026", "September 2026"])
+        self.assertLess(main.index("October 2026"), main.index("September 2026"))
+        self.assertIn("Oct 31, 2026", main)
+        self.assertIn("Sep 30, 2026", main)
+
+    def test_the_pager(self):
+        for _ in range(30):
+            self._paid()
+        first = self._main(self._get())
+        self.assertIn("Page 1 of 2", first)
+        self.assertIn('aria-label="Pages of bills"', first)
+        self.assertIn(">Next</a>", first)
+        self.assertNotIn(">Previous</a>", first)
+        second = self._main(self._get(page=2))
+        self.assertIn("Page 2 of 2", second)
+        self.assertIn(">Previous</a>", second)
+        self.assertNotIn(">Next</a>", second)
+
+    def test_one_page_has_no_pager(self):
+        self._paid()
+        self.assertNotIn("Pages of bills", self._main(self._get()))
+
+    # ── The cards ───────────────────────────────────────────────────────────
+
+    def test_a_card_is_one_link_with_the_pet_total_date_number_and_badge(self):
+        bill = self._unpaid()
+        main = self._main(self._get())
+        url = reverse("owner_receipt_detail", args=[bill.pk])
+        card = re.search(rf'(?s)<a href="{re.escape(url)}".*?</a>', main)
+        self.assertIsNotNone(card)
+        card = card.group(0)
+        for text in ("Bantay", "₱100.00", "Nov 7, 2026", bill.receipt_number):
+            with self.subTest(text=text):
+                self.assertIn(text, card)
+        self.assertIn('class="badge bg-yellow-100 text-yellow-800">Unpaid<', card)
+        self.assertEqual(card.count("<a "), 1)
+
+    def test_a_paid_card_has_the_green_badge_and_a_receipt_with_no_pet_a_paw(self):
+        self._paid(pet=NO_PET)
+        main = self._main(self._get())
+        self.assertIn('class="badge bg-green-100 text-green-800">Paid<', main)
+        self.assertIn("Clinic bill", main)
+        self.assertNotIn("Bantay", main)
+        self.assertIn("rounded-xl bg-violet-50 text-violet-600", main)
+
+    def test_a_cancelled_bill_is_nowhere(self):
+        cancelled = self._bill(BillingReceipt.CANCELLED, paid=TODAY)
+        self._unpaid()
+        self._paid()
+        url = reverse("owner_receipt_detail", args=[cancelled.pk])
+        for params in ({}, {"q": cancelled.receipt_number}):
+            with self.subTest(params=params):
+                response = self._get(**params)
+                # (a search echoes its text in the box, so the number itself
+                # can show there; its receipt URL never does)
+                self.assertNotContains(response, url)
+                self.assertNotIn(f">{cancelled.receipt_number}<", self._main(response))
+        searched = self._main(self._get(q=cancelled.receipt_number))
+        self.assertIn("No bills match", searched)
+
+    def test_another_owners_bills_are_never_listed(self):
+        user = User.objects.create_user(
+            username="ben", email="ben@example.com", role=User.PET_OWNER
+        )
+        other = PetOwner.objects.create(user=user, first_name="Ben", last_name="Reyes")
+        theirs = BillingReceipt.objects.create(
+            receipt_number="HV-2026-0999", owner=other, payment_status="paid"
+        )
+        self._paid()
+        self.assertNotContains(self._get(), theirs.receipt_number)
+
+    # ── Rules ───────────────────────────────────────────────────────────────
+
+    def test_no_violet_button_on_the_page(self):
+        self._unpaid()
+        self._paid()
+        self.assertNotIn("bg-violet-600", self._main(self._get()))
+
+    def test_every_link_is_on_one_line_and_nothing_runs_inline(self):
+        self._unpaid()
+        for _ in range(30):
+            self._paid()
+        main = self._main(self._get(q="bantay"))
+        self._assert_plain_markup(
+            main,
+            "owner/billing/list.html",
+            "owner/billing_parts/*",
+            "components/pet_avatar.html",
+            "components/status_badge.html",
+        )
+
+    def test_the_clinic_is_sent_to_its_own_dashboard(self):
+        self.client.force_login(self.admin)
+        self.assertRedirects(
+            self._get(), reverse("admin_dashboard"), fetch_redirect_response=False
+        )
+
+    # ── Query count ─────────────────────────────────────────────────────────
+
+    def test_the_query_total_is_flat(self):
+        for count in (3, 30):
+            with self.subTest(paid=count):
+                BillingReceipt.objects.all().delete()
+                for _ in range(count):
+                    self._paid()
+                for _ in range(2):
+                    self._unpaid()
+                self._bill(BillingReceipt.CANCELLED, billed=TODAY)
+                with self.assertNumQueries(BILLS_PAGE_QUERIES):
+                    self.assertEqual(self._get().status_code, 200)
+
+
+@PLAIN_STATIC
+class OwnerReceiptPageTests(OwnerBillingPageBase):
+    """Slice 8b-8: the receipt page on layouts/owner.html. Read-only."""
+
+    def _get(self, receipt):
+        return self.client.get(reverse("owner_receipt_detail", args=[receipt.pk]))
+
+    def _full(self, status=BillingReceipt.PENDING, **fields):
+        """A receipt with two items: 500.00 and 2 x 200.00 (subtotal 900.00)."""
+        receipt = self._empty_receipt(
+            payment_status=status,
+            payment_date=TODAY if status == BillingReceipt.PAID else None,
+            # The model default is bound to the real clock, not the frozen one
+            billing_date=TODAY,
+            **fields,
+        )
+        self._item(receipt, "500.00", description="Consultation")
+        self._item(receipt, "200.00", quantity=2, description="Deworming tablet")
+        receipt.calculate_totals()
+        return receipt
+
+    # ── Layout and banners ──────────────────────────────────────────────────
+
+    def test_layout_back_bar_and_the_bills_tab(self):
+        response = self._get(self._full())
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertTemplateNotUsed(response, "base_dashboard.html")
+        self.assertEqual(self._tab(response), reverse("owner_billing_list"))
+        html = response.content.decode()
+        back = reverse("owner_billing_list")
+        self.assertIn(f'<a href="{back}" class="inline-flex min-h-11', html)
+        self.assertIn("Back to Bills", html)
+
+    def test_the_unpaid_banner(self):
+        main = self._main(self._get(self._full()))
+        text = page_text(main)
+        self.assertIn("Please pay ₱900.00 at the clinic", text)
+        self.assertIn("Cash only. The clinic will mark it paid when you pay.", text)
+        self.assertIn("border-yellow-300 bg-yellow-50", main)
+        self.assertNotIn("Paid on", text)
+        self.assertIn('class="badge bg-yellow-100 text-yellow-800">Unpaid<', main)
+
+    def test_the_paid_banner(self):
+        main = self._main(self._get(self._full(BillingReceipt.PAID)))
+        text = page_text(main)
+        self.assertIn("Paid on Nov 7, 2026", text)
+        self.assertIn("Thank you! Keep this as your receipt.", text)
+        self.assertIn("border-green-200 bg-green-50", main)
+        self.assertNotIn("Please pay", text)
+        self.assertIn('class="badge bg-green-100 text-green-800">Paid<', main)
+
+    # ── The card ────────────────────────────────────────────────────────────
+
+    def test_receipt_number_pet_date_items_and_totals(self):
+        receipt = self._full(
+            discount_type=BillingReceipt.PERCENTAGE,
+            discount_value=Decimal("10"),
+            discount_note="Loyal client",
+        )
+        receipt.calculate_totals()
+        main = self._main(self._get(receipt))
+        text = page_text(main)
+        self.assertIn(f"Receipt {receipt.receipt_number}", text)
+        self.assertRegex(main, rf"<h1[^>]*>{receipt.receipt_number}</h1>")
+        self.assertIn("Pet Bantay", text)
+        self.assertIn("Bill date Nov 7, 2026", text)
+        self.assertIn("What it's for", text)
+        self.assertIn("Consultation Qty 1 ₱500.00", text)
+        self.assertIn("Deworming tablet Qty 2 ₱400.00", text)
+        self.assertIn("Subtotal ₱900.00", text)
+        self.assertIn("Discount (Loyal client, 10%) −₱90.00", text)
+        self.assertIn("Total ₱810.00", text)
+        self.assertIn("text-green-700", main)
+
+    def test_a_peso_discount_shows_its_reason_and_amount(self):
+        receipt = self._full(
+            discount_type=BillingReceipt.FIXED_DISCOUNT,
+            discount_value=Decimal("50"),
+            discount_note="Senior",
+        )
+        receipt.calculate_totals()
+        text = page_text(self._main(self._get(receipt)))
+        self.assertIn("Discount (Senior) −₱50.00", text)
+        self.assertIn("Total ₱850.00", text)
+
+    def test_no_discount_row_without_a_discount(self):
+        text = page_text(self._main(self._get(self._full())))
+        self.assertNotIn("Discount", text)
+        self.assertIn("Subtotal ₱900.00 Total ₱900.00", text)
+
+    def test_paid_by_shows_only_when_paid(self):
+        paid = page_text(self._main(self._get(self._full(BillingReceipt.PAID))))
+        self.assertIn("Paid by Cash · Nov 7, 2026", paid)
+        unpaid = page_text(self._main(self._get(self._full())))
+        self.assertNotIn("Paid by", unpaid)
+
+    def test_the_visit_link_only_when_linked(self):
+        consult = self._service("Consultation")
+        visit = Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=TODAY,
+            time=datetime.time(15, 0),
+            status=Appointment.COMPLETED,
+            service=consult,
+        )
+        linked = self._full(appointment=visit)
+        main = self._main(self._get(linked))
+        link = reverse("owner_appointment_detail", args=[visit.pk])
+        self.assertIn("For the visit", main)
+        self.assertRegex(
+            main, rf'<a href="{link}"[^>]*>Consultation · Nov 7, 3:00 PM</a>'
+        )
+        alone = self._main(self._get(self._full()))
+        self.assertNotIn("For the visit", alone)
+
+    def test_a_receipt_with_no_pet_has_no_pet_row(self):
+        receipt = self._empty_receipt(billing_date=TODAY)
+        receipt.pet = None
+        receipt.save()
+        self._item(receipt, "100.00")
+        receipt.calculate_totals()
+        text = page_text(self._main(self._get(receipt)))
+        self.assertNotIn("Pet ", text)
+        self.assertIn("Bill date Nov 7, 2026", text)
+
+    # ── The info line and Print ─────────────────────────────────────────────
+
+    def test_the_info_line_with_and_without_a_phone(self):
+        receipt = self._full()
+        end = "Only the clinic can change a bill."
+        without = page_text(self._main(self._get(receipt)))
+        self.assertIn(f"Something looks wrong? Ask at the clinic. {end}", without)
+        self._clinic(phone="0954 288 9774")
+        with_phone = page_text(self._main(self._get(receipt)))
+        self.assertIn(
+            f"Something looks wrong? Ask at the clinic or call 0954 288 9774. {end}",
+            with_phone,
+        )
+
+    def test_a_paid_receipt_has_no_info_line(self):
+        text = page_text(self._main(self._get(self._full(BillingReceipt.PAID))))
+        self.assertNotIn("Something looks wrong?", text)
+
+    def test_print_only_when_paid_with_the_data_attribute_and_the_script(self):
+        paid = self._get(self._full(BillingReceipt.PAID))
+        html = paid.content.decode()
+        main = self._main(paid)
+        self.assertEqual(main.count("data-print"), 1)
+        self.assertRegex(
+            main, r'<button type="button" data-print class="[^"]*min-h-12[^"]*">'
+        )
+        self.assertIn("Print or save as PDF</button>", main)
+        self.assertIn("js/shared/receipt_detail.js", html)
+        unpaid = self._get(self._full())
+        self.assertNotIn("data-print", unpaid.content.decode())
+        self.assertNotIn("Print or save", unpaid.content.decode())
+        self.assertNotIn("receipt_detail.js", unpaid.content.decode())
+
+    def test_the_printout_is_outside_main_and_a_direct_child_of_body(self):
+        for status in (BillingReceipt.PAID, BillingReceipt.PENDING):
+            with self.subTest(status=status):
+                html = self._get(self._full(status)).content.decode()
+                self.assertEqual(html.count('id="printable-receipt"'), 1)
+                printout = html.index('id="printable-receipt"')
+                self.assertGreater(printout, html.index("</main>"))
+                self.assertLess(printout, html.index("</body>"))
+                # Nothing that would break position: fixed is on <body>
+                body = re.search(r"<body[^>]*>", html).group(0)
+                for word in ("transform", "filter"):
+                    self.assertNotIn(word, body)
+
+    def test_the_printout_shows_the_clinic_from_the_settings(self):
+        self._clinic(phone="0954 288 9774")
+        html = self._get(self._full(BillingReceipt.PAID)).content.decode()
+        printed = html[html.index('id="printable-receipt"') :]
+        self.assertIn("Hapi Vet", printed)
+        self.assertIn("0954 288 9774", printed)
+        self.assertIn("Ana Cruz", printed)
+
+    def test_no_onclick_anywhere(self):
+        for status in (BillingReceipt.PAID, BillingReceipt.PENDING):
+            with self.subTest(status=status):
+                html = self._get(self._full(status)).content.decode()
+                self.assertNotIn("onclick", html)
+                self.assertNotIn("window.print", html)
+        source = (
+            Path(settings.BASE_DIR)
+            / "templates"
+            / "owner"
+            / "billing"
+            / "receipt_detail.html"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("onclick", source)
+        self.assertNotIn("<!--", source)
+
+    # ── Who can open it ─────────────────────────────────────────────────────
+
+    def test_a_cancelled_receipt_is_a_404(self):
+        self.assertEqual(
+            self._get(self._full(BillingReceipt.CANCELLED)).status_code, 404
+        )
+
+    def test_another_owners_receipt_is_a_404(self):
+        user = User.objects.create_user(
+            username="ben", email="ben@example.com", role=User.PET_OWNER
+        )
+        other = PetOwner.objects.create(user=user, first_name="Ben", last_name="Reyes")
+        theirs = BillingReceipt.objects.create(
+            receipt_number="HV-2026-0999", owner=other
+        )
+        self.assertEqual(self._get(theirs).status_code, 404)
+
+    # ── Rules and query count ───────────────────────────────────────────────
+
+    def test_no_violet_button_and_plain_markup(self):
+        for status in (BillingReceipt.PAID, BillingReceipt.PENDING):
+            with self.subTest(status=status):
+                main = self._main(self._get(self._full(status)))
+                self.assertNotIn("bg-violet-600", main)
+                self.assertNotIn("<script", main)
+                self.assertNotIn("onclick", main)
+        consult = self._service("Consultation")
+        visit = Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=TODAY,
+            time=datetime.time(9, 0),
+            status=Appointment.COMPLETED,
+            service=consult,
+        )
+        main = self._main(self._get(self._full(appointment=visit)))
+        self._assert_plain_markup(
+            main,
+            "owner/billing/receipt_detail.html",
+            "components/status_badge.html",
+            "shared/billing/_receipt_print.html",
+        )
+
+    def test_the_query_total_is_flat(self):
+        for status in (BillingReceipt.PENDING, BillingReceipt.PAID):
+            for extra in (1, 30):
+                with self.subTest(status=status, items=extra):
+                    receipt = self._full(status)
+                    for number in range(extra):
+                        self._item(receipt, "10.00", description=f"Extra {number}")
+                    receipt.calculate_totals()
+                    with self.assertNumQueries(RECEIPT_PAGE_QUERIES):
+                        self.assertEqual(self._get(receipt).status_code, 200)

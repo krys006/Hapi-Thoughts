@@ -1,0 +1,5 @@
+{% comment %}
+  The visit's status in the owner's words and colours (OWNER_MOCKUPS status
+  table). Needs status (an Appointment status value).
+{% endcomment %}
+{% if status == "pending" %}{% include "components/status_badge.html" with status="pending" label="Waiting for approval" %}{% elif status == "confirmed" %}{% include "components/status_badge.html" with status="confirmed" label="Confirmed" %}{% elif status == "completed" %}{% include "components/status_badge.html" with status="completed" label="Completed" %}{% elif status == "cancelled" %}{% include "components/status_badge.html" with status="cancelled" label="Cancelled" %}{% else %}{% include "components/status_badge.html" with status="no_show" label="Missed" %}{% endif %}

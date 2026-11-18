@@ -57,6 +57,9 @@ Phase 7 — Dashboards & Polish
 | Sign in with Google (skips email verification) | `complete` |
 | Login page with both options (email/password + Google) | `complete` |
 | Logout | `complete` |
+| Logout is a POST (a GET never logs out: a logged-in user goes to their dashboard, a logged-out visitor to the owner login); every logout control is a POST form with a CSRF token. The log-out confirmation sheet comes with the 8b pages. Slice 8a-1b | `complete` |
+| Resend the verification link ("Send the link again" on Check your email and on login for an unverified account; at most one send per 2 minutes per account) | `complete` (backend, 2026-11-17; page design in 8b-2) |
+| `/accounts/signup/` and `/accounts/login/` redirect to the owner register and login pages (the Google provider and callback URLs keep working) | `complete` |
 | Forgot password / reset password via email | `complete` |
 | Redirect to onboarding flow after first login | `complete` |
 
@@ -89,9 +92,11 @@ Phase 7 — Dashboards & Polish
 |---|---|
 | Onboarding triggered after first login | `complete` |
 | Step 1 — Enter basic profile info (name, contact number) | `complete` |
+| Step 1 — Ask for the address: barangay, town and province required, street optional; Marinduque town list + Other | `complete` (8b-3: Province Marinduque / Another province; the 6 towns and their barangays from the PSA list, or typed) |
+| Step 3 — "Pet added" page: who was added, "Add another pet", "I'm done, go to my dashboard" | `complete` (8b-3) |
 | Step 1 — Optional profile photo upload | `complete` |
 | Step 1 — Optional contact links (Facebook, other socials) | `complete` |
-| Step 2 — Add first pet (name, species, breed, date of birth) | `complete` |
+| Step 2 — Add first pet (name, species and breed from lists with "Other (type it)", sex, birthday optional, color, weight, registration no., photo) | `complete` |
 | Option to skip pet addition and add later | `complete` |
 | Option to add multiple pets during onboarding | `complete` |
 | Redirect to Pet Owner dashboard after onboarding | `complete` |
@@ -100,33 +105,36 @@ Phase 7 — Dashboards & Polish
 | Feature | Status |
 |---|---|
 | View own profile | `complete` |
-| Edit profile (name, address, contact number, email) | `complete` |
+| Edit profile (name, address, contact number) | `complete` |
+| Email is changed only by the clinic (My details shows it read-only: "To change your email, contact the clinic."; the profile form has no email field and a posted email changes nothing) | `complete` (8a-2c; restyled in 8b-9) |
+| Account hub: name, email, links to My details, Email notifications, Clinic info and Health library, and a POST Log out form (`/owner/account/`) | `complete` (8b-9a) |
 | Edit contact links (Facebook, other socials) | `complete` |
 | Profile photo upload (optional) | `complete` |
 | Auto-generated initials avatar if no photo uploaded | `complete` |
 | Notification preferences settings | `complete` |
-| Appointment reminder timing preference | `complete` |
-| Vaccination reminder timing preference (days in advance) | `complete` |
+| Appointment reminder timing preference (fixed choices: on the same day, 1, 2 or 3 days before) | `complete` |
+| Vaccination reminder timing preference (fixed choices: 3, 7, 14 or 30 days before) | `complete` |
 | Per-type email notification toggles (on/off) | `complete` |
 
 ### 2.3 Pet Management (Pet Owner)
 | Feature | Status |
 |---|---|
-| Add a new pet | `complete` |
-| Edit minor pet details directly (name, color, weight, breed) | `complete` |
+| Add a new pet (the Add pet page on the owner layout, same form as onboarding step 2: species and breed from lists, sex starting on "Not sure", birthday optional; from booking, `?next=book` returns to step 1 with the new pet picked; the pet's owner is always the logged-in owner) | `complete` (8b-3) |
+| Edit pet details: name, breed (from the pet's species list), color, weight, photo with Change and Remove photo (species, sex, birthday and registration no. shown locked, with the clinic's phone; the page is on the owner layout since 8b-5) | `complete` (8b-5) |
 | Pet photo upload (optional) | `complete` |
-| Auto-generated initials avatar if no pet photo uploaded | `complete` |
-| Request pet deletion with predefined reason | `complete` |
+| Species icon on a light tile if no pet photo uploaded (no initials for pets) | `complete` (8b-5 on the pet profile and edit page; My Pets since 8b-4) |
+| Request pet removal with a predefined reason (owners see "remove a pet"; a bottom sheet with four reasons on the pet profile; it reaches the Admin as a deletion request) | `complete` (8b-5) |
+| Take back a removal request (POST only; the request is kept as Cancelled, never deleted, and isn't shown to the clinic as answered; the owner can send a new one). Slice 8a-1b | `complete` |
 | Predefined deletion reasons (passed away, rehomed, duplicate, other) | `complete` |
 | Deletion request goes to Admin for approval | `complete` |
-| View pet profile | `complete` |
-| View pet vaccination history | `complete` |
-| View pet medical history (read-only, public notes only) | `complete` |
+| View pet profile (photo, facts, Book a visit, About / Vaccines / Records tabs, next visit, a due-vaccine note, a removal-requested box with take back; 8b-5) | `complete` (8b-5) |
+| View pet vaccination history (the Vaccines tab; the old page redirects to it) | `complete` (8b-5) |
+| View pet medical history (the Records tab: read-only, public notes only; the old page redirects to it) | `complete` (8b-5) |
 
 ### Pet Profile Fields
 | Field | Required | Notes |
 |---|---|---|
-| Photo | Optional | Placeholder when no photo: species icon (dog, cat, rabbit, bird, or a paw) on admin pages; initials avatar on owner pages |
+| Photo | Optional | Placeholder when no photo: the species icon (dog, cat, rabbit, bird, or a paw) on admin and owner pages; no initials for pets |
 | Registration number | Optional | Government-issued |
 | Name | Required | — |
 | Species | Required | Dropdown (Dog, Cat, Bird, Rabbit, Hamster) with "Other (type it)" for a typed species |
@@ -148,7 +156,7 @@ Phase 7 — Dashboards & Polish
 | Add owner without booking a visit (owners list; no pet, no appointment; set-password link sent if an email is given) | `complete` |
 | Resend the set-password link: "Send the link again" on the owner page, asks first (owner has an email and has never set up the account; Google sign-ups count as set up) | `complete` |
 | Edit pet owner details | `complete` |
-| Address: Marinduque towns and barangays from dropdowns (PSA list); other provinces typed (Add owner and Edit details; owner-side forms and the walk-in New owner page still typed) | `complete` |
+| Address: Marinduque towns and barangays from dropdowns (PSA list); other provinces typed (Add owner and Edit details, and the owner's onboarding step 1 since 8b-3 (there the address is required); the owner's My details page since 8b-9a (also required); the walk-in New owner page is still typed) | `complete` |
 | Archive pet owner account (soft delete; asks first, and warns about visits still to come, which archiving doesn't cancel) | `complete` |
 | Restore archived pet owner account (asks first) | `complete` |
 | View all registered pets (tabs Active / Archived / Deletion requests, with counts; a pet of an archived owner is on Archived; split rows: the pet with its tags, then the owner with a link and phone number; 25 per page) | `complete` |
@@ -206,7 +214,18 @@ Phase 7 — Dashboards & Polish
 | Cancel appointment freely up to 24 hours before | `complete` |
 | Cancellation within 24 hours requires Admin approval (not built: owners can currently cancel at any time; late cancellations are only flagged on the owner page) | `planned` |
 | Predefined cancellation reasons (change of plans, pet unwell, cannot make time, other) | `complete` |
+| Owner reschedule gives up the current visit and makes a new PENDING request in one transaction (both happen or neither; a visit that can't be changed any more says so; a time taken a moment ago comes back as an error on the time field). Slice 8a-1b | `complete` |
+| Owner changes day or time (Change day or time page): pick a new day on the calendar, then a time, say why; the visit goes back to waiting for approval, the page says the old time is given up ("Your {time} time is given up. The new time waits for the clinic to confirm."), and a visit less than 24 hours away gets a late-change note with the clinic's phone. Only the owner's own Pending / Confirmed visit whose time hasn't started. Slice 8b-7b | `complete` |
+| Booking lock: owner booking, owner reschedule, walk-in and admin move lock the ClinicSettings row, then check the slot again before saving (no migration; a DB constraint stays in the backlog). Slice 8a-1b | `complete` |
+| Clinic decline is stored as the `declined` cancellation reason (old declines stay `other`, not backfilled): backend done in 8a-1b. The owner wording "Declined by the clinic" vs "Cancelled by the clinic" on the redesigned visit pages comes with 8b | `complete` |
 | View appointment history and current status | `complete` |
+| Book a request in 3 steps (pet and reason, date and time, check and send), then a "Request sent" page; the choices wait in a session draft and nothing is saved until Send (always PENDING, through the locked save). Slice 8b-6 | `complete` |
+| Booking calendar shows open, full and closed days (month arrows, up to the booking limit); times are grouped Morning / Afternoon, taken times are shown but can't be picked. Slice 8b-6 | `complete` |
+| "Not sure yet" as the visit reason (saves no service) | `complete` |
+| No-pet path: step 1 sends the owner to Add a pet in booking mode and back with the new pet picked. Slice 8b-6 | `complete` |
+| Visits list (Visits tab): Upcoming / Past links with counts, a pet filter (chips, from 2 pets), cards grouped by month with a note per visit (what happens next, who moved or cancelled it), Past 25 a page; an original cancelled by a reschedule is left out (its new visit says "Was …"). Slice 8b-7a | `complete` |
+| Visit detail for every status with a coloured banner (waiting, confirmed, time passed, done, declined, cancelled by the clinic or by you, moved, missed), the clinic's own message for a cancel or decline, links to the vet's notes and the Unpaid/Paid bill, and the buttons for that state. Slice 8b-7a | `complete` |
+| Cancel sheet on the visit page: reasons as radio cards, a "Tell us a little more" box for Other, the orange late note within 24 hours (with the clinic phone), POST only; errors and success come back to the visit page as a flash. Slice 8b-7a | `complete` |
 
 ### 3.3 Appointment Management (Admin)
 | Feature | Status |
@@ -285,6 +304,7 @@ PENDING or CONFIRMED → CANCELLED
 | View prescription details | `complete` |
 | View test results (text only, no file access) | `complete` |
 | View vaccination records per pet | `complete` |
+| Open one medical record (`/owner/pets/<pet>/medical/<record>/`, back to the pet's Records tab): the blue follow-up box first (not booked: "Book the follow-up"; booked: a link to that visit; date passed: "Follow-up was due around…"), what Dr. Aga found, medicines to give at home (how much / how often / for, with the note), test results as text only ("On file. Ask the clinic for a copy."), vaccine given ("Corrected by the clinic", never the correction note), the clinic's public notes, and links to the visit and its bill (never a cancelled one); sections with nothing in them are left out; no private notes, no print | `complete` (8b-8) |
 
 ### 4.3 Vaccination Tracking
 | Feature | Status |
@@ -349,8 +369,11 @@ PENDING or CONFIRMED → CANCELLED
 |---|---|
 | View billing receipt for completed appointments | `complete` |
 | View full billing history: Unpaid and Paid receipts only (cancelled ones are never shown) | `complete` |
+| Bills page: a yellow "To pay" box with the total and count, the Unpaid bills (never hidden by a filter), or a green "You're all paid up" box; "No bills yet" page when there are none | `complete` (8b-8) |
+| Bills History filter: search by receipt number or pet name plus a period (All time, This month, Last 3 months, this year, last year), a plain GET form, month groups, 25 a page | `complete` (8b-8) |
+| Receipt page (read-only): banner (please pay at the clinic / paid on), pet, bill date, link to the visit, items, subtotal, discount, total, "Paid by"; "Something looks wrong?" line while Unpaid | `complete` (8b-8) |
 | Save as PDF from the print window | `complete` |
-| Print receipt | `complete` |
+| Print receipt (the button shows on a Paid receipt) | `complete` (8b-8) |
 | Receive a notification when a receipt is paid | `complete` |
 
 ### Receipt Format
@@ -404,6 +427,9 @@ PENDING or CONFIRMED → CANCELLED
 | Mark all as read button | `complete` |
 | In-app notifications always on regardless of email toggles | `complete` |
 | Admin can clear notifications (all, read only) | `complete` |
+| Owner notifications page `/owner/notifications/` (backend and a plain page; Slice 8a-2b): newest first, 25 a page, grouped Today / Earlier by Manila date, unread flagged, one link per row through `notification_open` (no link when there is nowhere to go), "Mark all as read" (`return_to=page`), "See all notifications" link in the bell panel | `complete` |
+| Owner notifications page design (cards with type icon, violet unread, bell badge capped at 9+; `owner_notifications_v1.html`) | `complete` (8b-9a) |
+| Owner notifications use a short title and a compact message ("Visit confirmed" / "Bantay · Mon, Nov 2 at 3:00 PM"); the email keeps the full sentence; old rows keep their long text (decision 9) | `complete` |
 
 ### 6.2 Email Notifications (Gmail SMTP)
 | Feature | Status |
@@ -428,8 +454,8 @@ PENDING or CONFIRMED → CANCELLED
 | Pet Owner per-type email toggle ("Email when a receipt is paid." on/off) | `complete` |
 | Pet Owner per-type email toggle (vaccination reminders on/off) | `complete` |
 | Pet Owner per-type email toggle (follow-up reminders on/off) | `complete` |
-| Pet Owner appointment reminder timing preference (days before) | `complete` |
-| Pet Owner vaccination reminder timing preference (days before) | `complete` |
+| Pet Owner appointment reminder timing preference (fixed choices: same day, 1, 2 or 3 days before; an earlier saved value stays selectable) | `complete` |
+| Pet Owner vaccination reminder timing preference (fixed choices: 3, 7, 14 or 30 days before; an earlier saved value stays selectable) | `complete` |
 | Admin per-type email toggles (all on by default) | `complete` |
 
 ### 6.4 Reminder System
@@ -480,6 +506,9 @@ PENDING or CONFIRMED → CANCELLED
 | Upcoming appointments section | `complete` |
 | My pets summary | `complete` |
 | Recent notifications | `complete` |
+| Next visit and the visits after it, Pending or Confirmed only (never Completed or No show); unpaid bills count and total; new-owner state (backend context `owner_dashboard_context`, Slice 8a-2b; no 30-second polling, decision 13) | `complete` |
+| Next visit card, upcoming list (max 3), unpaid bills box (only above 0, peso total) and new-owner welcome card on the page, with the violet band and the see-through top bar (`owner_pages_v1.html` frames 1–2; Slice 8b-4) | `complete` |
+| My Pets page: two-column photo grid, "Removal requested" tag, search by name and All / Dogs / Cats / Others chips (shown from 4 pets), empty states (`owner_my_pets_v2.html`; Slice 8b-4) | `complete` |
 | Quick book appointment button | `complete` |
 | Health Library quick access card | `complete` |
 | Clinic info quick access | `complete` |
@@ -491,8 +520,8 @@ PENDING or CONFIRMED → CANCELLED
 | Dr. Edgar about page (name, license number, bio) | `complete` |
 | Clinic name, address, contact numbers | `complete` |
 | Clinic operating hours | `complete` |
-| Google Maps embed of clinic location | `complete` |
-| Book an appointment button on clinic info page | `complete` |
+| Google Maps embed of clinic location (admin page only; the owner page has none since 8b-9b) | `complete` |
+| Owner Clinic info on the owner layout: logo or paw tile, Call and Email buttons, rows for hours (with "Closed …"), phone, email and address, and a "Your vet" card (`owner_account_v1.html` frame 5; Slice 8b-9b). It has no Book an appointment button (the Visits tab books) | `complete` |
 | Visible to both Admin and Pet Owner | `complete` |
 
 ### 7.4 Clinic Settings (Admin)
@@ -518,7 +547,9 @@ PENDING or CONFIRMED → CANCELLED
 | Admin can edit, publish and unpublish health articles (no delete; a new article starts as a draft) | `complete` |
 | Each article: condition name, description, causes, symptoms, general care | `complete` |
 | Pet Owner can browse and read articles (read-only) | `complete` |
-| Search articles by condition name | `complete` |
+| Owner Health library list: cards with a one-line summary, A to Z by title, 25 a page, published articles only (`owner_account_v1.html` frames 6 and 6b; Slice 8b-9b) | `complete` |
+| Owner article page: each non-empty part under its heading, a "not a diagnosis" box and one Book a visit button; an unpublished or missing article is a 404 (frame 7; Slice 8b-9b) | `complete` |
+| Search articles by condition name (owner: GET form, every word in the title, "Clear search", "No guide about that yet"; Slice 8b-9b) | `complete` |
 | Visible to both Admin and Pet Owner (login required) | `complete` |
 | Health Library accessible from Pet Owner dashboard | `complete` |
 
@@ -567,3 +598,13 @@ These features will NOT be built in v1 under any circumstances:
 | Record GCash or bank transfer payments | Payments are cash only today; `payment_method` always saves "Cash" |
 | Auto-delete notifications | Can add scheduler when hosting plan allows |
 | Public health library | Remove login requirement to make articles publicly accessible |
+| Keep the original visit until an owner reschedule is approved | Today the current visit is cancelled and a new PENDING request is made in one transaction |
+| Limit open requests per owner | Not in v1 |
+| Owner email change | Today only the clinic changes an owner's email (decision 3); My details shows it read-only |
+| Owner changes their password while logged in | No page for it yet (the Account hub has no "Sign-in and password" row); needs a design and a page for password owners, and a "set a password" case for Google-only owners |
+| Late-cancellation approval | Also planned in 3.2 |
+| Owner calendar page | Admin calendar page is planned separately |
+| Split dashboard loading | Load dashboard parts separately (`owner_dashboard_loading_v1.html`) only if real users find the single page slow |
+| Print a medical record for owners | Owners can print receipts only today |
+| Prices on the booking page | Also planned in 3.2 |
+| Owner account deletion / data export | Not in v1 |

@@ -8,6 +8,8 @@ from django.utils.dateformat import format as date_format
 
 from .models import ClinicSettings, BlockedDate, Appointment
 from .utils import (
+    BOOKING_NOTE_MAX,
+    NOT_SURE,
     SETTINGS_TAB_FIELDS,
     is_slot_available,
     get_available_slots,
@@ -204,203 +206,51 @@ class BlockedDateForm(forms.ModelForm):
         return date
 
 
-class AppointmentBookingForm(forms.Form):
+class OwnerBookingStepOneForm(forms.Form):
     """
-    Pet Owner form to book an appointment.
-    Uses a plain Form (not ModelForm) so we can control
-    the pet queryset and slot choices dynamically per request.
+    Booking step 1 (pet and reason): the pet, what the visit is for and an
+    optional note. A missing answer is a field error, never a disabled
+    button. The page draws the radio cards itself.
     """
 
     pet = forms.ModelChoiceField(
-        queryset=None,  # Set in __init__ to scope to the logged-in owner
-        empty_label="Select a pet",
-        help_text="Which pet is this appointment for?",
+        queryset=None,  # set in __init__: this owner's non-archived pets
+        error_messages={
+            "required": "Choose a pet.",
+            "invalid_choice": "Choose a pet.",
+        },
     )
-    service = forms.ModelChoiceField(
-        queryset=None,  # Set in __init__ to active services only
-        empty_label="Select a service",
-        required=False,
-        help_text="Select the primary service for this visit.",
-    )
-    date = forms.DateField(
-        widget=forms.DateInput(attrs={"type": "date"}),
-        help_text="Select an available date.",
-    )
-    time = forms.ChoiceField(
-        choices=[("", "Select a date first")],
-        help_text="Select an available time slot.",
+    service = forms.ChoiceField(
+        choices=(),  # set in __init__: bookable services and "Not sure yet"
+        error_messages={
+            "required": "Choose what the visit is for.",
+            "invalid_choice": "Choose what the visit is for.",
+        },
     )
     reason = forms.CharField(
-        widget=forms.Textarea(attrs={"rows": 3}),
         required=False,
-        help_text="Briefly describe the reason for the visit.",
+        max_length=BOOKING_NOTE_MAX,
+        widget=forms.Textarea(attrs={"rows": 4}),
+        error_messages={
+            "max_length": "Please keep the note short (1,000 characters at most)."
+        },
     )
 
-    def __init__(self, owner, *args, **kwargs):
+    def __init__(self, owner, services, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
         from pets.models import Pet
-        from billing.models import Service
 
-        # Scope pet choices to this owner's non-archived pets only
-        self.fields["pet"].queryset = Pet.objects.filter(
-            owner=owner,
-            is_archived=False,
-        )
-
-        # Only show active services to pet owners
-        self.fields["service"].queryset = Service.objects.filter(
-            status=Service.ACTIVE,
-        )
-
-        # If a date was submitted, populate time slot choices for that date
-        submitted_date = None
-        if args and args[0]:  # args[0] is the POST data dict
-            date_str = args[0].get("date")
-            if date_str:
-                try:
-                    submitted_date = datetime.date.fromisoformat(date_str)
-                except ValueError:
-                    pass
-
-        if submitted_date:
-            slots = get_available_slots(submitted_date)
-            if slots:
-                self.fields["time"].choices = [("", "Select a time")] + [
-                    (s.strftime("%H:%M:%S"), s.strftime("%I:%M %p")) for s in slots
-                ]
-            else:
-                self.fields["time"].choices = [("", "No slots available for this date")]
-
-    def clean(self):
-        cleaned_data = super().clean()
-        date = cleaned_data.get("date")
-        time_str = cleaned_data.get("time")
-
-        if not date or not time_str:
-            return cleaned_data
-
-        # Parse the time string back to a time object
-        try:
-            time = datetime.time.fromisoformat(time_str)
-        except ValueError:
-            raise forms.ValidationError("Invalid time slot selected.")
-
-        # Final slot availability check at submission time
-        # (slot may have been taken since the form was loaded)
-        if not is_slot_available(date, time):
-            raise forms.ValidationError(
-                "This slot is no longer available. Please select another."
-            )
-
-        # Store parsed time object for the view to use
-        cleaned_data["time"] = time
-        return cleaned_data
-
-    def clean_date(self):
-        date = self.cleaned_data.get("date")
-        if not date:
-            return date
-
-        clinic = get_clinic_settings()
-        today = timezone.localdate()
-
-        if date < today:
-            raise forms.ValidationError("Cannot book an appointment in the past.")
-
-        if clinic and date > today + datetime.timedelta(days=clinic.booking_limit_days):
-            raise forms.ValidationError(
-                f"Bookings are only allowed up to "
-                f"{clinic.booking_limit_days} days in advance."
-            )
-
-        return date
+        self.fields["pet"].queryset = Pet.objects.filter(owner=owner, is_archived=False)
+        self.fields["service"].choices = [
+            (str(service.pk), service.service_name) for service in services
+        ] + [(NOT_SURE, "Not sure yet")]
 
 
-class AppointmentRescheduleForm(forms.Form):
-    """
-    Form for Pet Owner to request a reschedule.
-    Requires a reason and a new date + time slot.
-    """
-
-    date = forms.DateField(
-        widget=forms.DateInput(attrs={"type": "date"}),
-        help_text="Select a new date.",
-    )
-    time = forms.ChoiceField(
-        choices=[("", "Select a date first")],
-        help_text="Select a new time slot.",
-    )
-    reschedule_reason = forms.CharField(
-        widget=forms.Textarea(attrs={"rows": 3}),
-        help_text="Why do you need to reschedule?",
-    )
-
-    def __init__(self, appointment, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Store appointment so clean() can exclude it from conflict check
-        self.appointment = appointment
-
-        submitted_date = None
-        if args and args[0]:
-            date_str = args[0].get("date")
-            if date_str:
-                try:
-                    submitted_date = datetime.date.fromisoformat(date_str)
-                except ValueError:
-                    pass
-
-        if submitted_date:
-            slots = get_available_slots(submitted_date)
-            if slots:
-                self.fields["time"].choices = [("", "Select a time")] + [
-                    (s.strftime("%H:%M:%S"), s.strftime("%I:%M %p")) for s in slots
-                ]
-            else:
-                self.fields["time"].choices = [("", "No slots available for this date")]
-
-    def clean(self):
-        cleaned_data = super().clean()
-        date = cleaned_data.get("date")
-        time_str = cleaned_data.get("time")
-
-        if not date or not time_str:
-            return cleaned_data
-
-        try:
-            time = datetime.time.fromisoformat(time_str)
-        except ValueError:
-            raise forms.ValidationError("Invalid time slot selected.")
-
-        # Exclude the current appointment from conflict check
-        if not is_slot_available(
-            date, time, exclude_appointment_pk=self.appointment.pk
-        ):
-            raise forms.ValidationError(
-                "This slot is no longer available. Please select another."
-            )
-
-        cleaned_data["time"] = time
-        return cleaned_data
-
-    def clean_date(self):
-        date = self.cleaned_data.get("date")
-        if not date:
-            return date
-
-        clinic = get_clinic_settings()
-        today = timezone.localdate()
-
-        if date < today:
-            raise forms.ValidationError("Cannot reschedule to a past date.")
-
-        if clinic and date > today + datetime.timedelta(days=clinic.booking_limit_days):
-            raise forms.ValidationError(
-                f"Bookings are only allowed up to "
-                f"{clinic.booking_limit_days} days in advance."
-            )
-
-        return date
+# The reasons a person can pick when cancelling. "Declined" is set by the
+# clinic's decline action, never chosen on a form.
+CANCEL_FORM_CHOICES = [
+    choice for choice in Appointment.CANCEL_CHOICES if choice[0] != Appointment.DECLINED
+]
 
 
 class AppointmentCancellationForm(forms.Form):
@@ -410,7 +260,7 @@ class AppointmentCancellationForm(forms.Form):
     """
 
     cancellation_reason = forms.ChoiceField(
-        choices=Appointment.CANCEL_CHOICES,
+        choices=CANCEL_FORM_CHOICES,
         help_text="Why are you cancelling?",
     )
     cancellation_detail = forms.CharField(
@@ -456,7 +306,7 @@ class AdminAppointmentCancelForm(forms.Form):
 
     cancellation_reason = forms.ChoiceField(
         label="Reason",
-        choices=Appointment.CANCEL_CHOICES,
+        choices=CANCEL_FORM_CHOICES,
     )
     cancellation_detail = forms.CharField(
         label="Details",

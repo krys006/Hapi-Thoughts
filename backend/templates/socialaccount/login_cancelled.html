@@ -1,0 +1,11 @@
+{% extends "layouts/owner_auth.html" %}
+
+{# Overrides allauth's "Login Cancelled" page #}
+{% block title %}Google sign-in — Hapi Vet{% endblock %}
+
+{% block card_title %}Google sign-in{% endblock %}
+
+{% block content %}
+  {% include "owner/auth_parts/alert_box.html" with tone="blue" title="You cancelled Google sign-in." %}
+  <a href="{% url 'owner_login' %}" class="btn btn-primary min-h-12 w-full text-lg font-semibold">{% include "components/icon.html" with name="arrow-left" %}Back to log in</a>
+{% endblock %}

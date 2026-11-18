@@ -1,0 +1,36 @@
+{% comment %}
+  Your address: street (optional), then the Province select, then the Town
+  and Barangay dropdowns (Marinduque, PSA list) or the typed fields (another
+  province). Town, barangay and province are required (the form's
+  address_required). The group not in use is hidden; shared/address_form.js
+  switches them, and without JavaScript both show (the <noscript> style in
+  step1.html). The Town select loads the Barangay options over HTMX from
+  owner_address_barangays (attributes set in AddressFieldsMixin).
+  Needs form (the step 1 form). My details includes it with title="Address"
+  (no intro line); step 1 says "Your address" and the intro.
+{% endcomment %}
+<section class="card" aria-labelledby="address-title" data-address>
+  <h2 id="address-title" class="text-xl font-semibold text-gray-900">{% if title %}{{ title }}{% else %}Your address{% endif %}</h2>
+  {% if not title %}<p class="mt-1 text-base text-gray-600">So the clinic knows where you're from.</p>{% endif %}
+  <div class="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-2">
+    {% if form.address_hand_typed %}
+      <div class="flex items-start gap-3 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-base text-yellow-900 sm:col-span-2" data-address-note>
+        {% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0" %}
+        <p>This address doesn't match our list. It's kept as it is. To tidy it up, pick <b>Marinduque</b> and choose your town and barangay.</p>
+      </div>
+    {% endif %}
+    <div class="sm:col-span-2">
+      {% include "components/form_field.html" with field=form.address_line optional=True %}
+    </div>
+    {% include "components/form_field.html" with field=form.address_province %}
+    <div class="{% if form.address_mode == 'other' %}hidden{% else %}contents{% endif %}" data-address-pick>
+      {% include "components/form_field.html" with field=form.address_town required=form.address_required %}
+      {% include "components/form_field.html" with field=form.address_barangay required=form.address_required %}
+    </div>
+    <div class="{% if form.address_mode == 'other' %}contents{% else %}hidden{% endif %}" data-address-typed>
+      {% include "components/form_field.html" with field=form.province required=form.address_required %}
+      {% include "components/form_field.html" with field=form.city_municipality required=form.address_required %}
+      {% include "components/form_field.html" with field=form.barangay required=form.address_required %}
+    </div>
+  </div>
+</section>
