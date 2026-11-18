@@ -1,0 +1,10 @@
+{% comment %}
+  Call (the one violet button) and Email (outline). A missing phone or email leaves that button out
+  and the other fills the row; with neither there is no row.
+{% endcomment %}
+{% if phone_link or clinic.email %}
+<div class="grid gap-3 {% if phone_link and clinic.email %}grid-cols-2{% else %}grid-cols-1{% endif %}">
+  {% if phone_link %}<a href="tel:{{ phone_link }}" class="flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700">{% include "components/icon.html" with name="phone" %}Call</a>{% endif %}
+  {% if clinic.email %}<a href="mailto:{{ clinic.email }}" class="flex min-h-14 items-center justify-center gap-2 rounded-2xl border border-gray-300 bg-white text-lg font-medium text-gray-800 hover:bg-gray-50">{% include "components/icon.html" with name="mail" %}Email</a>{% endif %}
+</div>
+{% endif %}

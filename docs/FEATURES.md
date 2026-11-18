@@ -520,8 +520,8 @@ PENDING or CONFIRMED → CANCELLED
 | Dr. Edgar about page (name, license number, bio) | `complete` |
 | Clinic name, address, contact numbers | `complete` |
 | Clinic operating hours | `complete` |
-| Google Maps embed of clinic location | `complete` |
-| Book an appointment button on clinic info page | `complete` |
+| Google Maps embed of clinic location (admin page only; the owner page has none since 8b-9b) | `complete` |
+| Owner Clinic info on the owner layout: logo or paw tile, Call and Email buttons, rows for hours (with "Closed …"), phone, email and address, and a "Your vet" card (`owner_account_v1.html` frame 5; Slice 8b-9b). It has no Book an appointment button (the Visits tab books) | `complete` |
 | Visible to both Admin and Pet Owner | `complete` |
 
 ### 7.4 Clinic Settings (Admin)
@@ -547,7 +547,9 @@ PENDING or CONFIRMED → CANCELLED
 | Admin can edit, publish and unpublish health articles (no delete; a new article starts as a draft) | `complete` |
 | Each article: condition name, description, causes, symptoms, general care | `complete` |
 | Pet Owner can browse and read articles (read-only) | `complete` |
-| Search articles by condition name | `complete` |
+| Owner Health library list: cards with a one-line summary, A to Z by title, 25 a page, published articles only (`owner_account_v1.html` frames 6 and 6b; Slice 8b-9b) | `complete` |
+| Owner article page: each non-empty part under its heading, a "not a diagnosis" box and one Book a visit button; an unpublished or missing article is a 404 (frame 7; Slice 8b-9b) | `complete` |
+| Search articles by condition name (owner: GET form, every word in the title, "Clear search", "No guide about that yet"; Slice 8b-9b) | `complete` |
 | Visible to both Admin and Pet Owner (login required) | `complete` |
 | Health Library accessible from Pet Owner dashboard | `complete` |
 

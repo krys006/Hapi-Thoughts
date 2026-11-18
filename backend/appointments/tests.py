@@ -39,6 +39,7 @@ from appointments.utils import (
     START_MESSAGE,
     WHY_MISSING_MESSAGE,
     clinic_hours_line,
+    closed_days_line,
     get_available_slots,
     get_clinic_settings,
     is_slot_available,
@@ -55,6 +56,7 @@ from appointments.utils import (
     resolve_period,
     slot_in_progress,
     time_groups,
+    vet_initials,
 )
 from billing.models import BillingReceipt, Service
 from dashboard.templatetags.friendly_dates import friendly_date, long_date
@@ -4271,16 +4273,19 @@ class ClinicInfoPageTests(AppointmentTestBase):
         self.assertNotContains(response, "Open in Google Maps")
         self.assertContains(response, "No address is set")
 
-    def test_owner_still_gets_the_owner_frame_and_old_files(self):
+    def test_owner_gets_the_owner_layout_page(self):
+        # 8b-9b: owner/clinic/info.html on layouts/owner.html (was the shared
+        # page on base_dashboard.html with its own CSS and JS, and a
+        # "Book an Appointment" button)
         response = self._owner_get()
-        self.assertTemplateUsed(response, "shared/clinic_info.html")
-        self.assertTemplateUsed(response, "base_dashboard.html")
+        self.assertTemplateUsed(response, "owner/clinic/info.html")
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertTemplateNotUsed(response, "base_dashboard.html")
+        self.assertTemplateNotUsed(response, "shared/clinic_info.html")
         self.assertTemplateNotUsed(response, "admin/clinic_info.html")
-        self.assertContains(response, "css/shared/clinic_info.")
-        self.assertContains(response, "js/shared/clinic_info.")
-        self.assertContains(response, "clinic-info-page")
+        self.assertNotContains(response, "css/shared/clinic_info")
+        self.assertNotContains(response, "js/shared/clinic_info")
         self.assertContains(response, "Dr. Edgar Sadiwa")
-        self.assertContains(response, "Book an Appointment")
         self.assertNotContains(response, "Back to clinic settings")
 
     def test_logged_out_goes_to_the_login_page(self):
@@ -8521,3 +8526,235 @@ class OwnerReschedulePostTests(_OwnerRescheduleBase):
     def test_the_session_has_no_booking_draft_to_clash_with(self):
         self._send()
         self.assertNotIn("owner_booking", self.client.session)
+
+
+class ClosedDaysLineTests(SimpleTestCase):
+    """Slice 8b-9b: "Closed Saturday, Sunday and holidays" from the schedule."""
+
+    def _line(self, days, holidays=False):
+        row = ClinicSettings(working_days=days)
+        return closed_days_line(row, holidays)
+
+    def test_the_days_missing_from_the_schedule(self):
+        self.assertEqual(
+            self._line([0, 1, 2, 3, 4], True), "Closed Saturday, Sunday and holidays"
+        )
+        self.assertEqual(self._line([0, 1, 2, 3, 4]), "Closed Saturday and Sunday")
+        self.assertEqual(
+            self._line([0, 1, 2, 3, 4, 5], True), "Closed Sunday and holidays"
+        )
+        self.assertEqual(self._line([0, 1, 2, 3, 4, 5]), "Closed Sunday")
+        self.assertEqual(
+            self._line([1, 3], False),
+            "Closed Monday, Wednesday, Friday, Saturday and Sunday",
+        )
+
+    def test_open_every_day_only_says_holidays_when_there_are_some(self):
+        every = [0, 1, 2, 3, 4, 5, 6]
+        self.assertEqual(self._line(every, True), "Closed on holidays")
+        self.assertEqual(self._line(every, False), "")
+
+    def test_never_open_has_no_closed_line(self):
+        self.assertEqual(self._line([], True), "")
+
+    def test_vet_initials_skip_the_title(self):
+        self.assertEqual(vet_initials("Dr. Edgar Sadiwa"), "ES")
+        self.assertEqual(vet_initials("Edgar Antonio Sadiwa"), "EA")
+        self.assertEqual(vet_initials("Aga"), "A")
+        self.assertEqual(vet_initials(""), "")
+
+
+class OwnerClinicInfoPageTests(AppointmentTestBase):
+    """Slice 8b-9b: the owner's Clinic info on layouts/owner.html (frame 5)."""
+
+    PAGE_QUERIES = 4  # session, user, settings, blocked dates (estimated 5)
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("clinic_info")
+        self.row = get_clinic_settings()
+        self.row.contact_number = "0917 000 0000"
+        self.row.email = "clinic@example.com"
+        self.row.working_days = [0, 1, 2, 3, 4]
+        self.row.veterinarian_name = "Dr. Edgar Sadiwa"
+        self.row.veterinarian_license_number = "PRC-VET-0000"
+        self.row.veterinarian_bio = "Cares for pets of Gasan.\n\nAsk about vaccines."
+        self.row.save()
+        self.client.force_login(self.owner.user)
+
+    def _html(self):
+        return self.client.get(self.url).content.decode()
+
+    def _main(self):
+        return self._html().split('<main id="main"')[1].split("</main>")[0]
+
+    def _clear(self, **fields):
+        for name, value in fields.items():
+            setattr(self.row, name, value)
+        self.row.save()
+
+    def test_owner_layout_account_tab_and_back_bar(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        html = response.content.decode()
+        back = reverse("owner_account")
+        self.assertRegex(html, rf'(?s)<a href="{back}"[^>]*>.*?Back to Account</a>')
+        # The Account tab is lit (the back bar's link has no aria-current)
+        lit = rf'<a href="{back}" class="[^"]*" aria-current="page">'
+        self.assertRegex(html, lit)
+        self.assertContains(response, '<h1 class="min-w-0 break-words text-2xl')
+
+    def test_call_is_the_one_violet_button_with_a_tel_link(self):
+        main = self._main()
+        violet = re.findall(r"<a [^>]*bg-violet-600[^>]*>", main)
+        self.assertEqual(len(violet), 1)
+        self.assertIn('href="tel:09170000000"', violet[0])
+        self.assertRegex(main, r"(?s)<a href=\"tel:09170000000\".*?Call</a>")
+
+    def test_email_is_an_outline_mailto_link(self):
+        main = self._main()
+        link = re.search(r'<a href="mailto:clinic@example.com"[^>]*>', main).group(0)
+        self.assertIn("border border-gray-300", link)
+        self.assertNotIn("bg-violet", link)
+        self.assertIn("Email</a>", main)
+
+    def test_a_missing_phone_or_email_leaves_its_button_out(self):
+        self._clear(contact_number="")
+        main = self._main()
+        self.assertNotIn("tel:", main)
+        self.assertNotIn("Call</a>", main)
+        self.assertIn('href="mailto:clinic@example.com"', main)
+        self.assertIn("grid-cols-1", main)
+        self.assertEqual(len(re.findall(r"<a [^>]*bg-violet-600", main)), 0)
+        self._clear(contact_number="0917 000 0000", email="")
+        main = self._main()
+        self.assertIn('href="tel:09170000000"', main)
+        self.assertNotIn("mailto:", main)
+        self.assertIn("grid-cols-1", main)
+
+    def test_neither_phone_nor_email_has_no_button_row(self):
+        self._clear(contact_number="", email="")
+        main = self._main()
+        self.assertNotIn("tel:", main)
+        self.assertNotIn("mailto:", main)
+        self.assertNotIn("grid-cols-", main)
+
+    def test_the_rows_show_hours_closed_days_phone_email_and_address(self):
+        main = self._main()
+        for label, value in (
+            ("Open", "Mon to Fri, 8:00 AM to 5:00 PM"),
+            ("Phone", "0917 000 0000"),
+            ("Email", "clinic@example.com"),
+            ("Address", "Gasan, Marinduque"),
+        ):
+            with self.subTest(row=label):
+                self.assertRegex(
+                    main, rf'(?s)text-gray-600">{label}</p><p class="[^"]*">{value}</p>'
+                )
+        self.assertIn("Closed Saturday and Sunday</p>", main)
+
+    def test_closed_line_adds_holidays_only_for_a_blocked_date_from_today(self):
+        past = self.today - datetime.timedelta(days=2)
+        BlockedDate.objects.create(date=past, reason="Secret reason")
+        self.assertIn("Closed Saturday and Sunday</p>", self._main())
+        BlockedDate.objects.create(date=self.today, reason="Staff day")
+        main = self._main()
+        self.assertIn("Closed Saturday, Sunday and holidays</p>", main)
+        self.assertNotIn("Staff day", main)
+        self.assertNotIn("Secret reason", main)
+
+    def test_a_missing_value_leaves_its_row_out(self):
+        self._clear(contact_number="", email="", address="")
+        main = self._main()
+        for label in ("Phone", "Email", "Address"):
+            with self.subTest(row=label):
+                self.assertNotIn(f'text-gray-600">{label}</p>', main)
+        self.assertIn('text-gray-600">Open</p>', main)
+
+    def test_your_vet_card_with_licence_and_bio(self):
+        main = self._main()
+        self.assertIn(">Your vet</h2>", main)
+        self.assertIn('aria-hidden="true">ES</span>', main)
+        self.assertIn('text-lg font-bold text-gray-900">Dr. Edgar Sadiwa</p>', main)
+        self.assertIn("License no. PRC-VET-0000", main)
+        self.assertIn("<p>Cares for pets of Gasan.</p>", main)
+        self.assertIn("<p>Ask about vaccines.</p>", main)
+
+    def test_your_vet_card_needs_a_vet_name(self):
+        self._clear(veterinarian_name="")
+        main = self._main()
+        self.assertNotIn("Your vet", main)
+        self.assertNotIn("PRC-VET-0000", main)
+
+    def test_licence_and_bio_show_only_when_filled_in_and_there_is_no_nickname(self):
+        self._clear(veterinarian_license_number="", veterinarian_bio="")
+        main = self._main()
+        self.assertIn("Dr. Edgar Sadiwa", main)
+        self.assertNotIn("License no.", main)
+        self.assertNotIn("Cares for pets", main)
+        # ClinicSettings has no nickname field, so the card never shows one
+        field_names = [f.name for f in ClinicSettings._meta.get_fields()]
+        self.assertFalse([n for n in field_names if "nick" in n])
+
+    def test_logo_or_paw_tile(self):
+        main = self._main()
+        self.assertIn("bg-violet-600 text-white", main.split("<h1")[0])
+        self.assertNotIn("<img", main)
+        self._clear(logo="clinic/logo.png")
+        main = self._main()
+        self.assertIn(f'<img src="{self.row.logo.url}"', main)
+        self.assertNotIn("bg-violet-600 text-white", main.split("<h1")[0])
+
+    def test_no_clinic_js_and_no_map_for_owners(self):
+        html = self._html()
+        self.assertNotIn("js/shared/clinic_info", html)
+        self.assertNotIn("css/shared/clinic_info", html)
+        self.assertNotIn("<iframe", html)
+        self.assertNotIn("<script>", html)
+
+    def test_an_admin_still_gets_the_admin_page(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertTemplateUsed(response, "admin/clinic_info.html")
+        self.assertTemplateUsed(response, "layouts/admin.html")
+        self.assertTemplateNotUsed(response, "owner/clinic/info.html")
+        self.assertContains(response, "Open in Google Maps")
+
+    def test_no_settings_row_shows_a_plain_message(self):
+        ClinicSettings.objects.all().delete()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "The clinic details are not available yet.")
+
+    def test_every_link_is_on_one_line(self):
+        from django.template.loader import get_template
+
+        names = (
+            "owner/clinic/info.html",
+            "owner/clinic_parts/header.html",
+            "owner/clinic_parts/buttons.html",
+            "owner/clinic_parts/details.html",
+            "owner/clinic_parts/vet.html",
+        )
+        for name in names:
+            source = get_template(name).template.source
+            for link in re.findall(r"(?s)<a\b.*?</a>", source):
+                with self.subTest(file=name, link=link[:50]):
+                    self.assertNotIn("\n", link)
+
+    def test_no_inline_script_or_handler_or_html_comment(self):
+        main = self._main()
+        self.assertNotIn("<script", main)
+        self.assertNotIn("onclick", main)
+        self.assertNotIn("<!--", main)
+
+    def test_query_total_is_flat_for_3_and_30_blocked_dates(self):
+        for count in (3, 30):
+            BlockedDate.objects.all().delete()
+            for n in range(count):
+                day = self.today + datetime.timedelta(days=n + 1)
+                BlockedDate.objects.create(date=day, reason=f"Reason {n}")
+            with self.subTest(blocked=count):
+                with self.assertNumQueries(self.PAGE_QUERIES):
+                    self.client.get(self.url)

@@ -1,0 +1,11 @@
+{% comment %}
+  The search: a GET form, so it works without JavaScript. Needs query (the text typed, echoed back).
+{% endcomment %}
+<form method="get" action="{% url 'owner_health_article_list' %}" class="space-y-3">
+  <label class="relative block">
+    <span class="sr-only">Search by illness name</span>
+    <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">{% include "components/icon.html" with name="search" %}</span>
+    <input type="search" name="q" value="{{ query }}" placeholder="Search by illness, e.g. rabies" class="block min-h-12 w-full rounded-xl border border-gray-300 bg-white pl-12 pr-4 text-base text-gray-900 placeholder:text-gray-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200">
+  </label>
+  <button type="submit" class="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-4 text-base font-semibold text-gray-800 hover:bg-gray-50">{% include "components/icon.html" with name="search" %}Search</button>
+</form>

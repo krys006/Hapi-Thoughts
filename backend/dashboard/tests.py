@@ -287,7 +287,9 @@ class ClinicInfoFrameTests(ShellTestBase):
     def test_owner_gets_owner_dashboard(self):
         self.client.force_login(self.owner.user)
         response = self.client.get(reverse("clinic_info"))
-        self.assertTemplateUsed(response, "base_dashboard.html")
+        # 8b-9b: the owner layout (was base_dashboard.html)
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertTemplateNotUsed(response, "base_dashboard.html")
 
 
 class SidebarTests(ShellTestBase):
@@ -456,12 +458,15 @@ class LegacyLayerRetiredTests(ShellTestBase):
                 self.assertNotIn(word, source)
 
     def test_owner_page_still_includes_shared_modals(self):
+        # 8b-9b, re-anchored: no owner page is on base_dashboard.html any more,
+        # so the same checks run on that base template rendered for an owner
         self.client.force_login(self.owner.user)
-        response = self.client.get(reverse("clinic_info"))
-        self.assertTemplateUsed(response, "base_dashboard.html")
-        self.assertTemplateUsed(response, "shared/modals.html")
-        self.assertContains(response, 'id="confirm-modal-overlay"')
-        self.assertContains(response, "openConfirmModal")
+        request = self.client.get(reverse("clinic_info")).wsgi_request
+        html = render_to_string("base_dashboard.html", request=request)
+        base = engines["django"].get_template("base_dashboard.html")
+        self.assertIn("shared/modals.html", base.template.source)
+        self.assertIn('id="confirm-modal-overlay"', html)
+        self.assertIn("openConfirmModal", html)
 
 
 class OwnerSearchReceiptTests(ShellTestBase):

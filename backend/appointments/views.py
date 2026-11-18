@@ -60,6 +60,7 @@ from .utils import (
     notify_request_declined,
     owner_booking_pets,
     owner_can_change,
+    owner_clinic_info_context,
     owner_reschedule_context,
     owner_visit_detail_context,
     owner_visits_context,
@@ -283,8 +284,9 @@ def clinic_info(request):
         context["hours_line"] = clinic_hours_line(clinic) if clinic else ""
         return render(request, "admin/clinic_info.html", context)
 
-    context["base_template"] = "base_dashboard.html"
-    return render(request, "shared/clinic_info.html", context)
+    # Owners: the owner layout, plain text and links (no map, no script)
+    context = owner_clinic_info_context(clinic, timezone.localdate())
+    return render(request, "owner/clinic/info.html", context)
 
 
 # ── Pet Owner — Appointments ──────────────────────────────────────────────────

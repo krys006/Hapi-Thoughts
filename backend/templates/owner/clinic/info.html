@@ -1,0 +1,22 @@
+{% extends "layouts/owner.html" %}
+
+{% block title %}Clinic info — Hapi Vet{% endblock %}
+
+{# Back bar to the Account hub; the Account tab stays lit. Plain text and links only: no map, no script. #}
+{% block top_bar %}{% url 'owner_account' as account_url %}{% include "layouts/owner_parts/back_bar.html" with url=account_url label="Account" %}{% endblock %}
+
+{% block content %}
+{% if clinic %}
+  <div class="space-y-5">
+    {% include "owner/clinic_parts/header.html" %}
+    {% include "owner/clinic_parts/buttons.html" %}
+    {% include "owner/clinic_parts/details.html" %}
+    {% include "owner/clinic_parts/vet.html" %}
+  </div>
+{% else %}
+  <div class="space-y-2">
+    <h1 class="text-2xl font-bold text-gray-900">Clinic info</h1>
+    <p class="text-base text-gray-700">The clinic details are not available yet. Please check back soon.</p>
+  </div>
+{% endif %}
+{% endblock %}

@@ -206,6 +206,60 @@ def clinic_hours_line(settings_obj):
     return f"{label}, {opening} to {closing}"
 
 
+FULL_DAY_NAMES = (
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+)
+
+
+def closed_days_line(settings_obj, has_holidays):
+    """Owner clinic info: "Closed Saturday, Sunday and holidays". The days are
+    the ones missing from the working days; "holidays" is added only when a
+    blocked date from today on exists (the reasons are never shown). Empty
+    when the clinic is open every day with no blocked date, or never open."""
+    working = {d for d in settings_obj.working_days if 0 <= d <= 6}
+    if not working:
+        return ""
+    names = [FULL_DAY_NAMES[d] for d in range(7) if d not in working]
+    if has_holidays:
+        names.append("holidays")
+    if not names:
+        return ""
+    if names == ["holidays"]:
+        return "Closed on holidays"
+    if len(names) == 1:
+        return f"Closed {names[0]}"
+    return f"Closed {', '.join(names[:-1])} and {names[-1]}"
+
+
+def vet_initials(name):
+    """Up to two capital letters from a vet's name, skipping "Dr." and the
+    like: "Dr. Edgar Sadiwa" gives "ES"."""
+    words = [w for w in name.replace(".", " ").split() if w.lower() != "dr"]
+    return "".join(w[0] for w in words[:2]).upper()
+
+
+def owner_clinic_info_context(clinic, today):
+    """Context for the owner Clinic info page (one query: blocked dates).
+    clinic may be None (no settings row yet)."""
+    if clinic is None:
+        return {"clinic": None}
+    holidays = BlockedDate.objects.filter(date__gte=today).exists()
+    phone = "".join(c for c in clinic.contact_number if c.isdigit() or c == "+")
+    return {
+        "clinic": clinic,
+        "hours_line": clinic_hours_line(clinic),
+        "closed_line": closed_days_line(clinic, holidays),
+        "phone_link": phone,
+        "vet_initials": vet_initials(clinic.veterinarian_name),
+    }
+
+
 def visits_on_date(date):
     """
     The CONFIRMED and PENDING visits on date, by time, with the pet and owner

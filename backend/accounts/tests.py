@@ -16,7 +16,7 @@ from django.core import mail
 from django.core.cache import cache
 from django.db import connection
 from django.template import Context, Template, engines
-from django.template.loader import get_template
+from django.template.loader import get_template, render_to_string
 from django.test import (
     Client,
     RequestFactory,
@@ -832,12 +832,6 @@ class LogoutPostTests(_LoggedInBase):
         )
         pages = {
             self.admin: ["admin_dashboard", "admin_clinic_settings", "admin_pet_list"],
-            self.owner_user: [
-                # 8b-9a, re-anchored: the profile page moved to the owner layout
-                # (owner_profile redirects), the health library is still on it
-                "owner_health_article_list",
-                "clinic_info",
-            ],
         }
         for user, names in pages.items():
             self.client.force_login(user)
@@ -846,6 +840,14 @@ class LogoutPostTests(_LoggedInBase):
                     html = self.client.get(reverse(name)).content.decode()
                     self.assertRegex(html, form)
                     self.assertNotIn(f'href="{logout_url}"', html)
+        # 8b-9b, re-anchored: the health library and Clinic info were the last
+        # owner pages on base_dashboard.html, so the same check now runs on
+        # the owner sidebar partial itself, rendered for a real owner request
+        self.client.force_login(self.owner_user)
+        request = self.client.get(reverse("owner_account")).wsgi_request
+        html = render_to_string("shared/sidebar_owner.html", request=request)
+        self.assertRegex(html, form)
+        self.assertNotIn(f'href="{logout_url}"', html)
 
     def test_owner_dashboard_and_my_pets_have_no_get_link_to_logout(self):
         """Both moved to layouts/owner.html in 8b-4: their only Log out is the
@@ -868,9 +870,10 @@ class LogoutPostTests(_LoggedInBase):
         )
         self.client.force_login(self.owner_user)
         # (8b-4, re-anchored: the owner dashboard has no sidebar now, so the
-        # same check runs on a page that is still on it; 8b-9a: the health
-        # library, as the profile page has moved to the owner layout)
-        html = self.client.get(reverse("owner_health_article_list")).content.decode()
+        # same check runs on a page that is still on it; 8b-9b: no owner page
+        # is on it any more, so it runs on the owner sidebar partial itself)
+        request = self.client.get(reverse("owner_account")).wsgi_request
+        html = render_to_string("shared/sidebar_owner.html", request=request)
         self.assertIn(
             '<button type="submit" class="owner-sidebar-logout">Logout</button>', html
         )

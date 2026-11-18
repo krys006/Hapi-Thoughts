@@ -1,0 +1,8 @@
+{% comment %}
+  Clinic header: the logo in a rounded tile (a paw tile when there is none) and the clinic name.
+  There is no town field on the settings, so there is no town line; the address is a row below.
+{% endcomment %}
+<div class="flex items-center gap-4">
+  {% if clinic.logo %}<span class="grid size-16 shrink-0 place-content-center overflow-hidden rounded-2xl bg-white ring-1 ring-gray-200"><img src="{{ clinic.logo.url }}" alt="" class="size-14 object-contain"></span>{% else %}<span class="grid size-16 shrink-0 place-content-center rounded-2xl bg-violet-600 text-white">{% include "components/icon.html" with name="paw-print" class="size-8 shrink-0" %}</span>{% endif %}
+  <h1 class="min-w-0 break-words text-2xl font-bold leading-7 text-gray-900">{{ clinic.clinic_name }}</h1>
+</div>

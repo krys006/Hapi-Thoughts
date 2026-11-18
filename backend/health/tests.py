@@ -1,9 +1,13 @@
+import re
+
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
+from django.template.loader import get_template
 from django.test import TestCase
 from django.urls import NoReverseMatch, reverse
 
 from .models import HealthArticle
+from .utils import article_summary
 
 User = get_user_model()
 
@@ -461,3 +465,348 @@ class OwnerSideTests(HealthTestBase):
         )
         self.assertEqual(list(response.context["articles"]), [self.live])
         self.assertNotContains(response, "Draft kennel cough")
+
+
+def _main(response):
+    """The page's <main> markup."""
+    return response.content.decode().split('<main id="main"')[1].split("</main>")[0]
+
+
+def _sources(names):
+    """(name, template source) for each template name."""
+    return [(name, get_template(name).template.source) for name in names]
+
+
+class ArticleSummaryTests(TestCase):
+    """Slice 8b-9b: the one-line summary on the list cards (no summary field)."""
+
+    def _article(self, **parts):
+        fields = {"title": "T", "description": "", **parts}
+        return HealthArticle(**fields)
+
+    def test_a_short_text_is_kept_whole(self):
+        article = self._article(description="A short one.")
+        self.assertEqual(article_summary(article), "A short one.")
+
+    def test_a_long_text_is_cut_on_a_word_boundary_with_an_ellipsis(self):
+        text = "word " * 60
+        summary = article_summary(self._article(description=text))
+        self.assertTrue(summary.endswith("word…"))
+        self.assertLessEqual(len(summary), 111)
+        self.assertGreater(len(summary), 100)
+
+    def test_an_empty_overview_falls_back_to_the_next_part(self):
+        article = self._article(causes="  ", symptoms="Sneezing\n and coughing.")
+        self.assertEqual(article_summary(article), "Sneezing and coughing.")
+
+    def test_no_text_at_all_is_empty(self):
+        self.assertEqual(article_summary(self._article()), "")
+
+    def test_one_very_long_word_is_cut_hard(self):
+        summary = article_summary(self._article(description="x" * 300))
+        self.assertEqual(summary, "x" * 110 + "…")
+
+
+class OwnerHealthListPageTests(HealthTestBase):
+    """Slice 8b-9b: the owner's Health library list on layouts/owner.html."""
+
+    PAGE_QUERIES = 4
+    PARTS = (
+        "owner/health/article_list.html",
+        "owner/health_parts/search.html",
+        "owner/health_parts/card.html",
+        "owner/health_parts/pager.html",
+    )
+
+    def setUp(self):
+        super().setUp()
+        self.rabies = HealthArticle.objects.create(
+            title="Rabies",
+            description="A deadly virus spread by bites.",
+            is_published=True,
+        )
+        self.draft = HealthArticle.objects.create(
+            title="Draft secret", description="Hidden.", is_published=False
+        )
+        self.url = reverse("owner_health_article_list")
+        self.client.force_login(self.owner)
+
+    def _main(self, **params):
+        return _main(self.client.get(self.url, params))
+
+    def test_layout_account_tab_and_back_bar(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertTemplateNotUsed(response, "base_dashboard.html")
+        html = response.content.decode()
+        back = reverse("owner_account")
+        self.assertRegex(html, rf'(?s)<a href="{back}"[^>]*>.*?Back to Account</a>')
+        self.assertRegex(html, rf'<a href="{back}" class="[^"]*" aria-current="page">')
+        self.assertIn(">Health library</h1>", html)
+        self.assertIn("Short guides from the clinic about common illnesses.", html)
+
+    def test_only_published_articles_never_a_draft_title(self):
+        draft_link = reverse("owner_health_article_detail", args=[self.draft.pk])
+        for params in ({}, {"q": "draft"}, {"q": "secret"}, {"q": "Draft secret"}):
+            with self.subTest(params=params):
+                response = self.client.get(self.url, params)
+                # (the typed search is echoed in the input, so check the card)
+                self.assertNotContains(response, draft_link)
+                self.assertNotIn(self.draft, response.context["articles"])
+        self.assertNotContains(self.client.get(self.url), "Draft secret")
+        self.assertEqual(self.client.get(self.url).context["articles"], [self.rabies])
+
+    def test_the_search_form(self):
+        main = self._main()
+        self.assertIn('<form method="get" action="' + self.url + '"', main)
+        self.assertIn('<span class="sr-only">Search by illness name</span>', main)
+        self.assertIn('type="search" name="q" value=""', main)
+        self.assertIn('placeholder="Search by illness, e.g. rabies"', main)
+        button = r'(?s)<button type="submit"[^>]*min-h-12[^>]*>.*?Search</button>'
+        self.assertRegex(main, button)
+        self.assertNotIn("Clear search", main)
+
+    def test_q_matches_every_word_and_is_echoed_in_the_input(self):
+        HealthArticle.objects.create(
+            title="Bordetella (kennel cough)", description="x", is_published=True
+        )
+        response = self.client.get(self.url, {"q": "  kennel   BORDETELLA "})
+        titles = [a.title for a in response.context["articles"]]
+        self.assertEqual(titles, ["Bordetella (kennel cough)"])
+        main = _main(response)
+        self.assertIn('name="q" value="kennel BORDETELLA"', main)
+        self.assertNotIn("Rabies", main)
+        self.assertIn("Clear search</a>", main)
+
+    def test_a_search_is_escaped_in_the_input(self):
+        main = self._main(q='"><script>alert(1)</script>')
+        self.assertNotIn("<script>alert(1)", main)
+        self.assertIn("&lt;script&gt;", main)
+
+    def test_no_result_box_with_a_clear_search_link(self):
+        main = self._main(q="zzz")
+        self.assertIn("No guide about that yet", main)
+        self.assertIn("Worried about your pet? Ask Dr. Aga at your next visit.", main)
+        self.assertEqual(main.count("Clear search</a>"), 1)
+        self.assertIn(f'<a href="{self.url}"', main)
+        self.assertIn('name="q" value="zzz"', main)
+        self.assertNotIn("No guides yet", main)
+
+    def test_no_guides_at_all_is_the_empty_page_without_the_form(self):
+        HealthArticle.objects.filter(is_published=True).delete()
+        main = self._main()
+        self.assertIn("No guides yet", main)
+        self.assertIn("The clinic is still writing these. Check back soon.", main)
+        self.assertIn(">Health library</h1>", main)
+        self.assertNotIn("<form", main)
+        self.assertNotIn('name="q"', main)
+        # A search with nothing published is the same empty page, not "no match"
+        self.assertNotIn("No guide about that yet", self._main(q="rabies"))
+
+    def test_cards_link_to_the_article_with_title_summary_and_chevron(self):
+        main = self._main()
+        href = reverse("owner_health_article_detail", args=[self.rabies.pk])
+        card = re.search(rf'(?s)<a href="{href}"[^>]*>.*?</a>', main).group(0)
+        self.assertIn('class="block break-words text-lg font-bold', card)
+        self.assertIn(">Rabies</span>", card)
+        self.assertIn("A deadly virus spread by bites.", card)
+        self.assertIn("bg-violet-50", card)
+        self.assertIn("text-violet-700", card)
+        self.assertEqual(card.count("<svg"), 2)  # the book tile and the chevron
+
+    def test_a_card_keeps_the_search_for_the_articles_back_link(self):
+        main = self._main(q="rabies")
+        href = reverse("owner_health_article_detail", args=[self.rabies.pk])
+        self.assertIn(f'<a href="{href}?q=rabies"', main)
+
+    def test_alphabetical_by_title_ignoring_case(self):
+        for title in ("banana flu", "Apple scab", "cherry pox"):
+            HealthArticle.objects.create(
+                title=title, description="x", is_published=True
+            )
+        titles = [a.title for a in self.client.get(self.url).context["articles"]]
+        self.assertEqual(titles, ["Apple scab", "banana flu", "cherry pox", "Rabies"])
+
+    def test_paged_at_25_and_the_pager_keeps_the_search(self):
+        HealthArticle.objects.bulk_create(
+            HealthArticle(title=f"Guide {n:02d}", description="x", is_published=True)
+            for n in range(29)
+        )
+        response = self.client.get(self.url)
+        self.assertEqual(len(response.context["articles"]), 25)
+        main = _main(response)
+        self.assertIn('aria-label="Pages of guides"', main)
+        self.assertIn("Page 1 of 2", main)
+        self.assertIn('<a href="?page=2"', main)
+        second = self.client.get(self.url, {"page": 2})
+        self.assertEqual(len(second.context["articles"]), 5)
+        self.assertIn('<a href="?page=1"', _main(second))
+        found = self.client.get(self.url, {"q": "guide"})
+        self.assertIn('<a href="?q=guide&amp;page=2"', _main(found))
+
+    def test_one_page_has_no_pager(self):
+        self.assertNotIn("Pages of guides", self._main())
+
+    def test_no_violet_button_on_the_page(self):
+        for params in ({}, {"q": "rabies"}, {"q": "zzz"}):
+            with self.subTest(params=params):
+                main = self._main(**params)
+                self.assertNotIn("bg-violet-600", main)
+                self.assertNotIn("bg-violet-700", main)
+
+    def test_every_link_is_on_one_line(self):
+        for name, source in _sources(self.PARTS):
+            for link in re.findall(r"(?s)<a\b.*?</a>", source):
+                with self.subTest(file=name, link=link[:50]):
+                    self.assertNotIn("\n", link)
+
+    def test_no_inline_script_handler_or_html_comment(self):
+        main = self._main()
+        self.assertNotIn("<script", main)
+        self.assertNotIn("onclick", main)
+        self.assertNotIn("<!--", main)
+        for name, source in _sources(self.PARTS):
+            with self.subTest(file=name):
+                self.assertNotIn("<!--", source)
+
+    def test_query_total_is_flat_for_3_and_30_articles(self):
+        for total in (3, 30):
+            keep = [self.rabies.pk, self.draft.pk]
+            HealthArticle.objects.exclude(pk__in=keep).delete()
+            HealthArticle.objects.bulk_create(
+                HealthArticle(title=f"Guide {n}", description="x", is_published=True)
+                for n in range(total - 1)
+            )
+            with self.subTest(guides=total):
+                with self.assertNumQueries(self.PAGE_QUERIES):
+                    self.client.get(self.url)
+
+    def test_the_admin_is_sent_away(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertRedirects(
+            response, reverse("admin_dashboard"), fetch_redirect_response=False
+        )
+
+
+class OwnerHealthArticlePageTests(HealthTestBase):
+    """Slice 8b-9b: one guide on layouts/owner.html (frame 7)."""
+
+    PAGE_QUERIES = 3
+    PARTS = ("owner/health/article_detail.html",)
+
+    def setUp(self):
+        super().setUp()
+        self.article_ = HealthArticle.objects.create(
+            title="Parvovirus",
+            description="A contagious virus.\n\nPuppies are most at risk.",
+            causes="",
+            symptoms="Vomiting and being very tired.",
+            general_care="  ",
+            is_published=True,
+        )
+        self.url = reverse("owner_health_article_detail", args=[self.article_.pk])
+        self.client.force_login(self.owner)
+
+    def test_layout_account_tab_title_and_label(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertTemplateNotUsed(response, "base_dashboard.html")
+        html = response.content.decode()
+        account = reverse("owner_account")
+        lit = rf'<a href="{account}" class="[^"]*" aria-current="page">'
+        self.assertRegex(html, lit)
+        main = _main(response)
+        self.assertIn('text-violet-700">Health library</p>', main)
+        self.assertIn(
+            '<h1 class="break-words text-3xl font-bold text-gray-900">Parvovirus</h1>',
+            main,
+        )
+
+    HEADING = r'<h2 class="text-lg font-bold text-gray-900">(.*?)</h2>'
+
+    def test_only_the_non_empty_parts_are_headings(self):
+        main = _main(self.client.get(self.url))
+        headings = re.findall(self.HEADING, main)
+        self.assertEqual(headings, ["What it is", "Signs to watch for"])
+        self.assertIn("<p>A contagious virus.</p>", main)
+        self.assertIn("<p>Puppies are most at risk.</p>", main)
+        self.assertIn("<p>Vomiting and being very tired.</p>", main)
+        self.assertIn("text-base leading-7", main)
+
+    def test_all_four_parts_use_the_real_names_in_order(self):
+        self.article_.causes = "Contact with stool."
+        self.article_.general_care = "See the vet."
+        self.article_.save()
+        main = _main(self.client.get(self.url))
+        headings = re.findall(self.HEADING, main)
+        self.assertEqual(
+            headings, ["What it is", "Causes", "Signs to watch for", "General care"]
+        )
+
+    def test_the_text_is_autoescaped(self):
+        self.article_.description = "<script>alert(1)</script> & <b>bold</b>"
+        self.article_.save()
+        html = self.client.get(self.url).content.decode()
+        self.assertNotIn("<script>alert(1)", html)
+        self.assertNotIn("<b>bold</b>", html)
+        escaped = "&lt;script&gt;alert(1)&lt;/script&gt; &amp; &lt;b&gt;bold&lt;/b&gt;"
+        self.assertIn(escaped, html)
+
+    def test_the_not_a_diagnosis_box_and_the_one_violet_button(self):
+        main = _main(self.client.get(self.url))
+        self.assertIn(
+            "This guide is not a diagnosis. If your pet shows these signs, "
+            "book a visit or call the clinic.",
+            main,
+        )
+        violet = re.findall(r"(?s)<a [^>]*bg-violet-600[^>]*>.*?</a>", main)
+        self.assertEqual(len(violet), 1)
+        self.assertIn(f'href="{reverse("owner_book_appointment")}"', violet[0])
+        self.assertIn("Book a visit</a>", violet[0])
+        self.assertIn("bg-violet-50", main)
+        self.assertEqual(len(re.findall(r"<button", main)), 0)
+
+    def test_unpublished_and_missing_are_404(self):
+        draft = HealthArticle.objects.create(title="Draft", description="x")
+        for pk in (draft.pk, 999999):
+            with self.subTest(pk=pk):
+                response = self.client.get(
+                    reverse("owner_health_article_detail", args=[pk])
+                )
+                self.assertEqual(response.status_code, 404)
+
+    def test_the_back_link_goes_to_the_list_and_keeps_the_search(self):
+        listing = reverse("owner_health_article_list")
+        html = self.client.get(self.url).content.decode()
+        self.assertRegex(
+            html, rf'(?s)<a href="{listing}"[^>]*>.*?Back to Health library</a>'
+        )
+        html = self.client.get(self.url, {"q": "parvo virus"}).content.decode()
+        self.assertIn(f'<a href="{listing}?q=parvo+virus"', html)
+
+    def test_every_link_is_on_one_line(self):
+        for name, source in _sources(self.PARTS):
+            for link in re.findall(r"(?s)<a\b.*?</a>", source):
+                with self.subTest(file=name, link=link[:50]):
+                    self.assertNotIn("\n", link)
+                    self.assertNotIn("|safe", source)
+                    self.assertNotIn("<!--", source)
+
+    def test_no_inline_script_or_handler(self):
+        main = _main(self.client.get(self.url))
+        self.assertNotIn("<script", main)
+        self.assertNotIn("onclick", main)
+
+    def test_query_total_is_flat_for_a_short_and_a_long_article(self):
+        long_text = "More text. " * 500
+        for text in ("Short.", long_text):
+            self.article_.description = text
+            self.article_.causes = text
+            self.article_.general_care = text
+            self.article_.save()
+            with self.subTest(size=len(text)):
+                with self.assertNumQueries(self.PAGE_QUERIES):
+                    self.client.get(self.url)
