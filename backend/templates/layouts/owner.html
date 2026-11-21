@@ -6,12 +6,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{% block title %}Hapi Vet{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  {# A Back press that htmx has no saved copy for reloads the page; the free-times area is never saved (hx-history="false"), so a cached loading block can't come back #}
+  <meta name="htmx-config" content='{"refreshOnHistoryMiss": true}'>
   <script src="{% static 'vendor/htmx-2.0.11.min.js' %}" defer></script>
   <script src="{% static 'js/shared/dialogs.js' %}" defer></script>
   <script src="{% static 'js/shared/flash.js' %}" defer></script>
   <script src="{% static 'js/owner/loading.js' %}" defer></script>
   {# List states (Loading barangays…, Try again) and late or broken pictures: see each file's header #}
   <script src="{% static 'js/owner/list_states.js' %}" defer></script>
+  {# Free-times area (booking step 2, Change day or time): loading, slow and failed states #}
+  <script src="{% static 'js/owner/day_area.js' %}" defer></script>
   <script src="{% static 'js/shared/photo_fallback.js' %}" defer></script>
   {% block extra_head %}{% endblock %}
 </head>

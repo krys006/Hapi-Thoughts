@@ -8,7 +8,6 @@
 <h1 class="sr-only">Book a visit: date and time</h1>
 
 <div class="space-y-5">
-  {% if taken_time %}{% include "owner/booking_parts/taken_box.html" %}{% endif %}
   {% include "owner/booking_parts/summary_card.html" %}
 
   <div>
@@ -16,14 +15,10 @@
     <p class="text-base text-gray-600">You can book up to {{ booking_limit_days }} days ahead.</p>
   </div>
 
-  {% include "owner/booking_parts/calendar.html" %}
-
-  {# The calendar's days are links; only the times are posted, with the picked day #}
-  <form id="time-form" method="post" action="{% url 'owner_book_time' %}" novalidate>
-    {% csrf_token %}
-    <input type="hidden" name="date" value="{% if picked_date %}{{ picked_date.isoformat }}{% endif %}">
-    {% include "owner/booking_parts/times.html" %}
-  </form>
+  {# The calendar's days are links (with JavaScript they swap only this area); only the times are posted, with the picked day. hx-history="false": a saved copy must never show the loading block. #}
+  <div id="day-area" class="group/day space-y-5" aria-live="polite" aria-busy="false" hx-history="false">
+    {% include "owner/booking_parts/_day_area.html" %}
+  </div>
 </div>
 {% endblock %}
 

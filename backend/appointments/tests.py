@@ -6024,8 +6024,12 @@ class OwnerBookingStepPagesTests(_OwnerBookingBase):
                 for tag in re.findall(r"<script\b[^>]*>", html):
                     self.assertIn(" src=", tag)
                 self.assertIsNone(re.search(r"\son[a-z]+=", html))
-                for word in ("hx-confirm", "hx-get", "hx-post", "hx-trigger"):
+                for word in ("hx-confirm", "hx-post", "hx-trigger"):
                     self.assertNotIn(word, html)
+                # Slice 8b-10b-3: on step 2 only the day links and month arrows
+                # (<a>) carry hx-get (was: no page had hx-get at all)
+                tags = set(re.findall(r"<(\w+)\b[^>]*\bhx-get=", html))
+                self.assertEqual(tags, {"a"} if name == "step 2" else set())
                 self.assertNotIn("<!--", html)
 
     # ── Step 1 ──────────────────────────────────────────────────────────────
@@ -8776,3 +8780,387 @@ class RemovedOwnerUrlsTests(AppointmentTestBase):
         for name, _args, path in self.REMOVED:
             with self.subTest(name=name):
                 self.assertEqual(self.client.get(path).status_code, 404)
+
+
+# ── Slice 8b-10b-3: the free-times area (HTMX swap) ──────────────────────────
+
+DAY_AREA = "owner/booking_parts/_day_area.html"
+OWN_DAY = datetime.date(2026, 11, 11)  # the owner's visit: Wed, Nov 11 at 2:00 PM
+# What a full page has and the swap's answer must not have
+NOT_IN_THE_AREA = ("<html", "<main", "<header", 'data-bar="one"', 'id="loading-root"')
+
+
+class _DayAreaBase(_OwnerBookingBase):
+    """Step 2 (the session draft) and the change-time page (the owner's
+    Confirmed visit on Wed, Nov 11 at 2:00 PM), each asked with and without
+    HX-Request. The draft's day is Tue, Nov 10; the change page moves to Thu,
+    Nov 12."""
+
+    def setUp(self):
+        super().setUp()
+        self.visit = Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            service=self.service,
+            date=OWN_DAY,
+            time=datetime.time(14, 0),
+            status=Appointment.CONFIRMED,
+        )
+        self.change = reverse("owner_appointment_reschedule", args=[self.visit.pk])
+        self.detail = reverse("owner_appointment_detail", args=[self.visit.pk])
+
+    def _get(self, url, htmx=True, **params):
+        headers = {"HX-Request": "true"} if htmx else {}
+        return self.client.get(url, params, headers=headers)
+
+
+class OwnerDayAreaPartialTests(_DayAreaBase):
+    """One URL, two answers: HX-Request gets only owner/booking_parts/_day_area.html,
+    everything else the full page as before."""
+
+    def _count(self, url, htmx, **params):
+        with CaptureQueriesContext(connection) as queries:
+            response = self._get(url, htmx=htmx, **params)
+        self.assertEqual(response.status_code, 200)
+        return len(queries)
+
+    def _totals(self):
+        """(partial, page) query totals of step 2 and of the change page."""
+        self._set_draft()
+        day = {"date": CHANGE_DAY.isoformat()}
+        return {
+            "step 2": (
+                self._count(self.step2, True),
+                self._count(self.step2, False),
+            ),
+            "change page": (
+                self._count(self.change, True, **day),
+                self._count(self.change, False, **day),
+            ),
+        }
+
+    def test_step_2_answers_the_swap_with_only_the_area(self):
+        self._set_draft()
+        response = self._get(self.step2)
+        html = response.content.decode()
+        self.assertTemplateUsed(response, DAY_AREA)
+        self.assertTemplateNotUsed(response, "layouts/owner.html")
+        for gone in NOT_IN_THE_AREA:
+            with self.subTest(gone=gone):
+                self.assertNotIn(gone, html)
+        self.assertNotIn('id="day-area"', html)  # the page keeps the wrapper
+        self.assertEqual(re.findall(VIOLET_BUTTON, html), [])  # no bottom bar
+        self.assertIn('id="calendar-month"', html)
+        self.assertIn("November 2026", html)
+        self.assertIn("Times on Tue, Nov 10", html)
+        self.assertIn('<form id="time-form"', html)
+        self.assertIn('name="date" value="2026-11-10"', html)
+
+    def test_step_2_without_the_header_is_the_full_page_as_before(self):
+        self._set_draft()
+        restore = {"HX-Request": "true", "HX-History-Restore-Request": "true"}
+        for headers in ({}, restore):
+            with self.subTest(headers=headers):
+                response = self.client.get(self.step2, headers=headers)
+                html = response.content.decode()
+                self.assertTemplateUsed(response, "layouts/owner.html")
+                for marker in NOT_IN_THE_AREA:
+                    self.assertIn(marker, html)
+                self.assertIn('id="day-area"', html)
+                self.assertIn("Times on Tue, Nov 10", html)
+                self.assertIn('<form id="time-form"', html)
+                self.assertEqual(len(re.findall(VIOLET_BUTTON, html)), 1)
+
+    def test_both_answers_vary_on_hx_request(self):
+        self._set_draft()
+        day = {"date": CHANGE_DAY.isoformat()}
+        for url, params in ((self.step2, {}), (self.change, day)):
+            for htmx in (True, False):
+                with self.subTest(url=url, htmx=htmx):
+                    response = self._get(url, htmx=htmx, **params)
+                    self.assertIn("HX-Request", response.headers["Vary"])
+
+    def test_a_picked_day_by_swap_is_saved_like_a_plain_get(self):
+        other = datetime.date(2026, 11, 11)
+        self._set_draft()
+        response = self._get(self.step2, date=other.isoformat())
+        self.assertContains(response, "Times on Wed, Nov 11")
+        swapped = self._draft()
+        self._set_draft()
+        self._get(self.step2, htmx=False, date=other.isoformat())
+        self.assertEqual(self._draft(), swapped)
+        self.assertEqual(swapped["date"], other.isoformat())
+        self.assertNotIn("time", swapped)
+
+    def test_a_month_by_swap_keeps_the_picked_day_and_the_draft(self):
+        draft = self._set_draft()
+        response = self._get(self.step2, month="2026-12")
+        self.assertContains(response, "December 2026")
+        self.assertContains(response, "Times on Tue, Nov 10")
+        self.assertEqual(self._draft(), draft)
+
+    def test_a_closed_or_full_day_gives_the_pages_message_by_swap(self):
+        self._hold(datetime.date(2026, 11, 12), range(8, 17))
+        BlockedDate.objects.create(date=datetime.date(2026, 11, 13))
+        draft = self._set_draft()
+        message = "That day can&#x27;t be booked. Please pick a day marked open."
+        for value in ("2026-11-01", "2026-11-12", "2026-11-13", "2026-12-03", "junk"):
+            with self.subTest(value=value):
+                swap = self._get(self.step2, date=value)
+                page = self._get(self.step2, htmx=False, date=value)
+                self.assertContains(swap, message)
+                self.assertContains(page, message)
+                self.assertContains(swap, "November 2026")
+                self.assertEqual(self._draft(), draft)
+
+    def test_the_change_page_answers_the_swap_with_only_the_area(self):
+        response = self._get(self.change, date=CHANGE_DAY.isoformat())
+        html = response.content.decode()
+        self.assertTemplateUsed(response, DAY_AREA)
+        self.assertTemplateNotUsed(response, "layouts/owner.html")
+        for gone in NOT_IN_THE_AREA:
+            with self.subTest(gone=gone):
+                self.assertNotIn(gone, html)
+        self.assertEqual(re.findall(VIOLET_BUTTON, html), [])
+        self.assertIn('id="calendar-month"', html)
+        self.assertIn("Times on Thu, Nov 12", html)
+        self.assertIn('<form id="reschedule-form"', html)
+        # Now / New follow the picked day; the reason box stays outside the area
+        self.assertIn("Pick a new day", html)
+        self.assertIn("Thu, Nov 12<br>", html)
+        self.assertIn("Pick a time below", html)
+        self.assertNotIn('id="reschedule-reason"', html)
+
+    def test_the_change_page_without_the_header_is_the_full_page_as_before(self):
+        restore = {"HX-Request": "true", "HX-History-Restore-Request": "true"}
+        for headers in ({}, restore):
+            with self.subTest(headers=headers):
+                response = self.client.get(
+                    self.change, {"date": CHANGE_DAY.isoformat()}, headers=headers
+                )
+                html = response.content.decode()
+                self.assertTemplateUsed(response, "layouts/owner.html")
+                for marker in NOT_IN_THE_AREA:
+                    self.assertIn(marker, html)
+                self.assertIn('id="day-area"', html)
+                self.assertIn('id="reschedule-reason"', html)
+                self.assertIn('form="reschedule-form"', html)
+                self.assertIn("Times on Thu, Nov 12", html)
+
+    def test_the_change_swap_still_marks_the_visits_own_slot_your_time(self):
+        response = self._get(self.change, date=OWN_DAY.isoformat())
+        self.assertContains(response, ">Your time</span>")
+        self.assertNotContains(response, 'name="time" value="14:00:00"')
+        self.assertContains(response, 'name="time" value="13:00:00"')
+        other = self._get(self.change, date=CHANGE_DAY.isoformat())
+        self.assertNotContains(other, "Your time")
+
+    def test_another_owners_visit_by_swap_is_a_404(self):
+        pet = self._other_owners_pet()
+        visit = Appointment.objects.create(
+            owner=pet.owner,
+            pet=pet,
+            date=BOOK_DAY,
+            time=datetime.time(9, 0),
+            status=Appointment.CONFIRMED,
+        )
+        url = reverse("owner_appointment_reschedule", args=[visit.pk])
+        response = self._get(url, date=BOOK_DAY.isoformat())
+        self.assertEqual(response.status_code, 404)
+
+    def test_a_redirect_is_never_swapped_into_the_area(self):
+        # A draft that is gone, and a visit that can't be changed any more: the
+        # swap gets HX-Redirect (the browser opens the page), a plain GET the
+        # same redirect as before
+        Appointment.objects.filter(pk=self.visit.pk).update(
+            status=Appointment.CANCELLED
+        )
+        cases = ((self.step2, self.step1_back), (self.change, self.detail))
+        for url, target in cases:
+            with self.subTest(url=url):
+                swap = self._get(url)
+                self.assertEqual(swap.status_code, 200)
+                self.assertEqual(swap.headers["HX-Redirect"], target)
+                page = self._get(url, htmx=False)
+                self.assertRedirects(page, target, fetch_redirect_response=False)
+                self.assertNotIn("HX-Redirect", page.headers)
+
+    def test_query_totals_are_flat_and_the_partial_costs_no_more_than_the_page(self):
+        self._hold(datetime.date(2026, 11, 16), [8, 9, 10])
+        few = self._totals()
+        for day in (17, 18, 19):
+            self._hold(datetime.date(2026, 11, day), range(8, 17))
+        self.assertEqual(Appointment.objects.exclude(pk=self.visit.pk).count(), 30)
+        many = self._totals()
+        self.assertEqual(few, many)
+        for name, (partial, page) in many.items():
+            with self.subTest(page=name):
+                self.assertLessEqual(partial, page)
+
+
+class OwnerDayAreaMarkupTests(_DayAreaBase):
+    """The hooks of the free-times area on step 2 and the change-time page."""
+
+    HX_PARTS = (
+        'hx-target="#day-area"',
+        'hx-swap="innerHTML"',
+        'hx-push-url="true"',
+        'hx-indicator="#day-area"',
+        "hx-request='{\"timeout\": 10000}'",
+        'data-loading="off"',
+        'data-day-label="',
+    )
+
+    def _page(self, url, **params):
+        """The page as text (entities decoded) with a full draft."""
+        self._set_draft()
+        return unescape(self.client.get(url, params).content.decode())
+
+    def _pages(self):
+        return {
+            "step 2": self._page(self.step2),
+            "change page": self._page(self.change, date=CHANGE_DAY.isoformat()),
+        }
+
+    def _tag(self, html, label):
+        return re.search(rf'<(?:a|span)\b[^>]*aria-label="{label}[^"]*"[^>]*>', html)
+
+    def test_day_links_and_month_arrows_keep_the_href_and_swap_the_area(self):
+        for name, html in self._pages().items():
+            tags = re.findall(r"<a\b[^>]*\bhx-get=[^>]*>", html)
+            with self.subTest(page=name):
+                self.assertGreater(len(tags), 10)
+            for tag in tags:
+                href = re.search(r'\bhref="([^"]*)"', tag).group(1)
+                with self.subTest(page=name, href=href):
+                    self.assertIn(f'hx-get="{href}"', tag)
+                    for part in self.HX_PARTS:
+                        self.assertIn(part, tag)
+
+    def test_the_labels_name_the_day_and_the_month(self):
+        html = self._page(self.step2)
+        day = self._tag(html, "Wednesday, November 4: open").group(0)
+        self.assertIn('data-day-label="Wed, Nov 4"', day)
+        self.assertIn(f'hx-get="{self.step2}?date=2026-11-04"', day)
+        arrow = self._tag(html, "Next month").group(0)
+        self.assertIn(f'hx-get="{self.step2}?month=2026-12"', arrow)
+        self.assertIn('data-day-label="December 2026"', arrow)
+        december = self._page(self.step2, month="2026-12")
+        back = self._tag(december, "Previous month").group(0)
+        self.assertIn('data-day-label="November 2026"', back)
+
+    def test_the_change_page_links_keep_the_month_and_the_day(self):
+        html = self._page(self.change, date=CHANGE_DAY.isoformat())
+        link = self._tag(html, "Friday, November 13: open").group(0)
+        self.assertIn(f'hx-get="{self.change}?date=2026-11-13&month=2026-11"', link)
+        arrow = self._tag(html, "Next month").group(0)
+        self.assertIn(f'hx-get="{self.change}?month=2026-12&date=2026-11-12"', arrow)
+
+    def test_closed_full_and_disabled_cells_have_no_hx_attributes(self):
+        ClinicSettings.objects.update(working_days=[0, 1, 2, 3, 4, 5])
+        self._hold(datetime.date(2026, 11, 12), range(8, 17))
+        html = self._page(self.step2, month="2026-11")
+        self.assertEqual(re.findall(r"<span\b[^>]*\bhx-", html), [])
+        self.assertEqual(re.findall(r"<span\b[^>]*data-day-label", html), [])
+        for label in ("Thursday, November 12: full", "Sunday, November 8: "):
+            with self.subTest(label=label):
+                tag = self._tag(html, label).group(0)
+                self.assertTrue(tag.startswith("<span"))
+                self.assertNotIn("hx-", tag)
+
+    def test_the_area_is_a_polite_live_region_that_is_never_saved(self):
+        for name, html in self._pages().items():
+            with self.subTest(page=name):
+                tag = re.search(r'<div id="day-area"[^>]*>', html).group(0)
+                self.assertIn('aria-live="polite"', tag)
+                self.assertIn('aria-busy="false"', tag)
+                self.assertIn('hx-history="false"', tag)
+                self.assertIn("group/day", tag)
+
+    def test_the_loading_block_has_a_status_line_and_nine_grey_boxes(self):
+        for name, html in self._pages().items():
+            with self.subTest(page=name):
+                line = re.search(r'(?s)<p role="status".*?</p>', html).group(0)
+                self.assertIn("Finding free times for ", line)
+                self.assertIn("<span data-day-name>this day</span>…", line)
+                self.assertIn("<svg", line)
+                self.assertIn("motion-safe:animate-spin", line)
+                self.assertIn("group-[.htmx-request]/day:flex", line)
+                box = '<span class="sk h-12 rounded-xl bg-gray-200">'
+                self.assertEqual(html.count(box), 9)
+                grid = re.search(
+                    r'<div aria-hidden="true" class="hidden grid-cols-3[^"]*"', html
+                ).group(0)
+                self.assertIn("group-[.htmx-request]/day:grid", grid)
+                self.assertIn("group-data-[day-failed]/day:opacity-60", grid)
+
+    def test_the_old_times_are_hidden_while_loading_or_failed(self):
+        for name, html in self._pages().items():
+            with self.subTest(page=name):
+                form = re.search(r'<form id="(?:time|reschedule)-form"[^>]*>', html)
+                form = form.group(0)
+                self.assertIn("group-[.htmx-request]/day:hidden", form)
+                self.assertIn("group-data-[day-failed]/day:hidden", form)
+
+    def test_the_two_alert_boxes_are_hidden_with_an_outline_try_again(self):
+        boxes = (
+            (
+                "slow",
+                "This is taking longer than usual",
+                "Your internet may be slow. Your answers are kept.",
+            ),
+            (
+                "failed",
+                "Couldn't load the free times",
+                "Check your internet and try again. Your answers are kept.",
+            ),
+        )
+        for name, html in self._pages().items():
+            for kind, title, words in boxes:
+                with self.subTest(page=name, box=kind):
+                    pattern = (
+                        rf'(?s)<div role="alert" hidden data-day-error="{kind}"'
+                        r".*?</button>"
+                    )
+                    box = re.search(pattern, html).group(0)
+                    self.assertIn(title, box)
+                    self.assertIn(words, box)
+                    self.assertIn("<svg", box)
+                    button = re.search(r"<button\b[^>]*data-day-retry[^>]*>", box)
+                    button = button.group(0)
+                    for outline in ("min-h-11", "border-orange-400", "bg-white"):
+                        self.assertIn(outline, button)
+                    self.assertNotIn("bg-violet-600", button)
+                    self.assertIn("Try again", box)
+
+    def test_one_violet_button_and_no_inline_script_or_handler(self):
+        for name, html in self._pages().items():
+            with self.subTest(page=name):
+                self.assertEqual(len(re.findall(VIOLET_BUTTON, html)), 1)
+                for tag in re.findall(r"<script\b[^>]*>", html):
+                    self.assertIn(" src=", tag)
+                self.assertIsNone(re.search(r"\son[a-z]+=", html))
+                self.assertIsNone(re.search(r"<a\b[^>]*\n", html))
+                self.assertNotIn("hx-confirm", html)
+                self.assertNotIn("<!--", html)
+
+    def test_the_owner_layout_loads_the_script_with_defer_and_keeps_history_safe(self):
+        for name, html in self._pages().items():
+            with self.subTest(page=name):
+                script = r'<script src="/static/js/owner/day_area\.[0-9a-f]+\.js" '
+                self.assertRegex(html, script + "defer>")
+                # Back with no saved copy reloads the page (never a swapped body)
+                self.assertIn('"refreshOnHistoryMiss": true', html)
+
+    def test_without_javascript_the_times_are_radio_cards_in_the_post_form(self):
+        html = self._page(self.step2)
+        form = re.search(r'(?s)<form id="time-form".*?</form>', html).group(0)
+        self.assertIn('method="post"', form)
+        self.assertIn("csrfmiddlewaretoken", form)
+        self.assertIn('name="date" value="2026-11-10"', form)
+        self.assertEqual(len(re.findall(r'<input type="radio" name="time"', form)), 9)
+        change = self._page(self.change, date=CHANGE_DAY.isoformat())
+        form = re.search(r'(?s)<form id="reschedule-form".*?</form>', change).group(0)
+        self.assertEqual(len(re.findall(r'<input type="radio" name="time"', form)), 9)
+        # The reason box sits outside the swapped area and joins the form
+        self.assertIn('rows="3" form="reschedule-form"', change)

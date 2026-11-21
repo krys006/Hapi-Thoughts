@@ -41,6 +41,7 @@ from .utils import (
     clear_booking_draft,
     clinic_hours_line,
     create_owner_booking,
+    day_area_redirect,
     create_walkin_appointment,
     filter_appointments,
     first_error_tab,
@@ -67,6 +68,7 @@ from .utils import (
     paging_links,
     pick_booking_time,
     problems_label,
+    render_day_area,
     reschedule_attempt,
     resolve_list_tab,
     save_booking_draft,
@@ -366,8 +368,8 @@ def _booking_back(request, draft, problem):
     elif message:
         messages.warning(request, message)
     if step == 1:
-        return redirect(f"{reverse('owner_book_appointment')}?back=1")
-    return redirect("owner_book_time")
+        return day_area_redirect(request, f"{reverse('owner_book_appointment')}?back=1")
+    return day_area_redirect(request, reverse("owner_book_time"))
 
 
 @login_required
@@ -406,7 +408,7 @@ def owner_book_time(request):
     context.update(booking_summary(owner, draft))
     context["back_url"] = f"{reverse('owner_book_appointment')}?back=1"
     context["cancel_url"] = booking_cancel_url(draft)
-    return render(request, "owner/booking/step2.html", context)
+    return render_day_area(request, "owner/booking/step2.html", context)
 
 
 @login_required
@@ -539,7 +541,9 @@ def owner_appointment_reschedule(request, pk):
     )
     if not owner_can_change(appointment, now):
         messages.error(request, CANNOT_CHANGE_MESSAGE)
-        return redirect("owner_appointment_detail", pk=pk)
+        return day_area_redirect(
+            request, reverse("owner_appointment_detail", args=[pk])
+        )
 
     params, errors = request.GET, None
     if request.method == "POST":
@@ -559,7 +563,7 @@ def owner_appointment_reschedule(request, pk):
     context = owner_reschedule_context(
         request.owner, appointment, params, today, now, errors
     )
-    return render(request, "owner/visits/reschedule.html", context)
+    return render_day_area(request, "owner/visits/reschedule.html", context)
 
 
 # ── Admin — Appointments ──────────────────────────────────────────────────────
