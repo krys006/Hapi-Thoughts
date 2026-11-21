@@ -5,9 +5,11 @@ import shutil
 import tempfile
 from decimal import Decimal
 from html import unescape
+from pathlib import Path
 from unittest import mock
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
 from django.core import mail
@@ -58,7 +60,7 @@ from appointments.utils import (
     time_groups,
     vet_initials,
 )
-from billing.models import BillingReceipt, Service
+from billing.models import BillingItem, BillingReceipt, Service
 from dashboard.templatetags.friendly_dates import friendly_date, long_date
 from medical.models import MedicalRecord
 from notifications.models import Notification
@@ -265,20 +267,24 @@ class CompleteAndNoShowTests(AppointmentTestBase):
                 self._assert_status(appointment, Appointment.PENDING)
 
     def test_success_messages(self):
+        # Complete now also starts the visit's bill, so its flash says so
+        # (the "Marked ... as completed." text stays for a visit that already
+        # has a bill: see AutoBillOnCompleteTests)
         expected = {
-            "admin_appointment_complete": "as completed.",
-            "admin_appointment_no_show": "as a no-show.",
+            "admin_appointment_complete": (
+                "Visit marked as completed. A bill was started for it."
+            ),
+            "admin_appointment_no_show": (
+                "Marked Bantay's appointment on today at 9:00 AM as a no-show."
+            ),
         }
-        for url_name, ending in expected.items():
+        for url_name, message in expected.items():
             with self.subTest(url_name=url_name):
                 appointment = self._appointment(
                     Appointment.CONFIRMED, days_from_today=0
                 )
                 response = self._post(url_name, appointment)
-                self.assertIn(
-                    f"Marked Bantay's appointment on today at 9:00 AM {ending}",
-                    self._messages(response),
-                )
+                self.assertIn(message, self._messages(response))
 
 
 class CancelTests(AppointmentTestBase):
@@ -7331,7 +7337,7 @@ class OwnerVisitDetailPageTests(_OwnerVisitsBase):
         return self._html("owner_appointment_detail", [visit.pk])
 
     def _receipt(self, visit, status, number="HV-2026-0003"):
-        return BillingReceipt.objects.create(
+        receipt = BillingReceipt.objects.create(
             appointment=visit,
             owner=self.owner,
             pet=self.pet,
@@ -7339,6 +7345,16 @@ class OwnerVisitDetailPageTests(_OwnerVisitsBase):
             payment_status=status,
             total_amount=Decimal("850.00"),
         )
+        # An owner only sees an Unpaid bill that has an item (total stays 850)
+        BillingItem.objects.create(
+            receipt=receipt,
+            description="Consultation",
+            quantity=1,
+            unit_price=Decimal("850.00"),
+            subtotal=0,  # Overwritten by BillingItem.save()
+        )
+        receipt.calculate_totals()
+        return receipt
 
     def test_layout_back_bar_and_the_top(self):
         visit = self._visit(days=8, hour=12)
@@ -9293,3 +9309,287 @@ class OwnerBookingKeyTests(_DayAreaBase):
                 box = '<span class="sk h-12 rounded-xl bg-gray-200">'
                 self.assertEqual(html.count(box), 9)
                 self.assertIn('data-swap-error="failed"', html)
+
+
+class AutoBillOnCompleteTests(AppointmentTestBase):
+    """Fix auto-bill on complete: marking a visit Completed starts its bill
+    (the only path that sets COMPLETED is admin_appointment_complete), by
+    the same rules as New receipt from a visit."""
+
+    STARTED = "Visit marked as completed. A bill was started for it."
+    OLD_FLASH = "Marked Bantay's appointment on today at 9:00 AM as completed."
+    DIALOG_LINE = "A bill will be started for this visit."
+
+    def _visit(self, service=None, walk_in=False, days=0):
+        visit = self._appointment(Appointment.CONFIRMED, days_from_today=days)
+        visit.service = service
+        visit.is_walk_in = walk_in
+        visit.save()
+        return visit
+
+    def _service(self, name="Consultation", status=Service.ACTIVE, **fields):
+        fields.setdefault("base_price", Decimal("350.00"))
+        return Service.objects.create(service_name=name, status=status, **fields)
+
+    def _complete(self, visit):
+        # Unread flashes pile up in the cookie; each POST starts clean
+        self.client.cookies.pop("messages", None)
+        return self._post("admin_appointment_complete", visit)
+
+    def _empty_bill(self, visit):
+        bill = BillingReceipt.objects.get(appointment=visit)
+        self.assertEqual(bill.payment_status, BillingReceipt.PENDING)
+        self.assertEqual(bill.billing_date, self.today)
+        self.assertEqual(bill.payment_method, "Cash")
+        self.assertEqual(bill.owner, self.owner)
+        self.assertEqual(bill.pet, self.pet)
+        self.assertFalse(bill.billing_items.exists())
+        return bill
+
+    def test_a_fixed_price_offered_service_is_the_first_item(self):
+        service = self._service()
+        visit = self._visit(service)
+        response = self._complete(visit)
+        self._assert_status(visit, Appointment.COMPLETED)
+        self.assertEqual(BillingReceipt.objects.count(), 1)
+        bill = BillingReceipt.objects.get(appointment=visit)
+        self.assertEqual(bill.payment_status, BillingReceipt.PENDING)
+        self.assertEqual(bill.billing_date, self.today)
+        self.assertEqual(bill.payment_method, "Cash")
+        item = bill.billing_items.get()
+        self.assertEqual(item.service, service)
+        self.assertEqual(item.unit_price, Decimal("350.00"))
+        self.assertEqual(bill.total_amount, Decimal("350.00"))
+        self.assertEqual(self._messages(response), [self.STARTED])
+        self.assertRedirects(
+            response,
+            reverse("admin_appointment_detail", args=[visit.pk]),
+            fetch_redirect_response=False,
+        )
+
+    def test_clinic_use_only_fixed_price_service_is_added_too(self):
+        visit = self._visit(self._service(status=Service.UNLISTED))
+        self._complete(visit)
+        self.assertEqual(BillingReceipt.objects.get().billing_items.count(), 1)
+
+    def test_range_price_no_service_and_closed_or_draft_start_empty(self):
+        range_service = self._service(
+            "Surgery",
+            pricing_type=Service.RANGE,
+            min_price=Decimal("500.00"),
+            max_price=Decimal("900.00"),
+        )
+        cases = {
+            "range": range_service,
+            "none": None,
+            "draft": self._service("Old A", status=Service.DRAFT),
+            "closed": self._service("Old B", status=Service.CLOSED),
+        }
+        for name, service in cases.items():
+            with self.subTest(case=name):
+                visit = self._visit(service)
+                response = self._complete(visit)
+                self._assert_status(visit, Appointment.COMPLETED)
+                self._empty_bill(visit)
+                self.assertEqual(self._messages(response), [self.STARTED])
+
+    def test_a_walk_in_visit_gets_a_bill_the_same_way(self):
+        visit = self._visit(self._service(), walk_in=True)
+        self._complete(visit)
+        bill = BillingReceipt.objects.get(appointment=visit)
+        self.assertEqual(bill.total_amount, Decimal("350.00"))
+
+    def test_a_visit_with_a_bill_in_any_status_gets_no_second_one(self):
+        for number, status in enumerate(
+            (BillingReceipt.PENDING, BillingReceipt.PAID, BillingReceipt.CANCELLED),
+            start=1,
+        ):
+            with self.subTest(status=status):
+                visit = self._visit(self._service(f"S{number}"))
+                bill = BillingReceipt.objects.create(
+                    appointment=visit,
+                    owner=self.owner,
+                    pet=self.pet,
+                    receipt_number=f"HV-2026-010{number}",
+                    payment_status=status,
+                    total_amount=Decimal("10.00"),
+                )
+                response = self._complete(visit)
+                self._assert_status(visit, Appointment.COMPLETED)
+                self.assertEqual(
+                    BillingReceipt.objects.filter(appointment=visit).count(), 1
+                )
+                before = bill.total_amount
+                bill.refresh_from_db()
+                self.assertEqual(bill.payment_status, status)
+                self.assertEqual(bill.total_amount, before)
+                self.assertFalse(bill.billing_items.exists())
+                self.assertEqual(self._messages(response), [self.OLD_FLASH])
+
+    def test_an_archived_owner_or_pet_completes_the_visit_with_no_bill(self):
+        cases = (
+            ("owner", PetOwner, self.owner, "Ana Cruz"),
+            ("pet", Pet, self.pet, "Bantay"),
+        )
+        for label, model, obj, name in cases:
+            with self.subTest(archived=label):
+                model.objects.filter(pk=obj.pk).update(is_archived=True)
+                visit = self._visit(self._service())
+                response = self._complete(visit)
+                self._assert_status(visit, Appointment.COMPLETED)
+                self.assertFalse(BillingReceipt.objects.exists())
+                self.assertEqual(
+                    self._messages(response),
+                    [
+                        "Visit marked as completed. "
+                        f"No bill was started because {name} is archived."
+                    ],
+                )
+                model.objects.filter(pk=obj.pk).update(is_archived=False)
+                visit.delete()
+
+    def test_an_archived_owner_is_named_before_an_archived_pet(self):
+        PetOwner.objects.filter(pk=self.owner.pk).update(is_archived=True)
+        Pet.objects.filter(pk=self.pet.pk).update(is_archived=True)
+        response = self._complete(self._visit())
+        self.assertIn("because Ana Cruz is archived.", self._messages(response)[0])
+
+    def test_completing_twice_never_makes_a_second_bill_or_a_500(self):
+        visit = self._visit(self._service())
+        self._complete(visit)
+        response = self._complete(visit)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(BillingReceipt.objects.count(), 1)
+
+    def test_a_bill_made_meanwhile_is_kept_and_nothing_is_a_500(self):
+        """Two requests at once: the second finds no bill at first, then the
+        OneToOne refuses its save; the first bill stays and the visit is
+        completed."""
+        visit = self._visit(self._service())
+        first = BillingReceipt.objects.create(
+            appointment=visit,
+            owner=self.owner,
+            pet=self.pet,
+            receipt_number="HV-2026-0200",
+        )
+        with mock.patch("billing.utils.visit_receipt", return_value=None):
+            response = self._complete(visit)
+        self.assertEqual(response.status_code, 302)
+        self._assert_status(visit, Appointment.COMPLETED)
+        self.assertEqual(list(BillingReceipt.objects.all()), [first])
+        self.assertEqual(self._messages(response), [self.OLD_FLASH])
+
+    def test_no_notification_is_made_for_the_owner(self):
+        self._complete(self._visit(self._service()))
+        self.assertFalse(
+            Notification.objects.filter(recipient=self.owner.user).exists()
+        )
+
+    def test_a_refused_complete_makes_no_bill(self):
+        future = self._visit(days=2)
+        pending = self._appointment(Appointment.PENDING, days_from_today=0)
+        for visit in (future, pending):
+            self._complete(visit)
+        self.assertFalse(BillingReceipt.objects.exists())
+
+    def test_no_show_makes_no_bill(self):
+        visit = self._visit()
+        self._post("admin_appointment_no_show", visit)
+        self.assertFalse(BillingReceipt.objects.exists())
+
+    def test_the_only_code_that_sets_completed_starts_the_bill(self):
+        """Step 0: admin_appointment_complete is the one path. Anything else
+        that writes COMPLETED would need start_visit_bill too."""
+        base = Path(settings.BASE_DIR)
+        writers = []
+        for path in base.glob("*/*.py"):
+            if path.name.startswith("test") or "migrations" in path.parts:
+                continue
+            text = path.read_text(encoding="utf-8")
+            if re.search(r"\.status\s*=\s*Appointment\.COMPLETED", text):
+                writers.append(path.name)
+        self.assertEqual(writers, ["views.py"])
+        views = (base / "appointments" / "views.py").read_text(encoding="utf-8")
+        self.assertIn("start_visit_bill(appointment)", views)
+
+    def _dialog_page(self, visit):
+        return self.client.get(reverse("admin_appointment_detail", args=[visit.pk]))
+
+    def test_the_dialog_says_a_bill_will_be_started(self):
+        response = self._dialog_page(self._visit())
+        self.assertContains(response, self.DIALOG_LINE, count=1)
+        self.assertContains(
+            response, f'<p class="mt-2 text-base text-gray-700">{self.DIALOG_LINE}</p>'
+        )
+
+    def test_the_dialog_line_is_left_out_when_no_bill_will_be_made(self):
+        visit = self._visit()
+        BillingReceipt.objects.create(
+            appointment=visit,
+            owner=self.owner,
+            pet=self.pet,
+            receipt_number="HV-2026-0300",
+            payment_status=BillingReceipt.CANCELLED,
+        )
+        self.assertNotContains(self._dialog_page(visit), self.DIALOG_LINE)
+        BillingReceipt.objects.all().delete()
+        for model, obj in ((PetOwner, self.owner), (Pet, self.pet)):
+            with self.subTest(archived=model.__name__):
+                model.objects.filter(pk=obj.pk).update(is_archived=True)
+                self.assertNotContains(self._dialog_page(visit), self.DIALOG_LINE)
+                model.objects.filter(pk=obj.pk).update(is_archived=False)
+        self.assertContains(self._dialog_page(visit), self.DIALOG_LINE)
+
+
+class AutoBillAtomicTests(AppointmentTestBase):
+    """Complete saves the status and starts the bill in one atomic block. The
+    IntegrityError catches in billing.utils run after their own savepoint is
+    rolled back, so a lost race never breaks that outer transaction."""
+
+    def _visit(self):
+        return self._appointment(Appointment.CONFIRMED, days_from_today=0)
+
+    def _bill(self, visit=None, number="HV-2026-0400"):
+        return BillingReceipt.objects.create(
+            appointment=visit,
+            owner=self.owner,
+            pet=self.pet,
+            receipt_number=number,
+        )
+
+    def test_a_bill_the_view_did_not_see_is_kept(self):
+        """The "does this visit have a bill" lookup misses once (the other
+        request saved its bill a moment later than the check); the OneToOne
+        then refuses the second save."""
+        visit = self._visit()
+        existing = self._bill(visit)
+        with mock.patch("billing.utils.visit_receipt", side_effect=[None]):
+            response = self._post("admin_appointment_complete", visit)
+        self.assertEqual(response.status_code, 302)
+        self._assert_status(visit, Appointment.COMPLETED)
+        self.assertEqual(BillingReceipt.objects.filter(appointment=visit).count(), 1)
+        self.assertEqual(BillingReceipt.objects.get(appointment=visit).pk, existing.pk)
+        self.assertEqual(
+            self._messages(response),
+            ["Marked Bantay's appointment on today at 9:00 AM as completed."],
+        )
+
+    def test_a_taken_receipt_number_is_retried_inside_the_block(self):
+        """The first number is taken by another receipt: save_new_receipt
+        retries once with the next one, and the visit is still completed."""
+        visit = self._visit()
+        self._bill(number="HV-2026-0400")
+        with mock.patch.object(
+            BillingReceipt,
+            "generate_receipt_number",
+            side_effect=["HV-2026-0400", "HV-2026-0401"],
+        ):
+            response = self._post("admin_appointment_complete", visit)
+        self.assertEqual(response.status_code, 302)
+        self._assert_status(visit, Appointment.COMPLETED)
+        bill = BillingReceipt.objects.get(appointment=visit)
+        self.assertEqual(bill.receipt_number, "HV-2026-0401")
+        self.assertEqual(
+            self._messages(response),
+            ["Visit marked as completed. A bill was started for it."],
+        )

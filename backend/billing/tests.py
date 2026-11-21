@@ -37,6 +37,7 @@ from billing.utils import (
     save_new_receipt,
     services_list_context,
 )
+from medical.models import MedicalRecord
 from notifications.models import Notification
 from pets.models import Pet, PetOwner
 
@@ -7812,3 +7813,131 @@ class OwnerBillsSwapMarkupTests(_BillsSwapBase):
                 self.assertNotIn("{% extends", source)
                 # (the To pay box is yellow; the part's comment names it)
                 self.assertNotIn("border-yellow-300", source)
+
+
+@PLAIN_STATIC
+class OwnerHidesEmptyBillTests(OwnerBillingPageBase):
+    """Fix auto-bill on complete: an Unpaid bill with no items is the
+    clinic's work in progress. Owners see it only once it has an item
+    (owner_receipts); the admin always sees it."""
+
+    def setUp(self):
+        super().setUp()
+        # _bill numbers start here, clear of the empty bill made below
+        self.number = 100
+        self.visit = Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=TODAY,
+            time=datetime.time(9, 0),
+            status=Appointment.COMPLETED,
+        )
+        self.empty = self._empty_receipt(billing_date=TODAY, appointment=self.visit)
+        self.record = MedicalRecord.objects.create(
+            pet=self.pet, record_date=TODAY, appointment=self.visit
+        )
+        self.bill_url = reverse("owner_receipt_detail", args=[self.empty.pk])
+
+    def _fill(self):
+        self._item(self.empty, "250.00", description="Consultation")
+        self.empty.calculate_totals()
+
+    def _as_owner(self, name, *args):
+        self.client.force_login(self.owner.user)
+        return self.client.get(reverse(name, args=args))
+
+    def _pages(self):
+        """(name, response) for every owner page that can show the bill."""
+        return [
+            ("bills", self._as_owner("owner_billing_list")),
+            ("visit", self._as_owner("owner_appointment_detail", self.visit.pk)),
+            (
+                "record",
+                self._as_owner("owner_medical_record", self.pet.pk, self.record.pk),
+            ),
+        ]
+
+    def test_an_empty_bill_is_nowhere_for_the_owner(self):
+        for name, response in self._pages():
+            with self.subTest(page=name):
+                self.assertEqual(response.status_code, 200)
+                self.assertNotContains(response, self.bill_url)
+                self.assertNotContains(response, self.empty.receipt_number)
+        bills = self._as_owner("owner_billing_list")
+        self.assertEqual(bills.context["to_pay_count"], 0)
+        self.assertEqual(bills.context["to_pay_total"], Decimal("0"))
+        self.assertEqual(list(bills.context["receipts"]), [])
+        self.assertFalse(bills.context["has_bills"])
+
+    def test_the_empty_bill_page_is_a_404(self):
+        response = self._as_owner("owner_receipt_detail", self.empty.pk)
+        self.assertEqual(response.status_code, 404)
+
+    def test_the_dashboard_does_not_count_it(self):
+        response = self._as_owner("owner_dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["unpaid_count"], 0)
+        self.assertEqual(response.context["unpaid_total"], Decimal("0"))
+
+    def test_the_header_search_does_not_find_it(self):
+        response = self.client.get(
+            reverse("owner_global_search"), {"q": self.empty.receipt_number}
+        )
+        self.assertEqual(list(response.context["search_receipts"]), [])
+
+    def test_after_one_item_it_shows_everywhere_with_the_right_total(self):
+        self._fill()
+        for name, response in self._pages():
+            with self.subTest(page=name):
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, self.bill_url)
+        bills = self._as_owner("owner_billing_list")
+        self.assertEqual(bills.context["to_pay_count"], 1)
+        self.assertEqual(bills.context["to_pay_total"], Decimal("250.00"))
+        self.assertEqual(
+            self._as_owner("owner_receipt_detail", self.empty.pk).status_code, 200
+        )
+        dashboard = self._as_owner("owner_dashboard")
+        self.assertEqual(dashboard.context["unpaid_count"], 1)
+        self.assertEqual(dashboard.context["unpaid_total"], Decimal("250.00"))
+        found = self.client.get(
+            reverse("owner_global_search"), {"q": self.empty.receipt_number}
+        )
+        self.assertEqual(list(found.context["search_receipts"]), [self.empty])
+
+    def test_a_paid_bill_is_always_shown(self):
+        self._fill()
+        BillingReceipt.objects.filter(pk=self.empty.pk).update(
+            payment_status=BillingReceipt.PAID, payment_date=TODAY
+        )
+        self.assertContains(self._as_owner("owner_billing_list"), self.bill_url)
+
+    def test_the_admin_still_sees_the_empty_bill(self):
+        self.client.force_login(self.admin)
+        listing = self.client.get(reverse("admin_receipt_list"))
+        self.assertContains(listing, self.empty.receipt_number)
+        page = self.client.get(reverse("admin_receipt_detail", args=[self.empty.pk]))
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "No items yet")
+
+    def test_the_query_counts_do_not_change(self):
+        """The check is part of the same query: an empty bill and a full one
+        cost the same as before (the values the other tests use)."""
+        full = self._unpaid()
+        self._paid()
+        # The owner is already logged in (setUp); logging in again inside a
+        # counted block would add the session queries
+        bills = reverse("owner_billing_list")
+        with self.assertNumQueries(BILLS_PAGE_QUERIES):
+            self.assertEqual(self.client.get(bills).status_code, 200)
+        page = reverse("owner_receipt_detail", args=[full.pk])
+        with self.assertNumQueries(RECEIPT_PAGE_QUERIES):
+            self.assertEqual(self.client.get(page).status_code, 200)
+        # (one request first: one-time lookups don't count)
+        self.client.get(reverse("owner_dashboard"))
+        with CaptureQueriesContext(connection) as without:
+            self.client.get(reverse("owner_dashboard"))
+        self._fill()
+        with CaptureQueriesContext(connection) as with_item:
+            self.client.get(reverse("owner_dashboard"))
+        self.assertEqual(len(with_item), len(without))

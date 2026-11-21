@@ -91,6 +91,7 @@ from .utils import (
 )
 
 from accounts.utils import owner_profile_required
+from billing.utils import BILL_ARCHIVED, BILL_STARTED, start_visit_bill
 from notifications.utils import compact_message, notify, when_line
 from dashboard.templatetags.friendly_dates import friendly_date
 
@@ -682,6 +683,13 @@ def _admin_detail_context(
         "receipt": receipt,
         # None / "unpaid" / "paid" / "cancelled" (banner and details row)
         "receipt_state": visit_receipt_state(receipt),
+        # The Complete dialog says a bill will be started (no bill yet, and
+        # neither the owner nor the pet is archived)
+        "bill_will_start": (
+            receipt is None
+            and not appointment.owner.is_archived
+            and not appointment.pet.is_archived
+        ),
         "open_dialog": _open_dialog(cancel_form, reschedule_form),
     }
     context.update(_reschedule_slot_context(reschedule_form))
@@ -883,16 +891,34 @@ def admin_appointment_reject(request, pk):
     return redirect("admin_appointment_detail", pk=pk)
 
 
+def _completed_message(appointment, outcome, name):
+    """The success flash of Complete, by what happened to the visit's bill."""
+    if outcome == BILL_STARTED:
+        return "Visit marked as completed. A bill was started for it."
+    if outcome == BILL_ARCHIVED:
+        return (
+            "Visit marked as completed. "
+            f"No bill was started because {name} is archived."
+        )
+    return (
+        f"Marked {appointment.pet.name}'s appointment on "
+        f"{_when(appointment)} as completed."
+    )
+
+
 @login_required
 def admin_appointment_complete(request, pk):
     """
     Admin action — mark a CONFIRMED appointment as COMPLETED, on or after
-    the appointment date.
+    the appointment date, and start the visit's bill (start_visit_bill) in
+    the same transaction.
     """
     if request.user.role != "admin":
         return redirect("owner_dashboard")
 
-    appointment = get_object_or_404(Appointment, pk=pk)
+    appointment = get_object_or_404(
+        Appointment.objects.select_related("owner", "pet", "service"), pk=pk
+    )
 
     if request.method == "POST":
         if appointment.status != Appointment.CONFIRMED:
@@ -902,13 +928,11 @@ def admin_appointment_complete(request, pk):
         elif appointment.date > timezone.localdate():
             messages.error(request, _too_early_message(appointment))
         else:
-            appointment.status = Appointment.COMPLETED
-            appointment.save()
-            messages.success(
-                request,
-                f"Marked {appointment.pet.name}'s appointment on "
-                f"{_when(appointment)} as completed.",
-            )
+            with transaction.atomic():
+                appointment.status = Appointment.COMPLETED
+                appointment.save()
+                outcome, name = start_visit_bill(appointment)
+            messages.success(request, _completed_message(appointment, outcome, name))
 
     return redirect("admin_appointment_detail", pk=pk)
 

@@ -349,6 +349,7 @@ PENDING or CONFIRMED → CANCELLED
 | Feature | Status |
 |---|---|
 | Generate billing receipt at any point (not restricted to COMPLETED) | `complete` |
+| Bill started automatically when a visit is marked Completed (fixed-price service added as the first item) | `complete` |
 | Add catalog services as billing line items | `complete` |
 | Add manual items (medicines, supplies) as billing line items | `complete` |
 | Each line item: quantity, description, unit price, subtotal | `complete` |
@@ -368,7 +369,7 @@ PENDING or CONFIRMED → CANCELLED
 | Feature | Status |
 |---|---|
 | View billing receipt for completed appointments | `complete` |
-| View full billing history: Unpaid and Paid receipts only (cancelled ones are never shown) | `complete` |
+| View full billing history: Unpaid and Paid receipts only (cancelled ones are never shown); an Unpaid bill appears once it has at least one item | `complete` |
 | Bills page: a yellow "To pay" box with the total and count, the Unpaid bills (never hidden by a filter), or a green "You're all paid up" box; "No bills yet" page when there are none | `complete` (8b-8) |
 | Bills History filter: search by receipt number or pet name plus a period (All time, This month, Last 3 months, this year, last year), a plain GET form, month groups, 25 a page | `complete` (8b-8) |
 | Receipt page (read-only): banner (please pay at the clinic / paid on), pet, bill date, link to the visit, items, subtotal, discount, total, "Paid by"; "Something looks wrong?" line while Unpaid | `complete` (8b-8) |
