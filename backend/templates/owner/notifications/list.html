@@ -13,7 +13,7 @@
     <form method="post" action="{% url 'notification_mark_all_read' %}">
       {% csrf_token %}
       <input type="hidden" name="return_to" value="page">
-      <button type="submit" class="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg px-3 text-base font-medium text-blue-600 hover:bg-blue-50">{% include "components/icon.html" with name="check" class="size-5 shrink-0" %}Mark all as read</button>
+      <button type="submit" class="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg px-3 text-base font-medium text-blue-600 hover:bg-blue-50" data-busy-label="Please wait…">{% include "components/icon.html" with name="check" class="size-5 shrink-0" %}Mark all as read</button>
     </form>
     {% endif %}
   </div>

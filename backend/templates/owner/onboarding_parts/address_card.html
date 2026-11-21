@@ -26,6 +26,8 @@
     <div class="{% if form.address_mode == 'other' %}hidden{% else %}contents{% endif %}" data-address-pick>
       {% include "components/form_field.html" with field=form.address_town required=form.address_required %}
       {% include "components/form_field.html" with field=form.address_barangay required=form.address_required %}
+      {# Loading and "couldn't load" lines for the barangay list (list_states.js) #}
+      {% include "owner/list_state_parts/list_status.html" with target_id=form.address_barangay.auto_id what="barangays" %}
     </div>
     <div class="{% if form.address_mode == 'other' %}contents{% else %}hidden{% endif %}" data-address-typed>
       {% include "components/form_field.html" with field=form.province required=form.address_required %}

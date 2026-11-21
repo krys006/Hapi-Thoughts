@@ -12,6 +12,7 @@ from .utils import (
     PET_OTHER,
     barangay_choices,
     breed_choices,
+    list_state_attrs,
     marinduque_towns,
     match_barangay,
     match_breed,
@@ -321,6 +322,10 @@ class AddressFieldsMixin(forms.Form):
 
     address_required = False
     address_barangays_url = "admin_address_barangays"
+    # Owner forms only: the Town select also carries the list-state hooks
+    # (list_states.js: loading line, 10 s time-out, Try again). The admin
+    # form keeps its plain HTMX attributes.
+    list_states = False
 
     # Form-only address fields. The province always has a value (the select
     # has no empty option); clean() refuses a missing one without a red *.
@@ -419,6 +424,10 @@ class AddressFieldsMixin(forms.Form):
                 "hx-include": "this",
             }
         )
+        if self.list_states:
+            town_field.widget.attrs.update(
+                list_state_attrs(self["address_barangay"].auto_id, "barangays")
+            )
 
         if self.is_bound:
             town = self.data.get(self.add_prefix("address_town"))
@@ -635,6 +644,7 @@ class OwnerOnboardingForm(ErrorCountMixin, AddressFieldsMixin, PetOwnerProfileFo
 
     address_required = True
     address_barangays_url = "owner_address_barangays"
+    list_states = True
 
     class Meta(PetOwnerProfileForm.Meta):
         labels = {
@@ -712,6 +722,8 @@ class SpeciesBreedFieldsMixin(forms.Form):
     """
 
     breed_options_url = "admin_pet_breed_options"
+    # Owner forms only: see AddressFieldsMixin.list_states
+    list_states = False
 
     # Form-only fields, like the owner form's address selects
     species_choice = forms.ChoiceField(
@@ -797,6 +809,10 @@ class SpeciesBreedFieldsMixin(forms.Form):
                 "hx-include": "this",
             }
         )
+        if self.list_states:
+            species_field.widget.attrs.update(
+                list_state_attrs(self["breed_choice"].auto_id, "breeds")
+            )
 
         breed_field = self.fields["breed_choice"]
         breed_field.choices = breed_choices(self._value("species_choice"))
@@ -937,6 +953,7 @@ class OwnerPetForm(
     """
 
     breed_options_url = "owner_pet_breed_options"
+    list_states = True
 
     class Meta:
         model = Pet

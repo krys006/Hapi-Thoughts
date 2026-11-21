@@ -24,6 +24,6 @@
 {# The cancel sheet: only for a visit that can still be cancelled #}
 {% if buttons == "change" %}
   {% url 'owner_appointment_cancel' appointment.pk as cancel_url %}
-  {% include "components/bottom_sheet.html" with id="cancel-sheet" title=sheet.title text=sheet.text action_url=cancel_url action_label=sheet.action_label action_icon="calendar-x" keep_label="Keep the visit" body_template="owner/visits_parts/cancel_body.html" %}
+  {% include "components/bottom_sheet.html" with id="cancel-sheet" title=sheet.title text=sheet.text action_url=cancel_url action_label=sheet.action_label action_icon="calendar-x" keep_label="Keep the visit" body_template="owner/visits_parts/cancel_body.html" busy_label="Sending…" %}
 {% endif %}
 {% endblock %}

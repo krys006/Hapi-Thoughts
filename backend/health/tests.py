@@ -542,7 +542,9 @@ class OwnerHealthListPageTests(HealthTestBase):
         html = response.content.decode()
         back = reverse("owner_account")
         self.assertRegex(html, rf'(?s)<a href="{back}"[^>]*>.*?Back to Account</a>')
-        self.assertRegex(html, rf'<a href="{back}" class="[^"]*" aria-current="page">')
+        # Slice 8b-10b-1: the tab link has data attributes after aria-current
+        lit = rf'<a href="{back}" class="[^"]*" aria-current="page"[^>]*>'
+        self.assertRegex(html, lit)
         self.assertIn(">Health library</h1>", html)
         self.assertIn("Short guides from the clinic about common illnesses.", html)
 
@@ -716,7 +718,8 @@ class OwnerHealthArticlePageTests(HealthTestBase):
         self.assertTemplateNotUsed(response, "base_dashboard.html")
         html = response.content.decode()
         account = reverse("owner_account")
-        lit = rf'<a href="{account}" class="[^"]*" aria-current="page">'
+        # Slice 8b-10b-1: the tab link has data attributes after aria-current
+        lit = rf'<a href="{account}" class="[^"]*" aria-current="page"[^>]*>'
         self.assertRegex(html, lit)
         main = _main(response)
         self.assertIn('text-violet-700">Health library</p>', main)

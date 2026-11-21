@@ -7,7 +7,9 @@
   Usage:
     {% include "components/bottom_sheet.html" with id="logout-sheet" title="Log out of Hapi Tutz?" text="You'll need your password to sign in again." action_url=logout_url action_label="Yes, log out" action_icon="log-out" keep_label="Stay logged in" %}
   Parameters: id, title, text (optional), action_url, action_label,
-  action_icon, keep_label. The action button is red (danger): the page's one
+  action_icon, keep_label, busy_label (optional, default "Please wait…": the
+  words the action button shows while the form is sending, js/owner/loading.js).
+  The action button is red (danger): the page's one
   violet button stays elsewhere. Both buttons are the same size, stacked.
   body_template (optional): a template included inside the POST form, above
   the action button, for form controls the action needs (the pet profile's
@@ -23,7 +25,7 @@
       <form method="post" action="{{ action_url }}"{% if body_template %} class="space-y-5"{% endif %}>
         {% csrf_token %}
         {% if body_template %}{% include body_template %}{% endif %}
-        <button type="submit" class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-red-600 text-lg font-semibold text-white hover:bg-red-700">
+        <button type="submit" class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-red-600 text-lg font-semibold text-white hover:bg-red-700" data-busy-label="{{ busy_label|default:'Please wait…' }}">
           {% include "components/icon.html" with name=action_icon %}
           {{ action_label }}
         </button>

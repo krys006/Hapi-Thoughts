@@ -2,7 +2,8 @@
   Bottom bar of the booking flow (block bottom_bar of layouts/owner.html):
   an outline Back link (not on step 1) and the one violet button, the same
   height. Needs form_id (the form it submits), next_label and next_icon;
-  optional back_url. With disabled=True (no pet to book for) the button is
+  optional back_url and busy_label (the words on the button while it sends,
+  default "Please wait…"). With disabled=True (no pet to book for) the button is
   gray and does nothing, and hint says why under it.
 {% endcomment %}
 <div class="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white pb-[env(safe-area-inset-bottom)]" data-bar="one">
@@ -12,7 +13,7 @@
       {% if disabled %}
         <button type="button" disabled class="flex min-h-14 flex-1 cursor-not-allowed items-center justify-center gap-2 rounded-2xl bg-gray-200 text-lg font-semibold text-gray-500">{{ next_label }}{% include "components/icon.html" with name=next_icon class="size-5 shrink-0" %}</button>
       {% else %}
-        <button type="submit" form="{{ form_id }}" class="flex min-h-14 flex-1 cursor-pointer items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700">{{ next_label }}{% include "components/icon.html" with name=next_icon class="size-5 shrink-0" %}</button>
+        <button type="submit" form="{{ form_id }}" class="flex min-h-14 flex-1 cursor-pointer items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700" data-busy-label="{{ busy_label|default:'Please wait…' }}">{{ next_label }}{% include "components/icon.html" with name=next_icon class="size-5 shrink-0" %}</button>
       {% endif %}
     </div>
     {% if disabled and hint %}<p class="mt-2 text-center text-base text-gray-600">{{ hint }}</p>{% endif %}

@@ -8,6 +8,10 @@
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
   <script src="{% static 'js/shared/flash.js' %}" defer></script>
   <script src="{% static 'js/shared/password_toggle.js' %}" defer></script>
+  <script src="{% static 'js/owner/loading.js' %}" defer></script>
+  {# Same owner scripts as layouts/owner.html: list states and late or broken pictures #}
+  <script src="{% static 'js/owner/list_states.js' %}" defer></script>
+  <script src="{% static 'js/shared/photo_fallback.js' %}" defer></script>
 </head>
 {# Owner sign-in pages (logged out): violet band, white card overlapping it, links below. No tabs, no staff link. #}
 <body class="min-h-screen bg-gray-50">
@@ -33,5 +37,8 @@
       {% block below_card %}{% endblock %}
     </div>
   </div>
+
+  {# Loading states: hidden until js/owner/loading.js shows them #}
+  {% include "layouts/owner_parts/loading.html" %}
 </body>
 </html>

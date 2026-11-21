@@ -19,7 +19,7 @@
     <form method="post" action="{% url 'owner_resend_verification' %}">
       {% csrf_token %}
       <input type="hidden" name="email" value="{{ unconfirmed_email }}">
-      <button type="submit" class="btn btn-outline min-h-12 w-full font-semibold">{% include "components/icon.html" with name="mail" %}Send the link again</button>
+      <button type="submit" class="btn btn-outline min-h-12 w-full font-semibold" data-busy-label="Sending…">{% include "components/icon.html" with name="mail" %}Send the link again</button>
     </form>
   {% endif %}
 
@@ -34,7 +34,7 @@
     {% url 'forgot_password' as forgot_url %}
     {% include "owner/auth_parts/password_field.html" with field_id="id_password" field_name="password" label="Password" forgot_url=forgot_url autofocus=email %}
     <label class="flex min-h-11 cursor-pointer items-center gap-3 text-base text-gray-800"><input type="checkbox" name="remember" class="size-5 shrink-0 accent-violet-600"{% if remember %} checked{% endif %}>Keep me logged in</label>
-    <button type="submit" class="btn btn-primary min-h-12 w-full text-lg font-semibold">Log in</button>
+    <button type="submit" class="btn btn-primary min-h-12 w-full text-lg font-semibold" data-busy-label="Logging in…">Log in</button>
   </form>
 
   {% include "owner/auth_parts/or_line.html" %}

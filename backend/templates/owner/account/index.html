@@ -34,6 +34,6 @@
 </div>
 
 {% url 'logout' as logout_url %}
-{% include "components/bottom_sheet.html" with id="logout-sheet" title="Log out of Hapi Tutz?" text="You'll need your email and password (or Google) to sign in again." action_url=logout_url action_label="Yes, log out" action_icon="log-out" keep_label="Stay logged in" %}
+{% include "components/bottom_sheet.html" with id="logout-sheet" title="Log out of Hapi Tutz?" text="You'll need your email and password (or Google) to sign in again." action_url=logout_url action_label="Yes, log out" action_icon="log-out" keep_label="Stay logged in" busy_label="Logging out…" %}
 
 {% endblock %}

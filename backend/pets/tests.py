@@ -1,7 +1,10 @@
+import json
 import re
 from datetime import date, datetime, time, timedelta
 from datetime import timezone as dt_timezone
 from decimal import Decimal
+from html import unescape
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from allauth.socialaccount.models import SocialAccount
@@ -43,6 +46,7 @@ from pets.utils import (
     barangays_for,
     breed_choices,
     breeds_for,
+    issue_form_token,
     marinduque_towns,
     match_barangay,
     match_breed,
@@ -51,9 +55,12 @@ from pets.utils import (
     owner_list_context,
     owner_pet_profile_context,
     owner_pets_context,
+    page_form_token,
     pet_list_context,
     psgc_marinduque,
+    save_pet_once,
     species_options,
+    spend_form_token,
 )
 
 User = get_user_model()
@@ -65,6 +72,17 @@ SEND_FAILED = (
 
 def _messages(response):
     return [str(m) for m in get_messages(response.wsgi_request)]
+
+
+def _form_token(response):
+    """Slice 8b-10b-2: the one-time form_token a rendered pet form carries."""
+    match = re.search(r'name="form_token" value="([^"]+)"', response.content.decode())
+    return match.group(1)
+
+
+def _with_token(client, url, data):
+    """The POST data plus the form_token the page at `url` hands out (a GET)."""
+    return {**data, "form_token": _form_token(client.get(url))}
 
 
 def _admin(test):
@@ -213,7 +231,10 @@ class PetAvatarTests(SimpleTestCase):
         self.assertIn('loading="lazy"', html)
         self.assertIn("object-cover", html)
         self.assertNotIn("No photo", html)
-        self.assertNotIn("<svg", html)
+        # Slice 8b-10b-2 (was: assertNotIn("<svg")): the species icon tile is
+        # always there, behind the photo, so the icon shows while it loads
+        self.assertIn("<svg", html)
+        self.assertLess(html.index("<svg"), html.index("<img"))
 
     def test_placeholder_has_label_and_thin_icon(self):
         html = self._avatar(Pet(name="Kitty", species="Persian cat"), "lg")
@@ -5961,8 +5982,12 @@ class AddPetNextBookTests(TestCase):
     def _book_url(self, pet):
         return f"{reverse('owner_book_appointment')}?pet={pet.pk}"
 
+    def _post_data(self, **extra):
+        """POST plus the page's one-time form_token (Slice 8b-10b-2)."""
+        return _with_token(self.client, self.url, {**self.POST, **extra})
+
     def test_next_book_goes_to_booking_with_the_new_pet(self):
-        response = self.client.post(f"{self.url}?next=book", self.POST)
+        response = self.client.post(f"{self.url}?next=book", self._post_data())
         pet = Pet.objects.get(owner=self.owner)
         self.assertRedirects(
             response, self._book_url(pet), fetch_redirect_response=False
@@ -5975,14 +6000,16 @@ class AddPetNextBookTests(TestCase):
         )
 
     def test_the_hidden_field_also_counts(self):
-        response = self.client.post(self.url, {**self.POST, "next": "book"})
+        response = self.client.post(self.url, self._post_data(next="book"))
         pet = Pet.objects.get(owner=self.owner)
         self.assertRedirects(
             response, self._book_url(pet), fetch_redirect_response=False
         )
 
     def test_the_booking_page_starts_with_that_pet(self):
-        response = self.client.post(f"{self.url}?next=book", self.POST, follow=True)
+        response = self.client.post(
+            f"{self.url}?next=book", self._post_data(), follow=True
+        )
         pet = Pet.objects.get(owner=self.owner)
         self.assertEqual(response.context["form"]["pet"].value(), pet.pk)
 
@@ -5997,7 +6024,7 @@ class AddPetNextBookTests(TestCase):
         for query in queries:
             with self.subTest(query=query):
                 Pet.objects.all().delete()
-                response = self.client.post(f"{self.url}{query}", self.POST)
+                response = self.client.post(f"{self.url}{query}", self._post_data())
                 pet = Pet.objects.get(owner=self.owner)
                 self.assertRedirects(
                     response,
@@ -6006,7 +6033,7 @@ class AddPetNextBookTests(TestCase):
                 )
 
     def test_a_junk_hidden_field_is_ignored(self):
-        response = self.client.post(self.url, {**self.POST, "next": "https://x.test/"})
+        response = self.client.post(self.url, self._post_data(next="https://x.test/"))
         pet = Pet.objects.get(owner=self.owner)
         self.assertRedirects(
             response,
@@ -6031,7 +6058,8 @@ class AddPetNextBookTests(TestCase):
         self.assertContains(response, '<input type="hidden" name="next" value="book">')
         # The pet form has no action: the next POST goes to the same URL.
         # The hidden field alone also carries it.
-        again = self.client.post(self.url, {**self.POST, "next": "book"})
+        # (the token comes from a fresh GET of the page: _post_data)
+        again = self.client.post(self.url, self._post_data(next="book"))
         pet = Pet.objects.get(owner=self.owner)
         self.assertRedirects(again, self._book_url(pet), fetch_redirect_response=False)
 
@@ -6518,15 +6546,20 @@ class OwnerPetFormTests(TestCase):
         mine.user.is_onboarded = True
         mine.user.save()
         other = _owner(first="Ben", last="Reyes", email="ben@example.com")
+        add = reverse("owner_pet_add")
         response = self.client.post(
-            reverse("owner_pet_add"),
-            {
-                "name": "Rex",
-                "species_choice": "Dog",
-                "gender": "male",
-                "owner": other.pk,
-                "owner_id": other.pk,
-            },
+            add,
+            _with_token(
+                self.client,
+                add,
+                {
+                    "name": "Rex",
+                    "species_choice": "Dog",
+                    "gender": "male",
+                    "owner": other.pk,
+                    "owner_id": other.pk,
+                },
+            ),
         )
         pet = Pet.objects.get(name="Rex")
         self.assertRedirects(
@@ -6568,10 +6601,13 @@ class OnboardingPagesTests(TestCase):
         self.assertRedirects(response, self.step2, fetch_redirect_response=False)
 
     def _pet(self, **changes):
+        # Slice 8b-10b-2: step 2 carries a one-time form_token, so the pet is
+        # posted with the one the page hands out (call after _to_step2)
         return {
             "name": "Snow",
             "species_choice": "Cat",
             "gender": "female",
+            "form_token": _form_token(self.client.get(self.step2)),
             **changes,
         }
 
@@ -6928,6 +6964,7 @@ class OwnerAddPetPageTests(TestCase):
 
     def test_next_book_still_returns_with_the_pet_picked(self):
         post = {"name": "Bantay", "species_choice": "Dog", "gender": "unknown"}
+        post = _with_token(self.client, self.url, post)
         response = self.client.post(f"{self.url}?next=book", post)
         pet = Pet.objects.get(owner=self.owner)
         self.assertRedirects(
@@ -6938,7 +6975,7 @@ class OwnerAddPetPageTests(TestCase):
 
     def test_without_next_it_goes_to_the_pet(self):
         post = {"name": "Bantay", "species_choice": "Dog", "gender": "unknown"}
-        response = self.client.post(self.url, post)
+        response = self.client.post(self.url, _with_token(self.client, self.url, post))
         pet = Pet.objects.get(owner=self.owner)
         self.assertRedirects(
             response,
@@ -8196,7 +8233,12 @@ class OwnerBarGapAndPhotoTileTests(TestCase):
         self.client.post(step1, data)
         self._assert_room(self.client.get(step2).content.decode(), "tall")
         self.client.post(
-            step2, {"name": "Snow", "species_choice": "Cat", "gender": "female"}
+            step2,
+            _with_token(
+                self.client,
+                step2,
+                {"name": "Snow", "species_choice": "Cat", "gender": "female"},
+            ),
         )
         step3 = self.client.get(reverse("owner_onboarding_step3"))
         self._assert_room(step3.content.decode(), "one")
@@ -8252,9 +8294,19 @@ class OwnerBarGapAndPhotoTileTests(TestCase):
         }
         for name, url in pages.items():
             with self.subTest(page=name):
-                tag = self._photo_tag(self.client.get(url).content.decode(), "Browny")
+                html = self.client.get(url).content.decode()
+                tag = self._photo_tag(html, "Browny")
                 self.assertIn("overflow-hidden", tag)
-                self.assertIn("bg-violet-50", tag)
+                # Slice 8b-10b-2 (was: "bg-violet-50" on the <img>): the tint
+                # lives on the tile behind the photo, which holds the species
+                # icon; a tinted <img> would hide the icon while it loads
+                self.assertNotIn("bg-violet-50", tag)
+                self.assertRegex(
+                    html,
+                    r'(?s)<span class="[^"]*bg-violet-50[^"]*"[^>]*>'
+                    r"(?:(?!</span>).)*<svg(?:(?!</span>).)*"
+                    r'<img [^>]*alt="Photo of Browny"',
+                )
 
 
 class OwnerPetEditPageTests(TestCase):
@@ -8535,7 +8587,8 @@ class AddPetBookingModeTests(TestCase):
         self.assertIn('type="submit"', found[0])
 
     def test_back_on_step_1_with_the_pet_picked_and_the_flash(self):
-        response = self.client.post(f"{self.url}?next=book", self.POST, follow=True)
+        post = _with_token(self.client, self.url, self.POST)
+        response = self.client.post(f"{self.url}?next=book", post, follow=True)
         pet = Pet.objects.get(owner=self.owner)
         self.assertEqual(
             response.redirect_chain[-1][0],
@@ -8553,7 +8606,8 @@ class AddPetBookingModeTests(TestCase):
         self.assertIn(" checked", checked[0])
 
     def test_without_booking_mode_the_flash_and_page_are_the_old_ones(self):
-        response = self.client.post(self.url, self.POST)
+        post = _with_token(self.client, self.url, self.POST)
+        response = self.client.post(self.url, post)
         pet = Pet.objects.get(owner=self.owner)
         self.assertRedirects(
             response,
@@ -8711,7 +8765,11 @@ class OwnerDetailsPageTests(TestCase):
         photo = PetOwner.objects.get(pk=self.owner.pk).profile_photo
         html = self._html()
         self.assertIn(f'<img src="{photo.url}"', html)
-        self.assertNotIn(">AC</span>", html)
+        # The initials now stay in the tile as the base behind the photo, and
+        # the "No photo yet" label goes (was: no initials at all)
+        self.assertIn(">AC</span>", html)
+        self.assertNotIn('aria-label="No photo yet"', html)
+        self.assertLess(html.index(">AC</span>"), html.index(f'<img src="{photo.url}"'))
 
     def test_the_three_scripts_are_loaded(self):
         html = self._html()
@@ -9036,3 +9094,542 @@ class ContactLinkEmptyRowTests(TestCase):
         response = self.client.post(url, {**OWNER_POST, "email": "ana@example.com"})
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.owner.contact_links.count(), 1)
+
+
+# ── Slice 8b-10b-2: one-time form token and the owner list states ────────────
+
+ALREADY_ADDED = "That pet was already added."
+PET_POST = {"name": "Bantay", "species_choice": "Dog", "gender": "unknown"}
+
+
+def _template_source(name):
+    return engines["django"].get_template(name).template.source
+
+
+def _session_request(session=None, post=None):
+    """A stand-in with a plain-dict session, enough for the token helpers."""
+    return SimpleNamespace(
+        session={} if session is None else session,
+        method="POST" if post is not None else "GET",
+        POST=post or {},
+    )
+
+
+class FormTokenHelperTests(SimpleTestCase):
+    """issue_form_token / spend_form_token / page_form_token (session dict)."""
+
+    def test_a_token_is_random_and_url_safe(self):
+        request = _session_request()
+        first = issue_form_token(request, "add_pet")
+        second = issue_form_token(request, "add_pet")
+        self.assertNotEqual(first, second)
+        for token in (first, second):
+            self.assertRegex(token, r"^[A-Za-z0-9_-]{22}$")
+
+    def test_a_token_can_be_spent_once(self):
+        request = _session_request()
+        token = issue_form_token(request, "add_pet")
+        self.assertTrue(spend_form_token(request, "add_pet", token))
+        self.assertFalse(spend_form_token(request, "add_pet", token))
+        self.assertEqual(request.session["form_tokens"]["add_pet"], [])
+
+    def test_a_missing_or_wrong_token_is_refused(self):
+        request = _session_request()
+        issue_form_token(request, "add_pet")
+        for value in (None, "", "not-issued"):
+            with self.subTest(value=value):
+                self.assertFalse(spend_form_token(request, "add_pet", value))
+        self.assertEqual(len(request.session["form_tokens"]["add_pet"]), 1)
+
+    def test_nothing_issued_yet_is_refused(self):
+        self.assertFalse(spend_form_token(_session_request(), "add_pet", "x"))
+
+    def test_at_most_five_per_name_and_the_oldest_is_dropped(self):
+        request = _session_request()
+        tokens = [issue_form_token(request, "add_pet") for _ in range(7)]
+        self.assertEqual(request.session["form_tokens"]["add_pet"], tokens[2:])
+        self.assertFalse(spend_form_token(request, "add_pet", tokens[0]))
+        self.assertFalse(spend_form_token(request, "add_pet", tokens[1]))
+        for token in tokens[2:]:
+            with self.subTest(token=token):
+                self.assertTrue(spend_form_token(request, "add_pet", token))
+
+    def test_each_form_name_has_its_own_tokens(self):
+        request = _session_request()
+        add = issue_form_token(request, "add_pet")
+        onboarding = issue_form_token(request, "onboarding_pet")
+        self.assertFalse(spend_form_token(request, "onboarding_pet", add))
+        self.assertFalse(spend_form_token(request, "add_pet", onboarding))
+        self.assertTrue(spend_form_token(request, "add_pet", add))
+        self.assertTrue(spend_form_token(request, "onboarding_pet", onboarding))
+        for _ in range(6):
+            issue_form_token(request, "add_pet")
+        self.assertEqual(len(request.session["form_tokens"]["onboarding_pet"]), 0)
+
+    def test_a_damaged_session_value_starts_again(self):
+        request = _session_request({"form_tokens": "junk"})
+        token = issue_form_token(request, "add_pet")
+        self.assertTrue(spend_form_token(request, "add_pet", token))
+
+    def test_the_page_keeps_a_still_valid_posted_token(self):
+        request = _session_request()
+        token = issue_form_token(request, "add_pet")
+        request.method, request.POST = "POST", {"form_token": token}
+        self.assertEqual(page_form_token(request, "add_pet"), token)
+        self.assertEqual(request.session["form_tokens"]["add_pet"], [token])
+
+    def test_the_page_issues_a_new_token_for_a_get_or_a_bad_posted_one(self):
+        request = _session_request()
+        fresh = page_form_token(request, "add_pet")
+        self.assertEqual(request.session["form_tokens"]["add_pet"], [fresh])
+        request.method, request.POST = "POST", {"form_token": "junk"}
+        replaced = page_form_token(request, "add_pet")
+        self.assertNotIn(replaced, ("junk", fresh))
+        self.assertIn(replaced, request.session["form_tokens"]["add_pet"])
+
+
+class OwnerAddPetTokenTests(TestCase):
+    """Add pet: a one-time form_token stops a repeated POST adding a pet twice."""
+
+    def setUp(self):
+        self.owner = _login_owner(self)
+        self.owner.user.is_onboarded = True
+        self.owner.user.save()
+        self.url = reverse("owner_pet_add")
+        self.my_pets = reverse("owner_pet_list")
+
+    def _token(self):
+        return _form_token(self.client.get(self.url))
+
+    def test_the_page_carries_the_hidden_field_and_the_session_has_the_token(self):
+        response = self.client.get(self.url)
+        self.assertContains(response, '<input type="hidden" name="form_token" value="')
+        token = _form_token(response)
+        self.assertIn(token, self.client.session["form_tokens"]["add_pet"])
+        self.assertEqual(response.context["form_token"], token)
+
+    def test_a_valid_post_creates_one_pet(self):
+        data = {**PET_POST, "form_token": self._token()}
+        response = self.client.post(self.url, data)
+        pet = Pet.objects.get(owner=self.owner)
+        self.assertRedirects(
+            response,
+            reverse("owner_pet_detail", args=[pet.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(_messages(response), ["Bantay has been added."])
+
+    def test_the_same_post_again_adds_nothing_and_says_so(self):
+        data = {**PET_POST, "form_token": self._token()}
+        self.client.post(self.url, data, follow=True)
+        self.assertEqual(Pet.objects.count(), 1)
+        again = self.client.post(self.url, data)
+        self.assertEqual(Pet.objects.count(), 1)
+        self.assertRedirects(again, self.my_pets, fetch_redirect_response=False)
+        self.assertEqual(_messages(again), [ALREADY_ADDED])
+
+    def test_a_missing_or_wrong_token_adds_nothing(self):
+        self._token()
+        for data in (PET_POST, {**PET_POST, "form_token": "not-issued"}):
+            with self.subTest(data=data):
+                response = self.client.post(self.url, data)
+                self.assertRedirects(
+                    response, self.my_pets, fetch_redirect_response=False
+                )
+                self.assertEqual(_messages(response), [ALREADY_ADDED])
+                self.assertFalse(Pet.objects.exists())
+                self.client.get(self.my_pets)  # shows (and clears) the flash
+
+    def test_an_invalid_post_keeps_the_same_token_and_a_later_post_works(self):
+        token = self._token()
+        invalid = {"name": "", "species_choice": "", "form_token": token}
+        response = self.client.post(self.url, invalid)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(_form_token(response), token)
+        self.assertIn(token, self.client.session["form_tokens"]["add_pet"])
+        self.assertFalse(Pet.objects.exists())
+        valid = self.client.post(self.url, {**PET_POST, "form_token": token})
+        self.assertEqual(valid.status_code, 302)
+        self.assertEqual(Pet.objects.filter(owner=self.owner).count(), 1)
+        self.assertNotIn(token, self.client.session["form_tokens"]["add_pet"])
+
+    def test_an_invalid_post_with_a_bad_token_gets_a_fresh_one(self):
+        response = self.client.post(
+            self.url, {"name": "", "species_choice": "", "form_token": "junk"}
+        )
+        token = _form_token(response)
+        self.assertNotEqual(token, "junk")
+        self.assertIn(token, self.client.session["form_tokens"]["add_pet"])
+
+    def test_next_book_a_repeat_goes_to_booking_step_one(self):
+        data = {**PET_POST, "form_token": self._token()}
+        self.client.post(f"{self.url}?next=book", data, follow=True)
+        self.assertEqual(Pet.objects.count(), 1)
+        again = self.client.post(f"{self.url}?next=book", data)
+        self.assertEqual(Pet.objects.count(), 1)
+        self.assertRedirects(
+            again, reverse("owner_book_appointment"), fetch_redirect_response=False
+        )
+        self.assertEqual(_messages(again), [ALREADY_ADDED])
+
+    def test_the_hidden_next_field_repeat_also_goes_to_booking(self):
+        data = {**PET_POST, "next": "book", "form_token": self._token()}
+        self.client.post(self.url, data, follow=True)
+        again = self.client.post(self.url, data)
+        self.assertRedirects(
+            again, reverse("owner_book_appointment"), fetch_redirect_response=False
+        )
+
+    def test_a_token_is_spent_in_the_save_and_comes_back_if_the_save_fails(self):
+        request = _session_request(post={})
+        token = issue_form_token(request, "add_pet")
+        request.POST = {"form_token": token}
+        form = SimpleNamespace(save=lambda commit=True: Pet(name="Max", species="Dog"))
+        with patch.object(Pet, "save", side_effect=RuntimeError("storage is down")):
+            with self.assertRaises(RuntimeError):
+                save_pet_once(request, form, self.owner, "add_pet")
+        self.assertFalse(Pet.objects.exists())
+        self.assertEqual(request.session["form_tokens"]["add_pet"], [token])
+        pet = save_pet_once(request, form, self.owner, "add_pet")
+        self.assertEqual(pet.owner, self.owner)
+        self.assertIsNone(save_pet_once(request, form, self.owner, "add_pet"))
+        self.assertEqual(Pet.objects.count(), 1)
+
+
+class OnboardingStepTwoTokenTests(TestCase):
+    """Onboarding step 2: the same one-time form_token; a repeat goes to step 3."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="newbie",
+            email="newbie@example.com",
+            password="pass-12345-x",
+            role=User.PET_OWNER,
+        )
+        self.client.force_login(self.user)
+        self.step2 = reverse("owner_onboarding_step2")
+        self.step3 = reverse("owner_onboarding_step3")
+        step1 = {"first_name": "Ana", "last_name": "Cruz", **OWNER_ADDRESS}
+        step1.update(_links_post())
+        response = self.client.post(reverse("owner_onboarding_step1"), step1)
+        self.assertRedirects(response, self.step2, fetch_redirect_response=False)
+
+    def _token(self):
+        return _form_token(self.client.get(self.step2))
+
+    def test_the_page_carries_the_hidden_field(self):
+        response = self.client.get(self.step2)
+        self.assertContains(response, '<input type="hidden" name="form_token" value="')
+        token = _form_token(response)
+        self.assertIn(token, self.client.session["form_tokens"]["onboarding_pet"])
+
+    def test_a_valid_post_creates_the_pet_and_goes_to_step_three(self):
+        response = self.client.post(
+            self.step2, {**PET_POST, "form_token": self._token()}
+        )
+        self.assertRedirects(response, self.step3, fetch_redirect_response=False)
+        self.assertEqual(Pet.objects.get().name, "Bantay")
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.is_onboarded)
+
+    def test_the_same_post_again_adds_nothing_and_goes_to_step_three(self):
+        data = {**PET_POST, "form_token": self._token()}
+        self.client.post(self.step2, data, follow=True)
+        again = self.client.post(self.step2, data)
+        self.assertEqual(Pet.objects.count(), 1)
+        self.assertRedirects(again, self.step3, fetch_redirect_response=False)
+        self.assertEqual(_messages(again), [ALREADY_ADDED])
+
+    def test_a_missing_token_adds_nothing_and_goes_to_the_dashboard(self):
+        response = self.client.post(self.step2, PET_POST)
+        self.assertRedirects(
+            response, reverse("owner_dashboard"), fetch_redirect_response=False
+        )
+        self.assertEqual(_messages(response), [ALREADY_ADDED])
+        self.assertFalse(Pet.objects.exists())
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.is_onboarded)
+
+    def test_a_token_from_the_add_pet_page_does_not_work_here(self):
+        session = self.client.session
+        session["form_tokens"] = {"add_pet": ["from-the-other-form"]}
+        session.save()
+        response = self.client.post(
+            self.step2, {**PET_POST, "form_token": "from-the-other-form"}
+        )
+        self.assertEqual(_messages(response), [ALREADY_ADDED])
+        self.assertFalse(Pet.objects.exists())
+
+    def test_an_invalid_post_keeps_the_same_token_and_a_later_post_works(self):
+        token = self._token()
+        invalid = {"name": "", "species_choice": "", "form_token": token}
+        response = self.client.post(self.step2, invalid)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(_form_token(response), token)
+        self.assertFalse(Pet.objects.exists())
+        valid = self.client.post(self.step2, {**PET_POST, "form_token": token})
+        self.assertRedirects(valid, self.step3, fetch_redirect_response=False)
+        self.assertEqual(Pet.objects.count(), 1)
+
+    def test_skip_needs_no_token_and_a_repeated_skip_says_nothing(self):
+        first = self.client.post(self.step2, {"action": "skip"})
+        self.assertRedirects(
+            first, reverse("owner_dashboard"), fetch_redirect_response=False
+        )
+        again = self.client.post(self.step2, {"action": "skip"})
+        self.assertRedirects(
+            again, reverse("owner_dashboard"), fetch_redirect_response=False
+        )
+        self.assertEqual(_messages(again), [])
+
+    def test_a_pet_posted_after_skipping_goes_to_the_dashboard(self):
+        self.client.post(self.step2, {"action": "skip"})
+        response = self.client.post(self.step2, PET_POST)
+        self.assertRedirects(
+            response, reverse("owner_dashboard"), fetch_redirect_response=False
+        )
+        self.assertEqual(_messages(response), [ALREADY_ADDED])
+        self.assertFalse(Pet.objects.exists())
+
+    def test_onboarded_without_a_session_pet_goes_to_the_dashboard(self):
+        self.user.is_onboarded = True
+        self.user.save()
+        self.assertNotIn("onboarding_pet_id", self.client.session)
+        response = self.client.post(self.step2, PET_POST)
+        self.assertRedirects(
+            response, reverse("owner_dashboard"), fetch_redirect_response=False
+        )
+        self.assertEqual(_messages(response), [ALREADY_ADDED])
+        self.assertFalse(Pet.objects.exists())
+
+    def test_onboarded_with_a_session_pet_goes_to_step_three(self):
+        self.user.is_onboarded = True
+        self.user.save()
+        session = self.client.session
+        session["onboarding_pet_id"] = 1
+        session.save()
+        response = self.client.post(self.step2, PET_POST)
+        self.assertRedirects(response, self.step3, fetch_redirect_response=False)
+        self.assertFalse(Pet.objects.exists())
+
+
+class OwnerHtmxListStatesTests(TestCase):
+    """The owner town and species lists: loading line, time-out, Try again."""
+
+    PARTS = (
+        "owner/list_state_parts/list_status.html",
+        "owner/onboarding_parts/address_card.html",
+        "owner/pet_form_parts/about_card.html",
+        "owner/pet_form_parts/fields.html",
+        "owner/pet_form_parts/photo_card.html",
+        "owner/pet_form_parts/more_card.html",
+        "owner/pets/add.html",
+        "owner/onboarding/step1.html",
+        "owner/onboarding/step2.html",
+        "owner/profile/edit.html",
+    )
+
+    def setUp(self):
+        self.owner = _login_owner(self)
+        self.owner.user.is_onboarded = True
+        self.owner.user.save()
+
+    def _html(self, name, *args):
+        response = self.client.get(reverse(name, args=args))
+        self.assertEqual(response.status_code, 200, name)
+        return response.content.decode()
+
+    def _onboarding(self):
+        """Steps 1 and 2 for a new owner (a second client)."""
+        user = User.objects.create_user(
+            username="newbie",
+            email="newbie@example.com",
+            password="pass-12345-x",
+            role=User.PET_OWNER,
+        )
+        row = PetOwner.objects.create(user=user, first_name="Nia", last_name="Lim")
+        self.client.force_login(user)
+        session = self.client.session
+        session["onboarding_owner_id"] = row.pk
+        session.save()
+        return (
+            self._html("owner_onboarding_step1"),
+            self._html("owner_onboarding_step2"),
+        )
+
+    def _attrs(self, html, name):
+        """The attributes of <select name="..."> (entities decoded)."""
+        tag = re.search(rf'<select name="{name}"[^>]*>', html)
+        self.assertIsNotNone(tag, name)
+        pairs = re.findall(r'([\w-]+)="([^"]*)"', tag.group(0))
+        return {key: unescape(value) for key, value in pairs}
+
+    def _assert_hooks(self, attrs, kind, target):
+        self.assertEqual(attrs["data-list-field"], kind)
+        self.assertEqual(attrs["hx-target"], f"#{target}")
+        self.assertEqual(attrs["hx-indicator"], f"#{target}-loading")
+        self.assertEqual(attrs["data-list-error"], f"#{target}-failed")
+        self.assertEqual(attrs["hx-sync"], "this:replace")
+        self.assertEqual(json.loads(attrs["hx-request"]), {"timeout": 10000})
+
+    # ── The owner fields carry the hooks ─────────────────────────────────────
+
+    def test_the_town_select_carries_the_hooks_on_step_one_and_my_details(self):
+        step1, _ = self._onboarding()
+        self.client.force_login(self.owner.user)
+        details = self._html("owner_profile_edit")
+        for page, html in (("step 1", step1), ("my details", details)):
+            with self.subTest(page=page):
+                attrs = self._attrs(html, "address_town")
+                self._assert_hooks(attrs, "barangays", "id_address_barangay")
+                self.assertEqual(attrs["hx-get"], reverse("owner_address_barangays"))
+
+    def test_the_species_select_carries_the_hooks_on_add_pet_and_step_two(self):
+        _, step2 = self._onboarding()
+        self.client.force_login(self.owner.user)
+        add = self._html("owner_pet_add")
+        for page, html in (("add pet", add), ("step 2", step2)):
+            with self.subTest(page=page):
+                attrs = self._attrs(html, "species_choice")
+                self._assert_hooks(attrs, "breeds", "id_breed_choice")
+                self.assertEqual(attrs["hx-get"], reverse("owner_pet_breed_options"))
+
+    def test_the_hooks_come_from_the_owner_forms_only(self):
+        owner_town = OwnerOnboardingForm().fields["address_town"].widget.attrs
+        owner_species = OwnerPetForm().fields["species_choice"].widget.attrs
+        admin_town = AdminPetOwnerForm().fields["address_town"].widget.attrs
+        admin_species = AdminPetForm().fields["species_choice"].widget.attrs
+        for attrs in (owner_town, owner_species):
+            self.assertIn("data-list-field", attrs)
+        for attrs in (admin_town, admin_species):
+            for name in ("data-list-field", "data-list-error", "hx-indicator"):
+                self.assertNotIn(name, attrs)
+            self.assertNotIn("hx-request", attrs)
+            self.assertNotIn("hx-sync", attrs)
+
+    def test_edit_pet_has_no_list_to_load(self):
+        pet = _pet(self.owner, "Bantay", "Dog", "Aspin")
+        html = self._html("owner_pet_edit", pet.pk)
+        self.assertNotIn("data-list-field", html)
+        self.assertNotIn("hx-get", html)
+        self.assertNotIn("data-list-retry", html)
+
+    # ── The two lines next to the field ──────────────────────────────────────
+
+    def _lines(self):
+        step1, step2 = self._onboarding()
+        return (
+            ("barangays", "id_address_barangay", "Loading barangays…", step1),
+            ("breeds", "id_breed_choice", "Loading breeds…", step2),
+        )
+
+    def test_the_loading_line_is_a_hidden_status_with_a_spinner_and_words(self):
+        for kind, target, words, html in self._lines():
+            with self.subTest(kind=kind):
+                line = re.search(
+                    rf'(?s)<p id="{target}-loading" role="status" class="([^"]*)">'
+                    r"(.*?)</p>",
+                    html,
+                )
+                self.assertIsNotNone(line)
+                classes = line.group(1).split()
+                self.assertIn("hidden", classes)
+                self.assertIn("[&.htmx-request]:flex", classes)
+                self.assertIn("text-base", classes)
+                self.assertNotIn("text-sm", classes)
+                self.assertIn("motion-safe:animate-spin", line.group(2))
+                self.assertTrue(line.group(2).strip().endswith(words))
+
+    def test_the_loading_line_follows_its_select(self):
+        for kind, target, words, html in self._lines():
+            with self.subTest(kind=kind):
+                select = html.index(f'id="{target}"')
+                self.assertLess(select, html.index(f'id="{target}-loading"'))
+                self.assertLess(select, html.index(f'id="{target}-failed"'))
+
+    def test_the_retry_line_is_a_hidden_alert_with_an_outline_button(self):
+        sentence = "Couldn't load the list. Check your internet and try again."
+        for kind, target, words, html in self._lines():
+            with self.subTest(kind=kind):
+                tag = re.search(rf'<div id="{target}-failed"[^>]*>', html).group(0)
+                self.assertIn('role="alert"', tag)
+                self.assertRegex(tag, r"\shidden[\s>]")
+                self.assertIn("data-list-failed", tag)
+                start = html.index(tag)
+                block = html[start : html.index("</div>", start)]
+                self.assertIn(sentence, block)
+                button = re.search(r"<button\b[^>]*data-list-retry[^>]*>", block)
+                self.assertIsNotNone(button)
+                self.assertIn('type="button"', button.group(0))
+                classes = re.search(r'class="([^"]*)"', button.group(0))
+                classes = classes.group(1).split()
+                for word in ("min-h-11", "bg-white", "border", "rounded-xl"):
+                    self.assertIn(word, classes)
+                self.assertNotIn("bg-violet-600", classes)
+                self.assertTrue(block.strip().endswith("Try again</button>"))
+                self.assertIn("M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74", block)
+
+    def test_the_words_live_in_the_template(self):
+        part = _template_source("owner/list_state_parts/list_status.html")
+        for words in (
+            "Loading {{ what }}…",
+            "Couldn't load the list. Check your internet and try again.",
+            "Try again",
+        ):
+            self.assertIn(words, part)
+
+    def test_each_owner_page_has_one_violet_button_still(self):
+        step1, step2 = self._onboarding()
+        pages = (step1, step2, self._html("owner_profile_edit"))
+        for html in pages:
+            found = re.findall(VIOLET_BUTTON, html)
+            self.assertLessEqual(len(found), 1)
+
+    # ── The admin pages keep their plain fields ──────────────────────────────
+
+    def test_the_admin_forms_do_not_carry_the_owner_hooks(self):
+        _admin(self)
+        pages = (
+            self._html("admin_owner_create"),
+            self._html("admin_pet_add", self.owner.pk),
+        )
+        for html in pages:
+            for word in (
+                "data-list-field",
+                "data-list-error",
+                "data-list-retry",
+                "hx-request",
+                "hx-sync",
+                "Loading barangays",
+                "Loading breeds",
+                "Couldn't load the list",
+            ):
+                with self.subTest(word=word):
+                    self.assertNotIn(word, html)
+        # (the admin layout's own search box uses hx-indicator: check the fields)
+        fields = (
+            self._attrs(pages[0], "address_town"),
+            self._attrs(pages[1], "species_choice"),
+        )
+        for attrs in fields:
+            self.assertTrue(attrs["hx-get"].startswith("/"))
+            for name in ("hx-indicator", "hx-request", "hx-sync", "data-list-field"):
+                self.assertNotIn(name, attrs)
+
+    # ── Template rules ───────────────────────────────────────────────────────
+
+    def test_every_link_is_on_one_line_and_there_is_no_inline_script(self):
+        for name in self.PARTS:
+            source = _template_source(name)
+            with self.subTest(file=name):
+                for link in re.findall(r"(?s)<a\b.*?</a>", source):
+                    self.assertNotIn("\n", link)
+                self.assertIsNone(re.search(r"<script(?![^>]*\ssrc=)", source))
+                self.assertIsNone(re.search(r"\son[a-z]+\s*=", source))
+                self.assertNotIn("hx-confirm", source)
+                self.assertNotIn("<!--", source)
+
+    def test_the_rendered_pages_have_no_inline_script(self):
+        step1, step2 = self._onboarding()
+        for html in (step1, step2):
+            self.assertIsNone(re.search(r"<script(?![^>]*\ssrc=)", html))

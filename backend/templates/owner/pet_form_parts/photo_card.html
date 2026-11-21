@@ -1,17 +1,25 @@
 {% comment %}
-  Pet photo (optional): a label styled as a button around a visually hidden
-  file input; shared/photo_input.js shows the chosen file's name. Needs form
+  Pet photo (optional): the paw tile, a label styled as a button around a visually
+  hidden file input. shared/photo_input.js shows the chosen picture in the tile
+  ([data-photo-tile] holds the paw icon and the hidden [data-photo-preview]), turns the
+  button's words into data-label-change, says "Photo chosen" in the sr-only live line
+  ([data-photo-chosen], words in data-chosen-format) and, if the browser can't show the
+  picture (a HEIC), shows the file name in [data-photo-name] instead. Needs form
   (OwnerPetForm).
 {% endcomment %}
 <section class="card" aria-labelledby="photo-title" data-photo>
   <h2 id="photo-title" class="text-xl font-semibold text-gray-900">Photo <span class="text-base font-normal text-gray-600">(optional)</span></h2>
   <div class="mt-4 flex flex-wrap items-center gap-4">
-    <span class="grid size-16 shrink-0 place-content-center rounded-2xl bg-violet-50 text-violet-600 ring-1 ring-violet-200">{% include "components/icon.html" with name="paw-print" class="size-9 shrink-0" stroke="1.5" %}</span>
+    <span class="relative grid size-24 shrink-0 place-content-center overflow-hidden rounded-2xl bg-violet-50 text-violet-600 ring-1 ring-violet-200" data-photo-tile>
+      <span class="grid place-content-center" data-photo-base>{% include "components/icon.html" with name="paw-print" class="size-12 shrink-0" stroke="1.5" %}</span>
+      <img alt="" hidden class="absolute inset-0 size-full rounded-2xl object-cover" data-photo-preview>
+    </span>
     <div class="min-w-0 space-y-2">
-      <label for="{{ form.photo.id_for_label }}" class="btn btn-outline min-h-12 font-semibold has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-violet-600">
-        {% include "components/icon.html" with name="upload" %}Choose a photo
+      <label for="{{ form.photo.id_for_label }}" class="btn btn-outline min-h-12 font-semibold has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-violet-600" data-label-change="Change photo">
+        {% include "components/icon.html" with name="upload" %}<span data-photo-label>Choose a photo</span>
         <input type="file" name="{{ form.photo.html_name }}" id="{{ form.photo.id_for_label }}" accept="image/*" class="sr-only" aria-describedby="photo-help" data-photo-input>
       </label>
+      <p class="sr-only" role="status" aria-live="polite" data-photo-chosen data-chosen-format="Photo chosen: {name}"></p>
       <p class="text-base font-medium text-gray-800" aria-live="polite" hidden data-photo-name></p>
       <p id="photo-help" class="text-base text-gray-600">Without a photo, a picture of the species is shown.</p>
       {% if form.errors %}

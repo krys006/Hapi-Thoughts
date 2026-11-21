@@ -67,7 +67,7 @@
   <div class="mx-auto max-w-3xl px-4 pb-5 pt-3">
     <div class="flex gap-3">
       <a href="{% url 'owner_appointment_detail' appointment.pk %}" class="inline-flex min-h-14 items-center justify-center rounded-2xl border border-gray-300 bg-white px-5 text-lg font-medium text-gray-800 hover:bg-gray-50">Keep old time</a>
-      <button type="submit" form="reschedule-form" class="flex min-h-14 flex-1 cursor-pointer items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700">{% include "components/icon.html" with name="check" class="size-5 shrink-0" %}Send new time</button>
+      <button type="submit" form="reschedule-form" class="flex min-h-14 flex-1 cursor-pointer items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700" data-busy-label="Sending…">{% include "components/icon.html" with name="check" class="size-5 shrink-0" %}Send new time</button>
     </div>
   </div>
 </div>

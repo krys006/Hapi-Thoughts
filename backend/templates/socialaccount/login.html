@@ -9,7 +9,7 @@
 {% block content %}
   <form method="post">
     {% csrf_token %}
-    <button type="submit" class="btn btn-primary min-h-12 w-full text-lg font-semibold">Continue</button>
+    <button type="submit" class="btn btn-primary min-h-12 w-full text-lg font-semibold" data-busy-label="Opening Google…">Continue</button>
   </form>
 {% endblock %}
 

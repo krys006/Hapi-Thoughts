@@ -3,6 +3,8 @@
   Used by onboarding step 2 and the Add pet page. Needs form (OwnerPetForm).
   Help text and errors are text-base (large).
 {% endcomment %}
+{# One-time token: a repeat of this form (Try again after a cut-off request) adds nothing #}
+<input type="hidden" name="form_token" value="{{ form_token }}">
 {% with large=True %}
   {% include "owner/pet_form_parts/photo_card.html" %}
   {% include "owner/pet_form_parts/about_card.html" %}

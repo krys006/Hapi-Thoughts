@@ -1,24 +1,30 @@
 {% load pet_display %}
 {% comment %}
-  Edit page photo row: the saved photo (or the species icon on a violet tile),
-  "Change photo" (a label around a hidden file input; shared/photo_input.js
-  shows the chosen name) and, when the pet has a photo, "Remove photo", the
-  form's own photo-clear checkbox. Needs form, pet, pet_name, photo_url.
+  Edit page photo row: the species icon on a violet tile with the saved photo laid over
+  it (the icon shows through while the picture loads), "Change photo" (a label around a
+  hidden file input) and, when the pet has a photo, "Remove photo", the form's own
+  photo-clear checkbox. shared/photo_input.js shows a newly chosen picture in the tile
+  ([data-photo-tile]: [data-photo-base] the icon, img[data-photo] the saved photo,
+  [data-photo-preview] the new one), says "Photo chosen" in the sr-only live line and,
+  if the browser can't show it (a HEIC), shows the file name in [data-photo-name]. Ticking
+  Remove photo (data-photo-clear) puts the species icon back and clears the file input.
+  Needs form, pet, pet_name, photo_url.
 {% endcomment %}
 <section class="flex items-center gap-4" aria-label="Photo of {{ pet_name }}" data-photo>
-  {% if photo_url %}
-    <img src="{{ photo_url }}" alt="Photo of {{ pet_name }}" class="size-24 shrink-0 rounded-2xl object-cover ring-1 ring-black/10">
-  {% else %}
-    <span class="grid size-24 shrink-0 place-content-center rounded-2xl bg-violet-50 text-violet-600 ring-1 ring-violet-200" role="img" aria-label="No photo of {{ pet_name }} yet">{% include "components/icon.html" with name=pet.species|species_icon class="size-12 shrink-0" stroke="1.5" %}</span>
-  {% endif %}
+  <span class="relative grid size-24 shrink-0 place-content-center overflow-hidden rounded-2xl bg-violet-50 text-violet-600 ring-1 ring-violet-200" data-photo-tile>
+    <span class="grid place-content-center"{% if not photo_url %} role="img" aria-label="No photo of {{ pet_name }} yet"{% endif %} data-photo-base>{% include "components/icon.html" with name=pet.species|species_icon class="size-12 shrink-0" stroke="1.5" %}</span>
+    {% if photo_url %}<img src="{{ photo_url }}" alt="Photo of {{ pet_name }}" loading="lazy" decoding="async" data-photo class="absolute inset-0 size-full overflow-hidden rounded-2xl object-cover">{% endif %}
+    <img alt="" hidden class="absolute inset-0 size-full rounded-2xl object-cover" data-photo-preview>
+  </span>
   <div class="min-w-0 space-y-2">
-    <label for="{{ form.photo.id_for_label }}" class="btn btn-outline min-h-12 font-semibold has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-violet-600">
-      {% include "components/icon.html" with name="upload" %}Change photo
+    <label for="{{ form.photo.id_for_label }}" class="btn btn-outline min-h-12 font-semibold has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-violet-600" data-label-change="Change photo">
+      {% include "components/icon.html" with name="upload" %}<span data-photo-label>Change photo</span>
       <input type="file" name="{{ form.photo.html_name }}" id="{{ form.photo.id_for_label }}" accept="image/*" class="sr-only" data-photo-input>
     </label>
+    <p class="sr-only" role="status" aria-live="polite" data-photo-chosen data-chosen-format="Photo chosen: {name}"></p>
     <p class="text-base font-medium text-gray-800" aria-live="polite" hidden data-photo-name></p>
     {% if photo_url %}
-      <label for="{{ form.photo.html_name }}-clear_id" class="flex min-h-11 cursor-pointer items-center gap-2 text-base font-medium text-red-700"><input type="checkbox" name="{{ form.photo.html_name }}-clear" id="{{ form.photo.html_name }}-clear_id" class="size-5 accent-red-600">Remove photo</label>
+      <label for="{{ form.photo.html_name }}-clear_id" class="flex min-h-11 cursor-pointer items-center gap-2 text-base font-medium text-red-700"><input type="checkbox" name="{{ form.photo.html_name }}-clear" id="{{ form.photo.html_name }}-clear_id" class="size-5 accent-red-600" data-photo-clear>Remove photo</label>
       <p class="text-base text-gray-600">Tick it, then choose Save changes.</p>
     {% endif %}
     {% if form.errors %}<p class="text-base font-medium text-gray-800">Choose a new photo again. Browsers can't keep it after a problem.</p>{% endif %}

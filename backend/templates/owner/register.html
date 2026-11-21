@@ -20,7 +20,7 @@
     {% include "owner/auth_parts/password_field.html" with field_id=form.password2.id_for_label field_name="password2" label="Type the password again" errors=form.password2.errors autocomplete="new-password" %}
     {# Terms and Privacy links come from settings.TERMS_URL / PRIVACY_URL; only this page has them #}
     <p class="text-center text-base text-gray-700">By creating an account, you agree to our <a href="{{ terms_url }}" target="_blank" rel="noopener" class="font-medium text-blue-600 underline underline-offset-2">Terms<span class="sr-only"> (opens in a new tab)</span></a> and <a href="{{ privacy_url }}" target="_blank" rel="noopener" class="font-medium text-blue-600 underline underline-offset-2">Privacy Policy<span class="sr-only"> (opens in a new tab)</span></a>.</p>
-    <button type="submit" class="btn btn-primary min-h-12 w-full text-lg font-semibold">Create account</button>
+    <button type="submit" class="btn btn-primary min-h-12 w-full text-lg font-semibold" data-busy-label="Please wait…">Create account</button>
   </form>
 {% endblock %}
 

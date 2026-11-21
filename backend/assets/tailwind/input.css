@@ -99,3 +99,44 @@
     @apply inline-flex items-center rounded-full px-2.5 py-1 text-sm font-medium whitespace-nowrap;
   }
 }
+
+/* ---------- Owner loading states (Slice 8b-10b-1) ----------
+   Set by static/js/owner/loading.js; markup in layouts/owner_parts/loading.html.
+   Outside any layer on purpose: these must beat the utility classes on the
+   button they dim (bg-violet-600, hover:bg-violet-700). */
+
+/* The tapped submit button: lighter violet (white text keeps 4:1), wait cursor.
+   Never the real disabled attribute: the button's name and value are still sent. */
+:is(.bg-violet-600, .btn-primary)[data-busy] {
+  @apply cursor-wait bg-violet-500;
+}
+[data-busy]:not(:is(.bg-violet-600, .btn-primary)) {
+  @apply cursor-wait opacity-70;
+}
+
+/* The other submit buttons of the same form */
+[data-busy-muted] {
+  @apply cursor-wait opacity-60;
+}
+
+/* The old page, dimmed while the next one opens */
+main[aria-busy="true"] {
+  @apply opacity-60;
+}
+
+/* Moving piece of the top bar. Without this media query (reduced motion) it
+   stays a still, full-width strip; the spinners use motion-safe:animate-spin. */
+@keyframes loading-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(260%);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  [data-loading-piece] {
+    width: 40%;
+    animation: loading-slide 1.2s ease-in-out infinite;
+  }
+}

@@ -24,7 +24,7 @@
     {% else %}
       {% include "owner/auth_parts/email_field.html" with field_id="resend-email" field_name="email" label="Email address" %}
     {% endif %}
-    <button type="submit" class="btn btn-outline min-h-12 w-full font-semibold">{% include "components/icon.html" with name="mail" %}Send the link again</button>
+    <button type="submit" class="btn btn-outline min-h-12 w-full font-semibold" data-busy-label="Sending…">{% include "components/icon.html" with name="mail" %}Send the link again</button>
   </form>
 {% endblock %}
 

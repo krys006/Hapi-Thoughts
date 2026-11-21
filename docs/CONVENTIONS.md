@@ -950,6 +950,52 @@ Loads compiled `app.css`, vendored HTMX, `js/shared/dialogs.js` and
   has `autofocus`; Escape, backdrop and keep close it. Optional
   `body_template="…"` includes a template inside that form, above the action
   button (the pet profile's reason radios, 8b-5).
+- Loading states (Slice 8b-10b-1): both owner layouts include
+  `layouts/owner_parts/loading.html` (everything hidden: live region, top bar,
+  "Opening…" pill, slow box, offline strip, spinner `<template>`, and
+  `#loading-root` holding the words) and load `js/owner/loading.js`. The script
+  has no English text and never sets the real `disabled` attribute (a disabled
+  button is not sent, and views read the button's name and value); with
+  JavaScript off every form is a plain post. Data attributes:
+  `data-busy-label` on every POST form's submit button (what it says while
+  sending: "Saving…", "Sending…", "Please wait…"), `data-open-label` on tab and
+  back-bar links ("Opening Bills…"), `data-tab-link` on a bottom tab (it gets
+  the spinner), `data-loading="off"` on a form or link that must stay silent.
+  `components/bottom_sheet.html` takes an optional `busy_label` (default
+  "Please wait…"); `booking_parts/bottom_bar.html` too. A form with an `hx-`
+  attribute is left to HTMX. Words only in templates; motion only inside
+  `motion-safe:` or `prefers-reduced-motion: no-preference`.
+- List states (Slice 8b-10b-2): an owner select that loads a list over HTMX
+  (Town → barangays, Species → breeds) gets its hooks from
+  `list_state_attrs()` in `pets/utils.py`, switched on by `list_states = True`
+  on the owner forms only (the admin forms stay plain): `data-list-field`,
+  `hx-request='{"timeout": 10000}'` (10 s, like 10b-1), `hx-sync="this:replace"`,
+  `hx-indicator="#<target id>-loading"`, `data-list-error="#<target id>-failed"`.
+  The page includes `owner/list_state_parts/list_status.html` next to the target
+  select: a hidden `role="status"` loading line (the `htmx-request` class shows
+  it, spinner + words) and a hidden `role="alert"` line with an OUTLINE
+  "Try again" button (`data-list-retry`, `min-h-11`). `js/owner/list_states.js`
+  locks the target select (`disabled`) while the request runs, keeps it locked
+  and shows the line on `htmx:responseError` / `sendError` / `timeout`, and
+  retries with `htmx.trigger(select, "change")`. No words in the script.
+- Photo tile (8b-10b-2): a pet picture is always the violet-50 tile with the
+  species icon (stroke 1.5) and the photo laid over it
+  (`<img data-photo loading="lazy" decoding="async" class="absolute inset-0 …
+  object-cover">`, no background of its own); `js/shared/photo_fallback.js`
+  (owner layouts only) hides a broken `img[data-photo]` so the icon stays.
+  Photo preview hooks (`js/shared/photo_input.js`, previews only in a card with
+  a `[data-photo-tile]`): `data-photo-input`, `data-photo-tile`,
+  `data-photo-base`, `data-photo-preview` (hidden `<img alt="">`),
+  `data-photo-name` (visible fallback, HEIC), `data-label-change` + `data-photo-label`
+  (the button's words), `data-photo-chosen` + `data-chosen-format` (sr-only live
+  line), `data-photo-clear` (Remove photo). A card without a tile (the medical
+  Add file dialog) only shows the file name.
+- One-time form token (8b-10b-2): `issue_form_token`, `spend_form_token`,
+  `page_form_token`, `save_pet_once` in `pets/utils.py`. A hidden `form_token`
+  in a form that must not run twice (Add pet, onboarding step 2); the view
+  spends it right before the create, inside the same `transaction.atomic()`;
+  a missing, wrong or spent token creates nothing and redirects with an info
+  flash. Session only (`form_tokens`, 5 per form name); no model.
 - Error pages: `templates/404.html`, `403.html`, `500.html` are standalone
   (own `<html>`, `app.css`, no layout, no `{% url %}`, no context values, no
   database), one button "Go to the home page" to `/`. Django's default
