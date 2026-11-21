@@ -4,6 +4,10 @@
     {% csrf_token %}
     <h2 id="complete-dialog-title" class="text-xl font-bold">Mark {{ appointment.pet.name }}'s visit as completed?</h2>
     <p class="mt-2 text-base text-gray-700">Do this once the visit on <b>{{ appointment.date|friendly_date:"mid" }} at {{ appointment.time|time:"g:i A" }}</b> is over. It can't be undone.</p>
+    {# Only when the bill will really be made (see bill_will_start) #}
+    {% if bill_will_start %}
+      <p class="mt-2 text-base text-gray-700">A bill will be started for this visit.</p>
+    {% endif %}
     {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, mark as completed" icon="check" %}
   </form>
 </dialog>

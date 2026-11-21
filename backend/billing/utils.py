@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q
+from django.db.models import Count, Exists, OuterRef, Q
 from django.db.models.functions import Coalesce, Lower
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect
@@ -176,10 +176,13 @@ OWNER_RECEIPT_STATUSES = (BillingReceipt.PENDING, BillingReceipt.PAID)
 
 
 def owner_receipts(owner):
-    """The receipts this owner can see: their own, Unpaid or Paid."""
+    """The receipts this owner can see: their own, Unpaid or Paid. An Unpaid
+    one only once it has an item (the clinic may still be filling it in); the
+    check is part of the same query. Every owner page reads receipts here."""
+    has_items = Exists(BillingItem.objects.filter(receipt=OuterRef("pk")))
     return BillingReceipt.objects.filter(
         owner=owner, payment_status__in=OWNER_RECEIPT_STATUSES
-    )
+    ).filter(Q(payment_status=BillingReceipt.PAID) | has_items)
 
 
 # ── Owner bills page (Slice 8a-2a) ───────────────────────────────────────────
@@ -501,6 +504,33 @@ def create_visit_receipt(appointment, first_service=None):
         if existing is None:
             raise
         return existing, False
+
+
+# What start_visit_bill did (see appointments' admin_appointment_complete)
+BILL_STARTED = "started"
+BILL_EXISTS = "exists"
+BILL_ARCHIVED = "archived"
+
+
+def start_visit_bill(appointment):
+    """
+    Starts the bill of a visit that was just marked Completed, by the same
+    rules as New receipt from a visit (Unpaid, today, cash; a fixed-price
+    Offered / Clinic use only service as the first item). Call inside
+    transaction.atomic(). Returns (outcome, name):
+      BILL_EXISTS   the visit already has a bill (any status): nothing made;
+      BILL_ARCHIVED nothing made, the owner (first) or pet is archived: name;
+      BILL_STARTED  a bill was made (or another save made it a moment ago
+                    and is kept, so a second request never makes two).
+    """
+    if visit_receipt(appointment):
+        return BILL_EXISTS, ""
+    if appointment.owner.is_archived:
+        return BILL_ARCHIVED, appointment.owner.full_name
+    if appointment.pet.is_archived:
+        return BILL_ARCHIVED, appointment.pet.name
+    _receipt, created = create_visit_receipt(appointment, visit_service(appointment))
+    return (BILL_STARTED if created else BILL_EXISTS), ""
 
 
 def _receipts_back():

@@ -21,7 +21,7 @@ from django.utils import timezone
 
 from appointments.models import Appointment
 from appointments.utils import get_clinic_settings
-from billing.models import BillingReceipt, Service
+from billing.models import BillingItem, BillingReceipt, Service
 from dashboard.context_processors import shell
 from dashboard.templatetags.friendly_dates import (
     friendly_date,
@@ -476,6 +476,14 @@ class OwnerSearchReceiptTests(ShellTestBase):
                 start=1,
             )
         }
+        # An owner only sees an Unpaid bill that has an item
+        BillingItem.objects.create(
+            receipt=self.receipts[BillingReceipt.PENDING],
+            description="Consultation",
+            quantity=1,
+            unit_price=Decimal("100.00"),
+            subtotal=0,  # Overwritten by BillingItem.save()
+        )
         self.client.force_login(self.owner.user)
 
     def _search(self, q):
@@ -1658,12 +1666,22 @@ class OwnerDashboardContextTests(DashboardV5TestBase):
 
     def _receipt(self, status, amount, owner=None):
         number = BillingReceipt.objects.count() + 1
-        return BillingReceipt.objects.create(
+        receipt = BillingReceipt.objects.create(
             receipt_number=f"HV-2026-{number:04d}",
             owner=owner or self.owner,
             payment_status=status,
             total_amount=Decimal(amount),
         )
+        # An owner only sees an Unpaid bill that has an item (same total)
+        BillingItem.objects.create(
+            receipt=receipt,
+            description="Consultation",
+            quantity=1,
+            unit_price=Decimal(amount),
+            subtotal=0,  # Overwritten by BillingItem.save()
+        )
+        receipt.calculate_totals()
+        return receipt
 
     def _new_owner(self, name="Ben"):
         user = User.objects.create_user(
@@ -1936,12 +1954,22 @@ class OwnerDashboardPageTests(DashboardV5TestBase):
 
     def _receipt(self, status, amount, owner=None):
         number = BillingReceipt.objects.count() + 1
-        return BillingReceipt.objects.create(
+        receipt = BillingReceipt.objects.create(
             receipt_number=f"HV-2026-{number:04d}",
             owner=owner or self.owner,
             payment_status=status,
             total_amount=Decimal(amount),
         )
+        # An owner only sees an Unpaid bill that has an item (same total)
+        BillingItem.objects.create(
+            receipt=receipt,
+            description="Consultation",
+            quantity=1,
+            unit_price=Decimal(amount),
+            subtotal=0,  # Overwritten by BillingItem.save()
+        )
+        receipt.calculate_totals()
+        return receipt
 
     def _other_owner(self, with_pet=True):
         user = User.objects.create_user(

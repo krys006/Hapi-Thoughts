@@ -20,7 +20,7 @@ from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
 from appointments.models import Appointment, ClinicSettings
-from billing.models import BillingReceipt, Service
+from billing.models import BillingItem, BillingReceipt, Service
 from dashboard.templatetags.friendly_dates import friendly_date_on
 from notifications.models import Notification, NotificationPreference
 from pets.models import Pet, PetOwner
@@ -6749,13 +6749,23 @@ class OwnerMedicalRecordPageTests(FrozenMedicalTestBase):
         )
 
     def _receipt(self, visit, status):
-        return BillingReceipt.objects.create(
+        receipt = BillingReceipt.objects.create(
             receipt_number=BillingReceipt.generate_receipt_number(),
             owner=self.owner,
             pet=self.pet,
             appointment=visit,
             payment_status=status,
         )
+        # An owner only sees an Unpaid bill that has an item (a free one, so
+        # the total stays 0 as before)
+        BillingItem.objects.create(
+            receipt=receipt,
+            description="Consultation",
+            quantity=1,
+            unit_price=Decimal("0.00"),
+            subtotal=0,  # Overwritten by BillingItem.save()
+        )
+        return receipt
 
     def _article(self, response):
         """The page's own markup (the shell is not part of this slice)."""
@@ -7285,7 +7295,7 @@ class OwnerRecordPageTests(FrozenMedicalTestBase):
         )
 
     def _receipt(self, visit, status, total="850.00"):
-        return BillingReceipt.objects.create(
+        receipt = BillingReceipt.objects.create(
             receipt_number=BillingReceipt.generate_receipt_number(),
             owner=self.owner,
             pet=self.pet,
@@ -7293,6 +7303,16 @@ class OwnerRecordPageTests(FrozenMedicalTestBase):
             payment_status=status,
             total_amount=Decimal(total),
         )
+        # An owner only sees an Unpaid bill that has an item (same total)
+        BillingItem.objects.create(
+            receipt=receipt,
+            description="Consultation",
+            quantity=1,
+            unit_price=Decimal(total),
+            subtotal=0,  # Overwritten by BillingItem.save()
+        )
+        receipt.calculate_totals()
+        return receipt
 
     def _follow_up(self, date=datetime.date(2026, 11, 10), **fields):
         fields.setdefault("follow_up_required", True)
