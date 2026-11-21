@@ -16,7 +16,7 @@
   </div>
 
   {# The calendar's days are links (with JavaScript they swap only this area); only the times are posted, with the picked day. hx-history="false": a saved copy must never show the loading block. #}
-  <div id="day-area" class="group/day space-y-5" aria-live="polite" aria-busy="false" hx-history="false">
+  <div id="day-area" class="group/swap space-y-5" data-swap-area aria-live="polite" aria-busy="false" hx-history="false">
     {% include "owner/booking_parts/_day_area.html" %}
   </div>
 </div>

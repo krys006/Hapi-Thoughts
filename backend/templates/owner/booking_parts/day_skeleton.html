@@ -1,0 +1,4 @@
+{# Nine grey boxes in the shape of the time buttons; dimmed when it failed #}
+<div aria-hidden="true" class="hidden grid-cols-3 gap-2 group-[.htmx-request]/swap:grid group-data-[swap-failed]/swap:grid group-data-[swap-failed]/swap:opacity-60">
+  {% for box in "123456789" %}<span class="sk h-12 rounded-xl bg-gray-200"></span>{% endfor %}
+</div>

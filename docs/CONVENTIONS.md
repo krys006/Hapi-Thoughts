@@ -986,19 +986,46 @@ Loads compiled `app.css`, vendored HTMX, `js/shared/dialogs.js` and
   `HX-Request: true` on a GET without `HX-History-Restore-Request` renders the
   `_`-prefixed partial (`owner/booking_parts/_day_area.html`, never extends a
   base), anything else the full page; the response always has
-  `Vary: HX-Request`. The page puts the partial inside `<div id="day-area">`
-  (`group/day`, `aria-live="polite"`, `aria-busy`, `hx-history="false"`). Links
+  `Vary: HX-Request`. (Since 8b-10b-4 the shared helper is
+  `render_results_swap(request, page_template, results_template, context)` in
+  `accounts/utils.py`, with `is_swap_request`; `render_day_area` keeps its own
+  partial and uses the same rule.) The page puts the partial inside
+  `<div id="day-area">` (`group/swap`, `data-swap-area`, `aria-live="polite"`,
+  `aria-busy`, `hx-history="false"`). Links
   carry `hx-get` (= `href`), `hx-target="#day-area"`, `hx-swap="innerHTML"`,
   `hx-sync="#day-area:replace"`, `hx-push-url="true"`,
   `hx-indicator="#day-area"`, `hx-request='{"timeout": 10000}'`,
   `data-loading="off"` (keeps `loading.js` out) and `data-day-label` (the day
-  or month for the loading line). `booking_parts/day_states.html` shows the
-  loading line and grey `.sk` boxes with `group-[.htmx-request]/day:` variants
-  (no `:has()`), and two hidden `role="alert"` boxes with an outline Try again
-  (`data-day-retry`) that `js/owner/day_area.js` shows (`data-day-failed`).
+  or month for the loading line). `booking_parts/day_states.html` hands the
+  shared `owner/swap_parts/states.html` its own loading line and nine boxes.
   A redirect inside such a view is `day_area_redirect` (`HX-Redirect` for a
   swap). `layouts/owner.html` sets `htmx-config` `refreshOnHistoryMiss`.
   Not saved by htmx history (`hx-history="false"`).
+- Swap areas (8b-10b-4; `data-swap-area`): any element with `data-swap-area`
+  (class `group/swap`, `aria-live="polite"`, `aria-busy="false"`,
+  `hx-history="false"`) is served by the one script `js/owner/day_area.js`
+  (file name kept from 10b-3): it finds the area from the request's target,
+  sets `data-swap-failed` on timeout (10 s), `htmx:responseError` and
+  `htmx:sendError`, shows the matching `[data-swap-error]` box, and Try again
+  (`[data-swap-retry]`) re-sends the request that started it (`htmx.trigger`
+  with `click` for a link, `submit` for a form, so the typed text and chosen
+  options go with it). Only `#day-area` also names the day and blocks Next /
+  Send. The markup is `owner/swap_parts/states.html` (parameters
+  `failed_heading`, `skeleton`, optional `loading_line`): the two hidden
+  `role="alert"` boxes with an OUTLINE Try again and the grey `.sk` boxes, shown
+  by `group-[.htmx-request]/swap:` and `group-data-[swap-failed]/swap:`
+  variants (no `:has()`). The page includes `<page>_parts/_results.html` inside
+  the area; the view ends with `render_results_swap`. A search form is OUTSIDE
+  its area (typed text stays) with `hx-get` (= its own URL), `hx-trigger="input
+  changed delay:500ms, change, submit"`, `hx-target`, `hx-swap="innerHTML"`,
+  `hx-replace-url="true"`, `hx-sync="this:replace"`, `hx-indicator="#<area>,
+  #<form>"` (the area gets the skeleton, the form `group/search` gets the
+  spinner in the box and the `role="status"` "Searching…" line, CSS only) and
+  `hx-request='{"timeout": 10000}'`. Chips are links with `hx-get` (= `href`,
+  which already holds `q`), `hx-push-url="true"`, `hx-sync` on the form and
+  `data-loading="off"`. A form field that changes with the swap (My Pets
+  `type`) lives inside the area with `form="<form id>"`. Pager and Clear
+  links stay plain links.
 - Photo tile (8b-10b-2): a pet picture is always the violet-50 tile with the
   species icon (stroke 1.5) and the photo laid over it
   (`<img data-photo loading="lazy" decoding="async" class="absolute inset-0 …

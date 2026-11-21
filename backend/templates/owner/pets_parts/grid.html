@@ -1,0 +1,12 @@
+{% comment %}
+  The pets that match: the two-column grid, or the no-results box. Needs pets, q.
+{% endcomment %}
+{% if pets %}
+  <ul class="grid grid-cols-2 gap-3">
+    {% for pet in pets %}
+    <li class="flex">{% include "owner/pets_parts/pet_card.html" %}</li>
+    {% endfor %}
+  </ul>
+{% else %}
+  {% include "owner/pets_parts/no_results.html" %}
+{% endif %}

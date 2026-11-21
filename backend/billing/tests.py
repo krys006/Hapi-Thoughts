@@ -1,5 +1,6 @@
 import datetime
 import inspect
+import json
 import re
 from decimal import Decimal
 from html import unescape
@@ -7469,3 +7470,345 @@ class OwnerReceiptPageTests(OwnerBillingPageBase):
                     receipt.calculate_totals()
                     with self.assertNumQueries(RECEIPT_PAGE_QUERIES):
                         self.assertEqual(self._get(receipt).status_code, 200)
+
+
+# ── Slice 8b-10b-4: Bills History results swap ───────────────────────────────
+
+HTMX_GET = {"HX-Request": "true"}
+
+
+def _hx_attrs(tag):
+    """The attributes of one start tag as a dict (entities decoded; both quote
+    styles, because hx-request is written with single quotes)."""
+    pairs = re.findall(r"""([\w:-]+)=(?:"([^"]*)"|'([^']*)')""", tag)
+    return {name: unescape(double or single) for name, double, single in pairs}
+
+
+@PLAIN_STATIC
+class _BillsSwapBase(OwnerBillingPageBase):
+    """An owner with unpaid and paid bills, logged in, on Sat, Nov 7, 2026."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("owner_billing_list")
+        self.cat = Pet.objects.create(owner=self.owner, name="Mingming", species="Cat")
+        self.unpaid = self._unpaid()
+        self.october = self._paid(datetime.date(2026, 10, 20))
+        # (update, not save: a paid receipt is locked)
+        BillingReceipt.objects.filter(pk=self.october.pk).update(pet=self.cat)
+        self.paid = self._paid()
+
+    def _page(self, **params):
+        response = self.client.get(self.url, params)
+        self.assertEqual(response.status_code, 200)
+        return response
+
+    def _swap(self, headers=None, **params):
+        response = self.client.get(self.url, params, headers=headers or HTMX_GET)
+        self.assertEqual(response.status_code, 200)
+        return response
+
+    def _numbers(self, response):
+        """The receipt numbers of the History rows the view chose."""
+        return [receipt.receipt_number for receipt in response.context["history"]]
+
+
+class OwnerBillsSwapTests(_BillsSwapBase):
+    """One URL, two answers: an HTMX request gets only the History results."""
+
+    PARAMS = (
+        {},
+        {"q": "bantay"},
+        {"q": "mingming"},
+        {"period": "month"},
+        {"period": "last_year"},
+        {"q": "mingming", "period": "year"},
+        {"q": "zzz"},
+    )
+
+    def test_the_swap_is_only_the_history_results(self):
+        response = self._swap()
+        html = response.content.decode()
+        self.assertTemplateUsed(response, "owner/billing_parts/_results.html")
+        self.assertTemplateNotUsed(response, "layouts/owner.html")
+        self.assertTemplateNotUsed(response, "owner/billing/list.html")
+        for left_out in (
+            "<html",
+            "<main",
+            "<header",
+            'aria-label="Main"',
+            "<form",
+            'name="q"',
+            "<h1",
+            "<h2",
+            "To pay",
+            "You're all paid up",
+            self.unpaid.receipt_number,
+            "Searching",
+        ):
+            with self.subTest(left_out=left_out):
+                self.assertNotIn(left_out, html)
+        self.assertIn(self.paid.receipt_number, html)
+        self.assertIn(self.october.receipt_number, html)
+
+    def test_the_answer_varies_on_the_hx_request_header(self):
+        self.assertIn("HX-Request", self._swap().headers["Vary"])
+        self.assertIn("HX-Request", self._page().headers["Vary"])
+
+    def test_without_the_header_the_page_is_unchanged(self):
+        response = self._page()
+        html = response.content.decode()
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertTemplateUsed(response, "owner/billing/list.html")
+        self.assertIn("<html", html)
+        main = self._main(response)
+        self.assertIn("To pay", main)
+        self.assertIn(self.unpaid.receipt_number, main)
+        self.assertIn('id="bills-results"', main)
+
+    def test_a_history_restore_gets_the_full_page(self):
+        headers = {**HTMX_GET, "HX-History-Restore-Request": "true"}
+        html = self._swap(headers=headers).content.decode()
+        self.assertIn("<html", html)
+        self.assertIn("To pay", html)
+
+    def test_the_same_rows_groups_and_pager_as_the_page_for_every_filter(self):
+        for number in range(28):
+            self._paid()
+        for params in self.PARAMS + ({"page": 2}, {"q": "bantay", "page": 2}):
+            page, swap = self._page(**params), self._swap(**params)
+            with self.subTest(params=params):
+                self.assertEqual(self._numbers(swap), self._numbers(page))
+                self.assertEqual(
+                    swap.context["history_groups"], page.context["history_groups"]
+                )
+                months = r"<h3[^>]*>(.*?)</h3>"
+                text = swap.content.decode()
+                self.assertEqual(
+                    re.findall(months, text), re.findall(months, page.content.decode())
+                )
+                for receipt in swap.context["history"]:
+                    detail = reverse("owner_receipt_detail", args=[receipt.pk])
+                    self.assertIn(f'<a href="{detail}"', text)
+                self.assertEqual(
+                    "Page 1 of 2" in text, "Page 1 of 2" in page.content.decode()
+                )
+
+    def test_the_search_and_the_period_pick_the_right_bills(self):
+        cases = (
+            ({"q": "mingming"}, [self.october]),
+            ({"q": "bantay"}, [self.paid]),
+            ({"period": "month"}, [self.paid]),
+            ({"q": "mingming", "period": "month"}, []),
+            ({"period": "3m"}, [self.paid, self.october]),
+        )
+        for params, expected in cases:
+            with self.subTest(params=params):
+                numbers = self._numbers(self._swap(**params))
+                self.assertEqual(numbers, [r.receipt_number for r in expected])
+
+    def test_a_search_with_no_match_shows_the_same_box(self):
+        for response in (self._page(q="zzz"), self._swap(q="zzz")):
+            html = response.content.decode()
+            text = page_text(html)
+            self.assertIn("No bills match", text)
+            self.assertIn("Try another name or receipt number, or show All time.", text)
+            self.assertEqual(html.count("Show all bills"), 1)
+            self.assertEqual(self._numbers(response), [])
+
+    def test_show_all_bills_follows_the_filter_inside_the_swap(self):
+        self.assertNotIn("Show all bills", self._swap().content.decode())
+        found = self._swap(q="bantay").content.decode()
+        self.assertEqual(found.count("Show all bills"), 1)
+        self.assertIn(f'<a href="{self.url}"', found)
+
+    def test_the_to_pay_boxes_never_depend_on_the_search(self):
+        for params in ({}, {"q": "zzz"}, {"period": "last_year"}):
+            with self.subTest(params=params):
+                main = self._main(self._page(**params))
+                self.assertIn("To pay", main)
+                self.assertIn(self.unpaid.receipt_number, main)
+                self.assertNotIn(
+                    self.unpaid.receipt_number, self._swap(**params).content.decode()
+                )
+
+    def test_a_cancelled_bill_and_another_owners_bill_never_appear(self):
+        cancelled = self._bill(BillingReceipt.CANCELLED, paid=TODAY)
+        user = User.objects.create_user(
+            username="ben", email="ben@example.com", role=User.PET_OWNER
+        )
+        other = PetOwner.objects.create(user=user, first_name="Ben", last_name="Reyes")
+        theirs = BillingReceipt.objects.create(
+            receipt_number="HV-2026-0999", owner=other, payment_status="paid"
+        )
+        for params in ({}, {"q": "HV-2026"}, {"q": theirs.receipt_number}):
+            with self.subTest(params=params):
+                html = self._swap(**params).content.decode()
+                self.assertNotIn(
+                    reverse("owner_receipt_detail", args=[theirs.pk]), html
+                )
+                self.assertNotIn(
+                    reverse("owner_receipt_detail", args=[cancelled.pk]), html
+                )
+
+    def test_a_logged_out_swap_is_sent_to_the_login(self):
+        self.client.logout()
+        response = self.client.get(self.url, headers=HTMX_GET)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"")
+        self.assertIn("HX-Redirect", response.headers)
+
+    def test_queries_are_flat_and_the_swap_costs_no_more_than_the_page(self):
+        def count(call):
+            with CaptureQueriesContext(connection) as queries:
+                call(q="bantay", period="year")
+            return len(queries)
+
+        few = (count(self._swap), count(self._page))
+        for number in range(30):
+            self._paid()
+        many = (count(self._swap), count(self._page))
+        self.assertEqual(few, many)
+        self.assertLessEqual(many[0], many[1])
+
+
+class OwnerBillsSwapMarkupTests(_BillsSwapBase):
+    """The hooks of the Bills History search and its results area."""
+
+    def _html(self, **params):
+        return self._page(**params).content.decode()
+
+    def _form(self, html):
+        return re.search(r'(?s)<form method="get".*?</form>', html).group(0)
+
+    def test_the_form_keeps_working_without_javascript_and_swaps_with_it(self):
+        form = self._form(self._html())
+        attrs = _hx_attrs(re.match(r"<form[^>]*>", form).group(0))
+        self.assertEqual(attrs["method"], "get")
+        self.assertEqual(attrs["action"], self.url)
+        self.assertEqual(attrs["hx-get"], self.url)
+        trigger = "input changed delay:500ms, change, submit"
+        self.assertEqual(attrs["hx-trigger"], trigger)
+        self.assertEqual(attrs["hx-target"], "#bills-results")
+        self.assertEqual(attrs["hx-swap"], "innerHTML")
+        self.assertEqual(attrs["hx-replace-url"], "true")
+        self.assertEqual(attrs["hx-sync"], "this:replace")
+        self.assertEqual(attrs["hx-indicator"], "#bills-results, #bills-search")
+        self.assertEqual(json.loads(attrs["hx-request"]), {"timeout": 10000})
+        self.assertIn('name="q"', form)
+        self.assertIn('<select name="period"', form)
+
+    def test_the_search_button_stays_visible_outline_and_44px(self):
+        form = self._form(self._html())
+        button = re.search(r'<button type="submit" class="([^"]*)">', form)
+        classes = button.group(1).split()
+        self.assertIn("min-h-12", classes)
+        self.assertIn("bg-white", classes)
+        self.assertNotIn("bg-violet-600", classes)
+        self.assertNotIn("hidden", classes)
+        self.assertIn("Search</button>", form)
+        self.assertNotIn("aria-disabled", form)
+
+    def test_the_results_area_is_a_polite_live_region_never_saved_in_history(self):
+        tag = re.search(r'<div id="bills-results"[^>]*>', self._html()).group(0)
+        attrs = _hx_attrs(tag)
+        self.assertIn("data-swap-area", tag)
+        self.assertEqual(attrs["aria-live"], "polite")
+        self.assertEqual(attrs["aria-busy"], "false")
+        self.assertEqual(attrs["hx-history"], "false")
+        self.assertIn("group/swap", attrs["class"].split())
+
+    def test_the_skeleton_is_three_card_rows_of_a_tile_and_two_lines(self):
+        html = self._html()
+        area = html[html.index('id="bills-results"') :]
+        self.assertEqual(len(re.findall(r'class="sk ', area)), 9)
+        self.assertEqual(area.count("sk block size-10"), 3)
+        self.assertIn("group-[.htmx-request]/swap:hidden", area)
+
+    def test_the_two_alert_boxes_are_hidden_with_an_outline_try_again(self):
+        area = self._html().split('id="bills-results"')[1]
+        boxes = {
+            "slow": ("This is taking longer than usual", "Your internet may be slow."),
+            "failed": ("Couldn't load the bills", "Check your internet and try"),
+        }
+        for kind, (title, words) in boxes.items():
+            start = rf'<div role="alert" hidden data-swap-error="{kind}"'
+            box = re.search(rf"(?s){start}.*?</button>", area).group(0)
+            with self.subTest(box=kind):
+                self.assertIn(title, box)
+                self.assertIn(words, box)
+                self.assertIn("Your answers are kept.", box)
+                button = re.search(r"<button\b[^>]*data-swap-retry[^>]*>", box).group(0)
+                for outline in ("min-h-11", "border-orange-400", "bg-white"):
+                    self.assertIn(outline, button)
+                self.assertNotIn("bg-violet-600", button)
+                self.assertIn("Try again", box)
+
+    def test_the_boxes_and_the_spinner_are_outside_the_results_area(self):
+        html = self._html(q="bantay")
+        region = html.index('id="bills-results"')
+        form = self._form(html)
+        self.assertLess(html.index(form), region)
+        self.assertLess(html.index("To pay"), region)
+        self.assertLess(html.index("Searching…"), region)
+        self.assertIn('name="q" value="bantay"', form)
+        hidden_span = r'(?s)<span aria-hidden="true" class="[^"]*">.*?</span>'
+        spinner = re.search(hidden_span, form).group(0)
+        self.assertIn("group-[.htmx-request]/search:block", spinner)
+        self.assertIn("motion-safe:animate-spin", spinner)
+        line = re.search(r'<p role="status" class="([^"]*)">Searching…</p>', form)
+        self.assertIn("hidden", line.group(1).split())
+        self.assertIn("group-[.htmx-request]/search:block", line.group(1))
+        self.assertIn("text-base", line.group(1).split())
+
+    def test_the_pager_and_show_all_bills_links_have_no_hx_attributes(self):
+        for number in range(28):
+            self._paid()
+        html = self._html(q="bantay")
+        area = html[html.index('id="bills-results"') :]
+        links = re.findall(r"<a\b[^>]*>", area)
+        self.assertIn('aria-label="Pages of bills"', area)
+        self.assertIn(">Next</a>", area)
+        for tag in links:
+            with self.subTest(tag=tag[:60]):
+                self.assertNotIn("hx-", tag)
+                self.assertNotIn("data-loading", tag)
+
+    def test_no_region_and_no_hooks_without_any_paid_bill(self):
+        BillingReceipt.objects.filter(payment_status=BillingReceipt.PAID).delete()
+        html = self._html()
+        for left_out in ("bills-results", "data-swap-area", "hx-get", "<form"):
+            with self.subTest(left_out=left_out):
+                self.assertNotIn(left_out, self._main(self._page()))
+        self.assertIn(self.unpaid.receipt_number, html)
+
+    def test_no_violet_button_inline_script_handler_or_comment(self):
+        for params in ({}, {"q": "bantay"}, {"q": "zzz"}):
+            html = self._html(**params)
+            main = self._main(self._page(**params))
+            with self.subTest(params=params):
+                self.assertNotIn("bg-violet-600", main)
+                self.assertNotIn("<!--", main)
+                self.assertNotIn("hx-confirm", html)
+                self.assertIsNone(re.search(r"\son[a-z]+\s*=", main))
+                for tag in re.findall(r"<script\b[^>]*>", main):
+                    self.assertIn(" src=", tag)
+
+    def test_every_link_is_on_one_line_in_the_page_and_its_parts(self):
+        self._assert_plain_markup(
+            self._main(self._page(q="bantay")),
+            "owner/billing/list.html",
+            "owner/billing_parts/*",
+            "owner/swap_parts/states.html",
+            "components/pet_avatar.html",
+            "components/status_badge.html",
+        )
+
+    def test_the_results_part_never_extends_a_layout(self):
+        for name in ("_results.html", "skeleton.html"):
+            path = Path(settings.BASE_DIR) / "templates" / "owner" / "billing_parts"
+            source = (path / name).read_text(encoding="utf-8")
+            with self.subTest(file=name):
+                self.assertNotIn("{% extends", source)
+                # (the To pay box is yellow; the part's comment names it)
+                self.assertNotIn("border-yellow-300", source)

@@ -5,7 +5,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.cache import patch_vary_headers
 
-from accounts.utils import owner_profile_required
+from accounts.utils import owner_profile_required, render_results_swap
 from appointments.utils import is_owner_results_swap
 
 from .models import Service, BillingItem
@@ -367,8 +367,14 @@ def owner_billing_list(request):
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
+    # An HTMX search or period change gets only the History results (8b-10b-4)
     context = owner_bills_context(request.owner, request.GET, timezone.localdate())
-    return render(request, "owner/billing/list.html", context)
+    return render_results_swap(
+        request,
+        "owner/billing/list.html",
+        "owner/billing_parts/_results.html",
+        context,
+    )
 
 
 @login_required

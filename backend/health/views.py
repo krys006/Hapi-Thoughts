@@ -3,6 +3,8 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 
+from accounts.utils import render_results_swap
+
 from .forms import HealthArticleForm
 from .models import HealthArticle
 from .utils import article_sections, owner_health_back_url, owner_health_list_context
@@ -135,8 +137,14 @@ def owner_health_article_list(request):
     if request.user.role != "pet_owner":
         return redirect("admin_dashboard")
 
+    # An HTMX search gets only the results part (8b-10b-4)
     context = owner_health_list_context(request.GET)
-    return render(request, "owner/health/article_list.html", context)
+    return render_results_swap(
+        request,
+        "owner/health/article_list.html",
+        "owner/health_parts/_results.html",
+        context,
+    )
 
 
 @login_required

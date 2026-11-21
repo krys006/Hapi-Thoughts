@@ -3521,6 +3521,10 @@ class OwnerPhotoScriptsTests(SimpleTestCase):
 
 DAY_AREA_JS = JS_DIR / "owner" / "day_area.js"
 DAY_STATES_PART = "owner/booking_parts/day_states.html"
+# Since 8b-10b-4 the two alert boxes live in the shared states include, and the
+# free-times words in the day's own loading line
+SWAP_STATES_PART = "owner/swap_parts/states.html"
+DAY_LOADING_PART = "owner/booking_parts/day_loading.html"
 
 
 class OwnerDayAreaScriptTests(SimpleTestCase):
@@ -3554,11 +3558,16 @@ class OwnerDayAreaScriptTests(SimpleTestCase):
         self.assertIsNone(re.search(r"\.disabled\s*=", self.source))
         self.assertNotIn('setAttribute("disabled"', self.source)
         # The Try again button repeats the request; a stale form is never sent
-        self.assertIn("[data-day-retry]", self.source)
+        self.assertIn("[data-swap-retry]", self.source)
         self.assertIn('"submit"', self.source)
 
     def test_no_english_text_from_the_templates_is_in_the_script(self):
-        part = template_source(DAY_STATES_PART)
+        # (8b-10b-4: the shared states include holds the alert words; the day's
+        # own words are in its loading line and its failure heading)
+        part = "".join(
+            template_source(name)
+            for name in (DAY_STATES_PART, SWAP_STATES_PART, DAY_LOADING_PART)
+        )
         for words in (
             "Finding free times for",
             "This is taking longer than usual",
@@ -3570,7 +3579,12 @@ class OwnerDayAreaScriptTests(SimpleTestCase):
             with self.subTest(words=words):
                 self.assertIn(words, part)
                 self.assertNotIn(words, self.source)
-        for words in ("Finding free times", "taking longer", "Couldn't load"):
+        for words in (
+            "Finding free times",
+            "taking longer",
+            "Couldn't load",
+            "Searching",
+        ):
             with self.subTest(words=words):
                 self.assertNotIn(words, self.source)
 
@@ -3632,3 +3646,110 @@ class LoggedOutHtmxRedirectTests(TestCase):
         self.assertRedirects(
             admin, reverse("admin_login"), fetch_redirect_response=False
         )
+
+
+# ── Slice 8b-10b-4: the shared swap script and the shared states include ─────
+
+SWAP_USERS = {
+    "owner/booking_parts/day_states.html": "Couldn't load the free times",
+    "owner/pets_parts/_results.html": "Couldn't load the results",
+    "owner/billing_parts/_results.html": "Couldn't load the bills",
+    "owner/health_parts/_results.html": "Couldn't load the guides",
+}
+
+
+class OwnerSwapAreaScriptTests(SimpleTestCase):
+    """static/js/owner/day_area.js now serves every [data-swap-area] (the
+    free-times area and the three search results), read as text."""
+
+    def setUp(self):
+        self.source = DAY_AREA_JS.read_text(encoding="utf-8")
+
+    def test_it_works_on_any_swap_area_with_the_generic_hooks(self):
+        for hook in (
+            "[data-swap-area]",
+            "data-swap-failed",
+            "[data-swap-error]",
+            "[data-swap-retry]",
+        ):
+            with self.subTest(hook=hook):
+                self.assertIn(hook, self.source)
+        # The day-only hooks of 10b-3 are gone
+        for old in ("data-day-failed", "[data-day-error]", "[data-day-retry]"):
+            with self.subTest(old=old):
+                self.assertNotIn(old, self.source)
+
+    def test_the_area_comes_from_the_request_target_not_the_trigger(self):
+        # A search form sits outside the area it fills
+        self.assertIn("detail.target", self.source)
+
+    def test_try_again_sends_a_form_again_through_htmx(self):
+        self.assertIn("window.htmx.trigger(", self.source)
+        self.assertIn('"FORM"', self.source)
+        self.assertIn('"submit"', self.source)
+        self.assertIn('"click"', self.source)
+
+    def test_only_the_free_times_area_blocks_a_button_and_a_form(self):
+        self.assertEqual(self.source.count('"day-area"'), 1)
+        self.assertIn("isDayArea(box)", self.source)
+        self.assertIsNone(re.search(r"\.disabled\s*=", self.source))
+        self.assertNotIn('setAttribute("disabled"', self.source)
+
+    def test_pageshow_and_history_restore_clear_every_area(self):
+        self.assertIn('"pageshow"', self.source)
+        self.assertIn('"htmx:historyRestore"', self.source)
+
+    def test_it_stays_free_of_markup_building_and_network_calls(self):
+        for word in ("innerHTML", "outerHTML", "insertAdjacentHTML", "eval(", "fetch("):
+            with self.subTest(word=word):
+                self.assertNotIn(word, self.source)
+
+
+class OwnerSwapStatesIncludeTests(SimpleTestCase):
+    """owner/swap_parts/states.html is the one copy of the two alert boxes."""
+
+    def test_the_alert_boxes_and_their_outline_try_again_buttons(self):
+        part = template_source(SWAP_STATES_PART)
+        for kind in ("slow", "failed"):
+            with self.subTest(kind=kind):
+                pattern = rf'<div role="alert" hidden data-swap-error="{kind}"'
+                self.assertEqual(len(re.findall(pattern, part)), 1)
+        buttons = re.findall(r"<button\b[^>]*data-swap-retry[^>]*>", part)
+        self.assertEqual(len(buttons), 2)
+        for button in buttons:
+            for outline in ("min-h-11", "border-orange-400", "bg-white"):
+                self.assertIn(outline, button)
+            self.assertNotIn("bg-violet-600", button)
+        self.assertIn("{{ failed_heading }}", part)
+        self.assertNotIn("<!--", part)
+
+    def test_the_four_areas_use_it_with_their_own_failure_heading(self):
+        for name, heading in SWAP_USERS.items():
+            source = template_source(name)
+            with self.subTest(template=name):
+                self.assertIn('"owner/swap_parts/states.html"', source)
+                self.assertIn(f'failed_heading="{heading}"', source)
+                self.assertIn("skeleton=", source)
+        # The words are said once, in the shared include
+        part = template_source(SWAP_STATES_PART)
+        self.assertEqual(part.count("This is taking longer than usual"), 1)
+        for name in SWAP_USERS:
+            with self.subTest(template=name):
+                self.assertNotIn("taking longer", template_source(name))
+
+    def test_every_swap_area_in_the_pages_has_the_same_hooks(self):
+        pages = {
+            "owner/pets/list.html": "pets-results",
+            "owner/billing/list.html": "bills-results",
+            "owner/health/article_list.html": "health-results",
+            "owner/booking/step2.html": "day-area",
+            "owner/visits/reschedule.html": "day-area",
+        }
+        for name, area in pages.items():
+            source = template_source(name)
+            tag = re.search(rf'<div id="{area}"[^>]*>', source).group(0)
+            with self.subTest(page=name):
+                self.assertIn("data-swap-area", tag)
+                self.assertIn("group/swap", tag)
+                self.assertIn('aria-live="polite"', tag)
+                self.assertIn('hx-history="false"', tag)

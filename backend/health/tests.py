@@ -1,9 +1,13 @@
+import json
 import re
+from html import unescape
 
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
+from django.db import connection
 from django.template.loader import get_template
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import NoReverseMatch, reverse
 
 from .models import HealthArticle
@@ -516,6 +520,9 @@ class OwnerHealthListPageTests(HealthTestBase):
         "owner/health_parts/search.html",
         "owner/health_parts/card.html",
         "owner/health_parts/pager.html",
+        "owner/health_parts/_results.html",
+        "owner/health_parts/skeleton.html",
+        "owner/swap_parts/states.html",
     )
 
     def setUp(self):
@@ -813,3 +820,307 @@ class OwnerHealthArticlePageTests(HealthTestBase):
             with self.subTest(size=len(text)):
                 with self.assertNumQueries(self.PAGE_QUERIES):
                     self.client.get(self.url)
+
+
+# ── Slice 8b-10b-4: Health library search results swap ───────────────────────
+
+HTMX_GET = {"HX-Request": "true"}
+
+
+def _hx_attrs(tag):
+    """The attributes of one start tag as a dict (entities decoded; both quote
+    styles, because hx-request is written with single quotes)."""
+    pairs = re.findall(r"""([\w:-]+)=(?:"([^"]*)"|'([^']*)')""", tag)
+    return {name: unescape(double or single) for name, double, single in pairs}
+
+
+class _HealthSwapBase(HealthTestBase):
+    """Three published guides and a draft; the owner is logged in."""
+
+    def setUp(self):
+        super().setUp()
+        self.rabies = self.article("Rabies", published=True)
+        self.parvo = self.article("Parvovirus", published=True)
+        self.cough = self.article("Kennel cough (bordetella)", published=True)
+        self.draft = self.article("Draft secret")
+        self.url = reverse("owner_health_article_list")
+        self.client.force_login(self.owner)
+
+    def _page(self, **params):
+        response = self.client.get(self.url, params)
+        self.assertEqual(response.status_code, 200)
+        return response
+
+    def _swap(self, headers=None, **params):
+        response = self.client.get(self.url, params, headers=headers or HTMX_GET)
+        self.assertEqual(response.status_code, 200)
+        return response
+
+    def _more(self, total):
+        """Publish guides until there are `total` published ones."""
+        have = HealthArticle.objects.filter(is_published=True).count()
+        HealthArticle.objects.bulk_create(
+            HealthArticle(title=f"Guide {n:02d}", description="x", is_published=True)
+            for n in range(have, total)
+        )
+
+
+class OwnerHealthSwapTests(_HealthSwapBase):
+    """One URL, two answers: an HTMX request gets only the results part."""
+
+    PARAMS = (
+        {},
+        {"q": "rabies"},
+        {"q": "virus"},
+        {"q": "  KENNEL   cough "},
+        {"q": "secret"},
+        {"q": "zzz"},
+    )
+
+    def test_the_swap_is_only_the_results_part(self):
+        response = self._swap()
+        html = response.content.decode()
+        self.assertTemplateUsed(response, "owner/health_parts/_results.html")
+        self.assertTemplateNotUsed(response, "layouts/owner.html")
+        self.assertTemplateNotUsed(response, "owner/health/article_list.html")
+        for left_out in (
+            "<html",
+            "<main",
+            "<header",
+            'aria-label="Main"',
+            "<form",
+            'name="q"',
+            "<h1",
+            "Short guides from the clinic",
+            "Searching",
+        ):
+            with self.subTest(left_out=left_out):
+                self.assertNotIn(left_out, html)
+        for article in (self.rabies, self.parvo, self.cough):
+            detail = reverse("owner_health_article_detail", args=[article.pk])
+            self.assertIn(f'<a href="{detail}"', html)
+
+    def test_the_answer_varies_on_the_hx_request_header(self):
+        self.assertIn("HX-Request", self._swap().headers["Vary"])
+        self.assertIn("HX-Request", self._page().headers["Vary"])
+
+    def test_without_the_header_the_page_is_unchanged(self):
+        response = self._page()
+        html = response.content.decode()
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertTemplateUsed(response, "owner/health/article_list.html")
+        self.assertIn("<html", html)
+        self.assertIn(">Health library</h1>", html)
+        self.assertIn('<form method="get"', html)
+        self.assertIn('id="health-results"', html)
+
+    def test_a_history_restore_gets_the_full_page(self):
+        headers = {**HTMX_GET, "HX-History-Restore-Request": "true"}
+        html = self._swap(headers=headers).content.decode()
+        self.assertIn("<html", html)
+        self.assertIn('<form method="get"', html)
+
+    def test_the_same_cards_clear_link_and_pager_as_the_page_for_every_search(self):
+        self._more(29)
+        for params in self.PARAMS + ({"page": 2}, {"q": "guide", "page": 2}):
+            page, swap = self._page(**params), self._swap(**params)
+            text = swap.content.decode()
+            with self.subTest(params=params):
+                self.assertEqual(swap.context["articles"], page.context["articles"])
+                for article in swap.context["articles"]:
+                    detail = reverse("owner_health_article_detail", args=[article.pk])
+                    self.assertIn(f'<a href="{detail}', text)
+                for words in ("Clear search</a>", "Page 1 of 2", "Page 2 of 2"):
+                    self.assertEqual(
+                        text.count(words), page.content.decode().count(words)
+                    )
+
+    def test_the_search_picks_the_right_guides(self):
+        cases = {
+            "rabies": ["Rabies"],
+            "virus": ["Parvovirus"],
+            "  KENNEL   cough ": ["Kennel cough (bordetella)"],
+            "zzz": [],
+        }
+        for q, titles in cases.items():
+            with self.subTest(q=q):
+                found = self._swap(q=q).context["articles"]
+                self.assertEqual([a.title for a in found], titles)
+
+    def test_a_search_with_no_match_shows_the_same_box(self):
+        for response in (self._page(q="zzz"), self._swap(q="zzz")):
+            html = response.content.decode()
+            self.assertIn("No guide about that yet", html)
+            self.assertIn(
+                "Worried about your pet? Ask Dr. Aga at your next visit.", html
+            )
+            self.assertEqual(html.count("Clear search</a>"), 1)
+            self.assertIn(f'<a href="{self.url}"', html)
+
+    def test_clear_search_only_shows_while_a_search_has_matches(self):
+        self.assertNotIn("Clear search", self._swap().content.decode())
+        found = self._swap(q="rabies").content.decode()
+        self.assertEqual(found.count("Clear search</a>"), 1)
+
+    def test_a_draft_never_appears_even_when_searched(self):
+        draft = reverse("owner_health_article_detail", args=[self.draft.pk])
+        for params in ({}, {"q": "draft"}, {"q": "secret"}, {"q": "Draft secret"}):
+            with self.subTest(params=params):
+                html = self._swap(**params).content.decode()
+                self.assertNotIn(draft, html)
+                self.assertNotIn("Draft secret", html)
+
+    def test_a_logged_out_swap_is_sent_to_the_login(self):
+        self.client.logout()
+        response = self.client.get(self.url, headers=HTMX_GET)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"")
+        self.assertIn("HX-Redirect", response.headers)
+
+    def test_queries_are_flat_and_the_swap_costs_no_more_than_the_page(self):
+        def count(call):
+            with CaptureQueriesContext(connection) as queries:
+                call(q="guide")
+            return len(queries)
+
+        self._more(3 + 3)
+        few = (count(self._swap), count(self._page))
+        self._more(30)
+        many = (count(self._swap), count(self._page))
+        self.assertEqual(few, many)
+        self.assertLessEqual(many[0], many[1])
+
+
+class OwnerHealthSwapMarkupTests(_HealthSwapBase):
+    """The hooks of the Health library search and its results area."""
+
+    def _html(self, **params):
+        return self._page(**params).content.decode()
+
+    def _form(self, html):
+        return re.search(r'(?s)<form method="get".*?</form>', html).group(0)
+
+    def test_the_form_keeps_working_without_javascript_and_swaps_with_it(self):
+        form = self._form(self._html())
+        attrs = _hx_attrs(re.match(r"<form[^>]*>", form).group(0))
+        self.assertEqual(attrs["method"], "get")
+        self.assertEqual(attrs["action"], self.url)
+        self.assertEqual(attrs["hx-get"], self.url)
+        trigger = "input changed delay:500ms, change, submit"
+        self.assertEqual(attrs["hx-trigger"], trigger)
+        self.assertEqual(attrs["hx-target"], "#health-results")
+        self.assertEqual(attrs["hx-swap"], "innerHTML")
+        self.assertEqual(attrs["hx-replace-url"], "true")
+        self.assertEqual(attrs["hx-sync"], "this:replace")
+        self.assertEqual(attrs["hx-indicator"], "#health-results, #health-search")
+        self.assertEqual(json.loads(attrs["hx-request"]), {"timeout": 10000})
+        self.assertIn('type="search" name="q" value=""', form)
+
+    def test_the_search_button_stays_visible_outline_and_44px(self):
+        form = self._form(self._html())
+        button = re.search(r'<button type="submit" class="([^"]*)">', form)
+        classes = button.group(1).split()
+        self.assertIn("min-h-12", classes)
+        self.assertIn("bg-white", classes)
+        self.assertNotIn("bg-violet-600", classes)
+        self.assertNotIn("hidden", classes)
+        self.assertIn("Search</button>", form)
+
+    def test_the_results_area_is_a_polite_live_region_never_saved_in_history(self):
+        tag = re.search(r'<div id="health-results"[^>]*>', self._html()).group(0)
+        attrs = _hx_attrs(tag)
+        self.assertIn("data-swap-area", tag)
+        self.assertEqual(attrs["aria-live"], "polite")
+        self.assertEqual(attrs["aria-busy"], "false")
+        self.assertEqual(attrs["hx-history"], "false")
+        self.assertIn("group/swap", attrs["class"].split())
+
+    def test_the_skeleton_is_three_cards_of_a_tile_a_title_and_a_line(self):
+        html = self._html()
+        area = html[html.index('id="health-results"') :]
+        self.assertEqual(len(re.findall(r'class="sk ', area)), 9)
+        self.assertEqual(area.count("sk block size-11"), 3)
+        self.assertIn("group-[.htmx-request]/swap:hidden", area)
+
+    def test_the_two_alert_boxes_are_hidden_with_an_outline_try_again(self):
+        area = self._html().split('id="health-results"')[1]
+        boxes = {
+            "slow": ("This is taking longer than usual", "Your internet may be slow."),
+            "failed": ("Couldn't load the guides", "Check your internet and try"),
+        }
+        for kind, (title, words) in boxes.items():
+            start = rf'<div role="alert" hidden data-swap-error="{kind}"'
+            box = re.search(rf"(?s){start}.*?</button>", area).group(0)
+            with self.subTest(box=kind):
+                self.assertIn(title, box)
+                self.assertIn(words, box)
+                self.assertIn("Your answers are kept.", box)
+                button = re.search(r"<button\b[^>]*data-swap-retry[^>]*>", box).group(0)
+                for outline in ("min-h-11", "border-orange-400", "bg-white"):
+                    self.assertIn(outline, button)
+                self.assertNotIn("bg-violet-600", button)
+                self.assertIn("Try again", box)
+
+    def test_the_box_and_the_spinner_are_outside_the_results_area(self):
+        html = self._html(q="rabies")
+        region = html.index('id="health-results"')
+        form = self._form(html)
+        self.assertLess(html.index(form), region)
+        self.assertLess(html.index("Searching…"), region)
+        self.assertIn('name="q" value="rabies"', form)
+        hidden_span = r'(?s)<span aria-hidden="true" class="[^"]*">.*?</span>'
+        spinner = re.search(hidden_span, form).group(0)
+        self.assertIn("group-[.htmx-request]/search:block", spinner)
+        self.assertIn("motion-safe:animate-spin", spinner)
+        line = re.search(r'<p role="status" class="([^"]*)">Searching…</p>', form)
+        self.assertIn("hidden", line.group(1).split())
+        self.assertIn("group-[.htmx-request]/search:block", line.group(1))
+        self.assertIn("text-base", line.group(1).split())
+
+    def test_the_pager_the_cards_and_clear_search_have_no_hx_attributes(self):
+        self._more(29)
+        html = self._html(q="guide")
+        area = html[html.index('id="health-results"') :]
+        self.assertIn('aria-label="Pages of guides"', area)
+        self.assertIn("Clear search</a>", area)
+        for tag in re.findall(r"<a\b[^>]*>", area):
+            with self.subTest(tag=tag[:60]):
+                self.assertNotIn("hx-", tag)
+                self.assertNotIn("data-loading", tag)
+
+    def test_no_region_and_no_form_without_any_published_guide(self):
+        HealthArticle.objects.filter(is_published=True).delete()
+        html = self._html()
+        for left_out in ("health-results", "data-swap-area", "hx-get", "<form"):
+            with self.subTest(left_out=left_out):
+                self.assertNotIn(left_out, html.split('<main id="main"')[1])
+        self.assertIn("No guides yet", html)
+
+    def test_no_violet_button_inline_script_handler_or_comment(self):
+        for params in ({}, {"q": "rabies"}, {"q": "zzz"}):
+            html = self._html(**params)
+            main = html.split('<main id="main"')[1].split("</main>")[0]
+            with self.subTest(params=params):
+                self.assertNotIn("bg-violet-600", main)
+                self.assertNotIn("<!--", main)
+                self.assertNotIn("hx-confirm", html)
+                self.assertIsNone(re.search(r"\son[a-z]+\s*=", main))
+                self.assertNotIn("<script", main)
+
+    def test_every_link_is_on_one_line_and_no_part_extends_a_layout(self):
+        parts = (
+            "owner/health/article_list.html",
+            "owner/health_parts/search.html",
+            "owner/health_parts/card.html",
+            "owner/health_parts/pager.html",
+            "owner/health_parts/_results.html",
+            "owner/health_parts/skeleton.html",
+            "owner/swap_parts/states.html",
+        )
+        for name, source in _sources(parts):
+            with self.subTest(file=name):
+                self.assertNotIn("<!--", source)
+                for link in re.findall(r"(?s)<a\b.*?</a>", source):
+                    self.assertNotIn("\n", link)
+                if name.startswith("owner/health_parts/"):
+                    self.assertNotIn("{% extends", source)

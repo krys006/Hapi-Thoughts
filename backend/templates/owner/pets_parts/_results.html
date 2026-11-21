@@ -1,0 +1,13 @@
+{% comment %}
+  The results of My Pets (Slice 8b-10b-4): the type chips (so the chosen chip and the
+  counts follow), the loading / "couldn't load" boxes, and the grid or no-results
+  box. The page puts it inside <div id="pets-results" class="group/swap">; an HTMX
+  request for the same URL gets only this file (accounts.utils.render_results_swap),
+  swapped into that div (innerHTML). While it loads or failed the old pets are hidden.
+  Needs the page's context: pets, q, chips, active_type, is_filtering.
+{% endcomment %}
+{% include "owner/pets_parts/chips.html" %}
+{% include "owner/swap_parts/states.html" with failed_heading="Couldn't load the results" skeleton="owner/pets_parts/skeleton.html" %}
+<div class="group-[.htmx-request]/swap:hidden group-data-[swap-failed]/swap:hidden">
+  {% include "owner/pets_parts/grid.html" %}
+</div>

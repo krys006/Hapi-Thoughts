@@ -39,7 +39,7 @@
 {% include "owner/booking_parts/day_states.html" %}
 
 {# While a day loads (or failed) the old times are hidden: a stale time can never be sent #}
-<form id="{{ form_id }}" method="post" action="{{ form_action }}" novalidate class="group-[.htmx-request]/day:hidden group-data-[day-failed]/day:hidden">
+<form id="{{ form_id }}" method="post" action="{{ form_action }}" novalidate class="group-[.htmx-request]/swap:hidden group-data-[swap-failed]/swap:hidden">
   {% csrf_token %}
   <input type="hidden" name="date" value="{% if picked_date %}{{ picked_date.isoformat }}{% endif %}">
   {% include "owner/booking_parts/times.html" %}

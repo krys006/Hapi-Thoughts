@@ -1,0 +1,26 @@
+{% comment %}
+  The results of the Health library list (Slice 8b-10b-4): the loading / "couldn't load"
+  boxes, "Clear search" while a search has matches, the cards with their pager, or the
+  no-result box. The page puts it inside <div id="health-results" class="group/swap">; an
+  HTMX request for the same URL gets only this file (accounts.utils.render_results_swap),
+  swapped into that div (innerHTML).
+  Needs the page's context: articles, query, page_obj, has_guides, prev_page_query, next_page_query.
+{% endcomment %}
+{% include "owner/swap_parts/states.html" with failed_heading="Couldn't load the guides" skeleton="owner/health_parts/skeleton.html" %}
+<div class="space-y-4 group-[.htmx-request]/swap:hidden group-data-[swap-failed]/swap:hidden">
+  {% if query and articles %}<p><a href="{% url 'owner_health_article_list' %}" class="inline-flex min-h-11 items-center text-base font-medium text-blue-600 underline underline-offset-2">Clear search</a></p>{% endif %}
+
+  {% if articles %}
+    <div class="space-y-3">
+      {% for article in articles %}{% include "owner/health_parts/card.html" %}{% endfor %}
+    </div>
+    {% include "owner/health_parts/pager.html" %}
+  {% elif has_guides %}
+    <div class="flex flex-col items-center rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-8 text-center">
+      <span class="grid size-12 place-content-center rounded-full bg-gray-100 text-gray-500">{% include "components/icon.html" with name="search" class="size-6 shrink-0" %}</span>
+      <p class="mt-3 text-base font-semibold text-gray-900">No guide about that yet</p>
+      <p class="mt-1 text-base text-gray-700">Worried about your pet? Ask Dr. Aga at your next visit.</p>
+      <a href="{% url 'owner_health_article_list' %}" class="mt-4 inline-flex min-h-11 items-center rounded-xl border border-gray-300 bg-white px-4 text-base font-medium text-gray-800 hover:bg-gray-50">Clear search</a>
+    </div>
+  {% endif %}
+</div>
