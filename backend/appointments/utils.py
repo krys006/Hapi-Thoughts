@@ -6,9 +6,11 @@ from django.contrib.auth import get_user_model
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Prefetch, Q
-from django.http import Http404
+from django.http import Http404, HttpResponse
+from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.cache import patch_vary_headers
 from django.utils.dateformat import format as date_format
 from django.utils.dateformat import time_format
 from django.utils.text import Truncator
@@ -1613,6 +1615,14 @@ def slot_length_phrase(minutes):
     return f"{minutes} minutes"
 
 
+def _month_label(value):
+    """'December 2026' for a 'YYYY-MM' value; None stays None."""
+    if not value:
+        return None
+    year, month = value.split("-")
+    return date_format(datetime.date(int(year), int(month), 1), "F Y")
+
+
 def booking_calendar(month_value, today, now, current_date, settings=None):
     """
     owner_booking_calendar plus one flag for the booking page: past_cutoff is
@@ -1621,6 +1631,9 @@ def booking_calendar(month_value, today, now, current_date, settings=None):
     booked. That cell gets a ring and its label says no more bookings today.
     """
     calendar = owner_booking_calendar(month_value, today, now, current_date, settings)
+    # The arrows name their month for the loading line (data-day-label)
+    calendar["prev_label"] = _month_label(calendar["prev_month"])
+    calendar["next_label"] = _month_label(calendar["next_month"])
     for cell in calendar["cells"]:
         cell["past_cutoff"] = False
         if cell["is_today"] and cell["state"] == "full":
@@ -1730,7 +1743,44 @@ def booking_time_context(draft, month_value, errors, today, now, clinic):
         "taken_time": errors.get("taken") or draft.get("taken", ""),
         "booking_limit_days": booking_limit(clinic),
         "slot_length": slot_length_phrase(slot_minutes(clinic)),
+        "form_id": "time-form",
+        "form_action": reverse("owner_book_time"),
     }
+
+
+# The free-times area (Slice 8b-10b-3): one URL, two answers
+DAY_AREA_TEMPLATE = "owner/booking_parts/_day_area.html"
+
+
+def is_day_area_swap(request):
+    """True for the HTMX GET of a picked day or month (target #day-area), which
+    only needs the area. A history restore, or a request without HTMX, gets
+    the full page."""
+    headers = request.headers
+    return (
+        request.method == "GET"
+        and headers.get("HX-Request") == "true"
+        and not headers.get("HX-History-Restore-Request")
+    )
+
+
+def day_area_redirect(request, url):
+    """A redirect from the two day-picking pages. A swap request gets
+    HX-Redirect instead, so the browser opens the page and the other page is
+    never swapped into the area."""
+    if is_day_area_swap(request):
+        return HttpResponse(headers={"HX-Redirect": url})
+    return redirect(url)
+
+
+def render_day_area(request, page_template, context):
+    """The page, or only the free-times area for an HTMX swap: the same
+    context either way. The answer depends on the HX-Request header, so
+    caches are told to keep the two apart (Vary)."""
+    template = DAY_AREA_TEMPLATE if is_day_area_swap(request) else page_template
+    response = render(request, template, context)
+    patch_vary_headers(response, ["HX-Request"])
+    return response
 
 
 def booking_summary(owner, draft):
@@ -2353,7 +2403,12 @@ def owner_reschedule_context(owner, appointment, params, today, now, errors=None
         chosen = None
     month = _reschedule_month(params, day, appointment)
     not_open = DAY_NOT_OPEN_MESSAGE if asked and not day else ""
+    url = reverse("owner_appointment_reschedule", args=[appointment.pk])
     return {
+        "form_id": "reschedule-form",
+        "form_action": url,
+        "date_url": url,
+        "current_day": True,
         "appointment": appointment,
         "pet": appointment.pet,
         "service_words": _service_words(appointment),

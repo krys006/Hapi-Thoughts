@@ -1,0 +1,46 @@
+{% comment %}
+  The free-times area of booking step 2 and Change day or time (Slice 8b-10b-3):
+  everything that depends on the picked day or month, so the swap keeps it in
+  step: the "just taken" box, (change-time page only) the Now / New boxes and
+  the "Pick a new day" heading, the calendar, the loading and "couldn't load"
+  boxes, and the POST form with the times. The pages put it inside
+  <div id="day-area">; an HTMX request for ?date= or ?month= gets only this file
+  (appointments.utils.render_day_area), swapped into that div (innerHTML).
+  Needs the page's context: calendar, picked_date, time_groups, form_id and
+  form_action (and date_url, current_day, appointment on the change-time page).
+  The reason box of the change-time page stays outside, so what was typed in it
+  is never lost; it joins the form with its form= attribute.
+{% endcomment %}
+{% if taken_time %}
+  {% if appointment %}{% include "owner/booking_parts/taken_box.html" with note_kept=True %}{% else %}{% include "owner/booking_parts/taken_box.html" %}{% endif %}
+{% endif %}
+
+{% if appointment %}
+  <div class="grid grid-cols-2 gap-3">
+    <div class="rounded-2xl border border-gray-200 bg-white p-3">
+      <p class="text-base text-gray-600">Now</p>
+      <p class="text-base font-semibold text-gray-500 line-through">{{ now_line }}</p>
+    </div>
+    <div class="rounded-2xl border-2 border-violet-500 bg-violet-50 p-3">
+      <p class="text-base text-violet-800">New</p>
+      {% if new_line %}
+      <p class="text-base font-bold text-gray-900">{{ new_line }}<br>{% if new_time %}{{ new_time }}{% else %}<span class="font-normal text-gray-700">Pick a time below</span>{% endif %}</p>
+      {% else %}
+      <p class="text-base font-bold text-gray-900">Pick a day</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <h2 class="text-xl font-bold text-gray-900">Pick a new day</h2>
+{% endif %}
+
+{% include "owner/booking_parts/calendar.html" %}
+
+{% include "owner/booking_parts/day_states.html" %}
+
+{# While a day loads (or failed) the old times are hidden: a stale time can never be sent #}
+<form id="{{ form_id }}" method="post" action="{{ form_action }}" novalidate class="group-[.htmx-request]/day:hidden group-data-[day-failed]/day:hidden">
+  {% csrf_token %}
+  <input type="hidden" name="date" value="{% if picked_date %}{{ picked_date.isoformat }}{% endif %}">
+  {% include "owner/booking_parts/times.html" %}
+</form>

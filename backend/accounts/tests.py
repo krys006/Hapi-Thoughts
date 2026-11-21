@@ -3515,3 +3515,120 @@ class OwnerPhotoScriptsTests(SimpleTestCase):
             for words in sentences:
                 with self.subTest(script=name, words=words):
                     self.assertNotIn(words, source)
+
+
+# ── Slice 8b-10b-3: the free-times area script ───────────────────────────────
+
+DAY_AREA_JS = JS_DIR / "owner" / "day_area.js"
+DAY_STATES_PART = "owner/booking_parts/day_states.html"
+
+
+class OwnerDayAreaScriptTests(SimpleTestCase):
+    """static/js/owner/day_area.js, read as text (8b-10b-3)."""
+
+    def setUp(self):
+        self.source = DAY_AREA_JS.read_text(encoding="utf-8")
+
+    def test_it_never_builds_markup_or_calls_the_network(self):
+        banned = ("innerHTML", "outerHTML", "insertAdjacentHTML", "eval(", "fetch(")
+        for word in banned:
+            with self.subTest(word=word):
+                self.assertNotIn(word, self.source)
+
+    def test_it_listens_for_the_request_the_swap_and_the_three_failures(self):
+        events = (
+            "htmx:beforeRequest",
+            "htmx:afterSwap",
+            "htmx:timeout",
+            "htmx:responseError",
+            "htmx:sendError",
+        )
+        for event in events:
+            with self.subTest(event=event):
+                self.assertIn(f'"{event}"', self.source)
+
+    def test_it_writes_the_day_with_textcontent_and_blocks_with_aria_disabled(self):
+        self.assertIn("data-day-label", self.source)
+        self.assertIn("textContent", self.source)
+        self.assertIn('"aria-disabled"', self.source)
+        self.assertIsNone(re.search(r"\.disabled\s*=", self.source))
+        self.assertNotIn('setAttribute("disabled"', self.source)
+        # The Try again button repeats the request; a stale form is never sent
+        self.assertIn("[data-day-retry]", self.source)
+        self.assertIn('"submit"', self.source)
+
+    def test_no_english_text_from_the_templates_is_in_the_script(self):
+        part = template_source(DAY_STATES_PART)
+        for words in (
+            "Finding free times for",
+            "This is taking longer than usual",
+            "Your internet may be slow. Your answers are kept.",
+            "Couldn't load the free times",
+            "Check your internet and try again. Your answers are kept.",
+            "Try again",
+        ):
+            with self.subTest(words=words):
+                self.assertIn(words, part)
+                self.assertNotIn(words, self.source)
+        for words in ("Finding free times", "taking longer", "Couldn't load"):
+            with self.subTest(words=words):
+                self.assertNotIn(words, self.source)
+
+    def test_only_the_owner_layout_loads_it_with_defer(self):
+        tag = "{% static 'js/owner/day_area.js' %}\" defer>"
+        self.assertIn(tag, template_source("layouts/owner.html"))
+        for name in ("layouts/admin.html", "layouts/owner_auth.html"):
+            with self.subTest(layout=name):
+                self.assertNotIn("day_area", template_source(name))
+
+
+# ── Expired session during an HTMX request ───────────────────────────────────
+
+
+class LoggedOutHtmxRedirectTests(TestCase):
+    """RoleAccessMiddleware runs before any view (and so before login_required):
+    a logged-out HX-Request gets an empty 200 with HX-Redirect to the login
+    page a normal request is sent to, so a login page is never swapped into a
+    target. Normal requests still get the 302."""
+
+    HTMX = {"HX-Request": "true"}
+
+    def _paths(self):
+        return {
+            "day area (step 2)": reverse("owner_book_time"),
+            "day area (change)": reverse("owner_appointment_reschedule", args=[1]),
+            "barangays": reverse("owner_address_barangays"),
+            "breeds": reverse("owner_pet_breed_options"),
+        }
+
+    def test_an_owner_path_gets_hx_redirect_to_the_owner_login(self):
+        for name, path in self._paths().items():
+            with self.subTest(path=name):
+                response = self.client.get(path, headers=self.HTMX)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.content, b"")
+                login = f"{reverse('owner_login')}?next={path}"
+                self.assertEqual(response.headers["HX-Redirect"], login)
+
+    def test_an_admin_path_gets_hx_redirect_to_the_admin_login(self):
+        for url_name in ("admin_dashboard", "admin_address_barangays"):
+            with self.subTest(url=url_name):
+                path = reverse(url_name)
+                response = self.client.get(path, headers=self.HTMX)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.content, b"")
+                self.assertEqual(
+                    response.headers["HX-Redirect"], reverse("admin_login")
+                )
+
+    def test_a_normal_request_still_gets_the_redirect(self):
+        for name, path in self._paths().items():
+            with self.subTest(path=name):
+                response = self.client.get(path)
+                login = f"{reverse('owner_login')}?next={path}"
+                self.assertRedirects(response, login, fetch_redirect_response=False)
+                self.assertNotIn("HX-Redirect", response.headers)
+        admin = self.client.get(reverse("admin_dashboard"))
+        self.assertRedirects(
+            admin, reverse("admin_login"), fetch_redirect_response=False
+        )

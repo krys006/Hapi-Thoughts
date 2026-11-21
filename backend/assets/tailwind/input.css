@@ -124,6 +124,29 @@ main[aria-busy="true"] {
   @apply opacity-60;
 }
 
+/* Grey placeholder boxes of the free-times area (Slice 8b-10b-3; markup in
+   templates/owner/booking_parts/day_states.html). Still grey boxes with reduced
+   motion: only the soft shine below needs the media query. */
+.sk {
+  position: relative;
+  overflow: hidden;
+}
+@keyframes sk-shine {
+  to {
+    transform: translateX(100%);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .sk::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.65), transparent);
+    animation: sk-shine 1.4s infinite;
+  }
+}
+
 /* Moving piece of the top bar. Without this media query (reduced motion) it
    stays a still, full-width strip; the spinners use motion-safe:animate-spin. */
 @keyframes loading-slide {

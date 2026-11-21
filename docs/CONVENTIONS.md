@@ -978,6 +978,27 @@ Loads compiled `app.css`, vendored HTMX, `js/shared/dialogs.js` and
   locks the target select (`disabled`) while the request runs, keeps it locked
   and shows the line on `htmx:responseError` / `sendError` / `timeout`, and
   retries with `htmx.trigger(select, "change")`. No words in the script.
+- Free-times area (8b-10b-3, booking step 2 and Change day or time): an HTMX
+  swap that is only an enhancement; with JavaScript off every link is a plain
+  `?date=` / `?month=` GET. The pattern for "one URL, two answers" (copy it
+  for the next partial): the view ends with
+  `render_day_area(request, page_template, context)` (`appointments/utils.py`):
+  `HX-Request: true` on a GET without `HX-History-Restore-Request` renders the
+  `_`-prefixed partial (`owner/booking_parts/_day_area.html`, never extends a
+  base), anything else the full page; the response always has
+  `Vary: HX-Request`. The page puts the partial inside `<div id="day-area">`
+  (`group/day`, `aria-live="polite"`, `aria-busy`, `hx-history="false"`). Links
+  carry `hx-get` (= `href`), `hx-target="#day-area"`, `hx-swap="innerHTML"`,
+  `hx-sync="#day-area:replace"`, `hx-push-url="true"`,
+  `hx-indicator="#day-area"`, `hx-request='{"timeout": 10000}'`,
+  `data-loading="off"` (keeps `loading.js` out) and `data-day-label` (the day
+  or month for the loading line). `booking_parts/day_states.html` shows the
+  loading line and grey `.sk` boxes with `group-[.htmx-request]/day:` variants
+  (no `:has()`), and two hidden `role="alert"` boxes with an outline Try again
+  (`data-day-retry`) that `js/owner/day_area.js` shows (`data-day-failed`).
+  A redirect inside such a view is `day_area_redirect` (`HX-Redirect` for a
+  swap). `layouts/owner.html` sets `htmx-config` `refreshOnHistoryMiss`.
+  Not saved by htmx history (`hx-history="false"`).
 - Photo tile (8b-10b-2): a pet picture is always the violet-50 tile with the
   species icon (stroke 1.5) and the photo laid over it
   (`<img data-photo loading="lazy" decoding="async" class="absolute inset-0 …
