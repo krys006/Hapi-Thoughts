@@ -9286,7 +9286,10 @@ class OwnerBookingKeyTests(_DayAreaBase):
     def test_a_taken_time_keeps_the_word_taken_and_the_line_through(self):
         self._hold(BOOK_DAY, [10])
         html = self._pages()["step 2"]
-        taken = r'<span class="line-through">10:00 AM</span><span class="text-sm">Taken</span>'
+        taken = (
+            r'<span class="line-through">10:00 AM</span>'
+            r'<span class="text-sm">Taken</span>'
+        )
         self.assertIn(taken, html)
         self.assertRegex(html, r'<span class="[^"]*bg-gray-100[^"]*">' + taken)
 
