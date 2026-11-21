@@ -1001,6 +1001,15 @@ Loads compiled `app.css`, vendored HTMX, `js/shared/dialogs.js` and
   A redirect inside such a view is `day_area_redirect` (`HX-Redirect` for a
   swap). `layouts/owner.html` sets `htmx-config` `refreshOnHistoryMiss`.
   Not saved by htmx history (`hx-history="false"`).
+- Owner booking calendar and times (8b-10b-5): open day / open time = light
+  violet tint (`bg-violet-50 ring-violet-300 text-violet-900`); picked = solid
+  violet (the only solid violet there); full day / taken time = gray, crossed
+  out (taken also says "Taken"); closed = faded; the visit's own day on Change
+  day or time = dashed outline. One hint line, `Tap an open box.`, above the
+  calendar, outside the cards and outside `#day-area`; the reschedule page adds
+  `Your current day has a dashed outline.` No key under the calendar. Colour
+  never carries meaning alone (shape, text and `aria-label` back it up), and the
+  hint names no colour.
 - Swap areas (8b-10b-4; `data-swap-area`): any element with `data-swap-area`
   (class `group/swap`, `aria-live="polite"`, `aria-busy="false"`,
   `hx-history="false"`) is served by the one script `js/owner/day_area.js`

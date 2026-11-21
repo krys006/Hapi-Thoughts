@@ -13,6 +13,8 @@
   <div>
     <h2 class="text-xl font-bold text-gray-900">Pick a day</h2>
     <p class="text-base text-gray-600">You can book up to {{ booking_limit_days }} days ahead.</p>
+    {# The one hint for the calendar and the times; no colour word, outside the swapped area so it never flickers #}
+    <p class="mt-1 mb-3 text-base font-semibold text-gray-800">Tap an open box.</p>
   </div>
 
   {# The calendar's days are links (with JavaScript they swap only this area); only the times are posted, with the picked day. hx-history="false": a saved copy must never show the loading block. #}

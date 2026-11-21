@@ -6,13 +6,14 @@
   page's own URL (default: the booking step 2). With current_day=True (that
   page; needs picked_date too) the visit's own day (is_current) gets a dashed
   gray outline, "your current day", and is a link when open; the picked day is
-  the violet one; day links keep ?month= and month links keep ?date=; the
-  legend adds "Your current day". Without it nothing changes.
+  the violet one; day links keep ?month= and month links keep ?date=.
+  Without it nothing changes. There is no key under the calendar (8b-10b-5):
+  the page shows one hint line above it, outside #day-area.
   With JavaScript the links also carry hx-get (same URL as the href): only
   #day-area is swapped (_day_area.html; js/owner/day_area.js). data-loading="off"
   keeps js/owner/loading.js out of these clicks; data-day-label names the day
   or month in the loading line. Closed and full days have no hx- attributes.
-  Cell states: open = link (white, ring); selected = violet; full = gray with
+  Cell states: open = link (light violet, ring); selected = violet; full = gray with
   a line through it; closed / past = plain gray number; today with no bookings
   left = ring. Every cell has an aria-label from the helper.
 {% endcomment %}
@@ -42,7 +43,7 @@
       {% elif cell.is_current and not current_day %}
         <span aria-label="{{ cell.aria_label }}, picked" aria-current="date" class="grid h-12 place-content-center rounded-xl bg-violet-600 text-lg font-semibold text-white">{{ cell.day }}</span>
       {% elif cell.state == "open" %}
-        <a href="{{ date_url|default:default_url }}?date={{ cell.date.isoformat }}{% if current_day %}&amp;month={{ calendar.month_value }}{% endif %}" aria-label="{{ cell.aria_label }}" class="grid h-12 place-content-center rounded-xl bg-white text-lg font-semibold text-gray-900 ring-1 ring-gray-200 hover:ring-violet-400" hx-get="{{ date_url|default:default_url }}?date={{ cell.date.isoformat }}{% if current_day %}&amp;month={{ calendar.month_value }}{% endif %}" hx-target="#day-area" hx-swap="innerHTML" hx-sync="#day-area:replace" hx-push-url="true" hx-indicator="#day-area" hx-request='{"timeout": 10000}' data-loading="off" data-day-label="{{ cell.date|date:'D, M j' }}">{{ cell.day }}</a>
+        <a href="{{ date_url|default:default_url }}?date={{ cell.date.isoformat }}{% if current_day %}&amp;month={{ calendar.month_value }}{% endif %}" aria-label="{{ cell.aria_label }}" class="grid h-12 place-content-center rounded-xl bg-violet-50 text-lg font-semibold text-violet-900 ring-1 ring-inset ring-violet-300 hover:ring-violet-400 focus-visible:outline-2 focus-visible:outline-violet-800" hx-get="{{ date_url|default:default_url }}?date={{ cell.date.isoformat }}{% if current_day %}&amp;month={{ calendar.month_value }}{% endif %}" hx-target="#day-area" hx-swap="innerHTML" hx-sync="#day-area:replace" hx-push-url="true" hx-indicator="#day-area" hx-request='{"timeout": 10000}' data-loading="off" data-day-label="{{ cell.date|date:'D, M j' }}">{{ cell.day }}</a>
       {% elif cell.state == "full" and not cell.past_cutoff %}
         <span aria-label="{{ cell.aria_label }}" class="grid h-12 place-content-center rounded-xl bg-gray-100 text-lg text-gray-500 line-through">{{ cell.day }}</span>
       {% elif cell.is_today %}
@@ -51,13 +52,6 @@
         <span aria-label="{{ cell.aria_label }}" class="grid h-12 place-content-center rounded-xl text-lg text-gray-400">{{ cell.day }}</span>
       {% endif %}
     {% endfor %}
-  </div>
-
-  <div class="mt-4 flex flex-wrap gap-x-4 gap-y-2 border-t border-gray-100 pt-3 text-base text-gray-700">
-    <span class="inline-flex items-center gap-2"><span class="size-4 rounded bg-white ring-1 ring-gray-300"></span>Open</span>
-    <span class="inline-flex items-center gap-2"><span class="size-4 rounded bg-gray-100"></span><span class="line-through">Full</span></span>
-    <span class="inline-flex items-center gap-2"><span class="text-gray-400">00</span>Closed</span>
-    {% if current_day %}<span class="inline-flex items-center gap-2"><span class="size-4 rounded outline-2 outline-dashed outline-gray-400 -outline-offset-2"></span>Your current day</span>{% endif %}
   </div>
 </section>
 {% if date_error %}{% include "owner/booking_parts/field_error.html" with message=date_error %}{% endif %}

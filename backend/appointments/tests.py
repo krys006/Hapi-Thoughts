@@ -6180,8 +6180,12 @@ class OwnerBookingStepPagesTests(_OwnerBookingBase):
                 self.assertTrue(plain.startswith("<span"))
                 self.assertIn(phrase, plain)
                 self.assertNotIn("href=", plain)
-        for word in ("Sun", "Mon", "Sat", "Open", "Full", "Closed"):
+        # 8b-10b-5: the weekday heads stay; the bottom key (Open / Full /
+        # Closed) is gone, the states are told by colour, shape and aria-label
+        for word in ("Sun", "Mon", "Sat"):
             self.assertIn(word, html)
+        for word in (">Open<", ">Full<", ">Closed<"):
+            self.assertNotIn(word, html)
 
     def test_today_past_the_cutoff_is_a_ring_not_a_link(self):
         self.freeze(_manila(15, 30))
@@ -8194,11 +8198,12 @@ class OwnerReschedulePageTests(_OwnerRescheduleBase):
         self.assertIn("Thu, Nov 12<br>", found)
         self.assertIn("Pick a time below", found)
 
-    def test_the_current_day_is_dashed_with_a_legend_and_a_link(self):
+    def test_the_current_day_is_dashed_with_a_line_and_a_link(self):
         html = self._page()
         dashed = "outline-2 outline-dashed outline-gray-400 -outline-offset-2"
         self.assertIn(dashed, html)
-        self.assertIn("Your current day</span>", html)
+        # 8b-10b-5: the key's "Your current day" span is now a line under the hint
+        self.assertIn("Your current day has a dashed outline.</p>", html)
         url = re.escape(self.url)
         link = rf'<a href="{url}\?date=2026-11-10&month=2026-11" '
         self.assertRegex(html, link + r'aria-label="Nov 10, your current day"')
@@ -9165,3 +9170,126 @@ class OwnerDayAreaMarkupTests(_DayAreaBase):
         self.assertEqual(len(re.findall(r'<input type="radio" name="time"', form)), 9)
         # The reason box sits outside the swapped area and joins the form
         self.assertIn('rows="3" form="reschedule-form"', change)
+
+
+class OwnerBookingKeyTests(_DayAreaBase):
+    """Slice 8b-10b-5: no bottom key; open days and times are light violet, the
+    picked ones solid violet; one hint above the calendar, outside #day-area."""
+
+    HINT = "Tap an open box."
+    DASHED_LINE = "Your current day has a dashed outline."
+    TINT = ("bg-violet-50", "ring-1 ring-inset ring-violet-300", "text-violet-900")
+    SOLID = r"(?<![:-])bg-violet-600"
+
+    def _pages(self):
+        """Step 2 and the change page as text, with a day picked."""
+        self._set_draft()
+        change = self.client.get(self.change, {"date": CHANGE_DAY.isoformat()})
+        return {
+            "step 2": unescape(self.client.get(self.step2).content.decode()),
+            "change page": unescape(change.content.decode()),
+        }
+
+    def _tag(self, html, label):
+        return re.search(rf'<(?:a|span)\b[^>]*aria-label="{label}[^"]*"[^>]*>', html)
+
+    def test_the_hint_is_once_before_the_calendar_and_outside_the_area(self):
+        for name, html in self._pages().items():
+            with self.subTest(page=name):
+                self.assertEqual(html.count(self.HINT), 1)
+                self.assertLess(html.index(self.HINT), html.index('id="day-area"'))
+                calendar = html.index('id="calendar-month"')
+                self.assertLess(html.index(self.HINT), calendar)
+
+    def test_the_hint_has_no_colour_word(self):
+        for name, html in self._pages().items():
+            with self.subTest(page=name):
+                hint = re.search(rf"<p [^>]*>({self.HINT})</p>", html).group(1)
+                for word in ("violet", "purple", "blue", "green", "red", "gray"):
+                    self.assertNotIn(word, hint.lower())
+
+    def test_the_old_bottom_key_is_gone(self):
+        for name, html in self._pages().items():
+            with self.subTest(page=name):
+                self.assertNotIn("border-t border-gray-100 pt-3 text-base", html)
+                for word in (">Open<", ">Full<", ">Closed<", "Your current day</span>"):
+                    self.assertNotIn(word, html)
+
+    def test_open_days_are_tinted_and_lose_the_white_ring(self):
+        for name, html in self._pages().items():
+            day = self._tag(html, "Wednesday, November 4: open").group(0)
+            with self.subTest(page=name):
+                for part in self.TINT:
+                    self.assertIn(part, day)
+                for old in ("bg-white", "ring-gray-200", "text-gray-900"):
+                    self.assertNotIn(old, day)
+                self.assertNotRegex(day, self.SOLID)
+
+    def test_full_closed_and_today_closed_days_are_unchanged(self):
+        ClinicSettings.objects.update(working_days=[0, 1, 2, 3, 4, 5])
+        self._hold(datetime.date(2026, 11, 12), range(8, 17))
+        self.freeze(_manila(15, 30))
+        self._set_draft(date=None, time=None)
+        html = self.client.get(self.step2).content.decode()
+        full = self._tag(html, "Thursday, November 12: full").group(0)
+        self.assertIn("bg-gray-100 text-lg text-gray-500 line-through", full)
+        closed = self._tag(html, "Sunday, November 8: ").group(0)
+        self.assertIn("text-lg text-gray-400", closed)
+        self.assertNotIn("bg-violet-50", closed)
+        today = self._tag(html, "Monday, November 2: ").group(0)
+        self.assertIn("text-gray-400 ring-2 ring-gray-300", today)
+        self.assertNotIn("bg-violet-50", today)
+
+    def test_the_picked_day_is_the_only_solid_violet_day(self):
+        for name, html in self._pages().items():
+            with self.subTest(page=name):
+                picked = self._tag(html, r"[^\"]*, picked").group(0)
+                self.assertRegex(picked, self.SOLID)
+                self.assertEqual(html.count('aria-current="date"'), 1)
+                for tag in re.findall(r'<a\b[^>]*aria-label="[^"]*open"[^>]*>', html):
+                    self.assertNotRegex(tag, self.SOLID)
+
+    def test_open_times_are_tinted_and_the_picked_time_turns_solid_violet(self):
+        radio = (
+            r'<input type="radio" name="time" value="{}" class="peer sr-only"'
+            r'( checked)?>\s*<span class="([^"]*)">'
+        )
+        html = self._pages()["step 2"]
+        for value, is_checked in (("09:00:00", False), ("12:00:00", True)):
+            with self.subTest(value=value):
+                found = re.search(radio.format(value), html)
+                self.assertEqual(bool(found.group(1)), is_checked)
+                classes = found.group(2)
+                for part in self.TINT:
+                    self.assertIn(part, classes)
+                solid = "peer-checked:bg-violet-600 peer-checked:text-white"
+                self.assertIn(solid, classes)
+                self.assertNotRegex(classes, self.SOLID)
+
+    def test_a_taken_time_keeps_the_word_taken_and_the_line_through(self):
+        self._hold(BOOK_DAY, [10])
+        html = self._pages()["step 2"]
+        taken = r'<span class="line-through">10:00 AM</span><span class="text-sm">Taken</span>'
+        self.assertIn(taken, html)
+        self.assertRegex(html, r'<span class="[^"]*bg-gray-100[^"]*">' + taken)
+
+    def test_the_dashed_line_is_on_the_change_page_only(self):
+        pages = self._pages()
+        change = pages["change page"]
+        self.assertEqual(change.count(self.DASHED_LINE), 1)
+        self.assertNotIn(self.DASHED_LINE, pages["step 2"])
+        self.assertIn("outline-dashed", change)
+        self.assertLess(change.index(self.HINT), change.index(self.DASHED_LINE))
+
+    def test_the_swap_answer_has_no_hint_but_keeps_the_hooks(self):
+        self._set_draft()
+        day = {"date": CHANGE_DAY.isoformat()}
+        for url, params in ((self.step2, {}), (self.change, day)):
+            with self.subTest(url=url):
+                html = self._get(url, **params).content.decode()
+                self.assertNotIn(self.HINT, html)
+                self.assertNotIn(self.DASHED_LINE, html)
+                self.assertIn("Times on ", html)
+                box = '<span class="sk h-12 rounded-xl bg-gray-200">'
+                self.assertEqual(html.count(box), 9)
+                self.assertIn('data-swap-error="failed"', html)
