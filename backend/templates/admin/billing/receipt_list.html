@@ -8,9 +8,9 @@
 {% endblock %}
 
 {% block page_title %}Billing{% endblock %}
-{% block page_subtitle %}Receipts for visits and supplies. Payment is cash.{% endblock %}
+{% block page_subtitle %}Bills for visits and supplies. Payment is cash.{% endblock %}
 {% block page_actions %}
-  <a href="{% url 'admin_receipt_create' %}" class="btn btn-primary">{% include "components/icon.html" with name="plus" %}New receipt</a>
+  <a href="{% url 'admin_receipt_create' %}" class="btn btn-primary">{% include "components/icon.html" with name="plus" %}New bill</a>
 {% endblock %}
 
 {% block content %}
@@ -31,7 +31,7 @@
     <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
       {# Column names (md up; the row grid must match receipt_list_parts/row.html) #}
       <div class="hidden gap-5 border-b border-gray-200 bg-gray-50 px-5 py-2 text-sm font-semibold text-gray-700 md:grid md:grid-cols-[minmax(0,1.1fr)_1px_minmax(0,1fr)_9rem_7.5rem]" aria-hidden="true">
-        <span>Receipt</span><span></span><span>Billed to</span><span class="text-right">Total</span><span></span>
+        <span>Bill</span><span></span><span>Billed to</span><span class="text-right">Total</span><span></span>
       </div>
       <ul>
         {% for receipt in receipts %}

@@ -756,7 +756,7 @@ class ItemFormTests(FrozenBillingTestBase):
         self.assertEqual(form.fields["description"].label, "Description")
         self.assertEqual(
             form.fields["description"].help_text,
-            "Printed on the receipt. You can change it.",
+            "Printed on the bill. You can change it.",
         )
         self.assertFalse(form.fields["description"].required)
         self.assertEqual(form.fields["quantity"].label, "Quantity")
@@ -1159,7 +1159,7 @@ class ReceiptNumberTests(FrozenBillingTestBase):
         self.assertEqual(save.call_count, 1)
 
 
-# ── Slice 6a-2: New receipt ───────────────────────────────────────────────────
+# ── Slice 6a-2: New bill ───────────────────────────────────────────────────
 
 NEW_RECEIPT_TEMPLATES = Path(settings.BASE_DIR) / "templates" / "admin" / "billing"
 # The page, its includes and step 1's results partial
@@ -1256,7 +1256,7 @@ class VisitReceiptTests(NewReceiptTestBase):
         self._nothing_saved()
 
     def test_a_visit_with_a_receipt_opens_it(self):
-        """Pending, paid and cancelled receipts all hold their visit."""
+        """Pending, paid and cancelled bills all hold their visit."""
         for hour, status in enumerate(
             (BillingReceipt.PENDING, BillingReceipt.PAID, BillingReceipt.CANCELLED),
             start=9,
@@ -1278,7 +1278,7 @@ class VisitReceiptTests(NewReceiptTestBase):
                         self._flashes(response),
                         [(message_levels.INFO, RECEIPT_EXISTS)],
                     )
-        self.assertEqual(RECEIPT_EXISTS, "A receipt already exists for this visit.")
+        self.assertEqual(RECEIPT_EXISTS, "A bill already exists for this visit.")
         self.assertEqual(BillingReceipt.objects.count(), 3)
         self.assertFalse(BillingItem.objects.exists())
 
@@ -1299,7 +1299,7 @@ class VisitReceiptTests(NewReceiptTestBase):
             with self.subTest(status=status):
                 self._check_refused(
                     self._visit(status, hour=hour),
-                    "A receipt can only be made for a confirmed or completed visit.",
+                    "A bill can only be made for a confirmed or completed visit.",
                 )
 
     def test_a_future_visit_is_refused(self):
@@ -1312,7 +1312,7 @@ class VisitReceiptTests(NewReceiptTestBase):
                 self._check_refused(
                     self._visit(Appointment.CONFIRMED, day=day),
                     "This visit hasn't happened yet. "
-                    f"Make the receipt on or after {shown}.",
+                    f"Make the bill on or after {shown}.",
                 )
 
     def test_todays_and_yesterdays_visits_get_a_receipt(self):
@@ -1343,7 +1343,7 @@ class VisitReceiptTests(NewReceiptTestBase):
                     [
                         (
                             message_levels.SUCCESS,
-                            f"Receipt HV-2026-000{number} created.",
+                            f"Bill HV-2026-000{number} created.",
                         )
                     ],
                 )
@@ -1401,7 +1401,7 @@ class VisitReceiptTests(NewReceiptTestBase):
                     self.assertIn("You add the other items on the next page.", html)
                 else:
                     self.assertIn(
-                        "The receipt opens empty. You add the items on the next page.",
+                        "The bill opens empty. You add the items on the next page.",
                         html,
                     )
         html = self._html(self._url(self._visit(hour=16)))
@@ -1477,7 +1477,7 @@ class OwnerStepTests(NewReceiptTestBase):
         self.assertFalse(context["is_searching"])
         self.assertEqual(context["q"], "")
         self.assertEqual(context["back_url"], reverse("admin_receipt_list"))
-        self.assertEqual(context["back_label"], "Back to receipts")
+        self.assertEqual(context["back_label"], "Back to bills")
         self.assertTrue(context["empty_topbar_search"])
         self.assertContains(response, "All pet owners (3)")
         self.assertContains(response, "A to Z by first name")
@@ -1592,7 +1592,7 @@ class PetStepTests(NewReceiptTestBase):
         self.assertEqual(context["pets"], [self.pet])
         self.assertEqual(context["pet_error"], "")
         self.assertEqual(context["back_url"], reverse("admin_receipt_list"))
-        self.assertEqual(context["back_label"], "Back to receipts")
+        self.assertEqual(context["back_label"], "Back to bills")
         self.assertEqual(context["change_owner_url"], self.url)
         self.assertContains(response, "Billed to")
         self.assertContains(response, "Change owner")
@@ -1691,7 +1691,7 @@ class PetStepTests(NewReceiptTestBase):
         )
         self.assertEqual(
             self._flashes(response),
-            [(message_levels.SUCCESS, "Receipt HV-2026-0001 created.")],
+            [(message_levels.SUCCESS, "Bill HV-2026-0001 created.")],
         )
         self.assertEqual(receipt.owner, self.owner)
         self.assertEqual(receipt.pet, pet)
@@ -1731,18 +1731,18 @@ class NewReceiptPageTests(NewReceiptTestBase):
                 html = response.content.decode()
                 self.assertNotIn("layer(legacy)", html)
                 self.assertIn(
-                    '<h1 class="text-2xl font-bold text-gray-900">New receipt</h1>',
+                    '<h1 class="text-2xl font-bold text-gray-900">New bill</h1>',
                     html,
                 )
                 self.assertEqual(html.count("btn-primary"), primary[mode])
                 if primary[mode]:
-                    self.assertIn("Create receipt</button>", html)
+                    self.assertIn("Create bill</button>", html)
                     self.assertIn(">Cancel</a>", html)
 
     def test_subtitles_and_steps(self):
         pages = self._pages()
         html = self._html(pages["visit"])
-        self.assertIn("For the visit below. Check it, then create the receipt.", html)
+        self.assertIn("For the visit below. Check it, then create the bill.", html)
         self.assertNotIn('aria-label="Steps"', html)
         for mode in ("owner", "pet"):
             with self.subTest(mode=mode):
@@ -1784,9 +1784,9 @@ class NewReceiptPageTests(NewReceiptTestBase):
                 self.assertNotIn("\n", link)
 
 
-# ── Slice 6b-3: New receipt design pass ───────────────────────────────────────
+# ── Slice 6b-3: New bill design pass ───────────────────────────────────────
 
-# Whole-page query counts of the New receipt steps, measured: session + user
+# Whole-page query counts of the New bill steps, measured: session + user
 # + the admin layout's own (4) + the page's. Owner step: the paginator count,
 # the owners, their active pets (one prefetch). Pet step: the owner, the pets.
 NEW_OWNER_STEP_QUERIES = 9
@@ -1851,25 +1851,25 @@ class NewReceiptDesignTests(NewReceiptTestBase):
         cases = [
             (
                 visit_url,
-                "For the visit below. Check it, then create the receipt.",
+                "For the visit below. Check it, then create the bill.",
                 "Back to the visit",
             ),
             (
                 self.url,
                 "Not from a visit, for example supplies bought over the counter.",
-                "Back to receipts",
+                "Back to bills",
             ),
             (
                 self.owner_url,
                 "Not from a visit, for example supplies bought over the counter.",
-                "Back to receipts",
+                "Back to bills",
             ),
         ]
         for url, subtitle, back in cases:
             with self.subTest(url=url):
                 html = self._html(url)
                 self.assertIn(
-                    '<h1 class="text-2xl font-bold text-gray-900">New receipt</h1>',
+                    '<h1 class="text-2xl font-bold text-gray-900">New bill</h1>',
                     html,
                 )
                 self.assertIn(
@@ -2294,11 +2294,11 @@ class NewReceiptDesignTests(NewReceiptTestBase):
             ),
             "visit without a service": (
                 self._visit_url(hour=10),
-                "The receipt opens empty. You add the items on the next page.",
+                "The bill opens empty. You add the items on the next page.",
             ),
             "pet": (
                 self.owner_url,
-                "The receipt opens empty. You add the items on the next page.",
+                "The bill opens empty. You add the items on the next page.",
             ),
         }
         for name, (url, note) in pages.items():
@@ -2312,7 +2312,7 @@ class NewReceiptDesignTests(NewReceiptTestBase):
                     + "</span></p>",
                 )
                 self.assertEqual(
-                    html.count("The receipt opens empty"), int("empty" in note)
+                    html.count("The bill opens empty"), int("empty" in note)
                 )
                 self.assertIn("flex flex-col-reverse gap-3", html)
                 self.assertRegex(
@@ -2324,7 +2324,7 @@ class NewReceiptDesignTests(NewReceiptTestBase):
                     html,
                     r'(?s)<button type="submit" class="btn btn-primary min-h-12 '
                     r'w-full font-semibold sm:w-auto">\s*<svg[^>]*aria-hidden="true"'
-                    r".*?</svg>\s*Create receipt</button>",
+                    r".*?</svg>\s*Create bill</button>",
                 )
                 self.assertEqual(html.count("btn-primary"), 1)
 
@@ -2343,7 +2343,7 @@ class NewReceiptDesignTests(NewReceiptTestBase):
             with self.subTest(url=url):
                 html = self._html(url)
                 self.assertNotIn("btn-primary", html)
-                self.assertNotIn("Create receipt", html)
+                self.assertNotIn("Create bill", html)
 
     # ─── Page rules ───────────────────────────────────────────────────────────
 
@@ -2373,7 +2373,7 @@ class NewReceiptDesignTests(NewReceiptTestBase):
             with self.subTest(url=url):
                 # The page itself: the layout's own flash and modal markup
                 # (shared components) is not part of this page
-                body = self._html(url).split(">New receipt</h1>", 1)[1]
+                body = self._html(url).split(">New bill</h1>", 1)[1]
                 body = body.split("</main>", 1)[0]
                 self.assertIn("<form", body)
                 self.assertIsNone(re.search(r"\son[a-z]+\s*=\s*[\"']", body))
@@ -2472,7 +2472,7 @@ class ReceiptListTests(FrozenBillingTestBase):
         return [r.receipt_number for r in context["receipts"]]
 
     def _tabs_fixture(self):
-        """Pending, paid and cancelled receipts with created_at ties (the pk
+        """Pending, paid and cancelled bills with created_at ties (the pk
         breaks them)."""
         made = {}
         for key, hours in [("p1", 5), ("p2", 1), ("p3", 1)]:
@@ -3227,15 +3227,15 @@ class ReceiptPaidNotificationTests(FrozenBillingTestBase):
         self.assertEqual(notification.related_billing, receipt)
         self.assertEqual(notification.related_pet, self.pet)
         self.assertEqual(len(mail.outbox), 1)
-        # 8a-2c: the subject names the receipt and the pet again (8a-2b:
+        # 8a-2c: the subject names the bill and the pet again (8a-2b:
         # f"{title} — Hapi Vet", i.e. "Bill paid: ₱1,250.00 — Hapi Vet")
         self.assertEqual(
             mail.outbox[0].subject,
-            f"Receipt {receipt.receipt_number} for Bantay — Hapi Vet",
+            f"Bill {receipt.receipt_number} for Bantay — Hapi Vet",
         )
         self.assertEqual(
             mail.outbox[0].body,
-            "Paid ₱1,250.00 on Sat, Nov 7. You can view or print it in Billing.",
+            "Paid ₱1,250.00 on Sat, Nov 7. You can view or print it in Bills.",
         )
 
     def test_title_without_a_pet(self):
@@ -3255,7 +3255,7 @@ class ReceiptPaidNotificationTests(FrozenBillingTestBase):
         # 8a-2c: the subject is back to the receipt number (8a-2b: "Bill paid:
         # ₱100.00 — Hapi Vet")
         self.assertEqual(
-            mail.outbox[0].subject, f"Receipt {receipt.receipt_number} — Hapi Vet"
+            mail.outbox[0].subject, f"Bill {receipt.receipt_number} — Hapi Vet"
         )
 
     def test_the_year_shows_when_it_isnt_this_year(self):
@@ -3263,7 +3263,7 @@ class ReceiptPaidNotificationTests(FrozenBillingTestBase):
         receipt.payment_date = datetime.date(2025, 11, 7)
         self.assertEqual(
             receipt_paid_message(receipt, TODAY),
-            "Paid ₱200.00 on Fri, Nov 7, 2025. You can view or print it in Billing.",
+            "Paid ₱200.00 on Fri, Nov 7, 2025. You can view or print it in Bills.",
         )
         notify_receipt_paid(receipt)
         self.assertIn("on Fri, Nov 7, 2025.", Notification.objects.get().message)
@@ -3525,12 +3525,12 @@ class ServicePagesTests(FrozenBillingTestBase):
         self.assertEqual(
             [g["text"] for g in groups],
             [
-                "Pet owners see these when they book. You can put them on receipts.",
-                "Hidden from pet owners. You can put them on receipts and pick them "
+                "Pet owners see these when they book. You can put them on bills.",
+                "Hidden from pet owners. You can put them on bills and pick them "
                 "for walk-ins.",
                 "Not shown anywhere yet. Finish it, then choose Offered or Clinic use "
                 "only.",
-                "Not shown anywhere. Old visits and receipts keep their names and "
+                "Not shown anywhere. Old visits and bills keep their names and "
                 "prices.",
             ],
         )
@@ -3762,7 +3762,7 @@ class ReceiptListPageTests(FrozenBillingTestBase):
         rows = [
             row
             for row in re.findall(rf"(?s){re.escape(ROW)}.*?</li>", html)
-            if f"receipt {number}</span>" in row
+            if f"bill {number}</span>" in row
         ]
         self.assertEqual(len(rows), 1)
         desktop, phone = rows[0].split(PHONE_CARD)
@@ -3784,7 +3784,7 @@ class ReceiptListPageTests(FrozenBillingTestBase):
             'class="inline-flex min-h-11 items-center justify-center gap-2 '
             "whitespace-nowrap rounded-lg border border-violet-300 bg-violet-50 px-5 "
             "text-base font-semibold text-violet-800 hover:border-violet-400 "
-            f'hover:bg-violet-100">Open<span class="sr-only"> receipt '
+            f'hover:bg-violet-100">Open<span class="sr-only"> bill '
             f"{receipt.receipt_number}</span>"
         )
 
@@ -3820,9 +3820,7 @@ class ReceiptListPageTests(FrozenBillingTestBase):
         self.assertContains(
             response, '<h1 class="text-2xl font-bold text-gray-900">Billing</h1>'
         )
-        self.assertContains(
-            response, "Receipts for visits and supplies. Payment is cash."
-        )
+        self.assertContains(response, "Bills for visits and supplies. Payment is cash.")
         source = (BILLING_TEMPLATES / "receipt_list.html").read_text(encoding="utf-8")
         for word in ("legacy_css", "extra_js", "messages"):
             with self.subTest(word=word):
@@ -3850,7 +3848,7 @@ class ReceiptListPageTests(FrozenBillingTestBase):
                     r'(?s)<a href="'
                     + re.escape(reverse("admin_receipt_create"))
                     + r'" class="btn btn-primary">\s*<svg[^>]*aria-hidden="true"'
-                    r"[^>]*>.*?</svg>\s*New receipt</a>",
+                    r"[^>]*>.*?</svg>\s*New bill</a>",
                 )
 
     def test_sidebar_highlights_billing(self):
@@ -3874,12 +3872,12 @@ class ReceiptListPageTests(FrozenBillingTestBase):
                     )
                     self.assertIn(
                         f'<label for="{prefix}-receipt-search" class="sr-only">'
-                        "Search receipts</label>",
+                        "Search bills</label>",
                         html,
                     )
                     self.assertIn(
                         f'<input id="{prefix}-receipt-search" type="search" '
-                        'name="q" value="cruz" placeholder="Search receipts: '
+                        'name="q" value="cruz" placeholder="Search bills: '
                         'number, owner or pet" class="input pl-10">',
                         html,
                     )
@@ -4001,10 +3999,10 @@ class ReceiptListPageTests(FrozenBillingTestBase):
     def test_list_heads(self):
         self._fixture()
         heads = {
-            "pending": ("Unpaid receipts", 2, "Oldest first"),
-            "paid": ("Paid receipts", 2, "Newest paid first"),
-            "cancelled": ("Cancelled receipts", 1, "Newest first"),
-            "all": ("All receipts", 5, "Newest first"),
+            "pending": ("Unpaid bills", 2, "Oldest first"),
+            "paid": ("Paid bills", 2, "Newest paid first"),
+            "cancelled": ("Cancelled bills", 1, "Newest first"),
+            "all": ("All bills", 5, "Newest first"),
         }
         for tab, (title, count, sort) in heads.items():
             with self.subTest(tab=tab):
@@ -4021,7 +4019,7 @@ class ReceiptListPageTests(FrozenBillingTestBase):
         html = self._html()
         self.assertRegex(
             html,
-            r'(?s)aria-hidden="true">\s*<span>Receipt</span><span></span>'
+            r'(?s)aria-hidden="true">\s*<span>Bill</span><span></span>'
             r'<span>Billed to</span><span class="text-right">Total</span><span></span>',
         )
         self.assertNotIn(
@@ -4031,13 +4029,13 @@ class ReceiptListPageTests(FrozenBillingTestBase):
     def test_results_line_one_many_none_and_clear_search(self):
         self._fixture()
         cases = [
-            ("pending", "0012", "1 receipt matches", "unpaid receipts"),
-            ("pending", "hv", "2 receipts match", "unpaid receipts"),
-            ("pending", "zzz", "No receipt matches", "unpaid receipts"),
-            ("paid", "hv", "2 receipts match", "paid receipts"),
-            ("cancelled", "hv", "1 receipt matches", "cancelled receipts"),
-            ("cancelled", "zzz", "No receipt matches", "cancelled receipts"),
-            ("all", "hv", "5 receipts match", "all receipts"),
+            ("pending", "0012", "1 bill matches", "unpaid bills"),
+            ("pending", "hv", "2 bills match", "unpaid bills"),
+            ("pending", "zzz", "No bill matches", "unpaid bills"),
+            ("paid", "hv", "2 bills match", "paid bills"),
+            ("cancelled", "hv", "1 bill matches", "cancelled bills"),
+            ("cancelled", "zzz", "No bill matches", "cancelled bills"),
+            ("all", "hv", "5 bills match", "all bills"),
         ]
         for tab, q, start, scope in cases:
             with self.subTest(tab=tab, q=q):
@@ -4058,7 +4056,7 @@ class ReceiptListPageTests(FrozenBillingTestBase):
                 self.assertNotIn('<span class="font-normal text-gray-700">(', html)
 
     def test_the_cancelled_note_only_on_cancelled_with_rows(self):
-        note = "Cancelled receipts are kept for the clinic. Owners don't see them, and they can't be changed."
+        note = "Cancelled bills are kept for the clinic. Owners don't see them, and they can't be changed."
         self.assertNotIn(note, self._html(status="cancelled"))
         self._fixture()
         for tab in RECEIPT_TABS:
@@ -4242,12 +4240,12 @@ class ReceiptListPageTests(FrozenBillingTestBase):
 
     def test_empty_states(self):
         cases = {
-            "pending": ("Nothing unpaid", "Every receipt is paid or cancelled."),
-            "paid": ("No paid receipts yet", None),
-            "cancelled": ("No cancelled receipts", None),
+            "pending": ("Nothing unpaid", "Every bill is paid or cancelled."),
+            "paid": ("No paid bills yet", None),
+            "cancelled": ("No cancelled bills", None),
             "all": (
-                "No receipts yet",
-                "Make one with New receipt, or from a visit's page.",
+                "No bills yet",
+                "Make one with New bill, or from a visit's page.",
             ),
         }
         for tab, expected in cases.items():
@@ -4265,31 +4263,31 @@ class ReceiptListPageTests(FrozenBillingTestBase):
         self.assertIn(
             f'<a href="{self.url}?status=paid" class="inline-flex min-h-11 '
             "items-center gap-2 text-base font-medium text-blue-600 underline "
-            'underline-offset-2">See paid receipts',
+            'underline-offset-2">See paid bills',
             html,
         )
-        self.assertNotIn("See paid receipts", self._html(status="paid"))
+        self.assertNotIn("See paid bills", self._html(status="paid"))
         self.assertNotIn("bg-yellow-200", self._tabs(html))
 
     def test_no_match_states(self):
         self._fixture()
         text = "Check the spelling, try another tab, or clear the search."
         scopes = {
-            "pending": "unpaid receipts",
-            "paid": "paid receipts",
-            "cancelled": "cancelled receipts",
-            "all": "all receipts",
+            "pending": "unpaid bills",
+            "paid": "paid bills",
+            "cancelled": "cancelled bills",
+            "all": "all bills",
         }
         for tab, scope in scopes.items():
             with self.subTest(tab=tab):
                 html = self._html(status=tab, q="zzz")
                 self.assertEqual(
-                    self._empty(html), (f"No receipt matches “zzz” in {scope}", text)
+                    self._empty(html), (f"No bill matches “zzz” in {scope}", text)
                 )
                 self.assertEqual(html.count("Clear search"), 1)
         # A search with no rows never shows the Cancelled note
         self.assertNotIn(
-            "Cancelled receipts are kept", self._html(status="cancelled", q="zzz")
+            "Cancelled bills are kept", self._html(status="cancelled", q="zzz")
         )
 
     def test_the_search_is_escaped(self):
@@ -4365,7 +4363,7 @@ class ReceiptListPageTests(FrozenBillingTestBase):
             self._tabs(html),
             rf'<a href="{self.url}\?status=pending" class="[^"]*" aria-current="page">',
         )
-        self.assertIn("Unpaid receipts <span", html)
+        self.assertIn("Unpaid bills <span", html)
 
     def test_the_services_page_has_no_billing_tabs(self):
         self._fixture()
@@ -4520,7 +4518,7 @@ class ReceiptPageTests(FrozenBillingTestBase):
                 )
         self.assertContains(
             response,
-            f"<title>Receipt {receipt.receipt_number} — Hapi Vet Admin</title>",
+            f"<title>Bill {receipt.receipt_number} — Hapi Vet Admin</title>",
         )
         for old in (
             "receipt_detail.css",
@@ -4582,8 +4580,8 @@ class ReceiptPageTests(FrozenBillingTestBase):
             header,
         )
         text = page_text(header)
-        self.assertIn("Back to receipts", text)
-        self.assertIn(f"Receipt {receipt.receipt_number} Unpaid", text)
+        self.assertIn("Back to bills", text)
+        self.assertIn(f"Bill {receipt.receipt_number} Unpaid", text)
         self.assertIn("Billed to Ana Cruz · for Bantay", text)
         self.assertIn("From the visit Today at 9:00 AM", text)
         owner_url = reverse("admin_owner_detail", args=[self.owner.pk])
@@ -4653,13 +4651,13 @@ class ReceiptPageTests(FrozenBillingTestBase):
             ),
             (
                 self._make(BillingReceipt.PAID),
-                "Paid in cash today, Saturday, November 7. This receipt is "
+                "Paid in cash today, Saturday, November 7. This bill is "
                 "locked and can't be changed.",
                 "border-green-300 bg-green-50",
             ),
             (
                 self._make(BillingReceipt.CANCELLED),
-                "This receipt was cancelled. It is locked and can't be changed. "
+                "This bill was cancelled. It is locked and can't be changed. "
                 "Ana Cruz doesn't see it.",
                 "border-gray-300 bg-gray-100",
             ),
@@ -4805,7 +4803,7 @@ class ReceiptPageTests(FrozenBillingTestBase):
         cases = [
             (self._make(), ["Mark as paid"]),
             (self._make(items=False), ["Add item"]),
-            (self._make(BillingReceipt.PAID), ["Print receipt"]),
+            (self._make(BillingReceipt.PAID), ["Print bill"]),
             (self._make(BillingReceipt.CANCELLED), []),
         ]
         for receipt, expected in cases:
@@ -4817,7 +4815,7 @@ class ReceiptPageTests(FrozenBillingTestBase):
         card = section(html, "actions-title")
         self.assertEqual(
             button_labels(card),
-            ["Mark as paid", "Add item", "Add discount", "Print", "Cancel receipt"],
+            ["Mark as paid", "Add item", "Add discount", "Print", "Cancel bill"],
         )
         self.assertEqual(
             re.findall(r'data-dialog-open="([^"]+)"', card),
@@ -4825,11 +4823,11 @@ class ReceiptPageTests(FrozenBillingTestBase):
         )
         self.assertEqual(card.count("data-print"), 1)
         self.assertIn("<hr", card)
-        # Cancel receipt is the red outline, full width, under the line
+        # Cancel bill is the red outline, full width, under the line
         self.assertRegex(
             card,
             r'(?s)<hr[^>]*>\s*<button type="button" class="btn min-h-12 w-full '
-            r'border border-red-300[^"]*"[^>]*>.*?Cancel receipt',
+            r'border border-red-300[^"]*"[^>]*>.*?Cancel bill',
         )
         self.assertIn("card order-1", html)
 
@@ -4843,28 +4841,26 @@ class ReceiptPageTests(FrozenBillingTestBase):
 
     def test_actions_for_an_empty_unpaid_receipt(self):
         card = section(self._html(self._make(items=False)), "actions-title")
-        self.assertEqual(button_labels(card), ["Add item", "Cancel receipt"])
-        self.assertIn(
-            "Mark as paid shows once the receipt has an item.", page_text(card)
-        )
+        self.assertEqual(button_labels(card), ["Add item", "Cancel bill"])
+        self.assertIn("Mark as paid shows once the bill has an item.", page_text(card))
         self.assertNotIn("data-print", card)
         self.assertNotIn("Add discount", card)
 
     def test_actions_for_a_paid_receipt(self):
         card = section(self._html(self._make(BillingReceipt.PAID)), "actions-title")
-        self.assertEqual(button_labels(card), ["Print receipt"])
+        self.assertEqual(button_labels(card), ["Print bill"])
         self.assertIn(
             "To save it as a PDF, pick “Save as PDF” in the print window.",
             page_text(card),
         )
         self.assertEqual(card.count("data-print"), 1)
-        self.assertNotIn("Cancel receipt", card)
+        self.assertNotIn("Cancel bill", card)
 
     def test_actions_for_a_cancelled_receipt(self):
         card = section(
             self._html(self._make(BillingReceipt.CANCELLED)), "actions-title"
         )
-        self.assertEqual(button_labels(card), ["Print receipt"])
+        self.assertEqual(button_labels(card), ["Print bill"])
         self.assertIn("btn btn-outline", card)
         self.assertNotIn("btn-primary", card)
         self.assertIn("The printout says “Cancelled”.", page_text(card))
@@ -4912,12 +4908,12 @@ class ReceiptPageTests(FrozenBillingTestBase):
             (
                 BillingReceipt.PENDING,
                 "Created Today, 12:30 AM Payment: cash "
-                "Ana Cruz sees it as Unpaid in their Billing page.",
+                "Ana Cruz sees it as Unpaid in their Bills page.",
             ),
             (
                 BillingReceipt.PAID,
                 "Created Today, 12:30 AM Paid Today · Cash "
-                "Ana Cruz sees it as Paid in their Billing page and can print it.",
+                "Ana Cruz sees it as Paid in their Bills page and can print it.",
             ),
             (
                 BillingReceipt.CANCELLED,
@@ -4997,13 +4993,13 @@ class ReceiptPageTests(FrozenBillingTestBase):
         self.assertIn("Ana Cruz paid ₱450.00 in cash today", text)
         self.assertIn("text-3xl font-bold", block)
         self.assertIn(
-            "After this the receipt is locked: no more items, discount changes or "
+            "After this the bill is locked: no more items, discount changes or "
             "cancelling.",
             text,
         )
         self.assertIn(
             "Ana Cruz gets a notification in the app, and an email if their "
-            "receipt emails are on, so they can view or print the receipt.",
+            "bill emails are on, so they can view or print the bill.",
             text,
         )
         self.assertNotIn("no email on file", text)
@@ -5023,9 +5019,9 @@ class ReceiptPageTests(FrozenBillingTestBase):
         block = dialogs_in(self._html(self._make(visit=self.visit)))["cancel-dialog"]
         text = page_text(block)
         receipt = BillingReceipt.objects.get()
-        self.assertIn(f"Cancel receipt {receipt.receipt_number}?", text)
+        self.assertIn(f"Cancel bill {receipt.receipt_number}?", text)
         self.assertIn(
-            "Use this for a receipt made by mistake, or when nothing will be charged.",
+            "Use this for a bill made by mistake, or when nothing will be charged.",
             text,
         )
         self.assertIn(
@@ -5034,8 +5030,8 @@ class ReceiptPageTests(FrozenBillingTestBase):
         self.assertIn(
             "Ana Cruz won't see it. It stays on the Cancelled tab for the clinic.", text
         )
-        self.assertIn("This visit can't get another receipt.", text)
-        self.assertIn("Yes, cancel receipt", text)
+        self.assertIn("This visit can't get another bill.", text)
+        self.assertIn("Yes, cancel bill", text)
         self.assertIn("btn-danger", block)
         # "Keep it" is the go-back button and has the focus
         self.assertRegex(block, r"data-dialog-close autofocus>Keep it</button>")
@@ -5043,7 +5039,7 @@ class ReceiptPageTests(FrozenBillingTestBase):
 
     def test_the_cancel_dialog_without_a_visit(self):
         text = page_text(dialogs_in(self._html(self._make()))["cancel-dialog"])
-        self.assertNotIn("This visit can't get another receipt.", text)
+        self.assertNotIn("This visit can't get another bill.", text)
         self.assertIn("Keep it", text)
 
     def test_other_dialogs_keep_their_go_back_label(self):
@@ -5065,11 +5061,11 @@ class ReceiptPageTests(FrozenBillingTestBase):
         cases = [
             (
                 amox,
-                "Remove Amoxicillin 250 mg? It comes off this receipt. The total goes from ₱405.00 to ₱270.00.",
+                "Remove Amoxicillin 250 mg? It comes off this bill. The total goes from ₱405.00 to ₱270.00.",
             ),
             (
                 consult,
-                "Remove Consultation? It comes off this receipt. The total goes from ₱405.00 to ₱135.00.",
+                "Remove Consultation? It comes off this bill. The total goes from ₱405.00 to ₱135.00.",
             ),
         ]
         for item, wording in cases:
@@ -5143,7 +5139,7 @@ class ReceiptPageTests(FrozenBillingTestBase):
         )
         self.assertIn("What is it?", text)
         self.assertIn("Description", text)
-        self.assertIn("Printed on the receipt. You can change it.", text)
+        self.assertIn("Printed on the bill. You can change it.", text)
         self.assertIn("Quantity", text)
         self.assertIn("Unit price", text)
         self.assertIn("Add item", text)
@@ -5349,7 +5345,7 @@ class ReceiptPageTests(FrozenBillingTestBase):
         for expected in (
             "Hapi Tutz Vet. Supplies Bognuyan, Gasan, Marinduque "
             "0917 000 0000 · hapitutzvet@gmail.com",
-            f"RECEIPT Receipt no. {receipt.receipt_number} Date: November 7, 2026",
+            f"BILL Bill no. {receipt.receipt_number} Date: November 7, 2026",
             "PAID Cash · November 7, 2026",
             "BILLED TO Ana Cruz · 0917 555 0142 Pet: Bantay",
             "Qty Description Unit Amount",
@@ -5603,7 +5599,7 @@ class ServicesListPageTests(FrozenBillingTestBase):
             response,
             '<h1 class="text-2xl font-bold text-gray-900">Services and prices</h1>',
         )
-        self.assertContains(response, "The price list for receipts and for booking.")
+        self.assertContains(response, "The price list for bills and for booking.")
         source = (BILLING_TEMPLATES / "services_list.html").read_text(encoding="utf-8")
         for word in ("legacy_css", "extra_js", "messages"):
             with self.subTest(word=word):
@@ -5653,7 +5649,7 @@ class ServicesListPageTests(FrozenBillingTestBase):
             '<h1 class="text-2xl font-bold text-gray-900">Services and prices</h1>',
             html,
         )
-        self.assertIn("The price list for receipts and for booking.", html)
+        self.assertIn("The price list for bills and for booking.", html)
         self.assertNotIn(">Billing</h1>", html)
         self.assertEqual(html.count("btn-primary"), 1)
 
@@ -5677,13 +5673,13 @@ class ServicesListPageTests(FrozenBillingTestBase):
                 "bg-green-100 px-2.5 py-1 text-sm font-medium text-green-800",
                 "Offered",
                 "3 services",
-                "Pet owners see these when they book. You can put them on receipts.",
+                "Pet owners see these when they book. You can put them on bills.",
             ),
             "unlisted": (
                 "bg-blue-100 px-2.5 py-1 text-sm font-medium text-blue-800",
                 "Clinic use only",
                 "1 service",
-                "Hidden from pet owners. You can put them on receipts and pick them "
+                "Hidden from pet owners. You can put them on bills and pick them "
                 "for walk-ins.",
             ),
             "draft": (
@@ -5697,7 +5693,7 @@ class ServicesListPageTests(FrozenBillingTestBase):
                 "bg-red-100 px-2.5 py-1 text-sm font-medium text-red-800",
                 "No longer offered",
                 "0 services",
-                "Not shown anywhere. Old visits and receipts keep their names and "
+                "Not shown anywhere. Old visits and bills keep their names and "
                 "prices.",
             ),
         }
@@ -6008,7 +6004,7 @@ class ServiceFormPageTests(FrozenBillingTestBase):
             '<h1 class="text-2xl font-bold text-gray-900">Add service</h1>', html
         )
         self.assertIn("A service on the price list. You can change it later.", html)
-        self.assertNotIn("Receipts already made keep their prices.", html)
+        self.assertNotIn("Bills already made keep their prices.", html)
         self.assertRegex(
             html,
             r'(?s)<a href="'
@@ -6039,7 +6035,7 @@ class ServiceFormPageTests(FrozenBillingTestBase):
             html,
         )
         self.assertIn(
-            "Changes apply to new receipts and bookings. Receipts already made keep "
+            "Changes apply to new bills and bookings. Bills already made keep "
             "their prices.",
             html,
         )
@@ -6137,7 +6133,7 @@ class ServiceFormPageTests(FrozenBillingTestBase):
         self.assertIn("One price The same price every time.", text)
         self.assertIn(
             "A price range For example ₱300.00 to ₱800.00. You set the real price on "
-            "each receipt.",
+            "each bill.",
             text,
         )
         self.assertEqual(
@@ -6296,17 +6292,17 @@ class ServiceFormPageTests(FrozenBillingTestBase):
         for label, line in (
             (
                 "Offered",
-                "Pet owners see it when they book. You can put it on receipts.",
+                "Pet owners see it when they book. You can put it on bills.",
             ),
             (
                 "Clinic use only",
-                "Hidden from pet owners. You can put it on receipts and pick it for "
+                "Hidden from pet owners. You can put it on bills and pick it for "
                 "walk-ins.",
             ),
             ("Hidden (draft)", "Not shown anywhere yet."),
             (
                 "No longer offered",
-                "Not shown anywhere. Old visits and receipts keep it.",
+                "Not shown anywhere. Old visits and bills keep it.",
             ),
         ):
             with self.subTest(label=label):
@@ -6583,7 +6579,7 @@ class OwnerBillsContextTests(FrozenBillingTestBase):
 
     def _bill(self, status, paid=None, billed=None, pet=None, item="Consultation"):
         """A receipt with one item (100.00) in the given status. paid is the
-        payment date (paid receipts), billed the billing date."""
+        payment date (paid bills), billed the billing date."""
         self.number += 1
         receipt = BillingReceipt.objects.create(
             receipt_number=f"HV-2026-{self.number:04d}",
@@ -7069,8 +7065,8 @@ class OwnerBillsPageTests(OwnerBillingPageBase):
         main = self._main(self._get())
         action = reverse("owner_billing_list")
         self.assertIn(f'<form method="get" action="{action}"', main)
-        self.assertIn("Search by receipt number or pet name</span>", main)
-        self.assertIn('placeholder="Receipt no. or pet name"', main)
+        self.assertIn("Search by bill number or pet name</span>", main)
+        self.assertIn('placeholder="Bill no. or pet name"', main)
         labels = re.findall(r'<option value="[^"]*"[^>]*>(.*?)</option>', main)
         self.assertEqual(
             labels,
@@ -7098,7 +7094,7 @@ class OwnerBillsPageTests(OwnerBillingPageBase):
         main = self._main(self._get(q="no such pet"))
         text = page_text(main)
         self.assertIn("No bills match", text)
-        self.assertIn("Try another name or receipt number, or show All time.", text)
+        self.assertIn("Try another name or bill number, or show All time.", text)
         self.assertEqual(main.count("Show all bills"), 1)
         self.assertNotIn("HV-2026-0001", main)
 
@@ -7268,7 +7264,7 @@ class OwnerReceiptPageTests(OwnerBillingPageBase):
         main = self._main(self._get(self._full(BillingReceipt.PAID)))
         text = page_text(main)
         self.assertIn("Paid on Nov 7, 2026", text)
-        self.assertIn("Thank you! Keep this as your receipt.", text)
+        self.assertIn("Thank you! Keep this as proof of payment.", text)
         self.assertIn("border-green-200 bg-green-50", main)
         self.assertNotIn("Please pay", text)
         self.assertIn('class="badge bg-green-100 text-green-800">Paid<', main)
@@ -7284,7 +7280,7 @@ class OwnerReceiptPageTests(OwnerBillingPageBase):
         receipt.calculate_totals()
         main = self._main(self._get(receipt))
         text = page_text(main)
-        self.assertIn(f"Receipt {receipt.receipt_number}", text)
+        self.assertIn(f"Bill {receipt.receipt_number}", text)
         self.assertRegex(main, rf"<h1[^>]*>{receipt.receipt_number}</h1>")
         self.assertIn("Pet Bantay", text)
         self.assertIn("Bill date Nov 7, 2026", text)
@@ -7613,7 +7609,7 @@ class OwnerBillsSwapTests(_BillsSwapBase):
             html = response.content.decode()
             text = page_text(html)
             self.assertIn("No bills match", text)
-            self.assertIn("Try another name or receipt number, or show All time.", text)
+            self.assertIn("Try another name or bill number, or show All time.", text)
             self.assertEqual(html.count("Show all bills"), 1)
             self.assertEqual(self._numbers(response), [])
 
@@ -7941,3 +7937,205 @@ class OwnerHidesEmptyBillTests(OwnerBillingPageBase):
         with CaptureQueriesContext(connection) as with_item:
             self.client.get(reverse("owner_dashboard"))
         self.assertEqual(len(with_item), len(without))
+
+
+@PLAIN_STATIC
+class BillWordingTests(FrozenBillingTestBase):
+    """Fix bill wording: what people read says "bill" (paid or unpaid), never
+    "receipt". Code names (urls, ids, classes, field names) keep "receipt", so
+    the checks read the page text and the aria-label, placeholder, alt and
+    title values only."""
+
+    BIR_LINE = "This is not an official BIR invoice."
+
+    def _visible(self, html):
+        body = re.sub(r"(?s)<(script|style)\b.*?</\1>", " ", html)
+        attrs = re.findall(r'\b(?:aria-label|placeholder|alt|title)="([^"]*)"', body)
+        return page_text(body) + " " + " ".join(unescape(a) for a in attrs)
+
+    def _page(self, name, *args, **params):
+        response = self.client.get(reverse(name, args=args), params)
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _text(self, name, *args, **params):
+        """The visible text of a page, checked to have no "receipt" in it."""
+        text = self._visible(self._page(name, *args, **params))
+        self.assertNotIn("receipt", text.lower(), (name, params))
+        return text
+
+    def _visit(self):
+        return Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            date=TODAY,
+            time=datetime.time(9, 0),
+            status=Appointment.COMPLETED,
+        )
+
+    def _as_owner(self):
+        self.client.force_login(self.owner.user)
+
+    def test_the_admin_bill_list_in_every_tab(self):
+        for status in (
+            BillingReceipt.PENDING,
+            BillingReceipt.PAID,
+            BillingReceipt.CANCELLED,
+        ):
+            self._receipt(status)
+        for tab, heading in (
+            ("pending", "Unpaid bills"),
+            ("paid", "Paid bills"),
+            ("cancelled", "Cancelled bills"),
+            ("all", "All bills"),
+        ):
+            with self.subTest(tab=tab):
+                text = self._text("admin_receipt_list", status=tab)
+                self.assertIn(heading, text)
+                self.assertIn("Bills for visits and supplies.", text)
+                self.assertIn("New bill", text)
+                self.assertIn("Search bills: number, owner or pet", text)
+
+    def test_the_admin_bill_list_searching_and_empty(self):
+        text = self._text("admin_receipt_list", status="paid", q="zzz")
+        self.assertIn("No bill matches “zzz” in paid bills", text)
+        for tab, title in (
+            ("pending", "Nothing unpaid Every bill is paid or cancelled."),
+            ("paid", "No paid bills yet"),
+            ("cancelled", "No cancelled bills"),
+            ("all", "No bills yet Make one with New bill, or from a visit's page."),
+        ):
+            with self.subTest(tab=tab):
+                self.assertIn(title, self._text("admin_receipt_list", status=tab))
+
+    def test_the_admin_bill_page_in_every_status(self):
+        cases = (
+            (BillingReceipt.PENDING, ["Cancel bill", "Unpaid"]),
+            (BillingReceipt.PAID, ["Print bill", "This bill is locked"]),
+            (BillingReceipt.CANCELLED, ["This bill was cancelled."]),
+        )
+        for status, expected in cases:
+            with self.subTest(status=status):
+                receipt = self._receipt(status)
+                text = self._text("admin_receipt_detail", receipt.pk)
+                self.assertIn(f"Bill {receipt.receipt_number}", text)
+                self.assertIn("Back to bills", text)
+                for words in expected:
+                    self.assertIn(words, text)
+
+    def test_new_bill_from_a_visit_and_steps_one_and_two(self):
+        visit = self._visit()
+        pages = (
+            self._text("admin_receipt_create", appointment=visit.pk),
+            self._text("admin_receipt_create"),
+            self._text("admin_receipt_create", owner=self.owner.pk),
+        )
+        for text in pages:
+            self.assertIn("New bill", text)
+        self.assertIn("Create bill", pages[0])
+        self.assertIn("Check it, then create the bill.", pages[0])
+        self.assertIn("Create bill", pages[2])
+
+    def test_the_appointment_buttons_say_bill(self):
+        visit = self._visit()
+        self.assertIn("Create bill", self._text("admin_appointment_detail", visit.pk))
+        self._receipt_for(visit)
+        self.assertIn("Open bill", self._text("admin_appointment_detail", visit.pk))
+
+    def _receipt_for(self, visit, status=BillingReceipt.PENDING):
+        receipt = self._receipt(status)
+        receipt.appointment = visit
+        receipt.save(update_fields=["appointment"])
+        return receipt
+
+    def test_the_owner_bills_list_and_bill_page(self):
+        paid = self._receipt(BillingReceipt.PAID)
+        unpaid = self._receipt(BillingReceipt.PENDING)
+        self._as_owner()
+        listing = self._text("owner_billing_list")
+        self.assertIn(paid.receipt_number, listing)
+        self.assertIn(unpaid.receipt_number, listing)
+        paid_text = self._text("owner_receipt_detail", paid.pk)
+        self.assertIn(f"Bill {paid.receipt_number}", paid_text)
+        self.assertIn("Keep this as proof of payment.", paid_text)
+        self.assertIn(
+            f"Bill {unpaid.receipt_number}",
+            self._text("owner_receipt_detail", unpaid.pk),
+        )
+
+    def test_the_owner_search_box_says_bill(self):
+        self._receipt(BillingReceipt.PAID)
+        self._as_owner()
+        text = self._text("owner_billing_list", q="zzz")
+        self.assertIn("bill number", text)
+
+    def test_the_printout_says_bill_with_the_stamp_and_the_bir_line(self):
+        cases = (
+            (BillingReceipt.PENDING, "UNPAID"),
+            (BillingReceipt.PAID, "PAID"),
+            (BillingReceipt.CANCELLED, "CANCELLED"),
+        )
+        for status, stamp in cases:
+            with self.subTest(status=status):
+                receipt = self._receipt(status)
+                html = self._page("admin_receipt_detail", receipt.pk)
+                start = html.rindex("<", 0, html.index('id="printable-receipt"'))
+                printout = html[start:]
+                # Up to the end of the BIR line (the layout adds more after)
+                printout = printout[: printout.index(self.BIR_LINE) + 40]
+                text = page_text(printout)
+                self.assertIn(f"BILL Bill no. {receipt.receipt_number}", text)
+                self.assertNotIn("receipt", text.lower())
+                self.assertIn(f'<p class="receipt-print-stamp">{stamp}</p>', html)
+                self.assertEqual(html.count(self.BIR_LINE), 1)
+                footer = printout[printout.index("receipt-print-footer") :]
+                self.assertTrue(footer.endswith(f"<p>{self.BIR_LINE}</p>"))
+                self.assertIn(
+                    "We care for your pets like our own. " + self.BIR_LINE, text
+                )
+
+    def test_the_owner_printout_has_the_bir_line_too(self):
+        self._as_owner()
+        for status in (BillingReceipt.PENDING, BillingReceipt.PAID):
+            with self.subTest(status=status):
+                receipt = self._receipt(status)
+                html = self._page("owner_receipt_detail", receipt.pk)
+                self.assertEqual(html.count(self.BIR_LINE), 1)
+                start = html.rindex("<", 0, html.index('id="printable-receipt"'))
+                self.assertIn("BILL", page_text(html[start:]))
+
+    def test_mark_paid_notification_and_email_say_bill(self):
+        receipt = self._receipt()
+        self.client.post(reverse("admin_receipt_mark_paid", args=[receipt.pk]))
+        notification = Notification.objects.get()
+        number = receipt.receipt_number
+        self.assertTrue(notification.title.startswith("Bill "))
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].subject, f"Bill {number} for Bantay — Hapi Vet")
+        for words in (notification.title, notification.message, mail.outbox[0].body):
+            self.assertNotIn("receipt", words.lower())
+        self.assertTrue(mail.outbox[0].body.endswith("view or print it in Bills."))
+
+    def test_the_flash_messages_say_bill(self):
+        receipt = self._receipt()
+        paid = self.client.post(
+            reverse("admin_receipt_mark_paid", args=[receipt.pk]), follow=True
+        )
+        self.assertEqual(
+            [str(m) for m in paid.context["messages"]],
+            [f"Bill {receipt.receipt_number} marked as paid."],
+        )
+        other = self._receipt()
+        cancelled = self.client.post(
+            reverse("admin_receipt_mark_cancelled", args=[other.pk]), follow=True
+        )
+        self.assertEqual(
+            [str(m) for m in cancelled.context["messages"]], ["Bill cancelled."]
+        )
+
+    def test_the_email_settings_page_says_bills(self):
+        # The old "Email when a receipt is paid." line never existed: the page
+        # has always had one "Bills" switch
+        self._as_owner()
+        text = self._text("owner_notification_preferences")
+        self.assertIn("Bills When the clinic records your payment.", text)

@@ -859,12 +859,12 @@ class OwnerNotificationTextTests(FrozenRemindersTestBase):
         self.assertEqual(notice.message, "Bantay · HV-2026-0004. Paid on Tue, Nov 3.")
         self.assertEqual(
             mail.outbox[0].body,
-            "Paid ₱1,350.00 on Tue, Nov 3. You can view or print it in Billing.",
+            "Paid ₱1,350.00 on Tue, Nov 3. You can view or print it in Bills.",
         )
         # 8a-2c: the subject names the receipt and the pet (8a-2b: "Bill paid:
         # ₱1,350.00 — Hapi Vet")
         self.assertEqual(
-            mail.outbox[0].subject, "Receipt HV-2026-0004 for Bantay — Hapi Vet"
+            mail.outbox[0].subject, "Bill HV-2026-0004 for Bantay — Hapi Vet"
         )
 
     def test_notifications_to_the_admin_are_unchanged(self):

@@ -10,7 +10,7 @@
 {% block content %}
 <div class="space-y-4">
   {% if is_paid %}
-    <div class="flex items-start gap-3 rounded-xl border border-green-200 bg-green-50 px-4 py-4 text-green-900">{% include "components/icon.html" with name="circle-check" class="mt-0.5 size-6 shrink-0" %}<div><p class="text-lg font-semibold">Paid on {{ receipt.payment_date|default:receipt.billing_date|date:"M j, Y" }}</p><p class="mt-0.5 text-base">Thank you! Keep this as your receipt.</p></div></div>
+    <div class="flex items-start gap-3 rounded-xl border border-green-200 bg-green-50 px-4 py-4 text-green-900">{% include "components/icon.html" with name="circle-check" class="mt-0.5 size-6 shrink-0" %}<div><p class="text-lg font-semibold">Paid on {{ receipt.payment_date|default:receipt.billing_date|date:"M j, Y" }}</p><p class="mt-0.5 text-base">Thank you! Keep this as proof of payment.</p></div></div>
   {% else %}
     <div class="flex items-start gap-3 rounded-xl border border-yellow-300 bg-yellow-50 px-4 py-4 text-yellow-900">{% include "components/icon.html" with name="receipt" class="mt-0.5 size-6 shrink-0" %}<div><p class="text-lg font-semibold">Please pay {{ receipt.total_amount|peso }} at the clinic</p><p class="mt-0.5 text-base">Cash only. The clinic will mark it paid when you pay.</p></div></div>
   {% endif %}
@@ -18,7 +18,7 @@
   <article class="rounded-2xl border border-gray-200 bg-white shadow-sm">
     <div class="flex items-start justify-between gap-3 border-b border-gray-100 p-4">
       <div>
-        <p class="text-base text-gray-600">Receipt</p>
+        <p class="text-base text-gray-600">Bill</p>
         <h1 class="text-xl font-bold text-gray-900">{{ receipt.receipt_number }}</h1>
       </div>
       {% include "components/status_badge.html" with status=receipt.payment_status label=receipt.status_label %}

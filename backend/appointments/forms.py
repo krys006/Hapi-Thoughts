@@ -134,7 +134,7 @@ class ClinicSettingsForm(forms.ModelForm):
             "veterinarian_bio": "A few sentences. Shown on the clinic page.",
             "same_day_cutoff_time": "No bookings for today after this time.",
             "logo": (
-                "JPG, PNG or WebP, up to 2 MB. It shows on receipts and the "
+                "JPG, PNG or WebP, up to 2 MB. It shows on bills and the "
                 "clinic page. Choosing a new file replaces the old one."
             ),
         }

@@ -72,11 +72,11 @@
       {% endif %}
       {# One receipt per visit: any receipt (unpaid, paid or cancelled) opens; Create only when there is none #}
       {% if receipt %}
-        <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="btn btn-outline min-h-12 w-full font-semibold">{% include "components/icon.html" with name="receipt" %}Open receipt</a>
+        <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="btn btn-outline min-h-12 w-full font-semibold">{% include "components/icon.html" with name="receipt" %}Open bill</a>
       {% elif medical_record %}
-        <a href="{% url 'admin_receipt_create' %}?appointment={{ appointment.pk }}" class="btn btn-primary min-h-12 w-full font-semibold">{% include "components/icon.html" with name="receipt" %}Create receipt</a>
+        <a href="{% url 'admin_receipt_create' %}?appointment={{ appointment.pk }}" class="btn btn-primary min-h-12 w-full font-semibold">{% include "components/icon.html" with name="receipt" %}Create bill</a>
       {% else %}
-        <a href="{% url 'admin_receipt_create' %}?appointment={{ appointment.pk }}" class="btn btn-outline min-h-12 w-full font-semibold">{% include "components/icon.html" with name="receipt" %}Create receipt</a>
+        <a href="{% url 'admin_receipt_create' %}?appointment={{ appointment.pk }}" class="btn btn-outline min-h-12 w-full font-semibold">{% include "components/icon.html" with name="receipt" %}Create bill</a>
       {% endif %}
     </div>
     {% if not medical_record or not receipt %}

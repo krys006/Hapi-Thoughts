@@ -156,7 +156,7 @@ def admin_receipt_create(request):
 
 
 def _receipt_created(request, receipt):
-    messages.success(request, f"Receipt {receipt.receipt_number} created.")
+    messages.success(request, f"Bill {receipt.receipt_number} created.")
     return redirect("admin_receipt_detail", pk=receipt.pk)
 
 
@@ -333,7 +333,7 @@ def admin_receipt_mark_paid(request, pk):
     notify_receipt_paid(receipt)
     messages.success(
         request,
-        f"Receipt {receipt.receipt_number} marked as paid.",
+        f"Bill {receipt.receipt_number} marked as paid.",
     )
     return redirect("admin_receipt_detail", pk=pk)
 
@@ -352,7 +352,7 @@ def admin_receipt_mark_cancelled(request, pk):
         if receipt is None:
             return refuse_locked(request, pk)
         mark_receipt_cancelled(receipt)
-        messages.success(request, "Receipt cancelled.")
+        messages.success(request, "Bill cancelled.")
 
     return redirect("admin_receipt_detail", pk=pk)
 

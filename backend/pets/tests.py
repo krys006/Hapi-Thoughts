@@ -1738,7 +1738,7 @@ class OwnerDetailPageTests(TestCase):
         self.assertIn("Archive Ana Cruz?</h2>", dialog)
         self.assertIn(
             "Ana Cruz won't be able to log in, and you won't be able to book visits "
-            "for them. Their pets, visits, medical records and receipts are all "
+            "for them. Their pets, visits, medical records and bills are all "
             "kept. You can restore the account at any time.",
             dialog,
         )

@@ -893,17 +893,15 @@ def admin_appointment_reject(request, pk):
 
 def _completed_message(appointment, outcome, name):
     """The success flash of Complete, by what happened to the visit's bill."""
-    if outcome == BILL_STARTED:
-        return "Visit marked as completed. A bill was started for it."
-    if outcome == BILL_ARCHIVED:
-        return (
-            "Visit marked as completed. "
-            f"No bill was started because {name} is archived."
-        )
-    return (
+    done = (
         f"Marked {appointment.pet.name}'s appointment on "
         f"{_when(appointment)} as completed."
     )
+    if outcome == BILL_STARTED:
+        return f"{done} A bill was started for it."
+    if outcome == BILL_ARCHIVED:
+        return f"{done} No bill was started because {name} is archived."
+    return done
 
 
 @login_required

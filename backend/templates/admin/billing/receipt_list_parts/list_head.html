@@ -4,16 +4,16 @@
 {% endcomment %}
 <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
   {% if active_tab == "pending" %}
-    <h2 class="text-xl font-semibold text-gray-900">Unpaid receipts <span class="font-normal text-gray-700">({{ pending_count }})</span></h2>
+    <h2 class="text-xl font-semibold text-gray-900">Unpaid bills <span class="font-normal text-gray-700">({{ pending_count }})</span></h2>
     <p class="text-sm text-gray-700">Oldest first</p>
   {% elif active_tab == "paid" %}
-    <h2 class="text-xl font-semibold text-gray-900">Paid receipts <span class="font-normal text-gray-700">({{ paid_count }})</span></h2>
+    <h2 class="text-xl font-semibold text-gray-900">Paid bills <span class="font-normal text-gray-700">({{ paid_count }})</span></h2>
     <p class="text-sm text-gray-700">Newest paid first</p>
   {% elif active_tab == "cancelled" %}
-    <h2 class="text-xl font-semibold text-gray-900">Cancelled receipts <span class="font-normal text-gray-700">({{ cancelled_count }})</span></h2>
+    <h2 class="text-xl font-semibold text-gray-900">Cancelled bills <span class="font-normal text-gray-700">({{ cancelled_count }})</span></h2>
     <p class="text-sm text-gray-700">Newest first</p>
   {% else %}
-    <h2 class="text-xl font-semibold text-gray-900">All receipts <span class="font-normal text-gray-700">({{ all_count }})</span></h2>
+    <h2 class="text-xl font-semibold text-gray-900">All bills <span class="font-normal text-gray-700">({{ all_count }})</span></h2>
     <p class="text-sm text-gray-700">Newest first</p>
   {% endif %}
 </div>

@@ -225,7 +225,7 @@ Only one instance exists — Admin edits it through clinic settings page.
 | `address` | TextField | — | — |
 | `contact_number` | CharField | max_length=20, blank=True | — |
 | `email` | EmailField | blank=True | — |
-| `logo` | ImageField | upload_to='clinic/', blank=True, null=True | Clinic logo for receipts and UI |
+| `logo` | ImageField | upload_to='clinic/', blank=True, null=True | Clinic logo for bills and UI |
 | `veterinarian_name` | CharField | max_length=100, blank=True | Shown on clinic info page |
 | `veterinarian_license_number` | CharField | max_length=50, blank=True | — |
 | `veterinarian_bio` | TextField | blank=True | — |
@@ -522,7 +522,7 @@ CLOSED = 'closed'
 - DRAFT — not visible anywhere (a new service starts here)
 - ACTIVE — visible to pet owners, bookable
 - UNLISTED — not visible to pet owners, Admin use only
-- CLOSED — not visible to pet owners, not bookable, not billable (old visits and receipts keep it). There is no delete; CLOSED retires a service.
+- CLOSED — not visible to pet owners, not bookable, not billable (old visits and bills keep it). There is no delete; CLOSED retires a service.
 
 Page labels (set in `ServiceForm`, not in `choices`): pricing FIXED "One price", RANGE "A price range"; status ACTIVE "Offered", UNLISTED "Clinic use only", DRAFT "Hidden (draft)", CLOSED "No longer offered" (that order on the pages).
 
@@ -533,6 +533,7 @@ Page labels (set in `ServiceForm`, not in `choices`): pricing FIXED "One price",
 ---
 
 ### BillingReceipt
+> People read "bill" for this document (since 2026-11-22). The model, its fields and `receipt_number` keep their names; only page text, messages and the printout changed.
 Header record for each billing transaction.
 
 | Field | Type | Options | Notes |
@@ -599,7 +600,7 @@ Supports both catalog services and manual items.
 | `id` | AutoField | PK | Auto |
 | `receipt` | ForeignKey | BillingReceipt, on_delete=CASCADE, related_name="billing_items" | — |
 | `service` | ForeignKey | Service, null=True, blank=True, on_delete=SET_NULL, related_name="billing_items" | Null for "Other (type it)" |
-| `description` | CharField | max_length=200 | Printed on the receipt; filled from the service name when left blank |
+| `description` | CharField | max_length=200 | Printed on the bill; filled from the service name when left blank |
 | `quantity` | IntegerField | default=1 | 1 to 999 (form rule) |
 | `unit_price` | DecimalField | max_digits=10, decimal_places=2 | Actual billed price set by Admin; 0 or more |
 | `subtotal` | DecimalField | max_digits=10, decimal_places=2 | quantity × unit_price; at most ₱999,999.99 (form rule) |

@@ -1287,6 +1287,15 @@ The main admin user is an elderly vet. Every migrated admin page follows these:
 | `bottom_sheet.html` | Owner confirmation sheet (native `<dialog>`); see "Owner layout". |
 | `empty_state.html` | `{% include "components/empty_state.html" with icon="calendar" title="No appointments on this day" text="Pick another date on the calendar." %}`. Optional `live=True` makes the title a polite live region (results that change as you type). |
 
+### Wording: bills
+People read "bill" (paid or unpaid), never "receipt": page text, headings,
+buttons, dialogs, flashes, form errors, placeholders, `aria-label`s, page
+titles, notifications and emails. Code names keep `receipt` (`BillingReceipt`,
+`receipt_number`, `admin_receipt_*`, `receipt_detail.html`, CSS classes, ids).
+The printout says "Bill" + the PAID / UNPAID / CANCELLED stamp + "This is not
+an official BIR invoice." (it is not a BIR-registered document, so it is not
+called an invoice either). The Complete flash adds "A bill was started for it."
+
 ### Status badge convention
 Use `components/status_badge.html`. Colours: pending yellow, confirmed blue,
 completed and paid green, cancelled red, no show gray, as `bg-*-100 text-*-800`

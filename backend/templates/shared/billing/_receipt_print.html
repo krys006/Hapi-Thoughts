@@ -211,8 +211,8 @@
 
   <div class="receipt-print-meta">
     <div>
-      <h3 class="receipt-print-title">RECEIPT</h3>
-      <p class="receipt-print-meta-line">Receipt no. <b>{{ receipt.receipt_number }}</b></p>
+      <h3 class="receipt-print-title">BILL</h3>
+      <p class="receipt-print-meta-line">Bill no. <b>{{ receipt.receipt_number }}</b></p>
       <p class="receipt-print-meta-line">Date: {{ receipt.billing_date|date:"F j, Y" }}</p>
     </div>
     <div class="receipt-print-status">
@@ -265,6 +265,7 @@
   <div class="receipt-print-footer">
     <p>Thank you for trusting {{ clinic_settings.clinic_name|default:"Hapi Tutz Vet. Supplies" }}!</p>
     <p>We care for your pets like our own.</p>
+    <p>This is not an official BIR invoice.</p>
   </div>
 
 </div>

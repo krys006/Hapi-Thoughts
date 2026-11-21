@@ -343,41 +343,41 @@ PENDING or CONFIRMED → CANCELLED
 | **Draft** | No | No |
 | **Active** | Yes | Yes |
 | **Unlisted** | No | Admin use only |
-| **Closed** | No (hidden; old visits and receipts keep it) | No |
+| **Closed** | No (hidden; old visits and bills keep it) | No |
 
 ### 5.2 Billing (Admin)
 | Feature | Status |
 |---|---|
-| Generate billing receipt at any point (not restricted to COMPLETED) | `complete` |
+| Generate a bill at any point (not restricted to COMPLETED) | `complete` |
 | Bill started automatically when a visit is marked Completed (fixed-price service added as the first item) | `complete` |
 | Add catalog services as billing line items | `complete` |
 | Add manual items (medicines, supplies) as billing line items | `complete` |
 | Each line item: quantity, description, unit price, subtotal | `complete` |
 | System auto-calculates total | `complete` |
-| Apply discount per receipt (percentage or fixed amount) | `complete` |
+| Apply discount per bill (percentage or fixed amount) | `complete` |
 | Discount note field (e.g. "Loyal client discount") | `complete` |
 | Payment is cash only: recorded as Cash, with today's date, by Mark as paid (no payment method field; GCash / bank transfer is a future expansion point) | `complete` |
-| Set payment status: Pending / Paid / Cancelled, shown as Unpaid / Paid / Cancelled (via Mark as Paid / Cancel Receipt actions only) | `complete` |
-| Cancelled receipts are hidden from the pet owner (list, receipt page, search) | `complete` |
-| Change a receipt while it is Unpaid: add or remove items and set the discount on the receipt page (no separate edit page) | `complete` |
-| Print an Unpaid, Paid or Cancelled receipt from the receipt page (the printout carries a PAID / UNPAID / CANCELLED stamp) | `complete` |
-| Receipt locked once marked as Paid or Cancelled | `complete` |
+| Set payment status: Pending / Paid / Cancelled, shown as Unpaid / Paid / Cancelled (via Mark as Paid / Cancel bill actions only) | `complete` |
+| Cancelled bills are hidden from the pet owner (list, bill page, search) | `complete` |
+| Change a bill while it is Unpaid: add or remove items and set the discount on the bill page (no separate edit page) | `complete` |
+| Print an Unpaid, Paid or Cancelled bill from the bill page (the printout is titled "Bill", carries a PAID / UNPAID / CANCELLED stamp and ends with "This is not an official BIR invoice.") | `complete` |
+| Bill locked once marked as Paid or Cancelled | `complete` |
 | View all billing transactions | `complete` |
-| View receipt detail | `complete` |
+| View bill detail | `complete` |
 
 ### 5.3 Billing (Pet Owner)
 | Feature | Status |
 |---|---|
-| View billing receipt for completed appointments | `complete` |
-| View full billing history: Unpaid and Paid receipts only (cancelled ones are never shown); an Unpaid bill appears once it has at least one item | `complete` |
+| View the bill for completed appointments | `complete` |
+| View full billing history: Unpaid and Paid bills only (cancelled ones are never shown); an Unpaid bill appears once it has at least one item | `complete` |
 | Bills page: a yellow "To pay" box with the total and count, the Unpaid bills (never hidden by a filter), or a green "You're all paid up" box; "No bills yet" page when there are none | `complete` (8b-8) |
-| Bills History filter: search by receipt number or pet name plus a period (All time, This month, Last 3 months, this year, last year), a plain GET form, month groups, 25 a page | `complete` (8b-8) |
-| Receipt page (read-only): banner (please pay at the clinic / paid on), pet, bill date, link to the visit, items, subtotal, discount, total, "Paid by"; "Something looks wrong?" line while Unpaid | `complete` (8b-8) |
+| Bills History filter: search by bill number or pet name plus a period (All time, This month, Last 3 months, this year, last year), a plain GET form, month groups, 25 a page | `complete` (8b-8) |
+| Bill page (read-only): banner (please pay at the clinic / paid on), pet, bill date, link to the visit, items, subtotal, discount, total, "Paid by"; "Something looks wrong?" line while Unpaid | `complete` (8b-8) |
 | Save as PDF from the print window | `complete` |
-| Print receipt (the button shows on a Paid receipt) | `complete` (8b-8) |
-| Receive a notification when a receipt is paid | `complete` |
+| Print bill (the button shows on a Paid bill) | `complete` (8b-8) |
+| Receive a notification when a bill is paid | `complete` |
 
-### Receipt Format
+### Bill Format (the printout)
 ```
 ┌─────────────────────────────────────────┐
 │  [Clinic Logo]                          │
@@ -386,8 +386,8 @@ PENDING or CONFIRMED → CANCELLED
 │  Contact: xxxx-xxxx                     │
 │  Email: hapitutzvet@gmail.com           │
 ├─────────────────────────────────────────┤
-│  RECEIPT                                │
-│  Receipt #: HV-2025-0001                │
+│  BILL                                   │
+│  Bill no.: HV-2025-0001                 │
 │  Date: January 1, 2025                  │
 │  Payment Status: Paid                   │
 ├─────────────────────────────────────────┤
@@ -439,7 +439,7 @@ PENDING or CONFIRMED → CANCELLED
 | Email sent on appointment approved (to Pet Owner) | `complete` |
 | Email sent on appointment rejected (to Pet Owner) | `complete` |
 | Email sent on appointment reminder (to Pet Owner) | `complete` |
-| Email sent when a receipt is paid (to Pet Owner) | `complete` |
+| Email sent when a bill is paid (to Pet Owner; subject "Bill HV-2026-0012 for Bantay — Hapi Vet") | `complete` |
 | Email sent on vaccination reminder (to Pet Owner) | `complete` |
 | Email sent on follow-up reminder (to Pet Owner) | `complete` |
 | Admin configurable notification email in clinic settings | `complete` |
@@ -452,7 +452,7 @@ PENDING or CONFIRMED → CANCELLED
 |---|---|
 | Pet Owner per-type email toggle (appointment reminders on/off) | `complete` |
 | Pet Owner per-type email toggle (appointment status updates on/off) | `complete` |
-| Pet Owner per-type email toggle ("Email when a receipt is paid." on/off) | `complete` |
+| Pet Owner per-type email toggle (the "Bills" switch: "When the clinic records your payment." on/off) | `complete` |
 | Pet Owner per-type email toggle (vaccination reminders on/off) | `complete` |
 | Pet Owner per-type email toggle (follow-up reminders on/off) | `complete` |
 | Pet Owner appointment reminder timing preference (fixed choices: same day, 1, 2 or 3 days before; an earlier saved value stays selectable) | `complete` |
@@ -480,7 +480,7 @@ PENDING or CONFIRMED → CANCELLED
 | Appointment approved | Pet Owner |
 | Appointment rejected | Pet Owner |
 | Appointment reminder (configurable + day-of) | Pet Owner |
-| Receipt paid (one notification, type `billing_generated`; nothing when a receipt is created) | Pet Owner |
+| Bill paid (one notification, type `billing_generated`; nothing when a bill is created) | Pet Owner |
 | Vaccination due (configurable + day-of) | Pet Owner |
 | Follow-up due (3 days before + day-of) | Pet Owner |
 | Pet deletion request answered (PET_DELETION_ANSWERED) | Pet Owner |
@@ -611,6 +611,6 @@ These features will NOT be built in v1 under any circumstances:
 | Late-cancellation approval | Also planned in 3.2 |
 | Owner calendar page | Admin calendar page is planned separately |
 | Split dashboard loading | Load dashboard parts separately (`owner_dashboard_loading_v1.html`) only if real users find the single page slow |
-| Print a medical record for owners | Owners can print receipts only today |
+| Print a medical record for owners | Owners can print bills only today |
 | Prices on the booking page | Also planned in 3.2 |
 | Owner account deletion / data export | Not in v1 |

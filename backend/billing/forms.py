@@ -27,16 +27,16 @@ NEGATIVE_PRICE = "Prices can't be negative."
 SERVICE_PRICING_TEXT = {
     Service.FIXED: "The same price every time.",
     Service.RANGE: (
-        "For example ₱300.00 to ₱800.00. You set the real price on each receipt."
+        "For example ₱300.00 to ₱800.00. You set the real price on each bill."
     ),
 }
 SERVICE_STATUS_TEXT = {
-    Service.ACTIVE: "Pet owners see it when they book. You can put it on receipts.",
+    Service.ACTIVE: "Pet owners see it when they book. You can put it on bills.",
     Service.UNLISTED: (
-        "Hidden from pet owners. You can put it on receipts and pick it for walk-ins."
+        "Hidden from pet owners. You can put it on bills and pick it for walk-ins."
     ),
     Service.DRAFT: "Not shown anywhere yet.",
-    Service.CLOSED: "Not shown anywhere. Old visits and receipts keep it.",
+    Service.CLOSED: "Not shown anywhere. Old visits and bills keep it.",
 }
 RANGE_PREVIEW_EMPTY = "Pet owners see the range when they book."
 
@@ -408,7 +408,7 @@ class BillingItemForm(ErrorCountMixin, forms.Form):
         label="Description",
         max_length=200,
         required=False,
-        help_text="Printed on the receipt. You can change it.",
+        help_text="Printed on the bill. You can change it.",
     )
     quantity = forms.IntegerField(
         label="Quantity",
