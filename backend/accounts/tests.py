@@ -1,5 +1,6 @@
 import datetime
 import re
+from html.parser import HTMLParser
 from pathlib import Path
 from unittest import mock
 
@@ -20,6 +21,7 @@ from django.template.loader import get_template
 from django.test import (
     Client,
     RequestFactory,
+    SimpleTestCase,
     TestCase,
     TransactionTestCase,
     override_settings,
@@ -39,7 +41,8 @@ from accounts.adapters import (
     CustomSocialAccountAdapter,
 )
 from accounts.utils import owner_tab, verification_pending
-from appointments.models import ClinicSettings
+from appointments.models import Appointment, ClinicSettings
+from billing.models import Service
 from notifications.models import Notification
 from pets.models import Pet, PetOwner
 
@@ -1620,7 +1623,9 @@ class OwnerLayoutTests(_LoggedInBase):
             )
             .render({})
         )
-        self.assertRegex(html, r'<a href="/x/" class="[^"]*\bmin-h-11\b[^"]*">')
+        # Slice 8b-10b-1: the link also carries data-open-label after its class
+        self.assertRegex(html, r'<a href="/x/" class="[^"]*\bmin-h-11\b[^"]*"[^>]*>')
+        self.assertIn('data-open-label="Pets"', html)
         self.assertIn("Back to Pets</a>", html)
         self.assertIn("<svg", html)
 
@@ -1947,9 +1952,11 @@ class OwnerAuthLayoutTests(AuthPagesBase):
                     r'<script src="/static/js/shared/flash\.[0-9a-f]+\.js" defer>',
                     r'<script src="/static/js/shared/password_toggle\.[0-9a-f]+\.js" '
                     r"defer>",
+                    # Slice 8b-10b-1: the loading states script joined the layout
+                    r'<script src="/static/js/owner/loading\.[0-9a-f]+\.js" defer>',
                 ):
                     self.assertRegex(html, pattern)
-                self.assertEqual(len(re.findall(r"<script", html)), 2)
+                self.assertEqual(len(re.findall(r"<script", html)), 3)
 
     def test_no_cdn_font_import_or_legacy_css(self):
         for name, url, _ in self.pages:
@@ -2840,3 +2847,369 @@ class OwnerAccountHubV2Tests(_LoggedInBase):
             )
         with self.assertNumQueries(len(queries)):
             self.client.get(self.url)
+
+
+# ── Slice 8b-10b-1: loading states of the owner pages ────────────────────────
+
+LOADING_PART = "layouts/owner_parts/loading.html"
+LOADING_JS = Path(settings.BASE_DIR) / "static" / "js" / "owner" / "loading.js"
+LOADING_SCRIPT = r'<script src="/static/js/owner/loading\.[0-9a-f]+\.js" defer>'
+LOADING_IDS = (
+    "loading-status",
+    "loading-bar",
+    "loading-pill",
+    "loading-slow",
+    "loading-offline",
+    "loading-root",
+)
+
+
+def loading_part_of(html):
+    """The rendered loading part: from its live region to its template."""
+    start = html.index('<div id="loading-status"')
+    end = html.index("</template>", start) + len("</template>")
+    return html[start:end]
+
+
+class OwnerLoadingPartTests(_LoggedInBase):
+    """The loading part and its script on both owner layouts (8b-10b-1)."""
+
+    def _pages(self):
+        self.client.force_login(self.owner_user)
+        owner = self.client.get(reverse("owner_dashboard"))
+        login = Client().get(reverse("owner_login"))
+        return [("dashboard", owner), ("login", login)]
+
+    def test_both_layouts_render_the_part_and_load_the_script(self):
+        for name, response in self._pages():
+            html = response.content.decode()
+            with self.subTest(page=name):
+                self.assertEqual(response.status_code, 200)
+                self.assertTemplateUsed(response, LOADING_PART)
+                for element in LOADING_IDS:
+                    self.assertIn(f'id="{element}"', html)
+                self.assertIn('data-slow-after="10000"', html)
+                self.assertIn('<template id="loading-spinner">', html)
+                self.assertRegex(html, LOADING_SCRIPT)
+
+    def test_everything_but_the_live_region_and_the_template_starts_hidden(self):
+        for name, response in self._pages():
+            part = loading_part_of(response.content.decode())
+            with self.subTest(page=name):
+                for element in LOADING_IDS[1:]:
+                    tag = re.search(rf'<div id="{element}"[^>]*>', part).group(0)
+                    self.assertRegex(tag, r"\shidden[\s>]")
+                live = re.search(r'<div id="loading-status"[^>]*>', part).group(0)
+                self.assertNotRegex(live, r"\shidden[\s>]")
+                self.assertIn('role="status" aria-live="polite"', live)
+
+    def test_try_again_is_an_outline_button(self):
+        for name, response in self._pages():
+            part = loading_part_of(response.content.decode())
+            with self.subTest(page=name):
+                button = re.search(r"<button\b[^>]*data-loading-retry[^>]*>", part)
+                self.assertIsNotNone(button)
+                tag = button.group(0)
+                self.assertIn('type="button"', tag)
+                classes = re.search(r'class="([^"]*)"', tag).group(1).split()
+                self.assertNotIn("bg-violet-600", classes)
+                for word in ("bg-white", "border", "min-h-11"):
+                    self.assertIn(word, classes)
+                self.assertIn("Try again", part)
+
+    def test_no_inline_script_or_handlers_in_the_part(self):
+        for name, response in self._pages():
+            part = loading_part_of(response.content.decode())
+            with self.subTest(page=name):
+                self.assertNotIn("<script", part)
+                self.assertIsNone(re.search(r"\son[a-z]+\s*=", part))
+        source = template_source(LOADING_PART)
+        for banned in ("<script", "hx-confirm", "<!--"):
+            self.assertNotIn(banned, source)
+        self.assertIsNone(re.search(r"\son[a-z]+\s*=", source))
+        for link in re.findall(r"(?s)<a\b.*?</a>", source):
+            self.assertNotIn("\n", link)
+
+    def test_the_admin_pages_do_not_load_it(self):
+        response = self.client.get(reverse("admin_login"))
+        self.assertNotContains(response, "js/owner/loading")
+        self.assertTemplateNotUsed(response, LOADING_PART)
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "layouts/admin.html")
+        self.assertNotContains(response, "js/owner/loading")
+        self.assertTemplateNotUsed(response, LOADING_PART)
+
+
+class MarkupParser(HTMLParser):
+    """Forms, submit buttons and links of a page, each with its attributes."""
+
+    def __init__(self):
+        super().__init__()
+        self.forms = []
+        self.buttons = []
+        self.links = []
+        self._open = None
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "form":
+            self._open = {"attrs": attrs, "csrf": False}
+            self.forms.append(self._open)
+        elif tag == "input" and attrs.get("name") == "csrfmiddlewaretoken":
+            if self._open is not None:
+                self._open["csrf"] = True
+        elif tag == "button" or (tag == "input" and attrs.get("type") == "submit"):
+            if attrs.get("type", "submit") == "submit":
+                self.buttons.append({"attrs": attrs, "inside": self._open})
+        elif tag == "a":
+            self.links.append(attrs)
+
+    def handle_endtag(self, tag):
+        if tag == "form":
+            self._open = None
+
+    def post_forms(self):
+        return [
+            form
+            for form in self.forms
+            if form["attrs"].get("method", "").lower() == "post"
+        ]
+
+    def buttons_of(self, form):
+        """The submit buttons inside the form or tied to it by form="id"."""
+        form_id = form["attrs"].get("id")
+        return [
+            button
+            for button in self.buttons
+            if button["inside"] is form
+            or (form_id and button["attrs"].get("form") == form_id)
+        ]
+
+
+def parse_markup(html):
+    parser = MarkupParser()
+    parser.feed(html)
+    return parser
+
+
+class OwnerLoadingHooksTests(_LoggedInBase):
+    """Every owner POST form is ready for loading.js and still posts without it."""
+
+    def setUp(self):
+        super().setUp()
+        self.today = timezone.localdate()
+        ClinicSettings.objects.create(
+            clinic_name="Test Clinic",
+            address="Gasan, Marinduque",
+            opening_time=datetime.time(8, 0),
+            closing_time=datetime.time(17, 0),
+            slot_duration_minutes=60,
+            working_days=[0, 1, 2, 3, 4, 5, 6],
+            same_day_cutoff_time=datetime.time(15, 0),
+            booking_limit_days=30,
+        )
+        self.owner = PetOwner.objects.get(user=self.owner_user)
+        self.pet = Pet.objects.create(owner=self.owner, name="Bantay", species="Dog")
+        self.service = Service.objects.create(
+            service_name="Consultation", status=Service.ACTIVE
+        )
+        self.day = self.today + datetime.timedelta(days=8)
+        self.visit = Appointment.objects.create(
+            owner=self.owner,
+            pet=self.pet,
+            service=self.service,
+            date=self.day,
+            time=datetime.time(12, 0),
+            status=Appointment.CONFIRMED,
+        )
+        Notification.objects.create(
+            recipient=self.owner_user,
+            notification_type=Notification.APPOINTMENT_APPROVED,
+            title="Visit confirmed",
+            message="See you soon.",
+        )
+
+    def _draft(self):
+        session = self.client.session
+        session["owner_booking"] = {
+            "pet": self.pet.pk,
+            "service": str(self.service.pk),
+            "note": "Limping",
+            "date": self.day.isoformat(),
+            "time": "14:00:00",  # not 12:00: the fixture visit holds that slot
+        }
+        session.save()
+
+    def _html(self, client, url):
+        response = client.get(url)
+        self.assertEqual(response.status_code, 200, url)
+        return response.content.decode()
+
+    def _signed_out(self):
+        """Pages of a logged-out visitor: (name, html, labels expected)."""
+        client = Client()
+        session = client.session
+        session["pending_email"] = "new.owner@example.com"
+        session.save()
+        google = "Opening Google…"
+        pages = (
+            ("login", "owner_login", {"Logging in…", google}),
+            ("register", "owner_register", {"Please wait…", google}),
+            ("forgot password", "forgot_password", {"Please wait…"}),
+            ("check your email", "owner_register_pending", {"Sending…"}),
+        )
+        return [
+            (name, self._html(client, reverse(url)), labels)
+            for name, url, labels in pages
+        ]
+
+    def _onboarding(self):
+        """Steps 1 and 2 for a new owner who has not finished onboarding."""
+        user = User.objects.create_user(
+            username="newbie",
+            email="newbie@example.com",
+            password="pass-12345-x",
+            role=User.PET_OWNER,
+        )
+        row = PetOwner.objects.create(user=user, first_name="Nia", last_name="Lim")
+        client = Client()
+        client.force_login(user)
+        session = client.session
+        session["onboarding_owner_id"] = row.pk
+        session.save()
+        step1 = self._html(client, reverse("owner_onboarding_step1"))
+        step2 = self._html(client, reverse("owner_onboarding_step2"))
+        return [
+            ("onboarding step 1", step1, {"Saving…"}),
+            ("onboarding step 2", step2, {"Saving…", "Please wait…"}),
+        ]
+
+    def _signed_in(self):
+        client = self.client
+        client.force_login(self.owner_user)
+        pet = self.pet.pk
+        step1 = self._html(client, reverse("owner_book_appointment"))
+        self._draft()
+        step2 = self._html(client, reverse("owner_book_time"))
+        step3 = self._html(client, reverse("owner_book_check"))
+        visit = self.visit.pk
+        pages = (
+            ("add pet", "owner_pet_add", [], {"Saving…"}),
+            ("edit pet", "owner_pet_edit", [pet], {"Saving…"}),
+            ("change time", "owner_appointment_reschedule", [visit], {"Sending…"}),
+            ("visit detail", "owner_appointment_detail", [visit], {"Sending…"}),
+            ("pet profile", "owner_pet_detail", [pet], {"Sending…"}),
+            ("my details", "owner_profile_edit", [], {"Saving…"}),
+            ("email settings", "owner_notification_preferences", [], {"Saving…"}),
+            ("account", "owner_account", [], {"Logging out…"}),
+            ("notifications", "owner_notifications", [], {"Please wait…"}),
+        )
+        booking = [
+            ("booking step 1", step1, {"Please wait…"}),
+            ("booking step 2", step2, {"Please wait…"}),
+            ("booking step 3", step3, {"Sending…"}),
+        ]
+        rest = [
+            (name, self._html(client, reverse(url, args=args)), labels)
+            for name, url, args, labels in pages
+        ]
+        return booking + rest
+
+    def _pages(self):
+        return self._signed_out() + self._onboarding() + self._signed_in()
+
+    def test_every_post_form_button_has_a_busy_label_and_is_not_disabled(self):
+        for name, html, expected in self._pages():
+            parsed = parse_markup(html)
+            forms = parsed.post_forms()
+            labels = set()
+            with self.subTest(page=name):
+                self.assertTrue(forms)
+                for form in forms:
+                    buttons = parsed.buttons_of(form)
+                    self.assertTrue(buttons)
+                    self.assertNotIn("onsubmit", form["attrs"])
+                    for button in buttons:
+                        attrs = button["attrs"]
+                        self.assertTrue(attrs.get("data-busy-label"))
+                        self.assertNotIn("disabled", attrs)
+                        self.assertNotIn("onclick", attrs)
+                        labels.add(attrs["data-busy-label"])
+                self.assertTrue(expected <= labels, f"{expected} vs {labels}")
+
+    def test_the_forms_still_post_without_the_script(self):
+        for name, html, _ in self._pages():
+            parsed = parse_markup(html)
+            with self.subTest(page=name):
+                for form in parsed.post_forms():
+                    self.assertTrue(form["csrf"])
+                    if "action" in form["attrs"]:
+                        self.assertTrue(form["attrs"]["action"])
+
+    def test_a_named_submit_button_keeps_its_name_and_value(self):
+        for name, html, _ in self._pages():
+            parsed = parse_markup(html)
+            named = [
+                (button["attrs"]["name"], button["attrs"].get("value"))
+                for button in parsed.buttons
+                if "name" in button["attrs"]
+            ]
+            expected = [("action", "skip")] if name == "onboarding step 2" else []
+            with self.subTest(page=name):
+                self.assertEqual(named, expected)
+
+    def test_the_tab_links_carry_the_tab_attribute_and_their_label(self):
+        client = self.client
+        client.force_login(self.owner_user)
+        links = parse_markup(self._html(client, reverse("owner_dashboard"))).links
+        tabs = [link for link in links if "data-tab-link" in link]
+        labels = [tab.get("data-open-label") for tab in tabs]
+        self.assertEqual(labels, ["Home", "Pets", "Visits", "Bills", "Account"])
+
+    def test_the_back_bar_says_where_it_goes(self):
+        client = self.client
+        client.force_login(self.owner_user)
+        pages = (
+            (reverse("owner_pet_edit", args=[self.pet.pk]), "Bantay"),
+            (reverse("owner_notification_preferences"), "Account"),
+            (reverse("owner_appointment_detail", args=[self.visit.pk]), "Visits"),
+        )
+        for url, label in pages:
+            links = parse_markup(self._html(client, url)).links
+            with self.subTest(url=url):
+                self.assertIn(label, [link.get("data-open-label") for link in links])
+
+
+class OwnerLoadingScriptTests(SimpleTestCase):
+    """static/js/owner/loading.js, read as text (8b-10b-1)."""
+
+    def setUp(self):
+        self.source = LOADING_JS.read_text(encoding="utf-8")
+
+    def test_it_never_builds_markup_or_calls_the_network(self):
+        banned = ("innerHTML", "outerHTML", "insertAdjacentHTML", "eval(", "fetch(")
+        for word in banned:
+            with self.subTest(word=word):
+                self.assertNotIn(word, self.source)
+
+    def test_no_english_text_from_the_part_is_in_the_file(self):
+        for words in ("taking longer", "No internet", "Opening", "Try again"):
+            with self.subTest(words=words):
+                self.assertNotIn(words, self.source)
+        part = template_source(LOADING_PART)
+        pattern = r'data-(?:opening-[a-z]+|busy-default|offline-hold|online-message)="'
+        for value in re.findall(pattern + r'([^"]*)"', part):
+            with self.subTest(value=value):
+                self.assertNotIn(value, self.source)
+
+    def test_it_listens_for_the_page_coming_back_and_for_the_connection(self):
+        for event in ("pageshow", "offline", "online"):
+            with self.subTest(event=event):
+                self.assertIn(f'"{event}"', self.source)
+
+    def test_it_never_sets_the_real_disabled_attribute(self):
+        self.assertIsNone(re.search(r"\.disabled\s*=", self.source))
+        self.assertNotIn('setAttribute("disabled"', self.source)
+        self.assertIn('"aria-disabled"', self.source)

@@ -563,6 +563,8 @@ PENDING or CONFIRMED → CANCELLED
 | Success / error flash messages | `complete` |
 | Simple empty states with text and action button | `complete` |
 | Loading states for HTMX requests | `complete` |
+| Owner slow internet, part 1 (10b-1): sending buttons, opening a page, "taking longer than usual" with Try again after 10 s, offline strip (`owner_loading_states_v1.html` frames 1, 5, 6, 7) | `complete` |
+| Owner slow internet, part 2 (10b-2): HTMX lists loading, late photos, Add pet token | `planned` |
 | Cascading species/breed dropdown with custom input option | `complete` |
 | Color-coded appointment status badges | `complete` |
 

@@ -1,0 +1,51 @@
+{% comment %}
+  Loading states of the owner pages (Slice 8b-10b-1; mockup owner_loading_states_v1.html
+  frames 1, 5, 6, 7). Included at the end of <body> by layouts/owner.html and
+  layouts/owner_auth.html. Everything here is hidden until static/js/owner/loading.js
+  shows it, so with JavaScript off nothing changes and forms post as plain forms.
+  Every word the script shows lives here (data attributes of #loading-root, the
+  elements below, the spinner template); the script has no English text.
+  The pill and the slow box sit above the pinned bar: the same calc as the room
+  under <main> in layouts/owner.html (group/body reads the bar's data-bar size).
+{% endcomment %}
+{# Screen-reader announcements: the script writes the same words here #}
+<div id="loading-status" role="status" aria-live="polite" class="sr-only"></div>
+
+{# Words and numbers the script reads. Empty and hidden on purpose. #}
+<div id="loading-root" hidden data-loading="off" data-opening-default="Opening the page…" data-opening-format="Opening {name}…" data-busy-default="Please wait…" data-offline-hold="No internet right now. Your answers are kept. Try again when the strip goes away." data-online-message="You are back online." data-slow-after="10000"></div>
+
+{# Thin bar at the very top, above both layouts' bars. Still and full width with reduced motion. #}
+<div id="loading-bar" hidden role="progressbar" aria-label="Opening page" data-loading="off" class="fixed inset-x-0 top-0 z-[100] h-1 overflow-hidden bg-violet-100">
+  <span data-loading-piece class="block h-full w-full rounded-full bg-violet-600"></span>
+</div>
+
+{# "Opening Bills…" note. aria-hidden: the live region above says it. #}
+<div id="loading-pill" hidden aria-hidden="true" data-loading="off" class="pointer-events-none fixed inset-x-0 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 flex justify-center px-4 group-has-[[data-bar=one]]/body:bottom-[calc(8rem+env(safe-area-inset-bottom))] group-has-[[data-bar=tall]]/body:bottom-[calc(12rem+env(safe-area-inset-bottom))]">
+  <span class="inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-base font-medium text-white shadow-lg">
+    {% include "components/icon.html" with name="loader-circle" class="size-5 shrink-0 motion-safe:animate-spin" stroke="2.5" %}
+    <span data-loading-label></span>
+  </span>
+</div>
+
+{# After about 10 seconds: never an endless spinner. Try again is an outline button. #}
+<div id="loading-slow" hidden role="alert" data-loading="off" class="pointer-events-none fixed inset-x-0 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 px-4 group-has-[[data-bar=one]]/body:bottom-[calc(8rem+env(safe-area-inset-bottom))] group-has-[[data-bar=tall]]/body:bottom-[calc(12rem+env(safe-area-inset-bottom))]">
+  <div class="pointer-events-auto mx-auto flex max-w-3xl items-start gap-3 rounded-xl border border-orange-300 bg-orange-50 px-4 py-4 text-orange-900 shadow-lg">
+    {% include "components/icon.html" with name="clock" class="mt-0.5 size-6 shrink-0" %}
+    <div class="flex-1">
+      <p data-loading-slow-text class="text-lg font-semibold">This is taking longer than usual</p>
+      <p class="mt-0.5 text-base">Your internet may be slow. Your answers are kept.</p>
+      <button type="button" data-loading-retry class="mt-3 inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-orange-400 bg-white px-4 text-base font-semibold text-orange-900 hover:bg-orange-100">{% include "components/icon.html" with name="refresh-cw" class="size-5 shrink-0" %}Try again</button>
+    </div>
+  </div>
+</div>
+
+{# Dark strip at the top edge while offline (below the bar above). The page stays readable. #}
+<div id="loading-offline" hidden role="status" data-loading="off" class="fixed inset-x-0 top-0 z-[90] border-b border-gray-300 bg-gray-800 text-white">
+  <div class="mx-auto flex min-h-11 max-w-3xl items-start gap-3 px-4 py-3">
+    {% include "components/icon.html" with name="wifi-off" class="mt-0.5 size-5 shrink-0" %}
+    <p class="flex-1 text-base"><b>No internet.</b> You can still read this page. We'll reconnect by ourselves.<span data-loading-hold hidden class="mt-1 block font-semibold"></span></p>
+  </div>
+</div>
+
+{# One spinner, copied into buttons and tabs by the script #}
+<template id="loading-spinner">{% include "components/icon.html" with name="loader-circle" class="size-5 shrink-0 motion-safe:animate-spin" stroke="2.5" %}</template>

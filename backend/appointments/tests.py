@@ -6114,7 +6114,10 @@ class OwnerBookingStepPagesTests(_OwnerBookingBase):
                 html = response.content.decode()
                 for error in errors:
                     self.assertContains(response, error)
-                self.assertEqual(html.count('role="alert"'), len(errors))
+                # Slice 8b-10b-1: the loading part's slow box is a role="alert"
+                # outside <main>; only the page's own alerts are counted
+                main = html.split("<main", 1)[1].split("</main>", 1)[0]
+                self.assertEqual(main.count('role="alert"'), len(errors))
                 self.assertNotIn('<button type="button" disabled', html)
                 self.assertIn('form="booking-form"', html)
         self.assertFalse(Appointment.objects.exists())
@@ -8593,7 +8596,8 @@ class OwnerClinicInfoPageTests(AppointmentTestBase):
         back = reverse("owner_account")
         self.assertRegex(html, rf'(?s)<a href="{back}"[^>]*>.*?Back to Account</a>')
         # The Account tab is lit (the back bar's link has no aria-current)
-        lit = rf'<a href="{back}" class="[^"]*" aria-current="page">'
+        # Slice 8b-10b-1: the tab link has data attributes after aria-current
+        lit = rf'<a href="{back}" class="[^"]*" aria-current="page"[^>]*>'
         self.assertRegex(html, lit)
         self.assertContains(response, '<h1 class="min-w-0 break-words text-2xl')
 

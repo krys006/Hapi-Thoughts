@@ -950,6 +950,21 @@ Loads compiled `app.css`, vendored HTMX, `js/shared/dialogs.js` and
   has `autofocus`; Escape, backdrop and keep close it. Optional
   `body_template="…"` includes a template inside that form, above the action
   button (the pet profile's reason radios, 8b-5).
+- Loading states (Slice 8b-10b-1): both owner layouts include
+  `layouts/owner_parts/loading.html` (everything hidden: live region, top bar,
+  "Opening…" pill, slow box, offline strip, spinner `<template>`, and
+  `#loading-root` holding the words) and load `js/owner/loading.js`. The script
+  has no English text and never sets the real `disabled` attribute (a disabled
+  button is not sent, and views read the button's name and value); with
+  JavaScript off every form is a plain post. Data attributes:
+  `data-busy-label` on every POST form's submit button (what it says while
+  sending: "Saving…", "Sending…", "Please wait…"), `data-open-label` on tab and
+  back-bar links ("Opening Bills…"), `data-tab-link` on a bottom tab (it gets
+  the spinner), `data-loading="off"` on a form or link that must stay silent.
+  `components/bottom_sheet.html` takes an optional `busy_label` (default
+  "Please wait…"); `booking_parts/bottom_bar.html` too. A form with an `hx-`
+  attribute is left to HTMX. Words only in templates; motion only inside
+  `motion-safe:` or `prefers-reduced-motion: no-preference`.
 - Error pages: `templates/404.html`, `403.html`, `500.html` are standalone
   (own `<html>`, `app.css`, no layout, no `{% url %}`, no context values, no
   database), one button "Go to the home page" to `/`. Django's default

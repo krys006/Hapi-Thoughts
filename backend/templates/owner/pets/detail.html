@@ -29,9 +29,9 @@
 {# Sheets: remove (about tab, no removal waiting) and take back (removal waiting) #}
 {% if pending %}
   {% url 'owner_pet_cancel_delete_request' pet.pk as take_back_url %}
-  {% include "components/bottom_sheet.html" with id="take-back-sheet" title=sheets.take_back_title text=sheets.take_back_text action_url=take_back_url action_label="Yes, take it back" action_icon="rotate-ccw" keep_label="Close" %}
+  {% include "components/bottom_sheet.html" with id="take-back-sheet" title=sheets.take_back_title text=sheets.take_back_text action_url=take_back_url action_label="Yes, take it back" action_icon="rotate-ccw" keep_label="Close" busy_label="Sending…" %}
 {% elif tab == "about" %}
   {% url 'owner_pet_delete_request' pet.pk as remove_url %}
-  {% include "components/bottom_sheet.html" with id="remove-sheet" title=sheets.remove_title text=sheets.remove_text action_url=remove_url action_label="Send request" action_icon="archive" keep_label=sheets.remove_keep body_template="owner/pet_profile_parts/remove_reasons.html" %}
+  {% include "components/bottom_sheet.html" with id="remove-sheet" title=sheets.remove_title text=sheets.remove_text action_url=remove_url action_label="Send request" action_icon="archive" keep_label=sheets.remove_keep body_template="owner/pet_profile_parts/remove_reasons.html" busy_label="Sending…" %}
 {% endif %}
 {% endblock %}
