@@ -10,6 +10,9 @@
   <script src="{% static 'js/shared/dialogs.js' %}" defer></script>
   <script src="{% static 'js/shared/flash.js' %}" defer></script>
   <script src="{% static 'js/owner/loading.js' %}" defer></script>
+  {# List states (Loading barangays…, Try again) and late or broken pictures: see each file's header #}
+  <script src="{% static 'js/owner/list_states.js' %}" defer></script>
+  <script src="{% static 'js/shared/photo_fallback.js' %}" defer></script>
   {% block extra_head %}{% endblock %}
 </head>
 {# hx-headers: CSRF token for every HTMX request. Light only, flat, one centred column (max-w-3xl) on wide screens. #}

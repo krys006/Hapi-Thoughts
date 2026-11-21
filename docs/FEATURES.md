@@ -564,7 +564,8 @@ PENDING or CONFIRMED → CANCELLED
 | Simple empty states with text and action button | `complete` |
 | Loading states for HTMX requests | `complete` |
 | Owner slow internet, part 1 (10b-1): sending buttons, opening a page, "taking longer than usual" with Try again after 10 s, offline strip (`owner_loading_states_v1.html` frames 1, 5, 6, 7) | `complete` |
-| Owner slow internet, part 2 (10b-2): HTMX lists loading, late photos, Add pet token | `planned` |
+| Owner slow internet, part 2 (10b-2): HTMX lists loading with Try again, late photos (icon tile behind the photo), photo preview in the tile, one-time token for Add pet and onboarding step 2 | `complete` |
+| Instant "not a photo" message when a non-image (or a HEIC) is chosen on an owner photo field (future expansion point; today the server refuses it after the upload) | `planned` |
 | Cascading species/breed dropdown with custom input option | `complete` |
 | Color-coded appointment status badges | `complete` |
 

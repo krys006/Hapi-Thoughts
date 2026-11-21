@@ -1,12 +1,16 @@
 {% load pet_display %}
 {% comment %}
-  Top of the pet profile: the photo, or the species icon on a light violet tile
-  (same rule as components/pet_avatar.html), the name, "Species · Breed"
+  Top of the pet profile: the species icon on a light violet tile with the photo
+  laid over it (same rule as components/pet_avatar.html), the name, "Species · Breed"
   (empty parts left out) and the fact chips. Needs pet, kind_line, facts.
 {% endcomment %}
 <section class="flex flex-col items-center text-center" aria-labelledby="pet-name">
   {% if pet.photo %}
-    <img src="{{ pet.photo.url }}" alt="Photo of {{ pet.name }}" class="size-36 overflow-hidden rounded-3xl bg-violet-50 object-cover shadow-sm ring-1 ring-black/10">
+    {# Species icon tile behind the photo: it shows through while the picture loads #}
+    <span class="relative grid size-36 place-content-center overflow-hidden rounded-3xl bg-violet-50 text-violet-600 shadow-sm ring-1 ring-violet-200">
+      {% include "components/icon.html" with name=pet.species|species_icon class="size-20 shrink-0" stroke="1.5" %}
+      <img src="{{ pet.photo.url }}" alt="Photo of {{ pet.name }}" loading="lazy" decoding="async" data-photo class="absolute inset-0 size-full overflow-hidden rounded-3xl object-cover">
+    </span>
   {% else %}
     <span class="grid size-36 place-content-center rounded-3xl bg-violet-50 text-violet-600 ring-1 ring-violet-200" role="img" aria-label="No photo of {{ pet.name }} yet">{% include "components/icon.html" with name=pet.species|species_icon class="size-20 shrink-0" stroke="1.5" %}</span>
   {% endif %}

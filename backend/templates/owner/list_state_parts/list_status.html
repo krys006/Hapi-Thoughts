@@ -1,0 +1,17 @@
+{% comment %}
+  The two lines next to an owner select whose list loads over HTMX (Slice 8b-10b-2;
+  mockup owner_loading_states_v1.html). Needs target_id (the id of the select that
+  receives the list) and what ("barangays" or "breeds"). The words live here, not in
+  the script (static/js/owner/list_states.js):
+  - the loading line: hx-indicator on the Town / Species select shows it by adding
+    the htmx-request class; it is hidden otherwise;
+  - the "couldn't load" line: hidden until list_states.js shows it after an error,
+    a time-out or no connection. Try again is an outline button (never violet).
+  The ids ({target_id}-loading and {target_id}-failed) are the ones the select's
+  hx-indicator and data-list-error point at (list_state_attrs in pets/utils.py).
+{% endcomment %}
+<p id="{{ target_id }}-loading" role="status" class="hidden items-center gap-2 text-base font-medium text-gray-800 sm:col-span-2 [&.htmx-request]:flex">{% include "components/icon.html" with name="loader-circle" class="size-5 shrink-0 motion-safe:animate-spin" stroke="2.5" %}Loading {{ what }}…</p>
+<div id="{{ target_id }}-failed" role="alert" hidden data-list-failed class="rounded-xl border border-orange-300 bg-orange-50 px-4 py-3 text-orange-900 sm:col-span-2">
+  <p class="flex items-start gap-2 text-base font-medium">{% include "components/icon.html" with name="wifi-off" class="mt-0.5 size-5 shrink-0" %}Couldn't load the list. Check your internet and try again.</p>
+  <button type="button" data-list-retry class="mt-3 inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-orange-400 bg-white px-4 text-base font-semibold text-orange-900 hover:bg-orange-100">{% include "components/icon.html" with name="refresh-cw" class="size-5 shrink-0" %}Try again</button>
+</div>

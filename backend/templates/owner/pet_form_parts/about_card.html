@@ -22,6 +22,8 @@
     </div>
     <div class="{% if form.species_mode == 'other' %}hidden{% endif %}" data-breed-pick>
       {% include "components/form_field.html" with field=form.breed_choice optional=True %}
+      {# Loading and "couldn't load" lines for the breed list (list_states.js) #}
+      {% include "owner/list_state_parts/list_status.html" with target_id=form.breed_choice.auto_id what="breeds" %}
     </div>
     <div class="{% if not form.show_breed_text %}hidden{% endif %}" data-breed-other data-label-list="Type the breed" data-label-other="Breed">
       {% include "components/form_field.html" with field=form.breed optional=True %}

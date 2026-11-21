@@ -17,7 +17,7 @@ from django.core import mail
 from django.core.cache import cache
 from django.db import connection
 from django.template import Context, Template, engines
-from django.template.loader import get_template
+from django.template.loader import get_template, render_to_string
 from django.test import (
     Client,
     RequestFactory,
@@ -1954,9 +1954,15 @@ class OwnerAuthLayoutTests(AuthPagesBase):
                     r"defer>",
                     # Slice 8b-10b-1: the loading states script joined the layout
                     r'<script src="/static/js/owner/loading\.[0-9a-f]+\.js" defer>',
+                    # Slice 8b-10b-2: the list states and the photo fallback
+                    # scripts joined both owner layouts (3 scripts became 5)
+                    r'<script src="/static/js/owner/list_states\.[0-9a-f]+\.js" '
+                    r"defer>",
+                    r'<script src="/static/js/shared/photo_fallback\.[0-9a-f]+\.js" '
+                    r"defer>",
                 ):
                     self.assertRegex(html, pattern)
-                self.assertEqual(len(re.findall(r"<script", html)), 3)
+                self.assertEqual(len(re.findall(r"<script", html)), 5)
 
     def test_no_cdn_font_import_or_legacy_css(self):
         for name, url, _ in self.pages:
@@ -3213,3 +3219,299 @@ class OwnerLoadingScriptTests(SimpleTestCase):
         self.assertIsNone(re.search(r"\.disabled\s*=", self.source))
         self.assertNotIn('setAttribute("disabled"', self.source)
         self.assertIn('"aria-disabled"', self.source)
+
+
+# ── Slice 8b-10b-2: late photos and photo preview ────────────────────────────
+
+JS_DIR = Path(settings.BASE_DIR) / "static" / "js"
+PHOTO_SCRIPTS = {
+    "list_states": JS_DIR / "owner" / "list_states.js",
+    "photo_fallback": JS_DIR / "shared" / "photo_fallback.js",
+    "photo_input": JS_DIR / "shared" / "photo_input.js",
+}
+SHARED_SCRIPT = r'<script src="/static/js/{folder}/{name}\.[0-9a-f]+\.js" defer>'
+LIVE_LINE = (
+    r'<p class="sr-only" role="status" aria-live="polite" data-photo-chosen '
+    r'data-chosen-format="Photo chosen: \{name\}"></p>'
+)
+# The species icon tile, then the photo laid over it (no element closes between)
+TILE_THEN_PHOTO = (
+    r'(?s)<span class="[^"]*bg-violet-50[^"]*"[^>]*>'
+    r"(?:(?!</span>).)*<svg(?:(?!</span>).)*"
+    r'<img [^>]*alt="Photo of Bantay"[^>]*>'
+)
+
+
+class OwnerPhotoHooksTests(_LoggedInBase):
+    """The photo tiles and the photo preview hooks of the owner pages (8b-10b-2)."""
+
+    def setUp(self):
+        super().setUp()
+        ClinicSettings.objects.create(
+            clinic_name="Test Clinic",
+            address="Gasan, Marinduque",
+            opening_time=datetime.time(8, 0),
+            closing_time=datetime.time(17, 0),
+            slot_duration_minutes=60,
+            working_days=[0, 1, 2, 3, 4, 5, 6],
+            same_day_cutoff_time=datetime.time(15, 0),
+            booking_limit_days=30,
+        )
+        self.owner = PetOwner.objects.get(user=self.owner_user)
+        self.pet = Pet.objects.create(
+            owner=self.owner, name="Bantay", species="Dog", photo="pets/bantay.jpg"
+        )
+        self.client.force_login(self.owner_user)
+
+    def _html(self, name, *args):
+        response = self.client.get(reverse(name, args=args))
+        self.assertEqual(response.status_code, 200, name)
+        return response.content.decode()
+
+    def _onboarding_pages(self):
+        user = User.objects.create_user(
+            username="newbie",
+            email="newbie@example.com",
+            password="pass-12345-x",
+            role=User.PET_OWNER,
+        )
+        row = PetOwner.objects.create(user=user, first_name="Nia", last_name="Lim")
+        client = Client()
+        client.force_login(user)
+        session = client.session
+        session["onboarding_owner_id"] = row.pk
+        session.save()
+        return [
+            client.get(reverse(name)).content.decode()
+            for name in ("owner_onboarding_step1", "owner_onboarding_step2")
+        ]
+
+    # ── The two scripts on the layouts ───────────────────────────────────────
+
+    def test_the_owner_layouts_load_both_scripts_with_defer(self):
+        pages = {
+            "dashboard": self._html("owner_dashboard"),
+            "login": Client().get(reverse("owner_login")).content.decode(),
+        }
+        scripts = (("owner", "list_states"), ("shared", "photo_fallback"))
+        for page, html in pages.items():
+            for folder, name in scripts:
+                with self.subTest(page=page, script=name):
+                    pattern = SHARED_SCRIPT.format(folder=folder, name=name)
+                    self.assertRegex(html, pattern)
+
+    def test_the_admin_layout_does_not_load_the_owner_only_scripts(self):
+        self.client.force_login(self.admin)
+        for name in ("admin_dashboard", "admin_pet_list"):
+            html = self.client.get(reverse(name)).content.decode()
+            with self.subTest(page=name):
+                self.assertNotIn("photo_fallback", html)
+                self.assertNotIn("list_states", html)
+        html = Client().get(reverse("admin_login")).content.decode()
+        self.assertNotIn("photo_fallback", html)
+        self.assertNotIn("list_states", html)
+
+    # ── Pictures laid over the species icon tile ─────────────────────────────
+
+    def test_every_owner_pet_photo_sits_over_a_tile_with_the_species_icon(self):
+        pages = {
+            "my pets": self._html("owner_pet_list"),
+            "profile": self._html("owner_pet_detail", self.pet.pk),
+            "booking": self._html("owner_book_appointment"),
+        }
+        for page, html in pages.items():
+            with self.subTest(page=page):
+                tags = re.findall(r'<img [^>]*alt="Photo of Bantay"[^>]*>', html)
+                self.assertTrue(tags)
+                for tag in tags:
+                    for word in ('loading="lazy"', 'decoding="async"', " data-photo "):
+                        self.assertIn(word, tag)
+                self.assertRegex(html, TILE_THEN_PHOTO)
+
+    def test_the_avatar_component_lays_the_photo_over_the_icon_tile(self):
+        for size in ("lg", "sm"):
+            html = render_to_string(
+                "components/pet_avatar.html", {"pet": self.pet, "size": size}
+            )
+            with self.subTest(size=size):
+                self.assertRegex(html, TILE_THEN_PHOTO)
+                tag = re.search(r"<img [^>]*>", html).group(0)
+                for word in ("absolute", "inset-0", "object-cover", "data-photo"):
+                    self.assertIn(word, tag)
+                self.assertNotIn("bg-violet-50", tag)
+                self.assertIn('stroke-width="1.5"', html)
+                self.assertNotIn('role="img"', html)
+
+    def test_the_edit_page_tile_holds_the_icon_the_photo_and_the_preview(self):
+        html = self._html("owner_pet_edit", self.pet.pk)
+        tile = re.search(r"(?s)<span [^>]*data-photo-tile>(.*?)</section>", html)
+        body = tile.group(1)
+        self.assertIn("data-photo-base", body)
+        self.assertIn("<svg", body)
+        saved = re.search(
+            r'<img src="[^"]*bantay[^"]*" alt="Photo of Bantay"[^>]*>', body
+        )
+        self.assertIsNotNone(saved)
+        for word in ('loading="lazy"', 'decoding="async"', " data-photo "):
+            self.assertIn(word, saved.group(0))
+        self.assertRegex(body, r'<img alt="" hidden [^>]*data-photo-preview>')
+
+    # ── The preview hooks on the owner forms ─────────────────────────────────
+
+    def test_the_photo_inputs_carry_the_preview_hooks(self):
+        pages = {
+            "add pet": self._html("owner_pet_add"),
+            "edit pet": self._html("owner_pet_edit", self.pet.pk),
+            "my details": self._html("owner_profile_edit"),
+        }
+        step1, step2 = self._onboarding_pages()
+        pages["onboarding step 1 (your photo)"] = step1
+        pages["onboarding step 2 (pet photo)"] = step2
+        for page, html in pages.items():
+            with self.subTest(page=page):
+                for hook in (
+                    "data-photo-input",
+                    "data-photo-tile",
+                    "data-photo-base",
+                    "data-photo-name",
+                    "data-photo-label",
+                    'data-label-change="Change photo"',
+                ):
+                    self.assertIn(hook, html)
+                self.assertRegex(html, r'<img alt="" hidden [^>]*data-photo-preview>')
+                self.assertRegex(html, LIVE_LINE)
+                self.assertRegex(html, r'<script src="/static/js/shared/photo_input\.')
+
+    def test_remove_photo_is_wired_to_the_script_on_edit_pet(self):
+        html = self._html("owner_pet_edit", self.pet.pk)
+        box = re.search(r'<input type="checkbox" name="photo-clear"[^>]*>', html)
+        self.assertIn("data-photo-clear", box.group(0))
+        self.assertIn("Remove photo", html)
+
+    def test_the_visible_name_line_stays_as_the_fallback(self):
+        html = self._html("owner_pet_add")
+        line = re.search(r"<p [^>]*data-photo-name></p>", html).group(0)
+        self.assertIn("hidden", line)
+        self.assertIn('aria-live="polite"', line)
+
+    # ── Nothing changes where files are not photos ───────────────────────────
+
+    def test_the_medical_add_file_dialog_markup_is_unchanged(self):
+        dialog = "admin/medical/record_detail_parts/add_file_dialog.html"
+        source = template_source(dialog)
+        for old in (
+            '<div class="space-y-2" data-photo>',
+            'accept=".pdf,.jpg,.jpeg,.png" class="sr-only" '
+            'aria-describedby="add-file-help" data-photo-input>',
+            '<p class="text-sm font-medium text-gray-800" aria-live="polite" hidden '
+            "data-photo-name></p>",
+            "Choose a file",
+        ):
+            with self.subTest(old=old):
+                self.assertIn(old, source)
+        for new in (
+            "data-photo-tile",
+            "data-photo-preview",
+            "data-photo-chosen",
+            "data-label-change",
+            "data-photo-label",
+            "data-photo-clear",
+        ):
+            with self.subTest(new=new):
+                self.assertNotIn(new, source)
+
+    def test_the_admin_photo_cards_have_no_tile_hooks(self):
+        for name in (
+            "admin/pets/pet_form_parts/photo_card.html",
+            "admin/pets/owner_form_parts/photo_card.html",
+        ):
+            source = template_source(name)
+            with self.subTest(file=name):
+                self.assertIn("data-photo-input", source)
+                self.assertIn("data-photo-name", source)
+                self.assertNotIn("data-photo-tile", source)
+                self.assertNotIn("data-photo-preview", source)
+
+    def test_the_owner_photo_parts_follow_the_template_rules(self):
+        names = (
+            "owner/pet_form_parts/photo_card.html",
+            "owner/pet_edit_parts/photo_row.html",
+            "owner/profile_parts/photo_row.html",
+            "owner/onboarding_parts/photo_card.html",
+            "components/pet_avatar.html",
+            "owner/pets_parts/pet_card.html",
+            "owner/pet_profile_parts/top.html",
+        )
+        for name in names:
+            source = template_source(name)
+            with self.subTest(file=name):
+                self.assertNotIn("<!--", source)
+                self.assertNotIn("<script", source)
+                self.assertIsNone(re.search(r"\son(?:error|load|change)\s*=", source))
+                for link in re.findall(r"(?s)<a\b.*?</a>", source):
+                    self.assertNotIn("\n", link)
+
+
+class OwnerPhotoScriptsTests(SimpleTestCase):
+    """list_states.js, photo_fallback.js and photo_input.js, read as text (8b-10b-2)."""
+
+    def setUp(self):
+        self.sources = {
+            name: path.read_text(encoding="utf-8")
+            for name, path in PHOTO_SCRIPTS.items()
+        }
+
+    def test_the_files_exist_in_the_expected_folders(self):
+        for name, path in PHOTO_SCRIPTS.items():
+            with self.subTest(script=name):
+                self.assertTrue(path.is_file())
+
+    def test_none_builds_markup_or_calls_the_network(self):
+        banned = ("innerHTML", "outerHTML", "insertAdjacentHTML", "eval(", "fetch(")
+        for name, source in self.sources.items():
+            for word in banned:
+                with self.subTest(script=name, word=word):
+                    self.assertNotIn(word, source)
+
+    def test_the_preview_uses_object_urls_and_gives_them_back(self):
+        source = self.sources["photo_input"]
+        self.assertIn("createObjectURL", source)
+        self.assertIn("revokeObjectURL", source)
+        self.assertIn('"pagehide"', source)
+
+    def test_the_fallback_listens_in_the_capture_phase_and_hides_the_image(self):
+        source = self.sources["photo_fallback"]
+        self.assertIn('"error"', source)
+        self.assertIn("img[data-photo]", source)
+        self.assertIn("image.hidden = true", source)
+        self.assertRegex(source, r"true\s*\n\s*\);")  # useCapture on document
+
+    def test_list_states_reacts_only_to_marked_fields_and_the_three_failures(self):
+        source = self.sources["list_states"]
+        self.assertIn("[data-list-field]", source)
+        for event in ("htmx:responseError", "htmx:sendError", "htmx:timeout"):
+            with self.subTest(event=event):
+                self.assertIn(f'"{event}"', source)
+        self.assertIn("[data-list-retry]", source)
+        self.assertIn('"change"', source)
+
+    def test_no_english_text_from_the_templates_is_in_the_scripts(self):
+        sentences = [
+            "Loading barangays",
+            "Loading breeds",
+            "Couldn't load the list",
+            "Check your internet",
+            "Try again",
+            "Photo chosen",
+            "Change photo",
+            "Choose a photo",
+            "Remove photo",
+        ]
+        part = template_source("owner/list_state_parts/list_status.html")
+        self.assertIn(
+            "Couldn't load the list. Check your internet and try again.", part
+        )
+        for name, source in self.sources.items():
+            for words in sentences:
+                with self.subTest(script=name, words=words):
+                    self.assertNotIn(words, source)

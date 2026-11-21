@@ -34,6 +34,10 @@ from .models import (
 )
 
 from .utils import (
+    ADD_PET_FORM,
+    ONBOARDING_PET_FORM,
+    after_onboarding_add_target,
+    already_added_redirect,
     answer_deletion_request,
     archive_pet_directly,
     archived_pet_refusal,
@@ -54,9 +58,12 @@ from .utils import (
     pet_restore_refusal,
     contact_link_initial,
     onboarding_owner,
+    onboarded_step2_response,
     onboarding_step1_context,
+    page_form_token,
     request_pet_removal,
     save_owner_profile,
+    save_pet_once,
     species_from_params,
     take_back_removal_request,
     town_from_params,
@@ -148,9 +155,9 @@ def onboarding_step2(request):
     if guard:
         return guard
 
-    # If already onboarded, skip the whole flow
+    # Already onboarded: the dashboard (a repeated add POST: step 3, see utils)
     if request.user.is_onboarded:
-        return redirect("owner_dashboard")
+        return onboarded_step2_response(request)
 
     # Step 2 needs step 1 done first: no session key (or a wrong one) means
     # back to step 1
@@ -166,12 +173,14 @@ def onboarding_step2(request):
             return redirect("owner_dashboard")
 
         # --- Pet form submitted --- (the owner is the one from step 1,
-        # never a posted value)
+        # never a posted value). The one-time form token is spent in the
+        # same transaction as the save; a spent or missing one adds nothing.
         form = OwnerPetForm(request.POST, request.FILES)
         if form.is_valid():
-            pet = form.save(commit=False)
-            pet.owner = pet_owner
-            pet.save()
+            pet = save_pet_once(request, form, pet_owner, ONBOARDING_PET_FORM)
+            if pet is None:
+                target = after_onboarding_add_target(request.session)
+                return already_added_redirect(request, target)
 
             _complete_onboarding(request)
             # Step 3 shows this pet
@@ -181,11 +190,12 @@ def onboarding_step2(request):
     else:
         form = OwnerPetForm()
 
-    return render(
-        request,
-        "owner/onboarding/step2.html",
-        {"form": form, "pet_owner": pet_owner},
-    )
+    context = {
+        "form": form,
+        "pet_owner": pet_owner,
+        "form_token": page_form_token(request, ONBOARDING_PET_FORM),
+    }
+    return render(request, "owner/onboarding/step2.html", context)
 
 
 # ---------------------------------------------------------------------------
@@ -342,13 +352,16 @@ def owner_pet_add(request):
     # never a URL: anything else is ignored.
     next_value = request.POST.get("next") or request.GET.get("next")
     back_to_booking = next_value == "book"
+    # The back bar and a repeated add: booking with ?next=book, else My Pets
+    back_name = "owner_book_appointment" if back_to_booking else "owner_pet_list"
 
     if request.method == "POST":
         form = OwnerPetForm(request.POST, request.FILES)
         if form.is_valid():
-            pet = form.save(commit=False)
-            pet.owner = pet_owner
-            pet.save()
+            # One-time form token: a repeat adds nothing (see utils)
+            pet = save_pet_once(request, form, pet_owner, ADD_PET_FORM)
+            if pet is None:
+                return already_added_redirect(request, back_name)
             if back_to_booking:
                 messages.success(
                     request, f"{pet.name} was added. Now pick what the visit is for."
@@ -361,13 +374,12 @@ def owner_pet_add(request):
     else:
         form = OwnerPetForm()
 
-    # The back bar: "Back to booking" with ?next=book, else "Back to My Pets"
-    back_name = "owner_book_appointment" if back_to_booking else "owner_pet_list"
     return render(
         request,
         "owner/pets/add.html",
         {
             "form": form,
+            "form_token": page_form_token(request, ADD_PET_FORM),
             "next_value": "book" if back_to_booking else "",
             "back_url": reverse(back_name),
             "back_label": "booking" if back_to_booking else "My Pets",

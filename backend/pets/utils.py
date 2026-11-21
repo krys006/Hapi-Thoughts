@@ -2,6 +2,7 @@
 
 import json
 import logging
+import secrets
 from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
@@ -14,6 +15,7 @@ from django.db import transaction
 from django.db.models import Count, Exists, F, OuterRef, Prefetch, Q, Value
 from django.db.models.functions import Replace
 from django.http import Http404
+from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
@@ -1215,3 +1217,124 @@ def owner_pet_edit_context(pet):
         "clinic_phone": (clinic.contact_number if clinic else "").strip(),
         "profile_url": reverse("owner_pet_detail", args=[pet.pk]),
     }
+
+
+# ── Owner list states (Town -> barangays, Species -> breeds) ─────────────────
+
+LIST_TIMEOUT_MS = 10000
+
+
+def list_state_attrs(target_id, kind):
+    """
+    The extra attributes of an owner select that swaps a list over HTMX
+    (static/js/owner/list_states.js reads them): data-list-field (barangays or
+    breeds), the 10 s time-out (matches the slow box of 10b-1), the newest
+    request wins, the loading line (hx-indicator) and the "couldn't load"
+    line (data-list-error), both written in the page next to the target select.
+    """
+    return {
+        "data-list-field": kind,
+        "hx-request": json.dumps({"timeout": LIST_TIMEOUT_MS}),
+        "hx-sync": "this:replace",
+        "hx-indicator": f"#{target_id}-loading",
+        "data-list-error": f"#{target_id}-failed",
+    }
+
+
+# ── One-time form tokens (Add pet and onboarding step 2) ─────────────────────
+# A cut-off request followed by "Try again" must not add the pet twice. The
+# page carries a hidden form_token; the view spends it once, right before the
+# pet is created. Tokens live in the session (no model): a dict of lists keyed
+# by form name, at most FORM_TOKEN_CAP per name, the oldest dropped.
+
+FORM_TOKENS_KEY = "form_tokens"
+FORM_TOKEN_CAP = 5
+ADD_PET_FORM = "add_pet"
+ONBOARDING_PET_FORM = "onboarding_pet"
+PET_ALREADY_ADDED = "That pet was already added."
+
+
+def _issued_tokens(request):
+    """The session's token dict (a fresh one when it is missing or damaged)."""
+    tokens = request.session.get(FORM_TOKENS_KEY)
+    return tokens if isinstance(tokens, dict) else {}
+
+
+def _store_tokens(request, name, issued):
+    tokens = _issued_tokens(request)
+    tokens[name] = issued[-FORM_TOKEN_CAP:]
+    request.session[FORM_TOKENS_KEY] = tokens
+
+
+def issue_form_token(request, name):
+    """A new random token for the form `name`; the 6th oldest one is dropped."""
+    value = secrets.token_urlsafe(16)
+    issued = list(_issued_tokens(request).get(name, []))
+    _store_tokens(request, name, issued + [value])
+    return value
+
+
+def spend_form_token(request, name, value):
+    """True once for an issued token (and it is removed); False for a missing,
+    wrong or already spent one."""
+    issued = list(_issued_tokens(request).get(name, []))
+    if not value or value not in issued:
+        return False
+    issued.remove(value)
+    _store_tokens(request, name, issued)
+    return True
+
+
+def page_form_token(request, name):
+    """The token the page carries: the posted one while it is still valid (an
+    invalid POST keeps it), else a new one."""
+    posted = request.POST.get("form_token", "") if request.method == "POST" else ""
+    if posted and posted in _issued_tokens(request).get(name, []):
+        return posted
+    return issue_form_token(request, name)
+
+
+def save_pet_once(request, form, owner, name):
+    """
+    Creates the pet of a valid OwnerPetForm for `owner`, once per token: the
+    token is spent right before the pet is saved, in the same transaction.
+    Returns the pet, or None (nothing created) for a missing, wrong or spent
+    token. If the save fails the token is put back, so Try again still works.
+    """
+    value = request.POST.get("form_token", "")
+    try:
+        with transaction.atomic():
+            if not spend_form_token(request, name, value):
+                return None
+            pet = form.save(commit=False)
+            pet.owner = owner
+            pet.save()
+    except Exception:
+        _store_tokens(request, name, _issued_tokens(request).get(name, []) + [value])
+        raise
+    return pet
+
+
+def already_added_redirect(request, target):
+    """The repeat of an add: nothing was created; a plain info line and a redirect
+    to `target` (a URL name or a path)."""
+    messages.info(request, PET_ALREADY_ADDED)
+    return redirect(target)
+
+
+def after_onboarding_add_target(session):
+    """Where a repeated onboarding add goes: step 3 when a pet was just added
+    in this session, else the dashboard."""
+    if session.get("onboarding_pet_id"):
+        return "owner_onboarding_step3"
+    return "owner_dashboard"
+
+
+def onboarded_step2_response(request):
+    """An already onboarded user on step 2. A POST that isn't Skip is a repeat
+    of the add (Try again after a cut-off request): the info line and step 3 (or
+    the dashboard). Anything else goes to the dashboard as before."""
+    if request.method == "POST" and request.POST.get("action") != "skip":
+        target = after_onboarding_add_target(request.session)
+        return already_added_redirect(request, target)
+    return redirect("owner_dashboard")
