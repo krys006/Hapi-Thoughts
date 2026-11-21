@@ -16,11 +16,11 @@
 {% elif receipt.payment_status == "paid" %}
   <div class="mb-6 flex items-start gap-3 rounded-xl border border-green-300 bg-green-50 px-5 py-4 text-base text-gray-900">
     {% include "components/icon.html" with name="circle-check" class="mt-0.5 size-5 shrink-0 text-green-700" %}
-    <p><b>Paid in cash{% if payment_date %} {% long_date_on payment_date today "mid" %}{% endif %}.</b> This receipt is locked and can't be changed.</p>
+    <p><b>Paid in cash{% if payment_date %} {% long_date_on payment_date today "mid" %}{% endif %}.</b> This bill is locked and can't be changed.</p>
   </div>
 {% else %}
   <div class="mb-6 flex items-start gap-3 rounded-xl border border-gray-300 bg-gray-100 px-5 py-4 text-base text-gray-900">
     {% include "components/icon.html" with name="ban" class="mt-0.5 size-5 shrink-0 text-gray-700" %}
-    <p><b>This receipt was cancelled.</b> It is locked and can't be changed. {{ owner_name }} doesn't see it.</p>
+    <p><b>This bill was cancelled.</b> It is locked and can't be changed. {{ owner_name }} doesn't see it.</p>
   </div>
 {% endif %}

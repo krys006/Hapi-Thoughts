@@ -5,12 +5,12 @@
   status, so a search stays inside the tab.
 {% endcomment %}
 <form method="get" action="{% url 'admin_receipt_list' %}" class="{{ form_class }}" role="search">
-  <label for="{{ id_prefix }}-receipt-search" class="sr-only">Search receipts</label>
+  <label for="{{ id_prefix }}-receipt-search" class="sr-only">Search bills</label>
   <div class="relative w-full min-w-0 max-w-[30rem]">
     <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-600">
       {% include "components/icon.html" with name="search" %}
     </span>
-    <input id="{{ id_prefix }}-receipt-search" type="search" name="q" value="{{ q }}" placeholder="Search receipts: number, owner or pet" class="input pl-10">
+    <input id="{{ id_prefix }}-receipt-search" type="search" name="q" value="{{ q }}" placeholder="Search bills: number, owner or pet" class="input pl-10">
   </div>
   <input type="hidden" name="status" value="{{ active_tab }}">
   <button type="submit" class="btn btn-outline font-semibold">{% include "components/icon.html" with name="search" %}Search</button>

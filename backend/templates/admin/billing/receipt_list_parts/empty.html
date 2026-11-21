@@ -7,30 +7,30 @@
 <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
   {% if is_searching %}
     {% if active_tab == "pending" %}
-      {% with title="No receipt matches “"|add:q|add:"” in unpaid receipts" %}
+      {% with title="No bill matches “"|add:q|add:"” in unpaid bills" %}
         {% include "components/empty_state.html" with icon="search" title=title text="Check the spelling, try another tab, or clear the search." %}
       {% endwith %}
     {% elif active_tab == "paid" %}
-      {% with title="No receipt matches “"|add:q|add:"” in paid receipts" %}
+      {% with title="No bill matches “"|add:q|add:"” in paid bills" %}
         {% include "components/empty_state.html" with icon="search" title=title text="Check the spelling, try another tab, or clear the search." %}
       {% endwith %}
     {% elif active_tab == "cancelled" %}
-      {% with title="No receipt matches “"|add:q|add:"” in cancelled receipts" %}
+      {% with title="No bill matches “"|add:q|add:"” in cancelled bills" %}
         {% include "components/empty_state.html" with icon="search" title=title text="Check the spelling, try another tab, or clear the search." %}
       {% endwith %}
     {% else %}
-      {% with title="No receipt matches “"|add:q|add:"” in all receipts" %}
+      {% with title="No bill matches “"|add:q|add:"” in all bills" %}
         {% include "components/empty_state.html" with icon="search" title=title text="Check the spelling, try another tab, or clear the search." %}
       {% endwith %}
     {% endif %}
   {% elif active_tab == "pending" %}
-    {% include "components/empty_state.html" with icon="circle-check" title="Nothing unpaid" text="Every receipt is paid or cancelled." %}
-    <p class="-mt-6 flex justify-center px-6 pb-8"><a href="{% url 'admin_receipt_list' %}?status=paid" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">See paid receipts{% include "components/icon.html" with name="arrow-right" %}</a></p>
+    {% include "components/empty_state.html" with icon="circle-check" title="Nothing unpaid" text="Every bill is paid or cancelled." %}
+    <p class="-mt-6 flex justify-center px-6 pb-8"><a href="{% url 'admin_receipt_list' %}?status=paid" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">See paid bills{% include "components/icon.html" with name="arrow-right" %}</a></p>
   {% elif active_tab == "paid" %}
-    {% include "components/empty_state.html" with icon="receipt" title="No paid receipts yet" %}
+    {% include "components/empty_state.html" with icon="receipt" title="No paid bills yet" %}
   {% elif active_tab == "cancelled" %}
-    {% include "components/empty_state.html" with icon="receipt" title="No cancelled receipts" %}
+    {% include "components/empty_state.html" with icon="receipt" title="No cancelled bills" %}
   {% else %}
-    {% include "components/empty_state.html" with icon="receipt" title="No receipts yet" text="Make one with New receipt, or from a visit's page." %}
+    {% include "components/empty_state.html" with icon="receipt" title="No bills yet" text="Make one with New bill, or from a visit's page." %}
   {% endif %}
 </div>

@@ -4,7 +4,7 @@
   width, Create receipt on top. Needs: back_url, visit_service.
 {% endcomment %}
 <div class="flex flex-col-reverse gap-3 border-t border-gray-200 pt-6 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-  <p class="flex items-start gap-2 text-sm text-gray-700 sm:mr-auto">{% include "components/icon.html" with name="info" class="mt-0.5 size-4 shrink-0" %}<span>{% if visit_service %}You add the other items on the next page.{% else %}The receipt opens empty. You add the items on the next page.{% endif %}</span></p>
+  <p class="flex items-start gap-2 text-sm text-gray-700 sm:mr-auto">{% include "components/icon.html" with name="info" class="mt-0.5 size-4 shrink-0" %}<span>{% if visit_service %}You add the other items on the next page.{% else %}The bill opens empty. You add the items on the next page.{% endif %}</span></p>
   <a href="{{ back_url }}" class="btn btn-outline min-h-12 w-full font-semibold sm:w-auto">Cancel</a>
-  <button type="submit" class="btn btn-primary min-h-12 w-full font-semibold sm:w-auto">{% include "components/icon.html" with name="receipt" %}Create receipt</button>
+  <button type="submit" class="btn btn-primary min-h-12 w-full font-semibold sm:w-auto">{% include "components/icon.html" with name="receipt" %}Create bill</button>
 </div>

@@ -268,11 +268,12 @@ class CompleteAndNoShowTests(AppointmentTestBase):
 
     def test_success_messages(self):
         # Complete now also starts the visit's bill, so its flash says so
-        # (the "Marked ... as completed." text stays for a visit that already
-        # has a bill: see AutoBillOnCompleteTests)
+        # (the "Marked ... as completed." text alone stays for a visit that
+        # already has a bill: see AutoBillOnCompleteTests)
         expected = {
             "admin_appointment_complete": (
-                "Visit marked as completed. A bill was started for it."
+                "Marked Bantay's appointment on today at 9:00 AM as completed. "
+                "A bill was started for it."
             ),
             "admin_appointment_no_show": (
                 "Marked Bantay's appointment on today at 9:00 AM as a no-show."
@@ -635,9 +636,9 @@ class DetailPageTests(AppointmentTestBase):
             response, f'href="{reverse("admin_receipt_detail", args=[receipt.pk])}"'
         )
         self.assertContains(response, "Open medical record")
-        self.assertContains(response, "Open receipt")
+        self.assertContains(response, "Open bill")
         self.assertNotContains(response, "Add medical record")
-        self.assertNotContains(response, "Create receipt")
+        self.assertNotContains(response, "Create bill")
         # Both buttons are outlines: no primary button left
         self.assertNotContains(response, "btn btn-primary")
 
@@ -649,7 +650,7 @@ class DetailPageTests(AppointmentTestBase):
         url = reverse("admin_receipt_detail", args=[receipt.pk])
         return (
             f'<a href="{url}" class="font-medium underline underline-offset-2">'
-            f"Open receipt {receipt.receipt_number}</a>"
+            f"Open bill {receipt.receipt_number}</a>"
         )
 
     def test_receipt_state_in_the_context(self):
@@ -674,7 +675,7 @@ class DetailPageTests(AppointmentTestBase):
                 number = appointment.billing_receipt.receipt_number
                 self.assertNotContains(response, "All done for this visit")
                 self.assertContains(response, "Visit completed")
-                self.assertContains(response, "Receipt not paid yet.")
+                self.assertContains(response, "Bill not paid yet.")
                 self.assertContains(response, self._receipt_link(appointment))
                 record_line = (
                     "The medical record is added."
@@ -685,8 +686,8 @@ class DetailPageTests(AppointmentTestBase):
                 # Details row: number + status label
                 self.assertContains(response, f"· {number} · Unpaid")
                 # Actions: open it, never create another
-                self.assertContains(response, "Open receipt</a>")
-                self.assertNotContains(response, "Create receipt")
+                self.assertContains(response, "Open bill</a>")
+                self.assertNotContains(response, "Create bill")
 
     def test_paid_receipt_without_a_record(self):
         appointment = self._completed_with(receipt=BillingReceipt.PAID)
@@ -694,19 +695,19 @@ class DetailPageTests(AppointmentTestBase):
         number = appointment.billing_receipt.receipt_number
         self.assertNotContains(response, "All done for this visit")
         self.assertContains(
-            response, "The receipt is paid. One thing left: add the medical record."
+            response, "The bill is paid. One thing left: add the medical record."
         )
-        self.assertNotContains(response, "Receipt not paid yet.")
+        self.assertNotContains(response, "Bill not paid yet.")
         self.assertContains(response, f"· {number} · Paid")
         self.assertContains(response, "Add medical record")
-        self.assertNotContains(response, "Create receipt")
+        self.assertNotContains(response, "Create bill")
 
     def test_paid_receipt_with_a_record_is_all_done(self):
         appointment = self._completed_with(record=True, receipt=BillingReceipt.PAID)
         response = self._get(appointment)
         self.assertContains(response, "All done for this visit")
         self.assertContains(
-            response, "The medical record is added and the receipt is paid."
+            response, "The medical record is added and the bill is paid."
         )
         self.assertNotContains(response, self._receipt_link(appointment))
 
@@ -717,13 +718,13 @@ class DetailPageTests(AppointmentTestBase):
         response = self._get(appointment)
         number = appointment.billing_receipt.receipt_number
         self.assertNotContains(response, "All done for this visit")
-        self.assertContains(response, "The receipt for this visit was cancelled.")
+        self.assertContains(response, "The bill for this visit was cancelled.")
         self.assertContains(response, self._receipt_link(appointment))
         self.assertContains(response, f"· {number} · Cancelled")
         # One receipt per visit: no Create receipt, no link to the create page
-        self.assertNotContains(response, "Create receipt")
+        self.assertNotContains(response, "Create bill")
         self.assertNotContains(response, reverse("admin_receipt_create"))
-        self.assertContains(response, "Open receipt</a>")
+        self.assertContains(response, "Open bill</a>")
 
     def test_no_receipt_offers_create_only(self):
         appointment = self._completed_with(record=True)
@@ -733,9 +734,9 @@ class DetailPageTests(AppointmentTestBase):
             response,
             f'href="{reverse("admin_receipt_create")}?appointment={appointment.pk}"',
         )
-        self.assertContains(response, "Create receipt")
-        self.assertNotContains(response, "Open receipt")
-        self.assertNotContains(response, "Receipt not paid yet.")
+        self.assertContains(response, "Create bill")
+        self.assertNotContains(response, "Open bill")
+        self.assertNotContains(response, "Bill not paid yet.")
 
     def test_moved_original_links_to_the_new_appointment(self):
         original = self._appointment(Appointment.CANCELLED)
@@ -3400,7 +3401,7 @@ class ClinicLogoTests(AppointmentTestBase):
 
         self.assertEqual(
             ClinicSettingsForm().fields["logo"].help_text,
-            "JPG, PNG or WebP, up to 2 MB. It shows on receipts and the clinic "
+            "JPG, PNG or WebP, up to 2 MB. It shows on bills and the clinic "
             "page. Choosing a new file replaces the old one.",
         )
 
@@ -4149,7 +4150,7 @@ class SettingsPageMarkupTests(AppointmentTestBase):
         self.assertContains(response, "Choose a new logo")
         self.assertContains(
             response,
-            "JPG, PNG or WebP, up to 2 MB. It shows on receipts and the clinic "
+            "JPG, PNG or WebP, up to 2 MB. It shows on bills and the clinic "
             "page. Choosing a new file replaces the old one.",
         )
         self.assertContains(response, 'type="file" name="logo" id="id_logo"')
@@ -9316,7 +9317,10 @@ class AutoBillOnCompleteTests(AppointmentTestBase):
     (the only path that sets COMPLETED is admin_appointment_complete), by
     the same rules as New receipt from a visit."""
 
-    STARTED = "Visit marked as completed. A bill was started for it."
+    STARTED = (
+        "Marked Bantay's appointment on today at 9:00 AM as completed. "
+        "A bill was started for it."
+    )
     OLD_FLASH = "Marked Bantay's appointment on today at 9:00 AM as completed."
     DIALOG_LINE = "A bill will be started for this visit."
 
@@ -9441,7 +9445,8 @@ class AutoBillOnCompleteTests(AppointmentTestBase):
                 self.assertEqual(
                     self._messages(response),
                     [
-                        "Visit marked as completed. "
+                        "Marked Bantay's appointment on today at 9:00 AM as "
+                        "completed. "
                         f"No bill was started because {name} is archived."
                     ],
                 )
@@ -9591,5 +9596,92 @@ class AutoBillAtomicTests(AppointmentTestBase):
         self.assertEqual(bill.receipt_number, "HV-2026-0401")
         self.assertEqual(
             self._messages(response),
-            ["Visit marked as completed. A bill was started for it."],
+            [
+                "Marked Bantay's appointment on today at 9:00 AM as completed. "
+                "A bill was started for it."
+            ],
+        )
+
+
+class BillWordingTests(AppointmentTestBase):
+    """Fix bill wording: the visit page and the Complete flash say "bill"."""
+
+    def _visible(self, html):
+        body = re.sub(r"(?s)<(script|style)\b.*?</\1>", " ", html)
+        attrs = re.findall(r'\b(?:aria-label|placeholder|alt|title)="([^"]*)"', body)
+        text = re.sub(r"<[^>]+>", " ", body)
+        return " ".join(unescape(text).split()) + " " + " ".join(attrs)
+
+    def _completed(self, bill_status=None, number="HV-2026-0001"):
+        visit = self._appointment(Appointment.COMPLETED, days_from_today=0)
+        if bill_status:
+            BillingReceipt.objects.create(
+                appointment=visit,
+                owner=self.owner,
+                pet=self.pet,
+                receipt_number=number,
+                payment_status=bill_status,
+            )
+        return visit
+
+    def _visit_text(self, visit):
+        response = self.client.get(reverse("admin_appointment_detail", args=[visit.pk]))
+        self.assertEqual(response.status_code, 200)
+        text = self._visible(response.content.decode())
+        self.assertNotIn("receipt", text.lower())
+        return text
+
+    def test_the_banner_for_an_unpaid_bill(self):
+        text = self._visit_text(self._completed(BillingReceipt.PENDING))
+        self.assertIn("Bill not paid yet.", text)
+        self.assertIn("Open bill HV-2026-0001", text)
+
+    def test_the_banner_for_a_paid_and_a_cancelled_bill(self):
+        paid = self._visit_text(self._completed(BillingReceipt.PAID))
+        self.assertIn("The bill is paid. One thing left: add the medical record.", paid)
+        cancelled = self._visit_text(
+            self._completed(BillingReceipt.CANCELLED, number="HV-2026-0002")
+        )
+        self.assertIn("The bill for this visit was cancelled.", cancelled)
+
+    def test_the_banner_and_buttons_with_no_bill(self):
+        text = self._visit_text(self._completed())
+        self.assertIn("Next, add the medical record and create the bill.", text)
+        self.assertIn("Create bill", text)
+
+    def test_the_complete_flash_when_a_bill_is_started(self):
+        visit = self._appointment(Appointment.CONFIRMED, days_from_today=0)
+        response = self._post("admin_appointment_complete", visit)
+        self.assertEqual(
+            self._messages(response),
+            [
+                "Marked Bantay's appointment on today at 9:00 AM as completed. "
+                "A bill was started for it."
+            ],
+        )
+
+    def test_the_complete_flash_when_the_pet_is_archived(self):
+        Pet.objects.filter(pk=self.pet.pk).update(is_archived=True)
+        visit = self._appointment(Appointment.CONFIRMED, days_from_today=0)
+        response = self._post("admin_appointment_complete", visit)
+        self.assertEqual(
+            self._messages(response),
+            [
+                "Marked Bantay's appointment on today at 9:00 AM as completed. "
+                "No bill was started because Bantay is archived."
+            ],
+        )
+
+    def test_the_complete_flash_when_a_bill_already_exists(self):
+        visit = self._appointment(Appointment.CONFIRMED, days_from_today=0)
+        BillingReceipt.objects.create(
+            appointment=visit,
+            owner=self.owner,
+            pet=self.pet,
+            receipt_number="HV-2026-0001",
+        )
+        response = self._post("admin_appointment_complete", visit)
+        self.assertEqual(
+            self._messages(response),
+            ["Marked Bantay's appointment on today at 9:00 AM as completed."],
         )

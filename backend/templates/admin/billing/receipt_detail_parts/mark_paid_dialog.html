@@ -6,8 +6,8 @@
     <h2 id="mark-paid-title" class="text-xl font-bold">Mark {{ receipt.receipt_number }} as paid?</h2>
     <p class="mt-3 text-base text-gray-800">{{ owner_name }} paid</p>
     <p class="text-3xl font-bold text-gray-900">{{ total|peso }} <span class="text-lg font-semibold text-gray-700">in cash today</span></p>
-    <p class="mt-4 flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-2 text-base text-gray-800">{% include "components/icon.html" with name="info" class="mt-0.5 size-5 shrink-0" %}<span>After this the receipt is locked: no more items, discount changes or cancelling.</span></p>
-    <p class="mt-3 flex items-start gap-2 text-sm text-gray-700">{% include "components/icon.html" with name="mail" class="mt-0.5 size-4 shrink-0" %}<span>{% if owner_has_email %}{{ owner_name }} gets a notification in the app, and an email if their receipt emails are on, so they can view or print the receipt.{% else %}{{ owner_name }} gets a notification in the app (no email on file).{% endif %}</span></p>
+    <p class="mt-4 flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-2 text-base text-gray-800">{% include "components/icon.html" with name="info" class="mt-0.5 size-5 shrink-0" %}<span>After this the bill is locked: no more items, discount changes or cancelling.</span></p>
+    <p class="mt-3 flex items-start gap-2 text-sm text-gray-700">{% include "components/icon.html" with name="mail" class="mt-0.5 size-4 shrink-0" %}<span>{% if owner_has_email %}{{ owner_name }} gets a notification in the app, and an email if their bill emails are on, so they can view or print the bill.{% else %}{{ owner_name }} gets a notification in the app (no email on file).{% endif %}</span></p>
     {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, mark as paid" icon="circle-check" %}
   </form>
 </dialog>

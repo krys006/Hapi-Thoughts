@@ -6,7 +6,7 @@
   <form method="post" action="{% url 'admin_owner_archive' owner.pk %}" class="p-6 sm:p-7">
     {% csrf_token %}
     <h2 id="archive-dialog-title" class="text-xl font-bold">Archive {{ owner.full_name }}?</h2>
-    <p class="mt-2 text-base text-gray-700">{{ owner.full_name }} won't be able to log in, and you won't be able to book visits for them. Their pets, visits, medical records and receipts are all kept. You can restore the account at any time.</p>
+    <p class="mt-2 text-base text-gray-700">{{ owner.full_name }} won't be able to log in, and you won't be able to book visits for them. Their pets, visits, medical records and bills are all kept. You can restore the account at any time.</p>
     {% include "admin/pets/owner_detail_parts/visit_warning.html" %}
     {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, archive owner" icon="archive" danger=True %}
   </form>

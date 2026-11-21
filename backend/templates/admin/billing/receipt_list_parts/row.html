@@ -40,7 +40,7 @@
       {% if not receipt.item_count %}<p class="text-sm text-gray-700">No items yet</p>{% endif %}
     </div>
 
-    <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-violet-300 bg-violet-50 px-5 text-base font-semibold text-violet-800 hover:border-violet-400 hover:bg-violet-100">Open<span class="sr-only"> receipt {{ receipt.receipt_number }}</span>{% include "components/icon.html" with name="arrow-right" %}</a>
+    <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-violet-300 bg-violet-50 px-5 text-base font-semibold text-violet-800 hover:border-violet-400 hover:bg-violet-100">Open<span class="sr-only"> bill {{ receipt.receipt_number }}</span>{% include "components/icon.html" with name="arrow-right" %}</a>
   </div>
 
   {% include "admin/billing/receipt_list_parts/phone_card.html" %}

@@ -70,10 +70,10 @@
         </dd>
       </div>
       <div class="grid py-2 sm:grid-cols-[10rem_1fr] sm:items-center sm:gap-3">
-        <dt class="text-sm text-gray-600 sm:text-base">Receipt</dt>
+        <dt class="text-sm text-gray-600 sm:text-base">Bill</dt>
         <dd class="flex min-h-11 flex-wrap items-center gap-x-2 text-base text-gray-900">
           {% if receipt %}
-            <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="font-medium text-blue-600 underline underline-offset-2">Open receipt</a>
+            <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="font-medium text-blue-600 underline underline-offset-2">Open bill</a>
             <span class="text-gray-600">· {{ receipt.receipt_number }} · {{ receipt.status_label }}</span>
           {% else %}
             <span class="text-gray-600">Not created yet</span>

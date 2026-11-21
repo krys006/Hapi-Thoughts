@@ -9,21 +9,21 @@
   <h2 id="actions-title" class="text-xl font-semibold text-gray-900">Actions</h2>
   {% if receipt.payment_status == "paid" %}
     <div class="mt-4 flex flex-col gap-3">
-      <button type="button" class="btn btn-primary min-h-12 w-full font-semibold" data-print>{% include "components/icon.html" with name="printer" %}Print receipt</button>
+      <button type="button" class="btn btn-primary min-h-12 w-full font-semibold" data-print>{% include "components/icon.html" with name="printer" %}Print bill</button>
     </div>
     <p class="mt-3 text-sm text-gray-700">To save it as a PDF, pick “Save as PDF” in the print window.</p>
   {% elif receipt.payment_status == "cancelled" %}
     <div class="mt-4 flex flex-col gap-3">
-      <button type="button" class="btn btn-outline min-h-12 w-full font-semibold" data-print>{% include "components/icon.html" with name="printer" %}Print receipt</button>
+      <button type="button" class="btn btn-outline min-h-12 w-full font-semibold" data-print>{% include "components/icon.html" with name="printer" %}Print bill</button>
     </div>
     <p class="mt-3 text-sm text-gray-700">The printout says “Cancelled”.</p>
   {% elif not items %}
     <div class="mt-4 flex flex-col gap-3">
       <button type="button" class="btn btn-primary min-h-12 w-full font-semibold" data-dialog-open="add-item-dialog" aria-haspopup="dialog">{% include "components/icon.html" with name="plus" %}Add item</button>
     </div>
-    <p class="mt-3 text-sm text-gray-700">Mark as paid shows once the receipt has an item.</p>
+    <p class="mt-3 text-sm text-gray-700">Mark as paid shows once the bill has an item.</p>
     <hr class="my-4 border-gray-200">
-    <button type="button" class="btn min-h-12 w-full border border-red-300 bg-white font-semibold text-red-700 hover:bg-red-50" data-dialog-open="cancel-dialog" aria-haspopup="dialog">{% include "components/icon.html" with name="ban" %}Cancel receipt</button>
+    <button type="button" class="btn min-h-12 w-full border border-red-300 bg-white font-semibold text-red-700 hover:bg-red-50" data-dialog-open="cancel-dialog" aria-haspopup="dialog">{% include "components/icon.html" with name="ban" %}Cancel bill</button>
   {% else %}
     <div class="mt-4 flex flex-col gap-3">
       <button type="button" class="btn btn-primary min-h-12 w-full font-semibold" data-dialog-open="mark-paid-dialog" aria-haspopup="dialog">{% include "components/icon.html" with name="circle-check" %}Mark as paid</button>
@@ -32,6 +32,6 @@
       <button type="button" class="btn btn-outline min-h-12 w-full font-semibold" data-print>{% include "components/icon.html" with name="printer" %}Print</button>
     </div>
     <hr class="my-4 border-gray-200">
-    <button type="button" class="btn min-h-12 w-full border border-red-300 bg-white font-semibold text-red-700 hover:bg-red-50" data-dialog-open="cancel-dialog" aria-haspopup="dialog">{% include "components/icon.html" with name="ban" %}Cancel receipt</button>
+    <button type="button" class="btn min-h-12 w-full border border-red-300 bg-white font-semibold text-red-700 hover:bg-red-50" data-dialog-open="cancel-dialog" aria-haspopup="dialog">{% include "components/icon.html" with name="ban" %}Cancel bill</button>
   {% endif %}
 </section>

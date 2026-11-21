@@ -35,7 +35,7 @@ from .forms import SERVICE_STATUS_CHOICES, billable_services, peso, service_opti
 from .models import BillingItem, BillingReceipt, Service
 
 # Shown whenever a write is refused because receipt.is_locked
-LOCKED_MESSAGE = "This receipt is locked and can't be changed."
+LOCKED_MESSAGE = "This bill is locked and can't be changed."
 NO_ITEMS_MESSAGE = "Add at least one item first."
 
 # The only payment method recorded (core rule 5: cash only)
@@ -136,20 +136,20 @@ def receipt_paid_compact(receipt, today):
 
 
 def receipt_paid_message(receipt, today):
-    """ "Paid ₱1,450.00 on Fri, Nov 6. You can view or print it in Billing."
+    """ "Paid ₱1,450.00 on Fri, Nov 6. You can view or print it in Bills."
     (the year only when the payment date isn't in this year). The email body."""
     return (
         f"Paid {peso(receipt.total_amount)} on "
         f"{short_date(receipt.payment_date, today)}. "
-        "You can view or print it in Billing."
+        "You can view or print it in Bills."
     )
 
 
 def receipt_paid_subject(receipt):
-    """The email subject, which names the pet: "Receipt HV-2026-0012 for
-    Bantay — Hapi Vet" ("Receipt HV-2026-0012 — Hapi Vet" with no pet)."""
+    """The email subject, which names the pet: "Bill HV-2026-0012 for
+    Bantay — Hapi Vet" ("Bill HV-2026-0012 — Hapi Vet" with no pet)."""
     for_pet = f" for {receipt.pet.name}" if receipt.pet else ""
-    return f"Receipt {receipt.receipt_number}{for_pet} — Hapi Vet"
+    return f"Bill {receipt.receipt_number}{for_pet} — Hapi Vet"
 
 
 def notify_receipt_paid(receipt):
@@ -379,7 +379,7 @@ def save_new_receipt(receipt):
 
 # ── New receipt (admin_receipt_create, Slice 6a-2) ───────────────────────────
 
-RECEIPT_EXISTS = "A receipt already exists for this visit."
+RECEIPT_EXISTS = "A bill already exists for this visit."
 RECEIPT_VISIT_STATUSES = (Appointment.CONFIRMED, Appointment.COMPLETED)
 # Services that can be billed (the item form's "What is it?" list)
 BILLABLE_SERVICE_STATUSES = (Service.ACTIVE, Service.UNLISTED)
@@ -435,10 +435,10 @@ def visit_receipt_stop(appointment, today):
     elif appointment.pet.is_archived:
         message = restore_message(appointment.pet.name)
     elif appointment.status not in RECEIPT_VISIT_STATUSES:
-        message = "A receipt can only be made for a confirmed or completed visit."
+        message = "A bill can only be made for a confirmed or completed visit."
     elif appointment.date > today:
         message = (
-            "This visit hasn't happened yet. Make the receipt on or after "
+            "This visit hasn't happened yet. Make the bill on or after "
             f"{short_date(appointment.date, today)}."
         )
     else:
@@ -534,7 +534,7 @@ def start_visit_bill(appointment):
 
 
 def _receipts_back():
-    return {"back_url": reverse("admin_receipt_list"), "back_label": "Back to receipts"}
+    return {"back_url": reverse("admin_receipt_list"), "back_label": "Back to bills"}
 
 
 def visit_receipt_context(appointment, service, today):
@@ -814,18 +814,16 @@ def receipt_detail_context(receipt, today):
 
 # The one-line explanation under each group's title (services_v1.html)
 SERVICE_GROUP_TEXT = {
-    Service.ACTIVE: (
-        "Pet owners see these when they book. You can put them on receipts."
-    ),
+    Service.ACTIVE: ("Pet owners see these when they book. You can put them on bills."),
     Service.UNLISTED: (
-        "Hidden from pet owners. You can put them on receipts and pick them "
+        "Hidden from pet owners. You can put them on bills and pick them "
         "for walk-ins."
     ),
     Service.DRAFT: (
         "Not shown anywhere yet. Finish it, then choose Offered or Clinic use only."
     ),
     Service.CLOSED: (
-        "Not shown anywhere. Old visits and receipts keep their names and prices."
+        "Not shown anywhere. Old visits and bills keep their names and prices."
     ),
 }
 

@@ -5,11 +5,11 @@
   pet, and the visit it came from (or "Not linked to a visit"). Dates from
   the view's today.
 {% endcomment %}
-<a href="{% url 'admin_receipt_list' %}" class="mb-2 inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="arrow-left" %}Back to receipts</a>
+<a href="{% url 'admin_receipt_list' %}" class="mb-2 inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="arrow-left" %}Back to bills</a>
 <div class="mb-6 flex flex-wrap items-center gap-4">
   <span class="grid size-16 shrink-0 place-content-center rounded-2xl ring-1 {% if receipt.payment_status == 'cancelled' %}bg-gray-100 text-gray-600 ring-gray-300{% else %}bg-violet-50 text-violet-600 ring-violet-200{% endif %}">{% include "components/icon.html" with name="receipt" class="size-8 shrink-0" stroke="1.5" %}</span>
   <div class="min-w-0">
-    <h1 class="flex flex-wrap items-center gap-3 text-2xl font-bold text-gray-900"><span>Receipt {{ receipt.receipt_number }}</span>{% include "components/status_badge.html" with status=receipt.payment_status label=status_label %}</h1>
+    <h1 class="flex flex-wrap items-center gap-3 text-2xl font-bold text-gray-900"><span>Bill {{ receipt.receipt_number }}</span>{% include "components/status_badge.html" with status=receipt.payment_status label=status_label %}</h1>
     <p class="mt-1 text-base text-gray-700">{% if owner %}Billed to <a href="{% url 'admin_owner_detail' owner.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ owner.full_name }}</a>{% else %}<span class="text-gray-600">No owner on file</span>{% endif %} · {% if pet %}for <a href="{% url 'admin_pet_detail' pet.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ pet.name }}</a>{% else %}<span class="text-gray-600">not for a specific pet</span>{% endif %}</p>
     {% if appointment %}
       <p class="mt-1 flex flex-wrap items-center gap-x-1.5 text-base text-gray-700">{% include "components/icon.html" with name="calendar" class="size-4 shrink-0" %}From the visit <a href="{% url 'admin_appointment_detail' appointment.pk %}" class="inline-flex min-h-11 items-center font-medium text-blue-600 underline underline-offset-2">{% friendly_date_on appointment.date today %} at {{ appointment.time|time:"g:i A" }}</a></p>

@@ -1,3 +1,5 @@
+2026-11-22: people-facing word changed from receipt to bill (see HANDOFF).
+
 # Admin billing pages (Slice 6): decisions (approved 2026-11-06)
 
 Source: the read-only Slice 6 audit (2026-11-06), Krys's answers (all recommendations accepted) and the approved mockups.

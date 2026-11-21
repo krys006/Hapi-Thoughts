@@ -27,5 +27,5 @@
     {% endif %}
   </div>
   {% if not receipt.item_count %}<p class="mt-2 text-sm text-gray-700">No items yet</p>{% endif %}
-  <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-violet-300 bg-violet-50 text-base font-semibold text-violet-800 after:absolute after:inset-0 hover:bg-violet-100">Open<span class="sr-only"> receipt {{ receipt.receipt_number }}</span>{% include "components/icon.html" with name="arrow-right" %}</a>
+  <a href="{% url 'admin_receipt_detail' receipt.pk %}" class="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-violet-300 bg-violet-50 text-base font-semibold text-violet-800 after:absolute after:inset-0 hover:bg-violet-100">Open<span class="sr-only"> bill {{ receipt.receipt_number }}</span>{% include "components/icon.html" with name="arrow-right" %}</a>
 </div>

@@ -4,7 +4,7 @@
   <form method="post" action="{% url 'admin_billing_item_delete' item.pk %}" class="p-6 sm:p-7">
     {% csrf_token %}
     <h2 id="remove-item-{{ item.pk }}-title" class="text-xl font-bold">Remove {{ item.description }}?</h2>
-    <p class="mt-2 text-base text-gray-700">It comes off this receipt. The total goes from <b>{{ total|peso }}</b> to <b>{{ item.total_if_removed|peso }}</b>.</p>
+    <p class="mt-2 text-base text-gray-700">It comes off this bill. The total goes from <b>{{ total|peso }}</b> to <b>{{ item.total_if_removed|peso }}</b>.</p>
     {% include "admin/appointments/detail_parts/dialog_buttons.html" with label="Yes, remove it" icon="x" danger=True %}
   </form>
 </dialog>
