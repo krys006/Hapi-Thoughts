@@ -220,7 +220,7 @@ Phase 7 — Dashboards & Polish
 | Clinic decline is stored as the `declined` cancellation reason (old declines stay `other`, not backfilled): backend done in 8a-1b. The owner wording "Declined by the clinic" vs "Cancelled by the clinic" on the redesigned visit pages comes with 8b | `complete` |
 | View appointment history and current status | `complete` |
 | Book a request in 3 steps (pet and reason, date and time, check and send), then a "Request sent" page; the choices wait in a session draft and nothing is saved until Send (always PENDING, through the locked save). Slice 8b-6 | `complete` |
-| Booking calendar shows open, full and closed days (month arrows, up to the booking limit); times are grouped Morning / Afternoon, taken times are shown but can't be picked. Slice 8b-6 | `complete` |
+| Booking calendar shows open, full and closed days (month arrows, up to the booking limit); times are grouped Morning / Afternoon, taken times are shown but can't be picked. Slice 8b-6. Colour code (8b-10b-5): open = light violet, picked = solid violet, full / taken = gray crossed out, closed = faded; one hint line "Tap an open box." and no key under the calendar | `complete` |
 | "Not sure yet" as the visit reason (saves no service) | `complete` |
 | No-pet path: step 1 sends the owner to Add a pet in booking mode and back with the new pet picked. Slice 8b-6 | `complete` |
 | Visits list (Visits tab): Upcoming / Past links with counts, a pet filter (chips, from 2 pets), cards grouped by month with a note per visit (what happens next, who moved or cancelled it), Past 25 a page; an original cancelled by a reschedule is left out (its new visit says "Was …"). Slice 8b-7a | `complete` |

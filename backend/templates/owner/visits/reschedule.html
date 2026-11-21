@@ -20,6 +20,12 @@
   </div>
   {% endif %}
 
+  {# The hint and the dashed-day line sit outside the swapped area, so they never flicker; no colour word in the hint #}
+  <div class="space-y-1">
+    <p class="text-base font-semibold text-gray-800">Tap an open box.</p>
+    <p class="text-base text-gray-700">Your current day has a dashed outline.</p>
+  </div>
+
   {# Now / New, the calendar and the times are one swappable area (_day_area.html); hx-history="false": a saved copy must never show the loading block. The POST form is in it. #}
   <div id="day-area" class="group/swap space-y-5" data-swap-area aria-live="polite" aria-busy="false" hx-history="false">
     {% include "owner/booking_parts/_day_area.html" %}

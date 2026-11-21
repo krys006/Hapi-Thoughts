@@ -24,7 +24,7 @@
             {% else %}
               <label class="relative block cursor-pointer">
                 <input type="radio" name="time" value="{{ time.value }}" class="peer sr-only"{% if time.checked %} checked{% endif %}>
-                <span class="flex min-h-12 items-center justify-center rounded-xl bg-white text-base font-semibold text-gray-900 ring-1 ring-gray-300 hover:ring-violet-400 peer-checked:bg-violet-600 peer-checked:text-white peer-checked:ring-violet-600 peer-focus-visible:ring-2 peer-focus-visible:ring-violet-800">{{ time.label }}</span>
+                <span class="flex min-h-12 items-center justify-center rounded-xl bg-violet-50 text-base font-semibold text-violet-900 ring-1 ring-inset ring-violet-300 hover:ring-violet-400 peer-checked:bg-violet-600 peer-checked:text-white peer-checked:ring-violet-600 peer-focus-visible:ring-2 peer-focus-visible:ring-violet-800">{{ time.label }}</span>
               </label>
             {% endif %}
           {% endfor %}
