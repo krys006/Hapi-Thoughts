@@ -10,16 +10,13 @@
   <div class="space-y-4">
     {% include "owner/pets_parts/header.html" %}
     {% if show_filters %}
+      {# The results area is swapped by the search and the chips (8b-10b-4); the search box stays outside it #}
       {% include "owner/pets_parts/filters.html" %}
-    {% endif %}
-    {% if pets %}
-      <ul class="grid grid-cols-2 gap-3">
-        {% for pet in pets %}
-        <li class="flex">{% include "owner/pets_parts/pet_card.html" %}</li>
-        {% endfor %}
-      </ul>
+      <div id="pets-results" class="group/swap flex flex-col gap-4" data-swap-area aria-live="polite" aria-busy="false" hx-history="false">
+        {% include "owner/pets_parts/_results.html" %}
+      </div>
     {% else %}
-      {% include "owner/pets_parts/no_results.html" %}
+      {% include "owner/pets_parts/grid.html" %}
     {% endif %}
   </div>
 {% endif %}

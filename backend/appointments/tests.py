@@ -9075,7 +9075,8 @@ class OwnerDayAreaMarkupTests(_DayAreaBase):
                 self.assertIn('aria-live="polite"', tag)
                 self.assertIn('aria-busy="false"', tag)
                 self.assertIn('hx-history="false"', tag)
-                self.assertIn("group/day", tag)
+                self.assertIn("group/swap", tag)
+                self.assertIn("data-swap-area", tag)
 
     def test_the_loading_block_has_a_status_line_and_nine_grey_boxes(self):
         for name, html in self._pages().items():
@@ -9085,22 +9086,22 @@ class OwnerDayAreaMarkupTests(_DayAreaBase):
                 self.assertIn("<span data-day-name>this day</span>…", line)
                 self.assertIn("<svg", line)
                 self.assertIn("motion-safe:animate-spin", line)
-                self.assertIn("group-[.htmx-request]/day:flex", line)
+                self.assertIn("group-[.htmx-request]/swap:flex", line)
                 box = '<span class="sk h-12 rounded-xl bg-gray-200">'
                 self.assertEqual(html.count(box), 9)
                 grid = re.search(
                     r'<div aria-hidden="true" class="hidden grid-cols-3[^"]*"', html
                 ).group(0)
-                self.assertIn("group-[.htmx-request]/day:grid", grid)
-                self.assertIn("group-data-[day-failed]/day:opacity-60", grid)
+                self.assertIn("group-[.htmx-request]/swap:grid", grid)
+                self.assertIn("group-data-[swap-failed]/swap:opacity-60", grid)
 
     def test_the_old_times_are_hidden_while_loading_or_failed(self):
         for name, html in self._pages().items():
             with self.subTest(page=name):
                 form = re.search(r'<form id="(?:time|reschedule)-form"[^>]*>', html)
                 form = form.group(0)
-                self.assertIn("group-[.htmx-request]/day:hidden", form)
-                self.assertIn("group-data-[day-failed]/day:hidden", form)
+                self.assertIn("group-[.htmx-request]/swap:hidden", form)
+                self.assertIn("group-data-[swap-failed]/swap:hidden", form)
 
     def test_the_two_alert_boxes_are_hidden_with_an_outline_try_again(self):
         boxes = (
@@ -9119,14 +9120,14 @@ class OwnerDayAreaMarkupTests(_DayAreaBase):
             for kind, title, words in boxes:
                 with self.subTest(page=name, box=kind):
                     pattern = (
-                        rf'(?s)<div role="alert" hidden data-day-error="{kind}"'
+                        rf'(?s)<div role="alert" hidden data-swap-error="{kind}"'
                         r".*?</button>"
                     )
                     box = re.search(pattern, html).group(0)
                     self.assertIn(title, box)
                     self.assertIn(words, box)
                     self.assertIn("<svg", box)
-                    button = re.search(r"<button\b[^>]*data-day-retry[^>]*>", box)
+                    button = re.search(r"<button\b[^>]*data-swap-retry[^>]*>", box)
                     button = button.group(0)
                     for outline in ("min-h-11", "border-orange-400", "bg-white"):
                         self.assertIn(outline, button)

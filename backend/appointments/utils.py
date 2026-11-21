@@ -15,6 +15,7 @@ from django.utils.dateformat import format as date_format
 from django.utils.dateformat import time_format
 from django.utils.text import Truncator
 
+from accounts.utils import is_swap_request
 from dashboard.templatetags.friendly_dates import (
     MID_SENTENCE,
     friendly_date_on,
@@ -1755,13 +1756,8 @@ DAY_AREA_TEMPLATE = "owner/booking_parts/_day_area.html"
 def is_day_area_swap(request):
     """True for the HTMX GET of a picked day or month (target #day-area), which
     only needs the area. A history restore, or a request without HTMX, gets
-    the full page."""
-    headers = request.headers
-    return (
-        request.method == "GET"
-        and headers.get("HX-Request") == "true"
-        and not headers.get("HX-History-Restore-Request")
-    )
+    the full page (the rule lives in accounts.utils.is_swap_request)."""
+    return is_swap_request(request)
 
 
 def day_area_redirect(request, url):

@@ -21,7 +21,7 @@
   {% endif %}
 
   {# Now / New, the calendar and the times are one swappable area (_day_area.html); hx-history="false": a saved copy must never show the loading block. The POST form is in it. #}
-  <div id="day-area" class="group/day space-y-5" aria-live="polite" aria-busy="false" hx-history="false">
+  <div id="day-area" class="group/swap space-y-5" data-swap-area aria-live="polite" aria-busy="false" hx-history="false">
     {% include "owner/booking_parts/_day_area.html" %}
   </div>
 

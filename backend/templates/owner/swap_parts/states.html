@@ -1,0 +1,39 @@
+{% comment %}
+  What a swap area (an element with data-swap-area and class group/swap) shows
+  instead of its results while a request runs, or when it could not load (Slice
+  8b-10b-4; mockup owner_loading_states_v1.html frames 2, 3 and 6). Shared by the
+  free-times area and the three search results regions. Hidden unless the area
+  has the htmx-request class (htmx adds it, hx-indicator) or the data-swap-failed
+  attribute (js/owner/day_area.js sets it).
+  Parameters: failed_heading (the title of the "couldn't load" box), skeleton (the template of
+  the grey boxes) and, optional, loading_line (a template with a status line).
+  Every word is here or in the templates passed in; the script only shows or
+  hides the two boxes. Try again is an outline button (never violet).
+{% endcomment %}
+<div class="hidden space-y-3 group-[.htmx-request]/swap:block group-data-[swap-failed]/swap:block">
+  {% if loading_line %}{% include loading_line %}{% endif %}
+
+  <div role="alert" hidden data-swap-error="slow" class="rounded-xl border border-orange-300 bg-orange-50 px-4 py-4 text-orange-900">
+    <div class="flex items-start gap-3">
+      {% include "components/icon.html" with name="clock" class="mt-0.5 size-6 shrink-0" %}
+      <div class="flex-1">
+        <p class="text-lg font-semibold">This is taking longer than usual</p>
+        <p class="mt-0.5 text-base">Your internet may be slow. Your answers are kept.</p>
+        <button type="button" data-swap-retry class="mt-3 inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-orange-400 bg-white px-4 text-base font-semibold text-orange-900 hover:bg-orange-100">{% include "components/icon.html" with name="refresh-cw" class="size-5 shrink-0" %}Try again</button>
+      </div>
+    </div>
+  </div>
+
+  <div role="alert" hidden data-swap-error="failed" class="rounded-xl border border-orange-300 bg-orange-50 px-4 py-4 text-orange-900">
+    <div class="flex items-start gap-3">
+      {% include "components/icon.html" with name="clock" class="mt-0.5 size-6 shrink-0" %}
+      <div class="flex-1">
+        <p class="text-lg font-semibold">{{ failed_heading }}</p>
+        <p class="mt-0.5 text-base">Check your internet and try again. Your answers are kept.</p>
+        <button type="button" data-swap-retry class="mt-3 inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-orange-400 bg-white px-4 text-base font-semibold text-orange-900 hover:bg-orange-100">{% include "components/icon.html" with name="refresh-cw" class="size-5 shrink-0" %}Try again</button>
+      </div>
+    </div>
+  </div>
+
+  {% include skeleton %}
+</div>

@@ -1,13 +1,21 @@
 {% comment %}
   The History filter: a GET form, so it works without JavaScript. Search and period travel together in the
-  one form. Needs q, period, period_options. It never touches the Unpaid bills above it.
+  one form. With HTMX (Slice 8b-10b-4) typing, the period select, Enter and the Search button swap only
+  #bills-results (the History results); this form, its spinner and the "Searching…" line stay outside it.
+  hx-indicator marks the results area and this form while it runs. Needs q, period, period_options.
+  It never touches the Unpaid bills above it.
 {% endcomment %}
-<form method="get" action="{% url 'owner_billing_list' %}" class="space-y-3">
-  <label class="relative block">
-    <span class="sr-only">Search by receipt number or pet name</span>
-    <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">{% include "components/icon.html" with name="search" %}</span>
-    <input type="search" name="q" value="{{ q }}" placeholder="Receipt no. or pet name" class="block min-h-12 w-full rounded-xl border border-gray-300 bg-white pl-12 pr-4 text-base text-gray-900 placeholder:text-gray-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200">
-  </label>
+<form method="get" action="{% url 'owner_billing_list' %}" id="bills-search" class="group/search space-y-3" hx-get="{% url 'owner_billing_list' %}" hx-trigger="input changed delay:500ms, change, submit" hx-target="#bills-results" hx-swap="innerHTML" hx-replace-url="true" hx-sync="this:replace" hx-indicator="#bills-results, #bills-search" hx-request='{"timeout": 10000}'>
+  <div>
+    <label class="relative block">
+      <span class="sr-only">Search by receipt number or pet name</span>
+      <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">{% include "components/icon.html" with name="search" %}</span>
+      <input type="search" name="q" value="{{ q }}" placeholder="Receipt no. or pet name" class="block min-h-12 w-full rounded-xl border border-gray-300 bg-white pl-12 pr-12 text-base text-gray-900 placeholder:text-gray-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200">
+      {# Shown while a search runs (the form has htmx-request) #}
+      <span aria-hidden="true" class="pointer-events-none absolute right-4 top-1/2 hidden -translate-y-1/2 text-violet-600 group-[.htmx-request]/search:block">{% include "components/icon.html" with name="loader-circle" class="size-5 shrink-0 motion-safe:animate-spin" stroke="2.5" %}</span>
+    </label>
+    <p role="status" class="mt-2 hidden text-base text-gray-700 group-[.htmx-request]/search:block">Searching…</p>
+  </div>
   <label class="flex items-center gap-3">
     <span class="shrink-0 text-base font-semibold text-gray-900">Show</span>
     <select name="period" class="block min-h-12 w-full rounded-xl border border-gray-300 bg-white px-4 text-base text-gray-900 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200">

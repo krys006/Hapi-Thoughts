@@ -6,9 +6,10 @@ from django.contrib.auth.tokens import default_token_generator
 from django.core.cache import cache
 from django.core.mail import send_mail
 from django.http import HttpResponse
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
+from django.utils.cache import patch_vary_headers
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 
@@ -39,6 +40,28 @@ def owner_profile_required(view):
         return view(request, *args, **kwargs)
 
     return wrapper
+
+
+def is_swap_request(request):
+    """True for the HTMX GET that swaps one area of an owner page (the free
+    times, the search results). A history restore, or a request without HTMX,
+    gets the full page."""
+    headers = request.headers
+    return (
+        request.method == "GET"
+        and headers.get("HX-Request") == "true"
+        and not headers.get("HX-History-Restore-Request")
+    )
+
+
+def render_results_swap(request, page_template, results_template, context):
+    """One URL, two answers (Slice 8b-10b-4): the page, or only the results
+    part for an HTMX swap, from the same context. The answer depends on the
+    HX-Request header, so caches are told to keep the two apart (Vary)."""
+    template = results_template if is_swap_request(request) else page_template
+    response = render(request, template, context)
+    patch_vary_headers(response, ["HX-Request"])
+    return response
 
 
 # Which bottom tab each owner page lights up, by URL name. The one place

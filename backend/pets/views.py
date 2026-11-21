@@ -73,6 +73,7 @@ from accounts.utils import (
     WALKIN_NO_EMAIL_TAKEN,
     WALKIN_SAVE_FAILED,
     owner_profile_required,
+    render_results_swap,
     send_claim_email,
 )
 
@@ -308,8 +309,11 @@ def owner_pet_list(request):
         return guard
 
     # The owner's own non-archived pets, search and type filter (8b-4)
+    # An HTMX search or chip tap gets only the results part (8b-10b-4)
     context = owner_pets_context(request.owner, request.GET)
-    return render(request, "owner/pets/list.html", context)
+    return render_results_swap(
+        request, "owner/pets/list.html", "owner/pets_parts/_results.html", context
+    )
 
 
 # ---------------------------------------------------------------------------

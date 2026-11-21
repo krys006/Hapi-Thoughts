@@ -7188,6 +7188,11 @@ class OwnerPetsPageTests(TestCase):
         "owner/pets/list.html",
         "owner/pets_parts/header.html",
         "owner/pets_parts/filters.html",
+        "owner/pets_parts/chips.html",
+        "owner/pets_parts/grid.html",
+        "owner/pets_parts/_results.html",
+        "owner/pets_parts/skeleton.html",
+        "owner/swap_parts/states.html",
         "owner/pets_parts/pet_card.html",
         "owner/pets_parts/no_results.html",
         "owner/pets_parts/no_pets.html",
@@ -7268,7 +7273,11 @@ class OwnerPetsPageTests(TestCase):
             '<label for="pet-search" class="sr-only">Search your pets</label>', html
         )
         self.assertIn('placeholder="Search your pets by name"', html)
-        self.assertIn('<input type="hidden" name="type" value="all">', html)
+        # (8b-10b-4: the hidden field sits in the swapped chips and joins the
+        # form with form="pets-search")
+        self.assertIn(
+            '<input type="hidden" name="type" value="all" form="pets-search">', html
+        )
         self.assertIn('type="search" name="q"', html)
         self.assertIn(
             '<button type="submit" class="btn btn-outline min-h-12">Search</button>',
@@ -7280,7 +7289,9 @@ class OwnerPetsPageTests(TestCase):
             _pet(self.owner, name, species)
         _pet(self.owner, "Kiko", "Rabbit")
         html = self._html("?type=dog&q=ma")
-        self.assertIn('<input type="hidden" name="type" value="dog">', html)
+        self.assertIn(
+            '<input type="hidden" name="type" value="dog" form="pets-search">', html
+        )
         self.assertIn('value="ma"', html)
         self.assertIn(">Max<", self._card(html, Pet.objects.get(name="Max")))
         self.assertNotIn("Rex", html)
@@ -7418,7 +7429,9 @@ class OwnerPetsPageTests(TestCase):
         self.assertIn('role="status"', html)
         clear = f'<a href="{self.url}" class="btn btn-outline mt-4">Clear</a>'
         self.assertIn(clear, html)
-        self.assertNotIn("grid-cols-2", html)
+        # (8b-10b-4: the loading boxes have a 2-column grid too, so the check is
+        # on the list of pets itself)
+        self.assertNotIn('<ul class="grid grid-cols-2 gap-3">', html)
         self.assertIn("4 pets", html)  # the header and its Add a pet stay
         html = self._html("?type=cat")
         self.assertIn("No pet matches this filter", html)
@@ -9633,3 +9646,324 @@ class OwnerHtmxListStatesTests(TestCase):
         step1, step2 = self._onboarding()
         for html in (step1, step2):
             self.assertIsNone(re.search(r"<script(?![^>]*\ssrc=)", html))
+
+
+# ── Slice 8b-10b-4: My Pets search results swap ──────────────────────────────
+
+HTMX_GET = {"HX-Request": "true"}
+
+
+def _tag_attrs(tag):
+    """The attributes of one start tag as a dict (entities decoded; both quote
+    styles, because hx-request is written with single quotes)."""
+    pairs = re.findall(r"""([\w:-]+)=(?:"([^"]*)"|'([^']*)')""", tag)
+    return {name: unescape(double or single) for name, double, single in pairs}
+
+
+class _PetsSwapBase(TestCase):
+    """Five pets (so the search and chips show) for a logged-in owner."""
+
+    def setUp(self):
+        self.owner = _login_owner(self)
+        self.owner.user.is_onboarded = True
+        self.owner.user.save()
+        self.url = reverse("owner_pet_list")
+        for name, species in (
+            ("Rex", "Dog"),
+            ("Max", "Dog"),
+            ("Tom", "Cat"),
+            ("Kiko", "Rabbit"),
+            ("Mimi", "Cat"),
+        ):
+            _pet(self.owner, name, species)
+
+    def _page(self, query=""):
+        response = self.client.get(f"{self.url}{query}")
+        self.assertEqual(response.status_code, 200)
+        return response
+
+    def _swap(self, query="", headers=None):
+        response = self.client.get(f"{self.url}{query}", headers=headers or HTMX_GET)
+        self.assertEqual(response.status_code, 200)
+        return response
+
+    def _names(self, html):
+        """The names of the owner's pets that have a card in the html."""
+        shown = []
+        for pet in Pet.objects.order_by("name", "pk"):
+            detail = reverse("owner_pet_detail", args=[pet.pk])
+            if f'<a href="{detail}"' in html:
+                shown.append(pet.name)
+        return shown
+
+
+class OwnerPetsSwapTests(_PetsSwapBase):
+    """One URL, two answers: an HTMX request gets only the results part."""
+
+    QUERIES = ("", "?q=ma", "?type=dog", "?type=dog&q=ma", "?type=other", "?q=zzz")
+
+    def test_the_swap_is_only_the_results_part(self):
+        response = self._swap()
+        html = response.content.decode()
+        self.assertTemplateUsed(response, "owner/pets_parts/_results.html")
+        self.assertTemplateNotUsed(response, "layouts/owner.html")
+        self.assertTemplateNotUsed(response, "owner/pets/list.html")
+        for left_out in (
+            "<html",
+            "<head",
+            "<main",
+            "<header",
+            'aria-label="Main"',
+            'role="search"',
+            'id="pets-search"',
+            'id="pet-search"',
+            "My Pets</h1>",
+            "Add a pet",
+            "Searching",
+        ):
+            with self.subTest(left_out=left_out):
+                self.assertNotIn(left_out, html)
+        self.assertIn('<nav aria-label="Show pets by type"', html)
+        self.assertIn('<ul class="grid grid-cols-2 gap-3">', html)
+
+    def test_the_answer_varies_on_the_hx_request_header(self):
+        self.assertIn("HX-Request", self._swap().headers["Vary"])
+        # The page says so too: the same URL has two answers
+        self.assertIn("HX-Request", self._page().headers["Vary"])
+
+    def test_without_the_header_the_page_is_unchanged(self):
+        response = self._page()
+        html = response.content.decode()
+        self.assertTemplateUsed(response, "layouts/owner.html")
+        self.assertTemplateUsed(response, "owner/pets/list.html")
+        self.assertIn("<html", html)
+        self.assertIn('role="search"', html)
+        self.assertIn("My Pets</h1>", html)
+        self.assertIn('id="pets-results"', html)
+
+    def test_a_history_restore_gets_the_full_page(self):
+        headers = {**HTMX_GET, "HX-History-Restore-Request": "true"}
+        html = self._swap(headers=headers).content.decode()
+        self.assertIn("<html", html)
+        self.assertIn('role="search"', html)
+
+    def test_the_same_cards_and_chips_as_the_page_for_every_combination(self):
+        for query in self.QUERIES:
+            page = self._page(query).content.decode()
+            swap = self._swap(query).content.decode()
+            with self.subTest(query=query):
+                self.assertEqual(self._names(swap), self._names(page))
+                chips = r'(?s)<nav aria-label="Show pets by type".*?</nav>'
+                self.assertEqual(
+                    re.search(chips, swap).group(0), re.search(chips, page).group(0)
+                )
+
+    def test_the_combinations_pick_the_right_pets(self):
+        cases = {
+            "?q=ma": ["Max"],
+            "?type=dog": ["Max", "Rex"],
+            "?type=dog&q=ma": ["Max"],
+            "?type=cat": ["Mimi", "Tom"],
+            "?type=other": ["Kiko"],
+            "?q=mi&type=cat": ["Mimi"],
+        }
+        for query, names in cases.items():
+            with self.subTest(query=query):
+                swap = self._swap(query).content.decode()
+                self.assertEqual(self._names(swap), names)
+
+    def test_the_chosen_chip_and_its_hidden_field_follow_the_swap(self):
+        html = self._swap("?type=cat&q=m").content.decode()
+        hidden = '<input type="hidden" name="type" value="cat" form="pets-search">'
+        self.assertIn(hidden, html)
+        chips = re.search(r'(?s)<nav aria-label="Show pets by type".*?</nav>', html)
+        self.assertEqual(chips.group(0).count('aria-current="true"'), 1)
+        self.assertRegex(chips.group(0), r'aria-current="true"[^>]*>Cats \(2\)<')
+
+    def test_a_search_with_no_match_shows_the_same_box(self):
+        page = self._page("?q=zzz").content.decode()
+        swap = self._swap("?q=zzz").content.decode()
+        clear = f'<a href="{self.url}" class="btn btn-outline mt-4">Clear</a>'
+        for html in (page, swap):
+            self.assertIn('No pet matches "zzz"', html)
+            self.assertIn(clear, html)
+            self.assertNotIn('<ul class="grid grid-cols-2 gap-3">', html)
+
+    def test_another_owners_pets_never_appear(self):
+        _pet(_owner(first="Ben", last="Reyes"), "Theirs")
+        _pet(self.owner, "Gone", is_archived=True)
+        for query in ("", "?q=theirs", "?q=gone", "?type=dog"):
+            with self.subTest(query=query):
+                swap = self._swap(query).content.decode()
+                self.assertNotIn("Theirs", swap)
+                self.assertNotIn("Gone", swap)
+        searched = self._swap("?q=theirs").content.decode()
+        self.assertIn('No pet matches "theirs"', searched)
+
+    def test_a_logged_out_swap_is_sent_to_the_login(self):
+        self.client.logout()
+        response = self.client.get(self.url, headers=HTMX_GET)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"")
+        self.assertIn("HX-Redirect", response.headers)
+
+    def test_queries_are_flat_and_the_swap_costs_no_more_than_the_page(self):
+        def count(call):
+            with CaptureQueriesContext(connection) as queries:
+                call("?type=dog&q=r")
+            return len(queries)
+
+        few = (count(self._swap), count(self._page))
+        for number in range(25):
+            _pet(self.owner, f"Rover{number}", "Dog")
+        self.assertEqual(Pet.objects.filter(owner=self.owner).count(), 30)
+        many = (count(self._swap), count(self._page))
+        self.assertEqual(few, many)
+        self.assertLessEqual(many[0], many[1])
+
+
+class OwnerPetsSwapMarkupTests(_PetsSwapBase):
+    """The hooks of the My Pets search, chips and results area."""
+
+    def _html(self, query=""):
+        return self._page(query).content.decode()
+
+    def _form(self, html):
+        return re.search(r'(?s)<form method="get".*?</form>', html).group(0)
+
+    def test_the_form_keeps_working_without_javascript_and_swaps_with_it(self):
+        form = self._form(self._html())
+        attrs = _tag_attrs(re.match(r"<form[^>]*>", form).group(0))
+        self.assertEqual(attrs["method"], "get")
+        self.assertEqual(attrs["action"], self.url)
+        self.assertEqual(attrs["hx-get"], self.url)
+        self.assertEqual(
+            attrs["hx-trigger"], "input changed delay:500ms, change, submit"
+        )
+        self.assertEqual(attrs["hx-target"], "#pets-results")
+        self.assertEqual(attrs["hx-swap"], "innerHTML")
+        self.assertEqual(attrs["hx-replace-url"], "true")
+        self.assertEqual(attrs["hx-sync"], "this:replace")
+        self.assertEqual(attrs["hx-indicator"], "#pets-results, #pets-search")
+        self.assertEqual(json.loads(attrs["hx-request"]), {"timeout": 10000})
+        self.assertIn('<button type="submit" class="btn btn-outline min-h-12">', form)
+        self.assertIn("Search</button>", form)
+
+    def test_the_chips_keep_their_href_and_swap_with_a_pushed_address(self):
+        html = self._html("?q=ma")
+        nav = re.search(r'(?s)<nav aria-label="Show pets by type".*?</nav>', html)
+        tags = re.findall(r"<a\b[^>]*>", nav.group(0))
+        chips = [tag for tag in tags if "hx-get" in tag]
+        self.assertEqual(len(chips), 4)  # All, Dogs, Cats, Others
+        for tag in chips:
+            attrs = _tag_attrs(tag)
+            with self.subTest(href=attrs["href"]):
+                self.assertEqual(attrs["hx-get"], attrs["href"])
+                self.assertIn("q=ma", attrs["href"])  # the search is in the href
+                self.assertEqual(attrs["hx-target"], "#pets-results")
+                self.assertEqual(attrs["hx-swap"], "innerHTML")
+                self.assertEqual(attrs["hx-push-url"], "true")
+                self.assertEqual(attrs["hx-indicator"], "#pets-results, #pets-search")
+                self.assertEqual(attrs["hx-sync"], "#pets-search:replace")
+                self.assertEqual(json.loads(attrs["hx-request"]), {"timeout": 10000})
+                self.assertEqual(attrs["data-loading"], "off")
+                self.assertIn("min-h-11", attrs["class"])
+
+    def test_clear_is_a_plain_link(self):
+        html = self._html("?q=ma")
+        clear = re.search(r"<a\b[^>]*>Clear</a>", html).group(0)
+        self.assertNotIn("hx-", clear)
+        self.assertNotIn("data-loading", clear)
+
+    def test_the_results_area_is_a_polite_live_region_never_saved_in_history(self):
+        html = self._html()
+        tag = re.search(r'<div id="pets-results"[^>]*>', html).group(0)
+        attrs = _tag_attrs(tag)
+        self.assertIn("data-swap-area", tag)
+        self.assertEqual(attrs["aria-live"], "polite")
+        self.assertEqual(attrs["aria-busy"], "false")
+        self.assertEqual(attrs["hx-history"], "false")
+        self.assertIn("group/swap", attrs["class"].split())
+
+    def test_the_skeleton_is_two_cards_of_a_photo_and_three_lines(self):
+        html = self._html()
+        area = html[html.index('id="pets-results"') :]
+        self.assertEqual(len(re.findall(r'class="sk ', area)), 8)
+        self.assertEqual(len(re.findall(r"sk block aspect-square", area)), 2)
+        self.assertEqual(area.count("sk mt-"), 6)  # three lines on each card
+        self.assertEqual(area.count("sk mt-3 block h-5"), 2)
+        skeleton = re.search(r'<div aria-hidden="true" class="grid grid-cols-2', area)
+        self.assertIsNotNone(skeleton)
+        self.assertIn("group-[.htmx-request]/swap:hidden", area)
+
+    def test_the_two_alert_boxes_are_hidden_with_an_outline_try_again(self):
+        area = self._html().split('id="pets-results"')[1]
+        boxes = {
+            "slow": ("This is taking longer than usual", "Your internet may be slow."),
+            "failed": ("Couldn't load the results", "Check your internet and try"),
+        }
+        for kind, (title, words) in boxes.items():
+            start = rf'<div role="alert" hidden data-swap-error="{kind}"'
+            box = re.search(rf"(?s){start}.*?</button>", area).group(0)
+            with self.subTest(box=kind):
+                self.assertIn(title, box)
+                self.assertIn(words, box)
+                self.assertIn("Your answers are kept.", box)
+                button = re.search(r"<button\b[^>]*data-swap-retry[^>]*>", box).group(0)
+                for outline in ("min-h-11", "border-orange-400", "bg-white"):
+                    self.assertIn(outline, button)
+                self.assertNotIn("bg-violet-600", button)
+                self.assertIn("Try again", box)
+
+    def test_the_box_and_the_spinner_are_outside_the_results_area(self):
+        html = self._html("?q=ma")
+        region = html.index('id="pets-results"')
+        form = self._form(html)
+        self.assertLess(html.index(form), region)
+        self.assertLess(html.index("Searching…"), region)
+        # The typed text stays in the box; the spinner and the line are in the form
+        self.assertIn('name="q" value="ma"', form)
+        hidden_span = r'(?s)<span aria-hidden="true" class="[^"]*">.*?</span>'
+        spinner = re.search(hidden_span, form)
+        self.assertIn("group-[.htmx-request]/search:block", spinner.group(0))
+        self.assertIn("motion-safe:animate-spin", spinner.group(0))
+        line = re.search(r'<p role="status" class="([^"]*)">Searching…</p>', form)
+        self.assertIn("hidden", line.group(1).split())
+        self.assertIn("group-[.htmx-request]/search:block", line.group(1))
+        self.assertIn("text-base", line.group(1).split())
+
+    def test_one_violet_button_and_no_inline_script_or_handler(self):
+        for query in ("", "?q=ma", "?q=zzz"):
+            html = self._html(query)
+            with self.subTest(query=query):
+                self.assertEqual(len(re.findall(VIOLET_BUTTON, html)), 1)
+                self.assertEqual(re.findall(INLINE_SCRIPT, html), [])
+                self.assertIsNone(re.search(r"\son[a-z]+\s*=", html))
+                self.assertNotIn("hx-confirm", html)
+                self.assertNotIn("<!--", html)
+
+    def test_with_three_pets_there_is_no_search_and_no_swap_area(self):
+        Pet.objects.filter(name__in=("Kiko", "Mimi")).delete()
+        html = self._html()
+        for left_out in ("pets-results", "data-swap-area", "hx-get", 'role="search"'):
+            with self.subTest(left_out=left_out):
+                self.assertNotIn(left_out, html)
+        self.assertIn('<ul class="grid grid-cols-2 gap-3">', html)
+
+    def test_the_words_live_in_the_templates(self):
+        form = _template_source("owner/pets_parts/filters.html")
+        self.assertIn(">Searching…</p>", form)
+        skeleton = _template_source("owner/pets_parts/skeleton.html")
+        self.assertNotIn("<!--", skeleton)
+        for name in (
+            "owner/pets_parts/chips.html",
+            "owner/pets_parts/grid.html",
+            "owner/pets_parts/_results.html",
+            "owner/pets_parts/skeleton.html",
+            "owner/pets_parts/filters.html",
+        ):
+            source = _template_source(name)
+            with self.subTest(file=name):
+                self.assertNotIn("{% extends", source)
+                for link in re.findall(r"(?s)<a\b.*?</a>", source):
+                    self.assertNotIn("\n", link)
