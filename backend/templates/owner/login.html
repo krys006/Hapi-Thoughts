@@ -3,12 +3,17 @@
 {% block title %}Log in — Hapi Vet{% endblock %}
 
 {% block card_title %}Welcome back{% endblock %}
-{% block card_subtitle %}{% if not login_failed and not unconfirmed_email %}<p class="mt-1 text-base text-gray-700">Log in to see your pets, visits and bills.</p>{% endif %}{% endblock %}
+{% block card_subtitle %}{% if not login_failed and not login_locked and not unconfirmed_email %}<p class="mt-1 text-base text-gray-700">Log in to see your pets, visits and bills.</p>{% endif %}{% endblock %}
 
 {% block content %}
   {# Every failed login gets this one box: it never says which part was wrong #}
   {% if login_failed %}
     {% include "owner/auth_parts/alert_box.html" with tone="red" title="That email and password don't match" text="Check for typos, or tap “Forgot password?” to make a new one." %}
+  {% endif %}
+
+  {# Too many wrong tries (SEC-2): the same red box, the plain wording from the view #}
+  {% if login_locked %}
+    {% include "owner/auth_parts/alert_box.html" with tone="red" title=login_locked %}
   {% endif %}
 
   {# Only for the right password on an owner who hasn't confirmed the email yet (8a-2d) #}
