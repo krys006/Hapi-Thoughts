@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import make_password
 from django.contrib.messages import constants as message_levels
 from django.contrib.messages import get_messages
 from django.core import mail
@@ -39,7 +40,7 @@ from billing.utils import (
     services_list_context,
 )
 from medical.models import MedicalRecord
-from notifications.models import Notification
+from notifications.models import Notification, NotificationPreference
 from pets.models import Pet, PetOwner
 
 User = get_user_model()
@@ -2429,7 +2430,9 @@ class NewReceiptDesignTests(NewReceiptTestBase):
 # count, the page. Receipt page: receipt (owner, user, pet, visit), items
 # (with service), clinic settings, service options, the item form's services.
 LIST_QUERIES = 9
-DETAIL_QUERIES = 11
+# Batch 4b: 11 -> 12 (the newest bill_sent / bill_reminder lookup for an
+# Unpaid bill; the Bills email switch rides on the receipt query's join)
+DETAIL_QUERIES = 12
 
 
 @PLAIN_STATIC
@@ -4816,11 +4819,24 @@ class ReceiptPageTests(FrozenBillingTestBase):
         card = section(html, "actions-title")
         self.assertEqual(
             button_labels(card),
-            ["Mark as paid", "Add item", "Add discount", "Print", "Cancel bill"],
+            [
+                "Mark as paid",
+                "Send bill to Ana Cruz",  # batch 4b
+                "Add item",
+                "Add discount",
+                "Print",
+                "Cancel bill",
+            ],
         )
         self.assertEqual(
             re.findall(r'data-dialog-open="([^"]+)"', card),
-            ["mark-paid-dialog", "add-item-dialog", "discount-dialog", "cancel-dialog"],
+            [
+                "mark-paid-dialog",
+                "send-bill-dialog",  # batch 4b
+                "add-item-dialog",
+                "discount-dialog",
+                "cancel-dialog",
+            ],
         )
         self.assertEqual(card.count("data-print"), 1)
         self.assertIn("<hr", card)
@@ -4964,6 +4980,7 @@ class ReceiptPageTests(FrozenBillingTestBase):
                 "admin_billing_item_delete", args=[second.pk]
             ),
             "mark-paid-dialog": reverse("admin_receipt_mark_paid", args=[receipt.pk]),
+            "send-bill-dialog": reverse("admin_receipt_send", args=[receipt.pk]),
             "cancel-dialog": reverse("admin_receipt_mark_cancelled", args=[receipt.pk]),
         }
         self.assertEqual(set(dialogs), set(expected))
@@ -8139,7 +8156,9 @@ class BillWordingTests(FrozenBillingTestBase):
         # has always had one "Bills" switch
         self._as_owner()
         text = self._text("owner_notification_preferences")
-        self.assertIn("Bills When the clinic records your payment.", text)
+        self.assertIn(
+            "Bills When the clinic sends a bill or records your payment.", text
+        )
 
 
 @PLAIN_STATIC
@@ -8447,3 +8466,567 @@ class OwnerServicesPageTests(BillingTestBase):
     def test_the_empty_page_adds_one_query_for_the_phone(self):
         with self.assertNumQueries(5):
             self.assertEqual(self.client.get(self.url).status_code, 200)
+
+
+# ── Batch 4b: admin Send bill / Remind to pay ────────────────────────────────
+
+SENT_NOTE = "Please pay in cash at the clinic."
+
+
+@PLAIN_STATIC
+class AdminBillSendTests(FrozenBillingTestBase):
+    """The Send bill / Remind button, its dialog and admin_receipt_send, at
+    00:30 Manila on Sat, Nov 7, 2026 (self.now moves the clock)."""
+
+    SEND = "Send bill to Ana Cruz"
+
+    def setUp(self):
+        super().setUp()
+        PetOwner.objects.filter(pk=self.owner.pk).update(contact_number="0917 555 0142")
+        self.owner.refresh_from_db()
+
+    # ─── Helpers ──────────────────────────────────────────────────────────────
+
+    def _bill(self, status=BillingReceipt.PENDING, items=True, pet=True):
+        """A bill of ₱650.00 (one item), or with no items."""
+        receipt = BillingReceipt.objects.create(
+            receipt_number=BillingReceipt.generate_receipt_number(),
+            owner=self.owner,
+            pet=self.pet if pet else None,
+            payment_status=status,
+            payment_date=TODAY if status == BillingReceipt.PAID else None,
+        )
+        if items:
+            self._item(receipt, "650.00", description="Consultation")
+        receipt.calculate_totals()
+        return receipt
+
+    def _html(self, receipt):
+        response = self.client.get(reverse("admin_receipt_detail", args=[receipt.pk]))
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _send(self, receipt):
+        return self._post("admin_receipt_send", receipt.pk)
+
+    def _flashes(self, response):
+        """The newest flash as [(level, text)] ([] when there is none). The
+        redirects aren't followed, so earlier flashes pile up in the session."""
+        found = [(m.level, str(m)) for m in get_messages(response.wsgi_request)]
+        return found[-1:]
+
+    def _later(self, seconds):
+        self.now = self.now + datetime.timedelta(seconds=seconds)
+
+    def _unclaimed(self):
+        User.objects.filter(pk=self.owner.user.pk).update(password=make_password(None))
+
+    def _no_email(self):
+        User.objects.filter(pk=self.owner.user.pk).update(email="")
+
+    def _archived(self):
+        PetOwner.objects.filter(pk=self.owner.pk).update(is_archived=True)
+
+    def _bills_switch_off(self):
+        NotificationPreference.objects.filter(user=self.owner.user).update(
+            email_billing=False
+        )
+
+    def _actions(self, receipt):
+        return section(self._html(receipt), "actions-title")
+
+    def _kinds(self):
+        return list(
+            Notification.objects.filter(
+                notification_type__in=[
+                    Notification.BILL_SENT,
+                    Notification.BILL_REMINDER,
+                ]
+            )
+            .order_by("pk")
+            .values_list("notification_type", flat=True)
+        )
+
+    # ─── The button ───────────────────────────────────────────────────────────
+
+    def test_an_active_owner_gets_the_outline_button_after_mark_as_paid(self):
+        html = self._html(self._bill())
+        card = section(html, "actions-title")
+        self.assertEqual(button_labels(card)[:2], ["Mark as paid", self.SEND])
+        button = re.search(
+            r'(?s)<button[^>]*data-dialog-open="send-bill-dialog"[^>]*>.*?</button>',
+            card,
+        ).group()
+        self.assertIn("btn btn-outline min-h-12 w-full font-semibold", button)
+        self.assertNotIn("btn-primary", button)
+        self.assertIn("<svg", button)
+        self.assertIn(
+            '<p class="mt-2 text-base text-gray-700">Not sent yet. Ana Cruz can '
+            "already see it in their Bills page.</p>",
+            card,
+        )
+        self.assertEqual(primary_labels(html), ["Mark as paid"])
+        self.assertIn("send-bill-dialog", dialogs_in(html))
+
+    def test_an_unclaimed_owner_gets_the_button_with_the_email_line(self):
+        self._unclaimed()
+        html = self._html(self._bill())
+        card = section(html, "actions-title")
+        self.assertIn(self.SEND, button_labels(card))
+        self.assertIn(
+            "Not sent yet. Ana Cruz hasn't logged in yet, so this goes by email.",
+            page_text(card),
+        )
+        self.assertEqual(primary_labels(html), ["Mark as paid"])
+        self.assertIn("send-bill-dialog", dialogs_in(html))
+
+    def test_no_email_shows_the_yellow_box_with_the_phone_and_no_button(self):
+        self._no_email()
+        html = self._html(self._bill())
+        card = section(html, "actions-title")
+        self.assertNotIn(self.SEND, button_labels(card))
+        self.assertNotIn("send-bill-dialog", html)
+        self.assertIn("border-yellow-300 bg-yellow-50", card)
+        self.assertIn("<b>Ana Cruz can't get it in the app.</b>", card)
+        self.assertIn(
+            "Ana Cruz can't get it in the app. No email is saved for them. "
+            "Call them instead: 0917 555 0142",
+            page_text(card),
+        )
+        self.assertEqual(primary_labels(html), ["Mark as paid"])
+
+    def test_no_email_and_no_phone_says_to_tell_them_at_the_clinic(self):
+        self._no_email()
+        PetOwner.objects.filter(pk=self.owner.pk).update(contact_number="")
+        text = page_text(self._actions(self._bill()))
+        self.assertIn(
+            "Ana Cruz can't get it in the app. No email or phone number is saved. "
+            "Tell them at the clinic.",
+            text,
+        )
+        self.assertNotIn("Call them instead", text)
+
+    def test_nothing_for_an_archived_owner_an_empty_paid_or_cancelled_bill(self):
+        cases = [
+            ("archived", self._bill(), ["Mark as paid"]),
+            ("empty", self._bill(items=False), ["Add item"]),
+            ("paid", self._bill(BillingReceipt.PAID), ["Print bill"]),
+            ("cancelled", self._bill(BillingReceipt.CANCELLED), []),
+        ]
+        for name, receipt, violet in cases:
+            with self.subTest(case=name):
+                if name == "archived":
+                    self._archived()
+                html = self._html(receipt)
+                card = section(html, "actions-title")
+                self.assertNotIn("send-bill-dialog", html)
+                self.assertNotIn("Send bill to Ana Cruz", html)
+                self.assertNotIn("Remind Ana Cruz", html)
+                self.assertNotIn("can't get it in the app", html)
+                self.assertNotIn("border-yellow-300", card)
+                self.assertEqual(primary_labels(html), violet)
+                PetOwner.objects.filter(pk=self.owner.pk).update(is_archived=False)
+
+    def test_first_send_and_remind_labels_and_last_sent(self):
+        receipt = self._bill()
+        self.assertEqual(button_labels(self._actions(receipt))[1], self.SEND)
+        self._send(receipt)
+        self._later(120)
+        card = self._actions(receipt)
+        self.assertEqual(button_labels(card)[1], "Remind Ana Cruz to pay")
+        self.assertIn("Last sent: Today, 12:30 AM", page_text(card))
+        self.assertNotIn("Not sent yet", card)
+        # The newest of the two types is the one shown
+        self._send(receipt)
+        self.assertIn("Last sent: Today, 12:32 AM", page_text(self._actions(receipt)))
+
+    # ─── The dialog ───────────────────────────────────────────────────────────
+
+    def _dialog(self, receipt):
+        return dialogs_in(self._html(receipt))["send-bill-dialog"]
+
+    def test_the_send_dialog(self):
+        receipt = self._bill()
+        block = self._dialog(receipt)
+        text = page_text(block)
+        self.assertIn("Send this bill to Ana Cruz?", text)
+        self.assertIn("Total to pay: ₱650.00", text)
+        self.assertIn("text-3xl font-bold", block)
+        self.assertIn(
+            "Ana Cruz will get a notification in the app and an email at "
+            "owner@example.com.",
+            text,
+        )
+        self.assertIn("You can still add items after sending.", text)
+        self.assertIn("Yes, send it", text)
+        self.assertNotIn("reminder", text)
+        self.assertEqual(block.count("autofocus"), 1)
+        self.assertRegex(
+            block, r"<button[^>]*data-dialog-close autofocus>\s*Go back\s*</button>"
+        )
+        self.assertIn(
+            reverse("admin_receipt_send", args=[receipt.pk]),
+            block,
+        )
+
+    def test_the_dialog_when_the_bills_switch_is_off(self):
+        self._bills_switch_off()
+        text = page_text(self._dialog(self._bill()))
+        self.assertIn(
+            "Ana Cruz will get a notification in the app only (they turned off "
+            "bill emails).",
+            text,
+        )
+        self.assertNotIn("owner@example.com", text)
+
+    def test_the_dialog_for_an_unclaimed_owner(self):
+        self._unclaimed()
+        text = page_text(self._dialog(self._bill()))
+        self.assertIn(
+            "Ana Cruz hasn't logged in yet, so they'll get this by email at "
+            "owner@example.com.",
+            text,
+        )
+
+    def test_the_remind_dialog(self):
+        receipt = self._bill()
+        self._send(receipt)
+        self._later(120)
+        block = self._dialog(receipt)
+        text = page_text(block)
+        self.assertIn("Remind Ana Cruz to pay?", text)
+        self.assertIn("Yes, send the reminder", text)
+        self.assertNotIn("Yes, send it", text)
+        self.assertIn("Total to pay: ₱650.00", text)
+        self.assertEqual(block.count("autofocus"), 1)
+
+    # ─── Sending ──────────────────────────────────────────────────────────────
+
+    def test_the_first_send_writes_one_bill_sent_and_one_email(self):
+        receipt = self._bill()
+        response = self._send(receipt)
+        self.assertRedirects(
+            response,
+            reverse("admin_receipt_detail", args=[receipt.pk]),
+            fetch_redirect_response=False,
+        )
+        notice = Notification.objects.get()
+        self.assertEqual(notice.notification_type, Notification.BILL_SENT)
+        self.assertEqual(notice.recipient, self.owner.user)
+        self.assertEqual(notice.title, "Bill ready: ₱650.00")
+        self.assertEqual(
+            notice.message, f"Bantay · {receipt.receipt_number}. {SENT_NOTE}"
+        )
+        self.assertEqual(notice.related_billing, receipt)
+        self.assertEqual(notice.related_pet, self.pet)
+        self.assertIsNone(notice.related_appointment)
+        self.assertTrue(notice.email_sent)
+        self.assertEqual(len(mail.outbox), 1)
+        email = mail.outbox[0]
+        self.assertEqual(
+            email.subject, f"Bill {receipt.receipt_number} for Bantay — Hapi Vet"
+        )
+        self.assertEqual(email.to, ["owner@example.com"])
+        self.assertIn("₱650.00", email.body)
+        self.assertIn(SENT_NOTE, email.body)
+        self.assertNotIn("reminder", email.body)
+        self.assertEqual(
+            self._flashes(response),
+            [
+                (
+                    message_levels.SUCCESS,
+                    "Bill sent to Ana Cruz by email and in the app.",
+                )
+            ],
+        )
+
+    def test_the_email_subject_is_the_one_the_paid_email_uses(self):
+        receipt = self._bill()
+        self._send(receipt)
+        self._post("admin_receipt_mark_paid", receipt.pk)
+        sent, paid = mail.outbox
+        self.assertEqual(sent.subject, paid.subject)
+
+    def test_a_bill_without_a_pet(self):
+        receipt = self._bill(pet=False)
+        self._send(receipt)
+        notice = Notification.objects.get()
+        self.assertEqual(notice.message, f"{receipt.receipt_number}. {SENT_NOTE}")
+        self.assertIsNone(notice.related_pet)
+        self.assertEqual(
+            mail.outbox[0].subject, f"Bill {receipt.receipt_number} — Hapi Vet"
+        )
+
+    def test_a_second_send_after_a_minute_is_a_reminder(self):
+        receipt = self._bill()
+        self._send(receipt)
+        self._later(61)
+        response = self._send(receipt)
+        self.assertEqual(
+            self._kinds(), [Notification.BILL_SENT, Notification.BILL_REMINDER]
+        )
+        notice = Notification.objects.get(notification_type=Notification.BILL_REMINDER)
+        self.assertEqual(notice.title, "Reminder: bill to pay ₱650.00")
+        self.assertEqual(
+            notice.message, f"Bantay · {receipt.receipt_number}. {SENT_NOTE}"
+        )
+        self.assertEqual(notice.related_billing, receipt)
+        self.assertIsNone(notice.related_appointment)
+        self.assertEqual(len(mail.outbox), 2)
+        body = mail.outbox[1].body
+        self.assertTrue(body.startswith("This is a reminder about your bill."))
+        self.assertIn("₱650.00", body)
+        self.assertIn(SENT_NOTE, body)
+        self.assertEqual(
+            self._flashes(response),
+            [
+                (
+                    message_levels.SUCCESS,
+                    "Reminder sent to Ana Cruz by email and in the app.",
+                )
+            ],
+        )
+
+    def test_a_second_send_within_a_minute_is_refused(self):
+        receipt = self._bill()
+        self._send(receipt)
+        self._later(30)
+        response = self._send(receipt)
+        self.assertEqual(
+            self._flashes(response),
+            [(message_levels.ERROR, "Already sent a moment ago.")],
+        )
+        self.assertEqual(self._kinds(), [Notification.BILL_SENT])
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_a_reminder_within_a_minute_of_a_reminder_is_refused_too(self):
+        receipt = self._bill()
+        self._send(receipt)
+        self._later(61)
+        self._send(receipt)
+        self._later(10)
+        self._send(receipt)
+        self.assertEqual(len(self._kinds()), 2)
+        self.assertEqual(len(mail.outbox), 2)
+
+    def test_with_the_bills_switch_off_it_is_in_the_app_only(self):
+        self._bills_switch_off()
+        receipt = self._bill()
+        response = self._send(receipt)
+        notice = Notification.objects.get()
+        self.assertEqual(notice.notification_type, Notification.BILL_SENT)
+        self.assertFalse(notice.email_sent)
+        self.assertEqual(mail.outbox, [])
+        self.assertEqual(
+            self._flashes(response),
+            [
+                (
+                    message_levels.SUCCESS,
+                    "Bill sent to Ana Cruz in the app only "
+                    "(the Bills email switch is off).",
+                )
+            ],
+        )
+
+    def test_a_failed_email_keeps_the_notification_and_says_so(self):
+        receipt = self._bill()
+        with mock.patch("notifications.utils.send_mail", side_effect=OSError("down")):
+            response = self._send(receipt)
+        notice = Notification.objects.get()
+        self.assertTrue(notice.email_failed)
+        self.assertFalse(notice.email_sent)
+        self.assertEqual(
+            self._flashes(response),
+            [
+                (
+                    message_levels.WARNING,
+                    "Bill sent to Ana Cruz in the app. "
+                    "The email did not go through.",
+                )
+            ],
+        )
+        # The failed send still counts as sent: the next one is a reminder
+        self._later(61)
+        self._send(receipt)
+        self.assertEqual(
+            self._kinds(), [Notification.BILL_SENT, Notification.BILL_REMINDER]
+        )
+
+    def test_an_unclaimed_owner_is_sent_the_email(self):
+        self._unclaimed()
+        self._send(self._bill())
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(self._kinds(), [Notification.BILL_SENT])
+
+    # ─── Refusals ─────────────────────────────────────────────────────────────
+
+    def test_refusals_write_nothing(self):
+        def no_email():
+            self._no_email()
+            return self._bill()
+
+        def archived():
+            self._archived()
+            return self._bill()
+
+        cases = [
+            (
+                "no email",
+                no_email,
+                "No email is saved for Ana Cruz, so the bill can't be sent.",
+            ),
+            (
+                "archived",
+                archived,
+                "Ana Cruz is archived, so the bill can't be sent.",
+            ),
+            ("empty", lambda: self._bill(items=False), NO_ITEMS_MESSAGE),
+            ("paid", lambda: self._bill(BillingReceipt.PAID), LOCKED_MESSAGE),
+            (
+                "cancelled",
+                lambda: self._bill(BillingReceipt.CANCELLED),
+                LOCKED_MESSAGE,
+            ),
+        ]
+        for name, make, text in cases:
+            with self.subTest(case=name):
+                User.objects.filter(pk=self.owner.user.pk).update(
+                    email="owner@example.com"
+                )
+                PetOwner.objects.filter(pk=self.owner.pk).update(is_archived=False)
+                receipt = make()
+                response = self._send(receipt)
+                self.assertRedirects(
+                    response,
+                    reverse("admin_receipt_detail", args=[receipt.pk]),
+                    fetch_redirect_response=False,
+                )
+                self.assertEqual(
+                    self._flashes(response), [(message_levels.ERROR, text)]
+                )
+                self.assertEqual(Notification.objects.count(), 0)
+                self.assertEqual(mail.outbox, [])
+
+    def test_get_redirects_to_the_bill_and_writes_nothing(self):
+        receipt = self._bill()
+        response = self.client.get(reverse("admin_receipt_send", args=[receipt.pk]))
+        self.assertRedirects(
+            response,
+            reverse("admin_receipt_detail", args=[receipt.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(self._flashes(response), [])
+        self.assertEqual(Notification.objects.count(), 0)
+        self.assertEqual(mail.outbox, [])
+
+    def test_a_non_admin_is_refused_like_the_other_admin_posts(self):
+        receipt = self._bill()
+        self.client.force_login(self.owner.user)
+        response = self._send(receipt)
+        self.assertRedirects(
+            response, reverse("owner_dashboard"), fetch_redirect_response=False
+        )
+        self.assertEqual(Notification.objects.count(), 0)
+        self.assertEqual(mail.outbox, [])
+        self.client.logout()
+        response = self._send(receipt)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("login", response.url)
+        self.assertEqual(Notification.objects.count(), 0)
+
+    # ─── The owner side and Mark as paid ──────────────────────────────────────
+
+    def test_the_owner_side_is_unchanged_and_the_bell_shows_the_bill(self):
+        receipt = self._bill()
+        self._send(receipt)
+        self.client.force_login(self.owner.user)
+        bills = self.client.get(reverse("owner_billing_list"))
+        self.assertEqual(bills.status_code, 200)
+        page = self.client.get(reverse("owner_receipt_detail", args=[receipt.pk]))
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(receipt.receipt_number, page.content.decode())
+        receipt.refresh_from_db()
+        self.assertEqual(receipt.payment_status, BillingReceipt.PENDING)
+        response = self.client.get("/owner/notifications/")
+        rows = response.context["today_rows"] + response.context["earlier_rows"]
+        self.assertEqual([r["title"] for r in rows], ["Bill ready: ₱650.00"])
+        self.assertEqual(rows[0]["icon"], "receipt")
+        self.assertEqual(
+            rows[0]["target"],
+            reverse("notification_open", args=[rows[0]["notification"].pk]),
+        )
+        opened = self.client.get(rows[0]["target"])
+        self.assertRedirects(
+            opened,
+            reverse("owner_receipt_detail", args=[receipt.pk]),
+            fetch_redirect_response=False,
+        )
+
+    def test_mark_as_paid_still_writes_exactly_one_billing_generated(self):
+        for sent_first in (False, True):
+            with self.subTest(sent_first=sent_first):
+                Notification.objects.all().delete()
+                receipt = self._bill()
+                if sent_first:
+                    self._send(receipt)
+                self._post("admin_receipt_mark_paid", receipt.pk)
+                self.assertEqual(
+                    Notification.objects.filter(
+                        notification_type=Notification.BILLING_GENERATED
+                    ).count(),
+                    1,
+                )
+                self.assertEqual(len(self._kinds()), 1 if sent_first else 0)
+
+    # ─── Queries and markup rules ─────────────────────────────────────────────
+
+    def _queries_for(self, receipt):
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(
+                reverse("admin_receipt_detail", args=[receipt.pk])
+            )
+        self.assertEqual(response.status_code, 200)
+        return len(queries)
+
+    def test_the_page_query_count_is_fixed_and_flat(self):
+        counts = {}
+        for number in (0, 1, 10):
+            receipt = self._bill(items=False)
+            for item in range(number):
+                self._item(receipt, "10.00", description=f"Item {item}")
+            receipt.calculate_totals()
+            counts[number] = self._queries_for(receipt)
+        self.assertEqual(counts[0], counts[10])
+        self.assertEqual(counts[1], counts[10])
+        self.assertEqual(counts[10], DETAIL_QUERIES)
+
+    def test_the_count_is_the_same_sent_or_not_yet_sent(self):
+        receipt = self._bill()
+        unsent = self._queries_for(receipt)
+        self._send(receipt)
+        self._later(61)
+        self._send(receipt)
+        self.assertEqual(self._queries_for(receipt), unsent)
+        self.assertEqual(unsent, DETAIL_QUERIES)
+
+    def test_template_sources(self):
+        names = ("send_bill_dialog.html", "send_contact.html", "actions_card.html")
+        for name in names:
+            path = BILLING_TEMPLATES / "receipt_detail_parts" / name
+            source = path.read_text(encoding="utf-8")
+            with self.subTest(file=name):
+                self.assertNotIn("<!--", source)
+                self.assertNotIn("onclick", source)
+                self.assertNotIn("hx-confirm", source)
+                for link in re.findall(r"(?s)<a\b.*?</a>", source):
+                    self.assertNotIn("\n", link)
+        parts = BILLING_TEMPLATES / "receipt_detail_parts"
+        # The send icon is in the button (actions card) and the confirm button
+        dialog = (parts / "send_bill_dialog.html").read_text(encoding="utf-8")
+        actions = (parts / "actions_card.html").read_text(encoding="utf-8")
+        self.assertIn('icon="send"', dialog)
+        self.assertIn('with name="send"', actions)
+        icon = (Path(settings.BASE_DIR) / "templates/components/icon.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('name == "send"', icon)

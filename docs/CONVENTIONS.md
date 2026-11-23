@@ -818,6 +818,17 @@ class Appointment(models.Model):
         return self.date >= timezone.now().date()
 ```
 
+### Notification types (added with the Send bill / Remind button)
+
+A new `Notification` type needs four things together, or it silently misbehaves:
+
+1. The constant and its `TYPE_CHOICES` entry in `notifications/models.py` (a choices-only change still needs a migration; it runs no SQL).
+2. An entry in `EMAIL_PREFERENCE_MAP` (`notifications/utils.py`) naming the owner's switch. A missing entry means the type ignores every switch and always emails.
+3. An entry in `NOTIFICATION_ICONS` (type → icon name from `components/icon.html`). Missing types get the bell. Bill types (`billing_generated`, `bill_sent`, `bill_reminder`) all use `receipt`.
+4. The right `related_*` fields. `notification_target` goes visit, then bill, then pet, so a bill notification sets `related_billing` (and `related_pet`) and never `related_appointment`.
+
+Owner notification text is compact (short title, `{pet} · {detail}` message); the email gets the full sentence through `notify(email_body=...)`. Normally `notify()` runs after the transaction commits; the one exception is `admin_receipt_send`, which notifies inside the row lock so the row exists before a double click can pass the 60 second check.
+
 ---
 
 ## 9. Form Conventions

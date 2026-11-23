@@ -39,6 +39,7 @@ from .utils import (
     refuse_locked,
     restore_message,
     save_discount,
+    send_bill,
     service_saved_message,
     services_list_context,
     visit_for_receipt,
@@ -336,6 +337,30 @@ def admin_receipt_mark_paid(request, pk):
         request,
         f"Bill {receipt.receipt_number} marked as paid.",
     )
+    return redirect("admin_receipt_detail", pk=pk)
+
+
+@login_required
+def admin_receipt_send(request, pk):
+    """Admin action — send the bill to the owner, or remind them to pay
+    when it was sent before (a notification and an email; send_bill)."""
+    if request.user.role != "admin":
+        return redirect("owner_dashboard")
+
+    if request.method != "POST":
+        return redirect("admin_receipt_detail", pk=pk)
+
+    with transaction.atomic():
+        receipt = lock_pending_receipt(pk)
+        if receipt is None:
+            return refuse_locked(request, pk)
+        # Unlike Mark as paid, this notifies INSIDE the lock on purpose: the
+        # notification row must exist before the lock is released, so a
+        # double click waits here, then sees it and is refused (the 60 second
+        # rule). The email goes out while the lock is held.
+        level, text = send_bill(receipt)
+
+    messages.add_message(request, level, text)
     return redirect("admin_receipt_detail", pk=pk)
 
 

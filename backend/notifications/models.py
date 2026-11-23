@@ -17,6 +17,8 @@ class Notification(models.Model):
     FOLLOWUP_REMINDER = "followup_reminder"
     EMAIL_FAILED = "email_failed"
     PET_DELETION_ANSWERED = "pet_deletion_answered"
+    BILL_SENT = "bill_sent"
+    BILL_REMINDER = "bill_reminder"
 
     TYPE_CHOICES = [
         (APPOINTMENT_REQUESTED, "Appointment Requested"),
@@ -29,6 +31,8 @@ class Notification(models.Model):
         (FOLLOWUP_REMINDER, "Follow-up Reminder"),
         (EMAIL_FAILED, "Email Failed"),
         (PET_DELETION_ANSWERED, "Pet deletion request answered"),
+        (BILL_SENT, "Bill Sent"),
+        (BILL_REMINDER, "Bill Reminder"),
     ]
 
     # --- Relationships ---

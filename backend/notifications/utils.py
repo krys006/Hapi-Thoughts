@@ -16,6 +16,9 @@ EMAIL_PREFERENCE_MAP = {
     "appointment_rejected": "email_appointment_status",
     "appointment_reminder": "email_appointment_reminders",
     "billing_generated": "email_billing",
+    # Sending or reminding about a bill follows the same Bills switch
+    "bill_sent": "email_billing",
+    "bill_reminder": "email_billing",
     "vaccination_reminder": "email_vaccination",
     "followup_reminder": "email_followup",
 }
@@ -193,6 +196,8 @@ NOTIFICATION_ICONS = {
     Notification.APPOINTMENT_CANCELLED: "calendar-x",
     Notification.APPOINTMENT_REMINDER: "clock",
     Notification.BILLING_GENERATED: "receipt",
+    Notification.BILL_SENT: "receipt",
+    Notification.BILL_REMINDER: "receipt",
     Notification.VACCINATION_REMINDER: "syringe",
     Notification.FOLLOWUP_REMINDER: "calendar-clock",
     Notification.PET_DELETION_ANSWERED: "paw-print",

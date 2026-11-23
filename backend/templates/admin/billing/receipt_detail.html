@@ -39,6 +39,9 @@
     {% if can_mark_paid %}
       {% include "admin/billing/receipt_detail_parts/mark_paid_dialog.html" %}
     {% endif %}
+    {% if can_send_bill %}
+      {% include "admin/billing/receipt_detail_parts/send_bill_dialog.html" %}
+    {% endif %}
     {% include "admin/billing/receipt_detail_parts/cancel_dialog.html" %}
   {% endif %}
 {% endblock %}

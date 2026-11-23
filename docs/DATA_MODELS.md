@@ -655,9 +655,12 @@ VACCINATION_REMINDER = 'vaccination_reminder'
 FOLLOWUP_REMINDER = 'followup_reminder'
 EMAIL_FAILED = 'email_failed'
 PET_DELETION_ANSWERED = 'pet_deletion_answered'
+BILL_SENT = 'bill_sent'
+BILL_REMINDER = 'bill_reminder'
 ```
 
 **Rules:**
+- `bill_sent` / `bill_reminder`: the clinic sent or reminded about a bill; `related_billing` set, no `related_appointment` (the visit would win over the bill when the notification is opened). Both follow the owner's Bills email switch (`email_billing`). The admin bill page's "Last sent" line reads the newest of these two for the bill. Choices-only change (migration `notifications/0005`, no SQL).
 - In-app notifications always created regardless of email preferences
 - `email_sent` and `email_failed` track email delivery status
 - Admin warned via EMAIL_FAILED notification type when email fails

@@ -27,6 +27,7 @@ from notifications.forms import NotificationPreferenceForm
 from notifications.models import Notification, NotificationPreference
 from notifications.utils import (
     EMAIL_FAILED,
+    EMAIL_PREFERENCE_MAP,
     EMAIL_NO_ADDRESS,
     EMAIL_OFF,
     EMAIL_SENT,
@@ -1061,6 +1062,8 @@ class NotificationIconTests(SimpleTestCase):
         "appointment_cancelled": "calendar-x",
         "appointment_reminder": "clock",
         "billing_generated": "receipt",
+        "bill_sent": "receipt",
+        "bill_reminder": "receipt",
         "vaccination_reminder": "syringe",
         "followup_reminder": "calendar-clock",
         "pet_deletion_answered": "paw-print",
@@ -1827,7 +1830,7 @@ class OwnerEmailSettingsPageTests(FrozenRemindersTestBase):
         rows = (
             ("Visit reminders", "A reminder before each visit."),
             ("Visit updates", "When the clinic confirms, moves or declines a visit."),
-            ("Bills", "When the clinic records your payment."),
+            ("Bills", "When the clinic sends a bill or records your payment."),
             ("Vaccine reminders", "When a vaccine is coming due."),
             ("Follow-up reminders", "When the vet asked to see your pet again."),
         )
@@ -1999,3 +2002,102 @@ class OwnerEmailSettingsPageTests(FrozenRemindersTestBase):
             )
         with self.assertNumQueries(len(queries)):
             self.client.get(self.url)
+
+
+class BillSendNotificationTypeTests(FrozenRemindersTestBase):
+    """Batch 4b: the bill_sent and bill_reminder types (the admin's Send bill
+    / Remind to pay button)."""
+
+    TYPES = (Notification.BILL_SENT, Notification.BILL_REMINDER)
+
+    def setUp(self):
+        super().setUp()
+        self.receipt = BillingReceipt.objects.create(
+            receipt_number="HV-2026-0001", owner=self.owner, pet=self.pet
+        )
+
+    def _notify(self, kind):
+        return notify(
+            recipient=self.owner.user,
+            notification_type=kind,
+            title="Bill ready: ₱650.00",
+            message="Bantay · HV-2026-0001. Please pay in cash at the clinic.",
+            related_billing=self.receipt,
+            related_pet=self.pet,
+        )
+
+    def test_both_types_are_choices(self):
+        values = [value for value, _label in Notification.TYPE_CHOICES]
+        self.assertEqual(Notification.BILL_SENT, "bill_sent")
+        self.assertEqual(Notification.BILL_REMINDER, "bill_reminder")
+        for kind in self.TYPES:
+            with self.subTest(kind=kind):
+                self.assertIn(kind, values)
+
+    def test_both_follow_the_bills_switch(self):
+        for kind in self.TYPES:
+            with self.subTest(kind=kind):
+                self.assertEqual(EMAIL_PREFERENCE_MAP[kind], "email_billing")
+
+    def test_with_the_bills_switch_on_the_email_goes(self):
+        for kind in self.TYPES:
+            with self.subTest(kind=kind):
+                mail.outbox.clear()
+                notice = self._notify(kind)
+                self.assertEqual(notice.email_outcome, EMAIL_SENT)
+                self.assertEqual(len(mail.outbox), 1)
+
+    def test_with_the_bills_switch_off_only_the_in_app_row_is_made(self):
+        # Through the user's own preference (the signal cached it on the user)
+        preference = self.owner.user.notification_preference
+        preference.email_billing = False
+        preference.save()
+        for kind in self.TYPES:
+            with self.subTest(kind=kind):
+                notice = self._notify(kind)
+                self.assertEqual(notice.email_outcome, EMAIL_OFF)
+                self.assertTrue(Notification.objects.filter(pk=notice.pk).exists())
+                self.assertFalse(notice.email_sent)
+        self.assertEqual(mail.outbox, [])
+
+    def test_both_use_the_receipt_icon(self):
+        for kind in self.TYPES:
+            with self.subTest(kind=kind):
+                self.assertEqual(NOTIFICATION_ICONS[kind], "receipt")
+                self.assertEqual(
+                    notification_icon(Notification(notification_type=kind)), "receipt"
+                )
+                self.assertEqual(NotificationIconTests.EXPECTED[kind], "receipt")
+
+    def test_the_notification_opens_the_bill_page_and_has_no_visit(self):
+        admin = User.objects.create_user(
+            username="admin",
+            email="admin@example.com",
+            password="unused-pass-123",
+            role=User.ADMIN,
+            is_onboarded=True,
+        )
+        for kind in self.TYPES:
+            with self.subTest(kind=kind):
+                notice = self._notify(kind)
+                notice = Notification.objects.select_related("recipient").get(
+                    pk=notice.pk
+                )
+                self.assertIsNone(notice.related_appointment)
+                self.assertEqual(notice.related_billing, self.receipt)
+                self.assertEqual(
+                    notification_target(notice),
+                    reverse("owner_receipt_detail", args=[self.receipt.pk]),
+                )
+                self.assertEqual(notification_link_label(notice), "See bill")
+                for_admin = Notification.objects.create(
+                    recipient=admin,
+                    notification_type=kind,
+                    title="T",
+                    message="M",
+                    related_billing=self.receipt,
+                )
+                self.assertEqual(
+                    notification_target(for_admin),
+                    reverse("admin_receipt_detail", args=[self.receipt.pk]),
+                )

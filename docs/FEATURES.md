@@ -363,6 +363,7 @@ PENDING or CONFIRMED → CANCELLED
 | Change a bill while it is Unpaid: add or remove items and set the discount on the bill page (no separate edit page) | `complete` |
 | Print an Unpaid, Paid or Cancelled bill from the bill page (the printout is titled "Bill", carries a PAID / UNPAID / CANCELLED stamp and ends with "This is not an official BIR invoice.") | `complete` |
 | Bill locked once marked as Paid or Cancelled | `complete` |
+| Send bill / Remind to pay: an outline button under Mark as paid on an Unpaid bill with items (a notification in the app plus an email; "Send bill to {name}" the first time, "Remind {name} to pay" after); a "Last sent" line read from the newest notification for the bill; a second send within a minute is refused; an owner with no email gets a yellow box with their phone instead; nothing for an archived owner or an empty, Paid or Cancelled bill | `complete` |
 | View all billing transactions | `complete` |
 | View bill detail | `complete` |
 
@@ -441,6 +442,7 @@ PENDING or CONFIRMED → CANCELLED
 | Email sent on appointment rejected (to Pet Owner) | `complete` |
 | Email sent on appointment reminder (to Pet Owner) | `complete` |
 | Email sent when a bill is paid (to Pet Owner; subject "Bill HV-2026-0012 for Bantay — Hapi Vet") | `complete` |
+| Email sent when the clinic sends or reminds about a bill (to Pet Owner; same subject as the paid email; follows the Bills switch) | `complete` |
 | Email sent on vaccination reminder (to Pet Owner) | `complete` |
 | Email sent on follow-up reminder (to Pet Owner) | `complete` |
 | Admin configurable notification email in clinic settings | `complete` |
@@ -453,7 +455,7 @@ PENDING or CONFIRMED → CANCELLED
 |---|---|
 | Pet Owner per-type email toggle (appointment reminders on/off) | `complete` |
 | Pet Owner per-type email toggle (appointment status updates on/off) | `complete` |
-| Pet Owner per-type email toggle (the "Bills" switch: "When the clinic records your payment." on/off) | `complete` |
+| Pet Owner per-type email toggle (the "Bills" switch: "When the clinic sends a bill or records your payment." on/off) | `complete` |
 | Pet Owner per-type email toggle (vaccination reminders on/off) | `complete` |
 | Pet Owner per-type email toggle (follow-up reminders on/off) | `complete` |
 | Pet Owner appointment reminder timing preference (fixed choices: same day, 1, 2 or 3 days before; an earlier saved value stays selectable) | `complete` |
@@ -482,6 +484,7 @@ PENDING or CONFIRMED → CANCELLED
 | Appointment rejected | Pet Owner |
 | Appointment reminder (configurable + day-of) | Pet Owner |
 | Bill paid (one notification, type `billing_generated`; nothing when a bill is created) | Pet Owner |
+| Bill sent / reminder to pay (the admin's Send bill / Remind button; types `bill_sent` and `bill_reminder`; nothing is sent automatically when a bill is created) | Pet Owner |
 | Vaccination due (configurable + day-of) | Pet Owner |
 | Follow-up due (3 days before + day-of) | Pet Owner |
 | Pet deletion request answered (PET_DELETION_ANSWERED) | Pet Owner |
