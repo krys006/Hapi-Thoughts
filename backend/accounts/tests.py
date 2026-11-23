@@ -3883,8 +3883,6 @@ class ResetLinkProtocolTests(TestCase):
 import hashlib  # noqa: E402
 from contextlib import ExitStack  # noqa: E402
 
-from django.test import Client  # noqa: E402
-
 from accounts import throttle  # noqa: E402
 
 BUSY_TEXT = (
