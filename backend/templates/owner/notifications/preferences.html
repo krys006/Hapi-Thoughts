@@ -19,7 +19,7 @@
   <section class="divide-y divide-gray-100 rounded-2xl border border-gray-200 bg-white px-4 shadow-sm">
     {% include "owner/notifications_parts/switch_row.html" with field=form.email_appointment_reminders title="Visit reminders" text="A reminder before each visit." timing=form.appointment_reminder_days %}
     {% include "owner/notifications_parts/switch_row.html" with field=form.email_appointment_status title="Visit updates" text="When the clinic confirms, moves or declines a visit." %}
-    {% include "owner/notifications_parts/switch_row.html" with field=form.email_billing title="Bills" text="When the clinic records your payment." %}
+    {% include "owner/notifications_parts/switch_row.html" with field=form.email_billing title="Bills" text="When the clinic sends a bill or records your payment." %}
     {% include "owner/notifications_parts/switch_row.html" with field=form.email_vaccination title="Vaccine reminders" text="When a vaccine is coming due." timing=form.vaccination_reminder_days %}
     {% include "owner/notifications_parts/switch_row.html" with field=form.email_followup title="Follow-up reminders" text="When the vet asked to see your pet again." %}
   </section>

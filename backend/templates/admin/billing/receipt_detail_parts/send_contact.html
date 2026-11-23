@@ -1,0 +1,5 @@
+{# The owner has no email, so the bill can't be sent: how to reach them instead (send_no_email) #}
+<div class="flex items-start gap-3 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-base text-gray-900">
+  {% include "components/icon.html" with name="triangle-alert" class="mt-0.5 size-5 shrink-0 text-yellow-700" %}
+  <p><b>{{ owner_name }} can't get it in the app.</b> {% if owner_phone %}No email is saved for them. Call them instead: {{ owner_phone }}{% else %}No email or phone number is saved. Tell them at the clinic.{% endif %}</p>
+</div>

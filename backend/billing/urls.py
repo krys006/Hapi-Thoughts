@@ -45,6 +45,11 @@ urlpatterns = [
         name="admin_receipt_mark_paid",
     ),
     path(
+        "admin/billing/<int:pk>/send/",
+        views.admin_receipt_send,
+        name="admin_receipt_send",
+    ),
+    path(
         "admin/billing/<int:pk>/cancel/",
         views.admin_receipt_mark_cancelled,
         name="admin_receipt_mark_cancelled",

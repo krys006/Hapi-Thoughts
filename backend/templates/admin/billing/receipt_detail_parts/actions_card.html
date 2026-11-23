@@ -4,7 +4,11 @@
   item", Paid "Print receipt"; none on a cancelled receipt (its Print is an
   outline button). Every button opens a dialog (data-dialog-open) or prints
   (data-print, wired by receipt_detail.js).
+  Under Mark as paid: the outline Send bill / Remind button (can_send_bill),
+  or the yellow box (send_no_email); neither for an empty, archived-owner,
+  Paid or Cancelled bill.
 {% endcomment %}
+{% load friendly_dates %}
 <section class="card order-1" aria-labelledby="actions-title">
   <h2 id="actions-title" class="text-xl font-semibold text-gray-900">Actions</h2>
   {% if receipt.payment_status == "paid" %}
@@ -27,6 +31,15 @@
   {% else %}
     <div class="mt-4 flex flex-col gap-3">
       <button type="button" class="btn btn-primary min-h-12 w-full font-semibold" data-dialog-open="mark-paid-dialog" aria-haspopup="dialog">{% include "components/icon.html" with name="circle-check" %}Mark as paid</button>
+      {# Send / Remind (outline, under the one violet button), or the yellow box when the owner can't get it #}
+      {% if can_send_bill %}
+        <div>
+          <button type="button" class="btn btn-outline min-h-12 w-full font-semibold" data-dialog-open="send-bill-dialog" aria-haspopup="dialog">{% include "components/icon.html" with name="send" %}{% if send_last %}Remind {{ owner_name }} to pay{% else %}Send bill to {{ owner_name }}{% endif %}</button>
+          <p class="mt-2 text-base text-gray-700">{% if send_last %}Last sent: {{ send_last|friendly_datetime }}{% else %}{{ send_first_line }}{% endif %}</p>
+        </div>
+      {% elif send_no_email %}
+        {% include "admin/billing/receipt_detail_parts/send_contact.html" %}
+      {% endif %}
       <button type="button" class="btn btn-outline min-h-12 w-full font-semibold" data-dialog-open="add-item-dialog" aria-haspopup="dialog">{% include "components/icon.html" with name="plus" %}Add item</button>
       <button type="button" class="btn btn-outline min-h-12 w-full font-semibold" data-dialog-open="discount-dialog" aria-haspopup="dialog">{% include "components/icon.html" with name="percent" %}{% if has_discount %}Change discount{% else %}Add discount{% endif %}</button>
       <button type="button" class="btn btn-outline min-h-12 w-full font-semibold" data-print>{% include "components/icon.html" with name="printer" %}Print</button>

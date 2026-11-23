@@ -29,8 +29,18 @@ from appointments.utils import (
     walkin_owner_list,
 )
 from medical.utils import short_date
-from notifications.utils import compact_message, notify
+from notifications.models import Notification
+from notifications.utils import (
+    EMAIL_FAILED,
+    EMAIL_NO_ADDRESS,
+    EMAIL_OFF,
+    EMAIL_SENT,
+    _should_send_email,
+    compact_message,
+    notify,
+)
 from pets.models import Pet, PetOwner
+from pets.utils import owner_account_state
 
 from .forms import SERVICE_STATUS_CHOICES, billable_services, peso, service_options
 from .models import BillingItem, BillingReceipt, Service
@@ -146,9 +156,10 @@ def receipt_paid_message(receipt, today):
     )
 
 
-def receipt_paid_subject(receipt):
+def receipt_email_subject(receipt):
     """The email subject, which names the pet: "Bill HV-2026-0012 for
-    Bantay — Hapi Vet" ("Bill HV-2026-0012 — Hapi Vet" with no pet)."""
+    Bantay — Hapi Vet" ("Bill HV-2026-0012 — Hapi Vet" with no pet). Shared
+    by the paid email and the send / remind emails."""
     for_pet = f" for {receipt.pet.name}" if receipt.pet else ""
     return f"Bill {receipt.receipt_number}{for_pet} — Hapi Vet"
 
@@ -167,9 +178,169 @@ def notify_receipt_paid(receipt):
         message=receipt_paid_compact(receipt, today),
         related_billing=receipt,
         related_pet=receipt.pet,
-        email_subject=receipt_paid_subject(receipt),
+        email_subject=receipt_email_subject(receipt),
         email_body=receipt_paid_message(receipt, today),
     )
+
+
+# ── Send bill / Remind to pay (admin bill page) ──────────────────────────────
+
+BILL_SEND_TYPES = (Notification.BILL_SENT, Notification.BILL_REMINDER)
+# A second send inside this many seconds is taken for a double click
+BILL_SEND_GAP_SECONDS = 60
+ALREADY_SENT = "Already sent a moment ago."
+PAY_IN_CASH = "Please pay in cash at the clinic."
+# Owner account states (pets.utils.owner_account_state) a bill can go to
+SENDABLE_STATES = ("active", "unclaimed")
+
+# What notify() did about the email -> (message level, end of the flash)
+BILL_FLASH_ENDINGS = {
+    EMAIL_SENT: (messages.SUCCESS, "by email and in the app."),
+    EMAIL_OFF: (
+        messages.SUCCESS,
+        "in the app only (the Bills email switch is off).",
+    ),
+    EMAIL_NO_ADDRESS: (messages.SUCCESS, "in the app only (no email on file)."),
+    EMAIL_FAILED: (
+        messages.WARNING,
+        "in the app. The email did not go through.",
+    ),
+}
+
+
+def last_bill_send(receipt):
+    """The newest BILL_SENT / BILL_REMINDER notification for this bill, or
+    None when it was never sent. One query; "Last sent" reads its created_at."""
+    return (
+        Notification.objects.filter(
+            related_billing=receipt, notification_type__in=BILL_SEND_TYPES
+        )
+        .order_by("-created_at", "-pk")
+        .first()
+    )
+
+
+def bill_reach_line(owner, state, email_on):
+    """The send dialog's line saying how the owner will be reached."""
+    name = owner.full_name
+    if not email_on:
+        return (
+            f"{name} will get a notification in the app only "
+            "(they turned off bill emails)."
+        )
+    email = owner.user.email
+    if state == "unclaimed":
+        return f"{name} hasn't logged in yet, so they'll get this by email at {email}."
+    return f"{name} will get a notification in the app and an email at {email}."
+
+
+def bill_first_send_line(owner, state):
+    """The helper line under the button before any send."""
+    name = owner.full_name
+    if state == "unclaimed":
+        return f"Not sent yet. {name} hasn't logged in yet, so this goes by email."
+    return f"Not sent yet. {name} can already see it in their Bills page."
+
+
+def bill_send_context(receipt, items):
+    """
+    Context keys for the Send bill / Remind button, the yellow box and the
+    dialog of an Unpaid receipt (RECEIPT_PAGE_RELATED selected). The newest
+    send is read for every Unpaid bill (one query), so the page's query
+    count does not change when the first item is added. The owner's account
+    state (an extra query only for "unclaimed") is read only when the bill
+    has items.
+    """
+    owner = receipt.owner
+    last = last_bill_send(receipt)
+    state = ""
+    if items and owner and owner.user:
+        state = owner_account_state(owner)
+    can_send = state in SENDABLE_STATES
+    context = {
+        "send_state": state,
+        "can_send_bill": can_send,
+        "send_no_email": state == "no_email",
+        "send_last": last.created_at if last else None,
+    }
+    if can_send:
+        email_on = _should_send_email(owner.user, Notification.BILL_SENT)
+        context["send_reach"] = bill_reach_line(owner, state, email_on)
+        context["send_first_line"] = bill_first_send_line(owner, state)
+    return context
+
+
+def bill_send_refusal(receipt, last, now):
+    """Why the bill can't be sent now (an error flash), or None. `last` is
+    last_bill_send(receipt). The receipt is Unpaid (lock_pending_receipt)."""
+    owner = receipt.owner
+    if not receipt.billing_items.exists():
+        return NO_ITEMS_MESSAGE
+    if owner is None or owner.user is None:
+        return "This bill has no owner to send it to."
+    state = owner_account_state(owner)
+    if state == "archived":
+        return f"{owner.full_name} is archived, so the bill can't be sent."
+    if state == "no_email":
+        return f"No email is saved for {owner.full_name}, so the bill can't be sent."
+    if last and (now - last.created_at).total_seconds() < BILL_SEND_GAP_SECONDS:
+        return ALREADY_SENT
+    return None
+
+
+def bill_send_title(kind, receipt):
+    """ "Bill ready: ₱650.00" or "Reminder: bill to pay ₱650.00"."""
+    total = peso(receipt.total_amount)
+    if kind == Notification.BILL_SENT:
+        return f"Bill ready: {total}"
+    return f"Reminder: bill to pay {total}"
+
+
+def bill_send_email_body(kind, receipt):
+    """The email body: the total and the cash line; a reminder starts by
+    saying it is a reminder."""
+    text = f"Your bill is {peso(receipt.total_amount)}. {PAY_IN_CASH}"
+    if kind == Notification.BILL_REMINDER:
+        return f"This is a reminder about your bill.\n\n{text}"
+    return text
+
+
+def bill_send_flash(kind, owner, notification):
+    """(message level, text) saying how the bill reached the owner, from
+    what notify() did (email_outcome)."""
+    level, ending = BILL_FLASH_ENDINGS[notification.email_outcome]
+    lead = "Bill sent" if kind == Notification.BILL_SENT else "Reminder sent"
+    return level, f"{lead} to {owner.full_name} {ending}"
+
+
+def send_bill(receipt):
+    """
+    Send the bill to its owner, or remind them when it was sent before.
+    Call inside transaction.atomic() after lock_pending_receipt. Returns
+    (message level, text): an error when the bill can't be sent now, else
+    how it reached the owner. Writes BILL_SENT (first time) or BILL_REMINDER
+    through notify(), with related_billing and related_pet, never
+    related_appointment (the visit would win over the bill).
+    """
+    last = last_bill_send(receipt)
+    refusal = bill_send_refusal(receipt, last, timezone.now())
+    if refusal:
+        return messages.ERROR, refusal
+    kind = Notification.BILL_REMINDER if last else Notification.BILL_SENT
+    owner = receipt.owner
+    pet_name = receipt.pet.name if receipt.pet else ""
+    notification = notify(
+        recipient=owner.user,
+        notification_type=kind,
+        title=bill_send_title(kind, receipt),
+        message=compact_message(pet_name, f"{receipt.receipt_number}. {PAY_IN_CASH}"),
+        related_billing=receipt,
+        related_pet=receipt.pet,
+        email_subject=receipt_email_subject(receipt),
+        email_body=bill_send_email_body(kind, receipt),
+        recipient_email=owner.user.email,
+    )
+    return bill_send_flash(kind, owner, notification)
 
 
 # Owners see Unpaid and Paid receipts, never Cancelled ones (rule 23)
@@ -754,7 +925,13 @@ def receipt_list_context(params, today):
 
 # ── Receipt page (admin_receipt_detail, Slice 6a-3) ──────────────────────────
 
-RECEIPT_PAGE_RELATED = ("owner__user", "pet", "appointment")
+RECEIPT_PAGE_RELATED = (
+    "owner__user",
+    # Read by the send dialog (the Bills email switch) without an extra query
+    "owner__user__notification_preference",
+    "pet",
+    "appointment",
+)
 # Kept as a name here; the labels live on the model (status_label)
 RECEIPT_STATUS_LABELS = BillingReceipt.STATUS_LABELS
 
@@ -806,7 +983,9 @@ def receipt_detail_context(receipt, today):
     items = items_with_totals(receipt, list(receipt_items(receipt)))
     owner = receipt.owner
     is_pending = receipt.payment_status == BillingReceipt.PENDING
+    send = bill_send_context(receipt, items) if is_pending else {}
     return {
+        **send,
         "receipt": receipt,
         "status_label": receipt.status_label,
         "is_pending": is_pending,
