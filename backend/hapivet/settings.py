@@ -107,6 +107,18 @@ DATABASES = {
     "default": env.db("DATABASE_URL"),
 }
 
+# ─── Cache ────────────────────────────────────────────────────────────────────
+# Shared by every worker and kept across deploys (throttle counters, the resend
+# limit). The table is made by `python manage.py createcachetable` (not a
+# migration). Same setting for DEBUG and production.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "hapivet_cache",
+        "OPTIONS": {"MAX_ENTRIES": 1000},
+    }
+}
+
 # ─── Password Validation ──────────────────────────────────────────────────────
 AUTH_PASSWORD_VALIDATORS = [
     {

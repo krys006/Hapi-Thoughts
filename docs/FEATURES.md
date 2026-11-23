@@ -61,6 +61,7 @@ Phase 7 — Dashboards & Polish
 | Resend the verification link ("Send the link again" on Check your email and on login for an unverified account; at most one send per 2 minutes per account) | `complete` (backend, 2026-11-17; page design in 8b-2) |
 | `/accounts/signup/` and `/accounts/login/` redirect to the owner register and login pages (the Google provider and callback URLs keep working) | `complete` |
 | Forgot password / reset password via email | `complete` |
+| Throttling (SEC-2, `accounts/throttle.py`; no IP, emails hashed, fails open): login locks an email for 15 minutes after 5 wrong tries (owner and admin separately); forgot-password sends at most 3 per email and 60 per site per hour (same "sent" page when over); register at most 30 per site per hour | `complete` |
 | Redirect to onboarding flow after first login | `complete` |
 
 ### 1.3 Authentication — Admin

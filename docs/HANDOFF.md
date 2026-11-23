@@ -45,6 +45,8 @@ Last run 2026-10-16; the full protocol is in HANDOFF_ARCHIVE.md §2.
 - Render start: `gunicorn hapivet.wsgi:application --bind 0.0.0.0:$PORT`
   (unverified)
 - Render keeps its own env vars (Brevo email on).
+- BEFORE merging trial-run into rebuild: in the Render dashboard add `python manage.py createcachetable` at the end of the Build Command (after migrate); it is safe to run repeatedly. (Without the table the throttles fail open, but nothing is limited.)
+- Known cost of the login lock (SEC-2): someone who knows an email can make that email wait 15 minutes; forgot-password is not blocked.
 
 **Database**
 - Local dev: a **local PostgreSQL 18** database named `hapivet_dev`
@@ -77,6 +79,9 @@ Last run 2026-10-16; the full protocol is in HANDOFF_ARCHIVE.md §2.
   at `/admin-login/`. Run `python manage.py create_admin`: it now asks for
   the email and the password (twice, hidden, checked by the password
   validators) and refuses an email that already exists.
+- Cache table (SEC-2): run `python manage.py createcachetable` once from
+  `backend\` after pulling this change (local DB `hapivet_dev` only; safe to
+  repeat).
 - Google sign-in: credentials come from settings (`SOCIALACCOUNT_PROVIDERS`
   `APP`), so a fresh DB needs no SocialApp row. Do not add one — it causes
   `MultipleObjectsReturned`.
@@ -112,6 +117,15 @@ Last run 2026-10-16; the full protocol is in HANDOFF_ARCHIVE.md §2.
 Tags show which part of the code an item touches, not who does it (Krys
 does everything): [backend] = Python (models, views, settings),
 [frontend] = templates, Tailwind, CSS, JS, [both] = both.
+
+### DONE (2026-11-23)
+- **SEC-2 — 2026-11-23** (branch `fix/sec2-throttling`; backend, one message branch in `owner/login.html`; no model change, no migration, no new URL, no new Tailwind class). Audit findings S1, S5, S12.
+  - Numbers (all in `accounts/throttle.py`): login 5 wrong tries in 15 minutes lock that email for 15 minutes (owner and admin logins count separately; while locked `authenticate` is not called, so even the right password gets status 429 and "Too many tries. Please wait 15 minutes, then try again."); forgot-password 3 sends per email and 60 per site per hour (over the limit: nothing sent, same "sent" page, one warning with the scope name only); register 30 per site per hour (over: status 429 and "Sign-ups are very busy right now. Please try again in an hour, or call the clinic.").
+  - Fail open: every cache call in the new code is wrapped, so a missing table or database trouble never breaks login, register or forgot-password (only the exception class name is logged). No client IP anywhere (Render does not clear a client `X-Forwarded-For`); keys use `sha256(email)`, never the raw email.
+  - New cache table `hapivet_cache` (Django database cache, `CACHES["default"]` in `settings.py`, made by `createcachetable`, not a migration). The resend-verification throttle now shares it, so it is no longer per worker.
+  - Counters keep their own start time in the cached value, because `DatabaseCache.incr` would reset the expiry on every update.
+  - Tests added (end of `accounts/tests.py`): `LoginThrottleTests`, `ForgotPasswordThrottleTests`, `RegisterThrottleTests`, `ThrottleFailOpenTests`, `ThrottleKeyTests`, `CacheSettingTests`. Tests changed: none.
+  - `--keepdb` note: with `--parallel`, kept test clones made before this change have no `hapivet_cache` table; run the suite once without `--keepdb` to rebuild them.
 
 ### DONE (2026-10-31)
 - Local dev database (local PostgreSQL 18 `hapivet_dev`); Google sign-in hardening (adapters.py); dead role code removed (`accounts/signals.py`, adapter `save_user`); receipt lock (one `is_locked`); ClinicSettings duplicate fields removed — Done 2026-10-31
@@ -599,18 +613,18 @@ to needs-approval) and the appointments list.
 
 ## Security audit 2026-11-23
 
-- S1 no lockout/throttle on owner and admin login: OPEN (High; needs decision: delay or lock, which shared store)
+- S1 no lockout/throttle on owner and admin login: DONE (SEC-2; lock for 15 minutes after 5 wrong tries; known cost: someone who knows an email can make that email wait 15 minutes, forgot-password is not blocked)
 - S2 old create_admin password in git history: OPEN (High until done; Krys must rotate every admin password)
 - S3 reset email link was `http://`: DONE (SEC-1)
 - S4 test-result files are public S3 URLs with guessable names: OPEN (Medium; private storage + random names; needs a migration and a backup)
-- S5 no throttle on forgot-password and register: OPEN (Medium; with S1)
+- S5 no throttle on forgot-password and register: DONE (SEC-2)
 - S6 no HSTS: DONE (SEC-1; 3600 seconds, raise later)
 - S7 Python 3.10 end of life, Render and local are on 3.10.11: OPEN (Medium; blocks Pillow 13)
 - S8 no size/extension check on pet and owner photos: OPEN (Low/Medium)
 - S9 register message reveals existing emails; login timing differs for unknown email: OPEN (Low; decision)
 - S10 logs and `email_error` may hold personal data: OPEN (Low)
 - S11 leftover allauth pages under /accounts/: OPEN (Low; decision)
-- S12 default per-process cache: OPEN (Low now; needed for S1/S5)
+- S12 default per-process cache: DONE (SEC-2; database cache table `hapivet_cache`)
 - S13 no Content-Security-Policy; three inline scripts: OPEN (Low; later)
 - S14 someone can register another person's email with their own password: OPEN (Low; decision)
 - S15 admin session lasts 2 weeks; reset and verify links 3 days: OPEN (Low; decision)

@@ -25,6 +25,7 @@ from django.utils.http import (
     urlsafe_base64_encode,
 )
 
+from accounts import throttle
 from accounts.forms import WalkInOwnerForm, WalkInPetForm
 from accounts.utils import (
     WALKIN_NO_EMAIL_TAKEN,
@@ -69,6 +70,12 @@ def redirect_by_role(user):
 # ─── Pet Owner Login ──────────────────────────────────────────────────────────
 
 
+def _count_login_failure(scope, email, password):
+    """Count a failed login. Empty fields are a form error, not a failure."""
+    if email and password:
+        throttle.record_login_failure(scope, email)
+
+
 def owner_login(request):
     """Login page for pet owners."""
     if request.user.is_authenticated:
@@ -83,6 +90,11 @@ def owner_login(request):
     remember = bool(request.POST.get("remember"))
     context = {"email": email, "remember": remember}
 
+    # Locked: authenticate is not called, even the right password is refused
+    if throttle.login_is_locked("owner", email):
+        context["login_locked"] = throttle.LOGIN_LOCKED_MESSAGE
+        return render(request, "owner/login.html", context, status=429)
+
     user_obj = User.objects.filter(email=email).first()
     user = None
     if user_obj is not None:
@@ -90,11 +102,12 @@ def owner_login(request):
 
     if user is None:
         # Right password on an owner who hasn't confirmed the email yet: the
-        # only case that gets the "not confirmed" box (never logged in).
-        # Every other failure gets the one generic box.
+        # only case that gets the "not confirmed" box (never logged in), and
+        # not a failure to count. Every other failure gets the one generic box.
         if is_unconfirmed_login(user_obj, password):
             context["unconfirmed_email"] = user_obj.email
         else:
+            _count_login_failure("owner", email, password)
             context["login_failed"] = True
         return render(request, "owner/login.html", context)
 
@@ -102,6 +115,7 @@ def owner_login(request):
         messages.error(request, "Please use the admin login page.")
         return render(request, "owner/login.html", context)
 
+    throttle.clear_login_failures("owner", email)
     login(request, user)
     # Ticked: 30 days, as before. Unticked: the session
     # ends when the browser closes.
@@ -176,22 +190,19 @@ def admin_login(request):
         email = request.POST.get("email", "").strip().lower()
         password = request.POST.get("password", "")
 
-        user = None
-        if email:
-            try:
-                user_obj = User.objects.get(email=email)
-            except (User.DoesNotExist, User.MultipleObjectsReturned):
-                # Defensive: email is unique today, but treat a duplicate
-                # as a failure too.
-                user_obj = None
-            if user_obj is not None:
-                user = authenticate(
-                    request, username=user_obj.username, password=password
-                )
+        # Locked: authenticate is not called, even the right password is refused
+        if throttle.login_is_locked("admin", email):
+            messages.error(request, throttle.LOGIN_LOCKED_MESSAGE)
+            context = {"clinic": clinic, "email": email, "login_failed": True}
+            return render(request, "admin/login.html", context, status=429)
 
+        user = _admin_authenticate(request, email, password)
         if user is not None and user.is_admin:
+            throttle.clear_login_failures("admin", email)
             login(request, user)
             return redirect("admin_dashboard")
+        if user is None:
+            _count_login_failure("admin", email, password)
 
         # One message for every failure (unknown email, wrong password,
         # owner account, inactive account) on purpose, so the page never
@@ -199,11 +210,20 @@ def admin_login(request):
         messages.error(request, "That email or password isn't right. Please try again.")
         login_failed = True
 
-    return render(
-        request,
-        "admin/login.html",
-        {"clinic": clinic, "email": email, "login_failed": login_failed},
-    )
+    context = {"clinic": clinic, "email": email, "login_failed": login_failed}
+    return render(request, "admin/login.html", context)
+
+
+def _admin_authenticate(request, email, password):
+    """The user for this email and password, or None (also for no email)."""
+    if not email:
+        return None
+    try:
+        user_obj = User.objects.get(email=email)
+    except (User.DoesNotExist, User.MultipleObjectsReturned):
+        # Defensive: email is unique today, but treat a duplicate as a failure.
+        return None
+    return authenticate(request, username=user_obj.username, password=password)
 
 
 # ─── Pet Owner Registration ───────────────────────────────────────────────────
@@ -219,7 +239,12 @@ def owner_register(request):
 
     is_post = request.method == "POST"
     form = PetOwnerRegistrationForm(request.POST if is_post else None)
-    if is_post and form.is_valid():
+    status = 200
+    if is_post and form.is_valid() and not throttle.allow_register():
+        # Site-wide hourly cap: counted right before the User is created
+        form.add_error(None, throttle.REGISTER_BUSY_MESSAGE)
+        status = 429
+    elif is_post and form.is_valid():
         user = form.save()
         try:
             _send_verification_email(request, user)
@@ -236,7 +261,7 @@ def owner_register(request):
         "terms_url": django_settings.TERMS_URL,
         "privacy_url": django_settings.PRIVACY_URL,
     }
-    return render(request, "owner/register.html", context)
+    return render(request, "owner/register.html", context, status=status)
 
 
 def owner_register_pending(request):
@@ -400,6 +425,10 @@ class HapiVetPasswordResetView(auth_views.PasswordResetView):
     success_url = reverse_lazy("password_reset_done")
 
     def form_valid(self, form):
+        # Over a limit: send nothing, but show the normal "sent" page so the
+        # reply never tells anyone which emails have accounts.
+        if not throttle.allow_forgot(form.cleaned_data["email"]):
+            return redirect(self.get_success_url())
         form.save(
             use_https=self.request.is_secure(),
             token_generator=self.token_generator,

@@ -45,6 +45,10 @@ dashboard/
   └── (no models — views only, pulls data from other apps)
 ```
 
+> `hapivet_cache`: Django database-cache table made by `createcachetable`. Not
+> a model, not a migration. Holds throttle counters (hashed emails only) that
+> expire on their own.
+
 ---
 
 ## accounts/

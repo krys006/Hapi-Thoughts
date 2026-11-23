@@ -3877,3 +3877,365 @@ class ResetLinkProtocolTests(TestCase):
         response = self.client.get(path, follow=True)
         self.assertRedirects(response, set_url)
         self.assertContains(response, "Make a new password")
+
+
+# ── SEC-2: throttling (login, forgot-password, register) ─────────────────────
+import hashlib  # noqa: E402
+from contextlib import ExitStack  # noqa: E402
+
+from accounts import throttle  # noqa: E402
+
+BUSY_TEXT = (
+    "Sign-ups are very busy right now. "
+    "Please try again in an hour, or call the clinic."
+)
+
+
+class _ThrottleBase(TestCase):
+    """A clean cache and a clock the test moves by hand (no sleeping)."""
+
+    def setUp(self):
+        cache.clear()
+        self.now = 1_000_000.0
+        patcher = mock.patch("accounts.throttle._now", side_effect=lambda: self.now)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def assertLocked(self, response):
+        """429 and the plain message. The admin flash makes the first sentence
+        bold, so the two sentences are checked one by one."""
+        self.assertEqual(
+            throttle.LOGIN_LOCKED_MESSAGE,
+            "Too many tries. Please wait 15 minutes, then try again.",
+        )
+        self.assertEqual(response.status_code, 429)
+        self.assertContains(response, "Too many tries.", status_code=429)
+        self.assertContains(
+            response, "Please wait 15 minutes, then try again.", status_code=429
+        )
+
+
+class LoginThrottleTests(_ThrottleBase):
+    """Owner and admin logins: 5 failures in 15 minutes lock the email."""
+
+    def setUp(self):
+        super().setUp()
+        make_owner("ana@example.com", is_active=True)
+        make_owner("boss@example.com", is_active=True, role=User.ADMIN)
+        make_owner("pending@example.com")
+        self.scopes = {
+            "owner": (reverse("owner_login"), "ana@example.com"),
+            "admin": (reverse("admin_login"), "boss@example.com"),
+        }
+
+    def _post(self, client, scope, email, password):
+        url = self.scopes[scope][0]
+        return client.post(url, {"email": email, "password": password})
+
+    def _each_scope(self):
+        """A fresh client and an empty cache for each login page."""
+        for scope, (_, email) in self.scopes.items():
+            cache.clear()
+            yield scope, email, Client()
+
+    def test_four_wrong_passwords_then_the_right_one_works(self):
+        for scope, email, client in self._each_scope():
+            for _ in range(4):
+                response = self._post(client, scope, email, "wrong-password-1")
+                self.assertEqual(response.status_code, 200)
+            response = self._post(client, scope, email, PENDING_PASSWORD)
+            self.assertEqual(response.status_code, 302)
+            self.assertIn("_auth_user_id", client.session)
+
+    def test_five_wrong_passwords_lock_even_the_right_one(self):
+        for scope, email, client in self._each_scope():
+            for _ in range(5):
+                self._post(client, scope, email, "wrong-password-1")
+            with mock.patch("accounts.views.authenticate") as fake:
+                response = self._post(client, scope, email, PENDING_PASSWORD)
+            self.assertLocked(response)
+            fake.assert_not_called()
+            self.assertNotIn("_auth_user_id", client.session)
+
+    def test_an_unknown_email_is_counted_and_looks_the_same(self):
+        for scope, _, client in self._each_scope():
+            responses = [
+                self._post(client, scope, "nobody@example.com", PENDING_PASSWORD)
+                for _ in range(6)
+            ]
+            self.assertEqual([r.status_code for r in responses[:5]], [200] * 5)
+            self.assertLocked(responses[5])
+
+    def test_the_right_password_works_after_the_lock_time(self):
+        for scope, email, client in self._each_scope():
+            for _ in range(5):
+                self._post(client, scope, email, "wrong-password-1")
+            self.now += throttle.LOGIN_LOCK_SECONDS + 1
+            response = self._post(client, scope, email, PENDING_PASSWORD)
+            self.assertEqual(response.status_code, 302)
+
+    def test_failures_older_than_the_window_are_forgotten(self):
+        for scope, email, client in self._each_scope():
+            for _ in range(4):
+                self._post(client, scope, email, "wrong-password-1")
+            self.now += throttle.LOGIN_WINDOW_SECONDS + 1
+            response = self._post(client, scope, email, "wrong-password-1")
+            self.assertEqual(response.status_code, 200)
+            self.assertFalse(throttle.login_is_locked(scope, email))
+
+    def test_a_good_login_clears_the_count(self):
+        for scope, email, client in self._each_scope():
+            for _ in range(2):
+                for _ in range(4):
+                    self._post(client, scope, email, "wrong-password-1")
+                response = self._post(client, scope, email, PENDING_PASSWORD)
+                self.assertEqual(response.status_code, 302)
+                client.post(reverse("logout"))
+
+    def test_a_different_email_is_not_locked(self):
+        for scope, email, client in self._each_scope():
+            for _ in range(5):
+                self._post(client, scope, email, "wrong-password-1")
+            other = "boss@example.com" if scope == "owner" else "ana@example.com"
+            # The other kind of account, so only "not locked" is checked
+            response = self._post(client, scope, other, "wrong-password-1")
+            self.assertEqual(response.status_code, 200)
+
+    def test_owner_and_admin_scopes_do_not_lock_each_other(self):
+        client = Client()
+        for _ in range(5):
+            self._post(client, "owner", "boss@example.com", "wrong-password-1")
+        locked = self._post(client, "owner", "boss@example.com", PENDING_PASSWORD)
+        self.assertEqual(locked.status_code, 429)
+        admin = self._post(client, "admin", "boss@example.com", PENDING_PASSWORD)
+        self.assertEqual(admin.status_code, 302)
+        other = Client()
+        for _ in range(5):
+            self._post(other, "admin", "ana@example.com", "wrong-password-1")
+        owner = self._post(other, "owner", "ana@example.com", PENDING_PASSWORD)
+        self.assertEqual(owner.status_code, 302)
+
+    def test_the_not_confirmed_box_does_not_count(self):
+        client = Client()
+        pending = "pending@example.com"
+        for _ in range(7):
+            response = self._post(client, "owner", pending, PENDING_PASSWORD)
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, "Please confirm your email first")
+        self.assertFalse(throttle.login_is_locked("owner", "pending@example.com"))
+
+    def test_empty_fields_do_not_count(self):
+        for scope, email, client in self._each_scope():
+            for _ in range(6):
+                self._post(client, scope, email, "")
+                self._post(client, scope, "", "wrong-password-1")
+            response = self._post(client, scope, email, PENDING_PASSWORD)
+            self.assertEqual(response.status_code, 302)
+
+
+class ForgotPasswordThrottleTests(_ThrottleBase):
+    """3 sends per email and 60 per site each hour; over a limit it looks the
+    same as a normal send."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("forgot_password")
+        self.sent_url = reverse("password_reset_done")
+        make_owner("ana@example.com", is_active=True)
+
+    def _post(self, email):
+        response = self.client.post(self.url, {"email": email})
+        self.assertRedirects(response, self.sent_url, fetch_redirect_response=False)
+
+    def test_the_fourth_request_for_one_email_sends_nothing(self):
+        for _ in range(3):
+            self._post("ana@example.com")
+        self.assertEqual(len(mail.outbox), 3)
+        with self.assertLogs("accounts.throttle", level="WARNING") as logs:
+            self._post("ana@example.com")
+        self.assertEqual(len(mail.outbox), 3)
+        self.assertIn("scope=email", logs.output[0])
+        self.assertNotIn("ana@example.com", "\n".join(logs.output))
+
+    def test_unknown_emails_count_too(self):
+        for _ in range(3):
+            self._post("nobody@example.com")
+        with self.assertLogs("accounts.throttle", level="WARNING") as logs:
+            self._post("nobody@example.com")
+        self.assertIn("scope=email", logs.output[0])
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_the_site_cap_stops_sending_across_emails(self):
+        for number in range(5):
+            make_owner(f"owner{number}@example.com", is_active=True)
+        with mock.patch.object(throttle, "FORGOT_SITE", 3):
+            for number in range(4):
+                self._post(f"owner{number}@example.com")
+            with self.assertLogs("accounts.throttle", level="WARNING") as logs:
+                self._post("owner4@example.com")
+        self.assertEqual(len(mail.outbox), 3)
+        self.assertIn("scope=site", logs.output[0])
+
+    def test_sends_resume_after_the_hour(self):
+        for _ in range(4):
+            self._post("ana@example.com")
+        self.assertEqual(len(mail.outbox), 3)
+        self.now += throttle.HOUR_SECONDS + 1
+        self._post("ana@example.com")
+        self.assertEqual(len(mail.outbox), 4)
+
+
+class RegisterThrottleTests(_ThrottleBase):
+    """A site-wide cap on new registrations per hour."""
+
+    def _register(self, email):
+        data = {
+            "email": email,
+            "password1": PENDING_PASSWORD,
+            "password2": PENDING_PASSWORD,
+        }
+        return self.client.post(reverse("owner_register"), data)
+
+    def test_over_the_cap_gets_429_and_creates_no_user(self):
+        with mock.patch.object(throttle, "REGISTER_SITE", 2):
+            first = self._register("one@example.com")
+            second = self._register("two@example.com")
+            third = self._register("three@example.com")
+        self.assertEqual([first.status_code, second.status_code], [302, 302])
+        self.assertEqual(third.status_code, 429)
+        self.assertContains(third, BUSY_TEXT, status_code=429)
+        self.assertTrue(User.objects.filter(email="one@example.com").exists())
+        self.assertTrue(User.objects.filter(email="two@example.com").exists())
+        self.assertFalse(User.objects.filter(email="three@example.com").exists())
+
+    def test_registering_works_again_after_the_hour(self):
+        with mock.patch.object(throttle, "REGISTER_SITE", 1):
+            self._register("one@example.com")
+            self.assertEqual(self._register("two@example.com").status_code, 429)
+            self.now += throttle.HOUR_SECONDS + 1
+            self.assertEqual(self._register("two@example.com").status_code, 302)
+
+    def test_a_form_error_is_not_counted(self):
+        with mock.patch.object(throttle, "REGISTER_SITE", 1):
+            bad = self.client.post(reverse("owner_register"), {"email": "nope"})
+            self.assertEqual(bad.status_code, 200)
+            self.assertEqual(self._register("one@example.com").status_code, 302)
+
+
+class ThrottleFailOpenTests(_ThrottleBase):
+    """A broken cache never breaks login, forgot-password or register."""
+
+    SECRET = "secret ana@example.com"
+
+    def setUp(self):
+        super().setUp()
+        make_owner("ana@example.com", is_active=True)
+        make_owner("boss@example.com", is_active=True, role=User.ADMIN)
+
+    def _broken_cache(self):
+        stack = ExitStack()
+        for name in ("get", "set", "add", "incr", "delete"):
+            patcher = mock.patch.object(
+                cache, name, side_effect=RuntimeError(self.SECRET)
+            )
+            stack.enter_context(patcher)
+        return stack
+
+    def _assert_quiet(self, logs):
+        """Only the exception class name is logged: no email, no key."""
+        text = "\n".join(record.getMessage() for record in logs.records)
+        self.assertIn("RuntimeError", text)
+        for private in ("ana@example.com", "secret", "throttle:"):
+            self.assertNotIn(private, text)
+
+    def test_login_still_works_and_a_wrong_password_gives_the_usual_page(self):
+        pages = (
+            ("owner_login", "ana@example.com"),
+            ("admin_login", "boss@example.com"),
+        )
+        for name, email in pages:
+            with self.subTest(page=name), self._broken_cache():
+                with self.assertLogs("accounts.throttle", level="WARNING") as logs:
+                    wrong = self.client.post(
+                        reverse(name), {"email": email, "password": "wrong-pass-1"}
+                    )
+                    right = self.client.post(
+                        reverse(name), {"email": email, "password": PENDING_PASSWORD}
+                    )
+                self.assertEqual(wrong.status_code, 200)
+                self.assertEqual(right.status_code, 302)
+                self._assert_quiet(logs)
+                self.client.post(reverse("logout"))
+
+    def test_forgot_password_still_sends(self):
+        with self._broken_cache():
+            with self.assertLogs("accounts.throttle", level="WARNING") as logs:
+                response = self.client.post(
+                    reverse("forgot_password"), {"email": "ana@example.com"}
+                )
+        self.assertRedirects(
+            response, reverse("password_reset_done"), fetch_redirect_response=False
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        self._assert_quiet(logs)
+
+    def test_register_still_works(self):
+        data = {
+            "email": "new@example.com",
+            "password1": PENDING_PASSWORD,
+            "password2": PENDING_PASSWORD,
+        }
+        with self._broken_cache():
+            with self.assertLogs("accounts.throttle", level="WARNING") as logs:
+                response = self.client.post(reverse("owner_register"), data)
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(User.objects.filter(email="new@example.com").exists())
+        self._assert_quiet(logs)
+
+
+class ThrottleKeyTests(_ThrottleBase):
+    """Keys carry the sha256 of the email, never the email."""
+
+    def _keys_for(self, email):
+        keys = set()
+        original = cache.set
+
+        def spy(key, *args, **kwargs):
+            keys.add(key)
+            return original(key, *args, **kwargs)
+
+        with mock.patch.object(cache, "set", side_effect=spy):
+            for _ in range(throttle.LOGIN_MAX_FAILURES):
+                throttle.record_login_failure("owner", email)
+            throttle.allow_forgot(email)
+        return keys
+
+    def test_keys_hold_the_hash_and_never_the_raw_email(self):
+        digest = hashlib.sha256(b"ana@example.com").hexdigest()
+        keys = self._keys_for("ana@example.com")
+        self.assertTrue(keys)
+        for key in keys:
+            self.assertTrue(key.startswith("throttle:"))
+            self.assertNotIn("ana", key)
+            if not key.endswith(":site"):  # the site-wide key has no email part
+                self.assertIn(digest, key)
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT cache_key FROM hapivet_cache")
+            stored = " ".join(row[0] for row in cursor.fetchall())
+        self.assertIn(digest, stored)
+        self.assertNotIn("ana@example.com", stored)
+
+    def test_letter_case_and_spaces_give_the_same_keys(self):
+        self.assertEqual(
+            self._keys_for("Ana@Example.COM"), self._keys_for("  ana@example.com ")
+        )
+
+
+class CacheSettingTests(SimpleTestCase):
+    def test_the_default_cache_is_the_database_cache(self):
+        default = settings.CACHES["default"]
+        self.assertEqual(
+            default["BACKEND"], "django.core.cache.backends.db.DatabaseCache"
+        )
+        self.assertEqual(default["LOCATION"], "hapivet_cache")
+        self.assertEqual(default["OPTIONS"], {"MAX_ENTRIES": 1000})
