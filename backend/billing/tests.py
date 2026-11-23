@@ -33,6 +33,7 @@ from billing.utils import (
     RECEIPT_TABS,
     notify_receipt_paid,
     owner_bills_context,
+    owner_service_price,
     receipt_paid_message,
     save_new_receipt,
     services_list_context,
@@ -8184,3 +8185,265 @@ class OwnerBillMayChangeLineTests(OwnerBillingPageBase):
         url = reverse("owner_receipt_detail", args=[bill.pk])
         with self.assertNumQueries(RECEIPT_PAGE_QUERIES):
             self.assertEqual(self.client.get(url).status_code, 200)
+
+
+class OwnerServicePriceTests(TestCase):
+    """owner_service_price(service): (words, is_range) for the owner."""
+
+    def _price(self, **fields):
+        return owner_service_price(Service(service_name="X", **fields))
+
+    def test_a_fixed_price(self):
+        self.assertEqual(self._price(base_price=Decimal("300")), ("₱300.00", False))
+
+    def test_a_fixed_price_of_zero_says_ask_the_clinic(self):
+        free = self._price(base_price=Decimal("0"))
+        self.assertEqual(free, ("Ask the clinic", False))
+
+    def test_a_range_shows_both_prices_and_is_a_range(self):
+        words, is_range = self._price(
+            pricing_type=Service.RANGE,
+            min_price=Decimal("150"),
+            max_price=Decimal("400"),
+        )
+        self.assertEqual(words, "₱150.00 to ₱400.00")
+        self.assertTrue(is_range)
+
+    def test_a_range_missing_a_price_follows_the_base_price_rules(self):
+        top, bottom = Decimal("400"), Decimal("150")
+        for low, high in ((None, top), (bottom, None), (None, None)):
+            with self.subTest(low=low, high=high):
+                fields = {"pricing_type": Service.RANGE, "min_price": low}
+                fields["max_price"] = high
+                self.assertEqual(
+                    self._price(base_price=Decimal("250"), **fields),
+                    ("₱250.00", False),
+                )
+                self.assertEqual(
+                    self._price(base_price=Decimal("0"), **fields),
+                    ("Ask the clinic", False),
+                )
+
+    def test_the_thousands_separator(self):
+        thousand = self._price(base_price=Decimal("1500"))
+        self.assertEqual(thousand, ("₱1,500.00", False))
+        words, _ = self._price(
+            pricing_type=Service.RANGE,
+            min_price=Decimal("1500"),
+            max_price=Decimal("3500"),
+        )
+        self.assertEqual(words, "₱1,500.00 to ₱3,500.00")
+
+
+class OwnerServicesPageTests(BillingTestBase):
+    """/owner/services/: the read-only Services and prices page."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.owner.user)
+        self.url = reverse("owner_services")
+
+    def _service(self, name, status=Service.ACTIVE, **fields):
+        fields.setdefault("base_price", Decimal("100"))
+        return Service.objects.create(service_name=name, status=status, **fields)
+
+    def _html(self, **params):
+        return self.client.get(self.url, params).content.decode()
+
+    def _main(self, **params):
+        return self._html(**params).split('<main id="main"')[1].split("</main>")[0]
+
+    def _violet(self, main):
+        return re.findall(r"<a [^>]*bg-violet-600[^>]*>", main)
+
+    def test_the_url(self):
+        self.assertEqual(self.url, "/owner/services/")
+
+    def test_only_offered_services_show(self):
+        self._service("Consultation")
+        self._service("Draft thing", Service.DRAFT)
+        self._service("Unlisted thing", Service.UNLISTED)
+        self._service("Closed thing", Service.CLOSED)
+        main = self._main()
+        self.assertIn("Consultation", main)
+        for name in ("Draft thing", "Unlisted thing", "Closed thing"):
+            with self.subTest(name=name):
+                self.assertNotIn(name, main)
+
+    def test_headings_and_names_use_h2_and_h3(self):
+        self._service("Consultation", category="Check-ups")
+        main = self._main()
+        self.assertIn('<h1 class="text-2xl font-bold text-gray-900">Services', main)
+        h2 = r'<h2 id="[^"]*" class="text-lg font-bold[^>]*>Check-ups'
+        h3 = r'<h3 class="[^"]*text-lg font-bold[^>]*>Consultation'
+        self.assertRegex(main, h2)
+        self.assertRegex(main, h3)
+        self.assertIn("What Hapi Tutz offers. You pay in cash at the clinic.", main)
+
+    def test_grouping_and_order(self):
+        self._service("Consultation", category="Check-ups")
+        self._service("Nail trim", category="Grooming")
+        self._service("Bath", category="  grooming ")
+        self._service("zed")
+        self._service("Apple", category="   ")
+        main = self._main()
+        headings = re.findall(r"<h2[^>]*>(.*?)</h2>", main)
+        # One Grooming group, its heading spelled like its first service (Bath)
+        self.assertEqual(headings, ["Check-ups", "grooming", "Other services"])
+        names = re.findall(r"<h3[^>]*>(.*?)</h3>", main)
+        self.assertEqual(names, ["Consultation", "Bath", "Nail trim", "Apple", "zed"])
+
+    def test_with_no_categories_there_is_no_group_heading(self):
+        self._service("Bath")
+        self._service("Anti-rabies")
+        main = self._main()
+        self.assertNotIn("<h2", main)
+        self.assertNotIn("Other services", main)
+        names = re.findall(r"<h3[^>]*>(.*?)</h3>", main)
+        self.assertEqual(names, ["Anti-rabies", "Bath"])
+
+    def test_prices_and_the_range_tag(self):
+        self._service("Fixed", base_price=Decimal("1500"))
+        self._service("Free", base_price=Decimal("0"))
+        self._service(
+            "Ranged",
+            pricing_type=Service.RANGE,
+            min_price=Decimal("150"),
+            max_price=Decimal("400"),
+        )
+        main = self._main()
+        self.assertIn("₱1,500.00", main)
+        self.assertIn("Ask the clinic", main)
+        self.assertIn("₱150.00 to ₱400.00", main)
+        self.assertEqual(main.count(">Price range</span>"), 1)
+
+    def test_the_description_keeps_line_breaks_and_is_escaped(self):
+        self._service("Consultation", description="First line\nSecond <b>line</b>")
+        main = self._main()
+        self.assertIn("<p>First line<br>Second &lt;b&gt;line&lt;/b&gt;</p>", main)
+        self.assertNotIn("<b>line</b>", main)
+        self.assertIn("break-words text-base text-gray-700", main)
+
+    def test_no_description_means_no_paragraph(self):
+        self._service("Consultation", description="  ")
+        self.assertNotIn("break-words text-base text-gray-700", self._main())
+
+    def test_the_info_box_shows_only_when_a_range_is_listed(self):
+        note = "Some prices are a range. Dr. Aga tells you the final price"
+        self._service("Fixed")
+        self.assertNotIn(note, self._main())
+        self._service(
+            "Draft range",
+            Service.DRAFT,
+            pricing_type=Service.RANGE,
+            min_price=Decimal("1"),
+            max_price=Decimal("2"),
+        )
+        self.assertNotIn(note, self._main())
+        self._service(
+            "Ranged",
+            pricing_type=Service.RANGE,
+            min_price=Decimal("1"),
+            max_price=Decimal("2"),
+        )
+        self.assertIn(note, self._main())
+
+    def test_one_violet_book_a_visit_button_to_step_1(self):
+        self._service("Consultation")
+        main = self._main()
+        violet = self._violet(main)
+        self.assertEqual(len(violet), 1)
+        self.assertIn(f'href="{reverse("owner_book_appointment")}"', violet[0])
+        self.assertRegex(main, r"(?s)<a [^>]*bg-violet-600.*?Book a visit</a>")
+
+    def test_the_empty_state(self):
+        self._service("Draft thing", Service.DRAFT)
+        main = self._main()
+        self.assertIn("No services listed yet", main)
+        self.assertIn("Call the clinic to ask what a visit costs.", main)
+        self.assertNotIn("Draft thing", main)
+        self.assertNotIn("Book a visit", main)
+        self.assertNotIn("Some prices are a range", main)
+        self.assertEqual(self._violet(main), [])
+        self.assertNotIn("tel:", main)
+
+    def test_the_empty_state_call_link_needs_a_saved_phone(self):
+        from appointments.utils import get_clinic_settings
+
+        row = get_clinic_settings(create=True)
+        row.contact_number = "0917 000 0000"
+        row.save()
+        main = self._main()
+        link = re.search(r'<a href="tel:09170000000"[^>]*>', main).group(0)
+        self.assertIn("border border-gray-300", link)
+        self.assertNotIn("bg-violet", link)
+        self.assertIn("Call the clinic</a>", main)
+        self.assertEqual(self._violet(main), [])
+        row.contact_number = ""
+        row.save()
+        self.assertNotIn("tel:", self._main())
+
+    def test_the_back_bar_follows_from(self):
+        clinic = reverse("clinic_info")
+        account = reverse("owner_account")
+        cases = (
+            ({"from": "clinic"}, clinic, "Clinic info"),
+            ({"from": "account"}, account, "Account"),
+            ({}, account, "Account"),
+            ({"from": "junk"}, account, "Account"),
+        )
+        for params, url, label in cases:
+            with self.subTest(params=params):
+                html = self._html(**params)
+                pattern = rf'(?s)<a href="{url}"[^>]*>.*?Back to {label}</a>'
+                self.assertRegex(html, pattern)
+        self.assertNotIn("junk", self._html(**{"from": "junk"}))
+
+    def test_the_account_tab_is_lit(self):
+        account = reverse("owner_account")
+        lit = rf'<a href="{account}" class="[^"]*" aria-current="page"[^>]*>'
+        self.assertRegex(self._html(), lit)
+
+    def test_login_is_required_and_an_admin_is_refused(self):
+        self.client.logout()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("login", response.url)
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertRedirects(
+            response, reverse("admin_dashboard"), fetch_redirect_response=False
+        )
+
+    def test_no_script_comment_or_handler_and_every_link_on_one_line(self):
+        self._service("Consultation")
+        main = self._main()
+        for banned in ("<script", "onclick", "<!--", "hx-"):
+            with self.subTest(banned=banned):
+                self.assertNotIn(banned, main)
+        for name in (
+            "owner/services/list.html",
+            "owner/services_parts/*",
+            "owner/clinic_parts/services_card.html",
+        ):
+            for path in template_sources(name):
+                source = path.read_text(encoding="utf-8")
+                self.assertNotIn("<!--", source)
+                for link in re.findall(r"(?s)<a\b.*?</a>", source):
+                    with self.subTest(file=path.name, link=link[:40]):
+                        self.assertNotIn("\n", link)
+
+    def test_the_query_count_is_fixed_and_flat(self):
+        # session, user, owner, the services (the back bar has no clinic logo
+        # or unread count, so the shell asks nothing more)
+        for count in (3, 30):
+            Service.objects.all().delete()
+            for number in range(count):
+                self._service(f"Service {number}", category=f"Group {number % 4}")
+            with self.subTest(services=count):
+                with self.assertNumQueries(4):
+                    self.assertEqual(self.client.get(self.url).status_code, 200)
+
+    def test_the_empty_page_adds_one_query_for_the_phone(self):
+        with self.assertNumQueries(5):
+            self.assertEqual(self.client.get(self.url).status_code, 200)

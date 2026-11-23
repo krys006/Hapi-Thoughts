@@ -1,0 +1,7 @@
+{% comment %}
+  Link card to Services and prices, between Call / Email and the details. Not violet (Call stays the one violet button).
+  Shown only while at least one service is Offered (has_services).
+{% endcomment %}
+{% if has_services %}
+<a href="{% url 'owner_services' %}?from=clinic" class="flex min-h-16 items-center gap-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm hover:border-violet-300"><span class="grid size-12 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-700">{% include "components/icon.html" with name="tag" class="size-6 shrink-0" %}</span><span class="min-w-0 flex-1"><span class="block text-lg font-bold text-gray-900">Services and prices</span><span class="block text-base text-gray-600">What the clinic offers and what each one costs</span></span>{% include "components/icon.html" with name="chevron-right" class="size-5 shrink-0 text-gray-500" %}</a>
+{% endif %}

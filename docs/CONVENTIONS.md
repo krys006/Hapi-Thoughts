@@ -437,6 +437,9 @@ templates/
     ├── dashboard/
     │   ├── index.html
     │   └── _dashboard_partial.html
+    ├── services/
+    │   └── list.html                 ← Services and prices (2026-11-23)
+    ├── services_parts/               ← group.html, card.html, empty.html
     ├── appointments/
     │   ├── list.html
     │   ├── book.html
@@ -611,6 +614,7 @@ urlpatterns = [
 /owner/pets/<pk>/medical/       ← medical
 /owner/appointments/            ← appointments
 /owner/billing/                 ← billing
+/owner/services/                ← billing (Services and prices, read only)
 /owner/health/                  ← health
 
 /admin/dashboard/               ← dashboard
@@ -936,6 +940,9 @@ Loads compiled `app.css`, vendored HTMX, `js/shared/dialogs.js` and
 - Which tab is lit comes from the URL name, in one place: `OWNER_TABS` /
   `owner_tab(url_name)` in `accounts/utils.py`, read by the `owner_active_tab`
   tag (`accounts/templatetags/ui_helpers.py`). Add a new owner URL name there.
+  The Account tab holds `owner_account`, `owner_profile`, `owner_profile_edit`,
+  `owner_notification_preferences`, `clinic_info`, `owner_services`,
+  `owner_health_article_list` and `owner_health_article_detail`.
   `owner_notifications` (the bell's page) and unknown names light no tab.
 - Flash messages: block `flash`, right under the top bar. Same component as
   admin (`components/flash_messages.html`): colour + icon per level, bold first

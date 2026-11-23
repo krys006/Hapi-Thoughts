@@ -1582,6 +1582,7 @@ class OwnerLayoutTests(_LoggedInBase):
                 "owner_profile_edit",
                 "owner_notification_preferences",
                 "clinic_info",
+                "owner_services",
                 "owner_health_article_list",
                 "owner_health_article_detail",
             ],
@@ -2845,8 +2846,9 @@ class OwnerAccountHubV2Tests(_LoggedInBase):
         with CaptureQueriesContext(connection) as queries:
             response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
-        # session, user, owner, clinic (logo), unread count (bell)
-        self.assertEqual(len(queries), 5)
+        # session, user, owner, clinic (logo), unread count (bell), and
+        # whether any service is Offered (the Services and prices row); was 5
+        self.assertEqual(len(queries), 6)
         for number in range(20):
             Notification.objects.create(
                 recipient=self.owner_user,
@@ -4239,3 +4241,54 @@ class CacheSettingTests(SimpleTestCase):
         )
         self.assertEqual(default["LOCATION"], "hapivet_cache")
         self.assertEqual(default["OPTIONS"], {"MAX_ENTRIES": 1000})
+
+
+class OwnerAccountServicesRowTests(_LoggedInBase):
+    """The Services and prices row on the Account page (The clinic group)."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.owner_user)
+        self.url = reverse("owner_account")
+
+    def _section(self):
+        html = self.client.get(self.url).content.decode()
+        pattern = r'(?s)<section aria-labelledby="account-clinic">(.*?)</section>'
+        return re.search(pattern, html).group(1)
+
+    def test_the_row_sits_between_clinic_info_and_the_health_library(self):
+        Service.objects.create(service_name="Consultation", status=Service.ACTIVE)
+        section = self._section()
+        services = f'<a href="{reverse("owner_services")}?from=account" class="flex'
+        self.assertEqual(section.count('class="flex min-h-16'), 3)
+        self.assertIn(services, section)
+        self.assertIn(">Services and prices</span>", section)
+        clinic = section.index(f'href="{reverse("clinic_info")}"')
+        health = section.index(f'href="{reverse("owner_health_article_list")}"')
+        self.assertLess(clinic, section.index(services))
+        self.assertLess(section.index(services), health)
+
+    def test_the_row_is_hidden_without_an_offered_service(self):
+        for status in (Service.DRAFT, Service.UNLISTED, Service.CLOSED):
+            Service.objects.create(service_name=f"Not {status}", status=status)
+        section = self._section()
+        self.assertEqual(section.count('class="flex min-h-16'), 2)
+        self.assertNotIn("/owner/services/", section)
+        self.assertNotIn("Services and prices", section)
+
+    def test_an_existing_row_link_is_unchanged_by_the_query_option(self):
+        Service.objects.create(service_name="Consultation", status=Service.ACTIVE)
+        section = self._section()
+        for name in ("clinic_info", "owner_health_article_list"):
+            with self.subTest(row=name):
+                link = f'<a href="{reverse(name)}" class="flex min-h-16'
+                self.assertIn(link, section)
+
+    def test_the_row_template_adds_nothing_when_there_is_no_query(self):
+        from django.template.loader import render_to_string
+
+        html = render_to_string(
+            "owner/account_parts/link_row.html",
+            {"url_name": "clinic_info", "icon": "tag", "label": "A", "sub": "B"},
+        )
+        self.assertIn(f'<a href="{reverse("clinic_info")}" class=', html)

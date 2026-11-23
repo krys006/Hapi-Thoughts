@@ -108,7 +108,7 @@ Phase 7 — Dashboards & Polish
 | View own profile | `complete` |
 | Edit profile (name, address, contact number) | `complete` |
 | Email is changed only by the clinic (My details shows it read-only: "To change your email, contact the clinic."; the profile form has no email field and a posted email changes nothing) | `complete` (8a-2c; restyled in 8b-9) |
-| Account hub: name, email, links to My details, Email notifications, Clinic info and Health library, and a POST Log out form (`/owner/account/`) | `complete` (8b-9a) |
+| Account hub: name, email, links to My details, Email notifications, Clinic info, Services and prices (shown while a service is Offered) and Health library, and a POST Log out form (`/owner/account/`) | `complete` (8b-9a) |
 | Edit contact links (Facebook, other socials) | `complete` |
 | Profile photo upload (optional) | `complete` |
 | Auto-generated initials avatar if no photo uploaded | `complete` |
@@ -207,7 +207,7 @@ Phase 7 — Dashboards & Polish
 | Feature | Status |
 |---|---|
 | View available appointment slots | `complete` |
-| View list of active services and pricing before booking | `planned` |
+| View list of active services and pricing before booking | `complete` (2026-11-23: the read-only Services and prices page `/owner/services/`, reached from Clinic info and the Account page; prices on the booking page itself stay planned in "Known Future Expansion Points") |
 | Book an appointment (select pet, date, time slot, service, reason) | `complete` |
 | Booking limited to 30 days in advance | `complete` |
 | Same-day booking allowed before configured cutoff time | `complete` |
@@ -524,6 +524,7 @@ PENDING or CONFIRMED → CANCELLED
 | Clinic operating hours | `complete` |
 | Google Maps embed of clinic location (admin page only; the owner page has none since 8b-9b) | `complete` |
 | Owner Clinic info on the owner layout: logo or paw tile, Call and Email buttons, rows for hours (with "Closed …"), phone, email and address, and a "Your vet" card (`owner_account_v1.html` frame 5; Slice 8b-9b). It has no Book an appointment button (the Visits tab books) | `complete` |
+| Owner Clinic info: a "Services and prices" link card between Call / Email and the details (not violet; owners only; shown while at least one service is Offered; links to `owner_services?from=clinic`) | `complete` (2026-11-23) |
 | Visible to both Admin and Pet Owner | `complete` |
 
 ### 7.4 Clinic Settings (Admin)

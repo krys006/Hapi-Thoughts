@@ -28,6 +28,7 @@ from .utils import (
     owner_bills_context,
     owner_receipt_context,
     owner_receipts,
+    owner_services_context,
     receipt_detail_context,
     receipt_for_page,
     receipt_list_context,
@@ -375,6 +376,18 @@ def owner_billing_list(request):
         "owner/billing_parts/_results.html",
         context,
     )
+
+
+@login_required
+@owner_profile_required
+def owner_services(request):
+    """Pet Owner view — Services and prices: the Offered services, grouped,
+    read only (owner_services_context)."""
+    if request.user.role != "pet_owner":
+        return redirect("admin_dashboard")
+
+    context = owner_services_context(request.GET)
+    return render(request, "owner/services/list.html", context)
 
 
 @login_required

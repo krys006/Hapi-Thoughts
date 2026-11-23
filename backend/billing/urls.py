@@ -71,4 +71,10 @@ urlpatterns = [
         views.owner_receipt_detail,
         name="owner_receipt_detail",
     ),
+    # ── Pet Owner — Services and prices ───────────────────────────────────
+    path(
+        "owner/services/",
+        views.owner_services,
+        name="owner_services",
+    ),
 ]
