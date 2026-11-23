@@ -7,12 +7,13 @@
 {% block top_bar %}{% url 'owner_billing_list' as bills_url %}{% include "layouts/owner_parts/back_bar.html" with url=bills_url label="Bills" %}{% endblock %}
 
 {# Read-only. A cancelled receipt never gets here (404). Print only when paid. #}
+{# The Unpaid banner's last line warns that the clinic can still add items. #}
 {% block content %}
 <div class="space-y-4">
   {% if is_paid %}
     <div class="flex items-start gap-3 rounded-xl border border-green-200 bg-green-50 px-4 py-4 text-green-900">{% include "components/icon.html" with name="circle-check" class="mt-0.5 size-6 shrink-0" %}<div><p class="text-lg font-semibold">Paid on {{ receipt.payment_date|default:receipt.billing_date|date:"M j, Y" }}</p><p class="mt-0.5 text-base">Thank you! Keep this as proof of payment.</p></div></div>
   {% else %}
-    <div class="flex items-start gap-3 rounded-xl border border-yellow-300 bg-yellow-50 px-4 py-4 text-yellow-900">{% include "components/icon.html" with name="receipt" class="mt-0.5 size-6 shrink-0" %}<div><p class="text-lg font-semibold">Please pay {{ receipt.total_amount|peso }} at the clinic</p><p class="mt-0.5 text-base">Cash only. The clinic will mark it paid when you pay.</p></div></div>
+    <div class="flex items-start gap-3 rounded-xl border border-yellow-300 bg-yellow-50 px-4 py-4 text-yellow-900">{% include "components/icon.html" with name="receipt" class="mt-0.5 size-6 shrink-0" %}<div><p class="text-lg font-semibold">Please pay {{ receipt.total_amount|peso }} at the clinic</p><p class="mt-0.5 text-base">Cash only. The clinic will mark it paid when you pay.</p><p class="mt-0.5 text-base">The clinic may still add items until you pay.</p></div></div>
   {% endif %}
 
   <article class="rounded-2xl border border-gray-200 bg-white shadow-sm">

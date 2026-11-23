@@ -8139,3 +8139,48 @@ class BillWordingTests(FrozenBillingTestBase):
         self._as_owner()
         text = self._text("owner_notification_preferences")
         self.assertIn("Bills When the clinic records your payment.", text)
+
+
+@PLAIN_STATIC
+class OwnerBillMayChangeLineTests(OwnerBillingPageBase):
+    """Fix bill may-change line: the owner's Unpaid bill page warns that the
+    clinic may still add items. Nowhere else."""
+
+    LINE = "The clinic may still add items until you pay."
+
+    def _page(self, receipt):
+        url = reverse("owner_receipt_detail", args=[receipt.pk])
+        return self._main(self.client.get(url))
+
+    def test_an_unpaid_bill_shows_the_line_once_inside_the_yellow_banner(self):
+        main = self._page(self._unpaid())
+        self.assertEqual(main.count(self.LINE), 1)
+        banner = re.search(
+            r"(?s)border-yellow-300 bg-yellow-50[^>]*>(.*?)</p></div></div>", main
+        ).group(1)
+        text = page_text(banner)
+        self.assertIn(self.LINE, text)
+        self.assertLess(text.index("Please pay"), text.index(self.LINE))
+
+    def test_a_paid_bill_has_no_line(self):
+        main = self._page(self._paid())
+        self.assertNotIn(self.LINE, main)
+        self.assertNotIn("may still add items", main)
+
+    def test_the_list_dashboard_and_admin_page_do_not_show_it(self):
+        bill = self._unpaid()
+        for name in ("owner_billing_list", "owner_dashboard"):
+            with self.subTest(page=name):
+                response = self.client.get(reverse(name))
+                self.assertEqual(response.status_code, 200)
+                self.assertNotContains(response, self.LINE)
+        self.client.force_login(self.admin)
+        admin = self.client.get(reverse("admin_receipt_detail", args=[bill.pk]))
+        self.assertEqual(admin.status_code, 200)
+        self.assertNotContains(admin, self.LINE)
+
+    def test_the_bill_page_query_count_is_unchanged(self):
+        bill = self._unpaid()
+        url = reverse("owner_receipt_detail", args=[bill.pk])
+        with self.assertNumQueries(RECEIPT_PAGE_QUERIES):
+            self.assertEqual(self.client.get(url).status_code, 200)
