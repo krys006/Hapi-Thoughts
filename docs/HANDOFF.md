@@ -502,7 +502,8 @@ to needs-approval) and the appointments list.
 - Flake8 cleanup [backend] — backend/.flake8 added in the docs commit; current count: 52 (+1: E501 on the correction_reason placeholder in medical/forms.py, left on purpose in 5a-1).
 - Re-save requirements.txt as UTF-8 [backend] — Done 2026-11-23 (was UTF-16 LE with CRLF; now UTF-8, committed by Krys)
 - pip-audit: Django and small runtime packages [backend] — Done 2026-11-23 (see "Fix dependency upgrades A")
-- OPEN: pip-audit part B — Pillow 12.2.0 → 13.0.0 (major jump, its own batch) [backend]
+- pip-audit part B: Pillow 12.2.0 → 12.3.0 [backend] — Partly done 2026-11-23 (see "Fix Pillow upgrade (part B)"): pin edited, Krys installs and runs the suite. The remaining advisories are fixed only in 13.0.0, which needs Python 3.11 or newer.
+- OPEN: Upgrade Python 3.10 to 3.11+ (local venv and Render PYTHON_VERSION), then Pillow 13. [backend]
 - OPEN: pip-audit dev tools — black, pip, setuptools, filelock (filelock, pip and setuptools are not in requirements.txt) [backend]
 - OPEN: re-run pip-audit before go-live [backend]
 - Logout always redirects to owner_login, even for admins — Done 2026-11-01
@@ -539,6 +540,11 @@ to needs-approval) and the appointments list.
   - Rebuild/live picks the new pins up at its next deploy build (`pip install -r requirements.txt`); no migration.
   - Open check: the Python version Render uses is not recorded in the repo; confirm cryptography 50 supports it.
   - Tests added: none. Krys installs the pins, runs `pip check` and the full suite.
+- **Fix Pillow upgrade (part B) — 2026-11-23** (`requirements.txt` only; no code, settings, migration or URL change):
+  - `pillow` 12.2.0 → 12.3.0 (line 24). Pillow is only partly done: 13.0.0 was tried first but pip refused it (Requires-Python >=3.11; the venv is Python 3.10), so Krys chose 12.3.0. The remaining advisories are fixed only in 13.0.0, which needs Python 3.11 or newer (see the open "Upgrade Python" line in SMALL FIXES).
+  - Step 0 found: our code never calls Pillow directly. Pet photo, owner photo and the clinic logo are plain `ImageField`s, so Django opens the file with Pillow. Only the logo has its own check (JPG, PNG or WebP, up to 2 MB); pet and owner photos have none beyond Django's "Upload a valid image". The only `PIL` use is in `appointments/tests.py` (builds PNG, JPEG and WebP test files). Nothing in the docs promises HEIC or WebP for photos.
+  - Still open: the dev tools (black, pip, setuptools, filelock) and re-running pip-audit before go-live.
+  - Tests added: none; no test run was made (the venv still has the old Pillow). Krys installs the pin, runs `pip check` and the full suite, then the photo checks in the browser.
 
 ### FRONTEND BRANCH REVIEW
 - B3: review the `frontend/hannah-user` branch (owner templates) and decide, piece by piece, what to bring in and what to discard. It is no longer under active development. Check form field names and template tags against the current views; base_dashboard.html will conflict. [frontend]
