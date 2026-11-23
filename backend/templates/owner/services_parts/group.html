@@ -1,0 +1,12 @@
+{% comment %}
+  One group of Offered services: an h2 heading (none when no service has a category) and its cards.
+  Needs group (heading, services).
+{% endcomment %}
+<section class="space-y-3"{% if group.heading %} aria-labelledby="services-group-{{ forloop.counter }}"{% endif %}>
+  {% if group.heading %}<h2 id="services-group-{{ forloop.counter }}" class="text-lg font-bold text-gray-800">{{ group.heading }}</h2>{% endif %}
+  <ul class="space-y-3">
+    {% for card in group.services %}
+      {% include "owner/services_parts/card.html" %}
+    {% endfor %}
+  </ul>
+</section>
