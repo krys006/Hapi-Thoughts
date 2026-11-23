@@ -2163,10 +2163,11 @@ def _visit_state(appointment, moved_to, ended):
 
 
 def _visit_record_and_bill(owner, appointment):
-    """The pk of the visit's medical record (or None) and the receipt the
-    owner may see (Unpaid or Paid, never Cancelled; or None)."""
+    """The pk of the visit's medical record (or None), the receipt the owner
+    may see (Unpaid with an item, or Paid, never Cancelled; or None), and
+    whether an Unpaid bill with no items is still being prepared."""
     # Imported here: these modules import this one
-    from billing.utils import owner_receipts
+    from billing.utils import owner_visit_bill
     from medical.models import MedicalRecord
 
     record_pk = (
@@ -2174,8 +2175,36 @@ def _visit_record_and_bill(owner, appointment):
         .values_list("pk", flat=True)
         .first()
     )
-    receipt = owner_receipts(owner).filter(appointment=appointment).first()
-    return record_pk, receipt
+    receipt, preparing = owner_visit_bill(owner, appointment)
+    return record_pk, receipt, preparing
+
+
+def _visit_preparing(appointment):
+    """The "Your bill is being prepared" card's words: the service name and
+    its price range (only when it shows a range; read now, nothing saved) and
+    the explanation line."""
+    from billing.utils import owner_service_price
+
+    service = appointment.service
+    price = ""
+    if service is not None:
+        words, is_range = owner_service_price(service)
+        price = words if is_range else ""
+    if price:
+        text = (
+            f"Dr. Aga sets the final price after checking {appointment.pet.name}. "
+            "You'll see the bill here once it is ready."
+        )
+    else:
+        text = (
+            "Dr. Aga is adding what was done at this visit. "
+            "You'll see the bill here once it is ready."
+        )
+    return {
+        "service": service.service_name if price else "",
+        "price": price,
+        "text": text,
+    }
 
 
 def _visit_links(appointment, record_pk, receipt):
@@ -2204,6 +2233,14 @@ def _visit_links(appointment, record_pk, receipt):
             }
         )
     return links
+
+
+def _visit_after(owner, appointment):
+    """A completed visit's link cards, and the "bill is being prepared" card's
+    words (or None) when its Unpaid bill has no items yet."""
+    record_pk, receipt, empty_bill = _visit_record_and_bill(owner, appointment)
+    links = _visit_links(appointment, record_pk, receipt)
+    return links, (_visit_preparing(appointment) if empty_bill else None)
 
 
 def _visit_buttons(state, pet):
@@ -2274,10 +2311,9 @@ def owner_visit_detail_context(owner, appointment, today, now):
     ended = _slot_end(appointment, minutes) <= now
     state = _visit_state(appointment, moved_to, ended)
 
-    links = []
+    links, preparing = [], None
     if state == Appointment.COMPLETED:
-        record_pk, receipt = _visit_record_and_bill(owner, appointment)
-        links = _visit_links(appointment, record_pk, receipt)
+        links, preparing = _visit_after(owner, appointment)
     banner = _visit_banner(state, appointment, today, moved_to, bool(links))
     if state in OWNER_LIVE_STATUSES and appointment.rescheduled_from is not None:
         banner["extra"] = owner_visit_note(appointment, now, minutes)
@@ -2295,6 +2331,7 @@ def owner_visit_detail_context(owner, appointment, today, now):
         "when_friendly": friendly_when(appointment.date, appointment.time, today),
         "banner": banner,
         "links": links,
+        "preparing": preparing,
         "details": _visit_rows(appointment, state),
         "buttons": "change" if can_change else buttons,
         "book_label": book_label,

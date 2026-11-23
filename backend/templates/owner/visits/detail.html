@@ -17,6 +17,8 @@
 
   {% include "owner/visits_parts/banner.html" %}
   {% if links %}{% include "owner/visits_parts/links.html" %}{% endif %}
+  {# Bill still empty (a range price or no service): a card instead of the bill link #}
+  {% if preparing %}{% include "owner/visits_parts/preparing.html" %}{% endif %}
   {% include "owner/visits_parts/details.html" %}
   {% include "owner/visits_parts/actions.html" %}
 </div>
