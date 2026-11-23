@@ -9753,3 +9753,277 @@ class OwnerClinicInfoServicesCardTests(AppointmentTestBase):
         self.assertTemplateUsed(response, "admin/clinic_info.html")
         self.assertNotContains(response, "/owner/services/")
         self.assertNotContains(response, "what each one costs")
+
+
+class OwnerBillBeingPreparedTests(_OwnerVisitsBase):
+    """Fix bill being prepared: while a completed visit's Unpaid bill has no
+    items, the owner's visit page shows a dashed "Your bill is being prepared"
+    card (with the service's price range when it has one) in place of the bill
+    link. Only that page changes."""
+
+    TITLE = "Your bill is being prepared"
+    WITH_PRICE = (
+        "Dr. Aga sets the final price after checking Bantay. "
+        "You'll see the bill here once it is ready."
+    )
+    NO_PRICE = (
+        "Dr. Aga is adding what was done at this visit. "
+        "You'll see the bill here once it is ready."
+    )
+    RANGE = "₱300.00 to ₱800.00"
+
+    def _range_service(self, name=None, **fields):
+        """A range service ₱300.00 to ₱800.00: the base class's Consultation
+        made a range (no name), or a new one called `name`."""
+        fields.setdefault("min_price", Decimal("300.00"))
+        fields.setdefault("max_price", Decimal("800.00"))
+        if name is None:
+            service = self.service
+            service.pricing_type = Service.RANGE
+            for key, value in fields.items():
+                setattr(service, key, value)
+            service.save()
+            return service
+        return Service.objects.create(
+            service_name=name,
+            status=Service.ACTIVE,
+            pricing_type=Service.RANGE,
+            **fields,
+        )
+
+    def _done(self, service=None, bill=BillingReceipt.PENDING, items=0, days=-1):
+        """A Completed visit with a bill in `bill` status and `items` items
+        (bill=None: no bill at all)."""
+        visit = self._visit(days=days, status=Appointment.COMPLETED, service=service)
+        if bill is not None:
+            self._bill(visit, bill, items)
+        return visit
+
+    def _bill(self, visit, status=BillingReceipt.PENDING, items=0):
+        receipt = BillingReceipt.objects.create(
+            appointment=visit,
+            owner=self.owner,
+            pet=self.pet,
+            receipt_number=f"HV-2026-{visit.pk:04d}",
+            payment_status=status,
+        )
+        for number in range(items):
+            BillingItem.objects.create(
+                receipt=receipt,
+                description=f"Item {number}",
+                quantity=1,
+                unit_price=Decimal("650.00"),
+                subtotal=0,  # Overwritten by BillingItem.save()
+            )
+        receipt.calculate_totals()
+        return receipt
+
+    def _page(self, visit):
+        return self._html("owner_appointment_detail", [visit.pk])
+
+    def _bill_link(self, visit):
+        receipt = BillingReceipt.objects.get(appointment=visit)
+        return reverse("owner_receipt_detail", args=[receipt.pk])
+
+    def _assert_no_card(self, html):
+        self.assertNotIn(self.TITLE, html)
+        self.assertNotIn(self.WITH_PRICE, html)
+        self.assertNotIn(self.NO_PRICE, html)
+
+    def test_a_range_service_shows_the_card_with_its_price_line(self):
+        visit = self._done(self._range_service())
+        html = self._page(visit)
+        self.assertEqual(html.count(self.TITLE), 1)
+        price = (
+            '<p class="mt-1 text-base"><span class="text-gray-700">Consultation:'
+            '</span> <span class="font-semibold text-gray-900">'
+            f"{self.RANGE}</span></p>"
+        )
+        self.assertIn(price, html)
+        self.assertIn(self.WITH_PRICE, html)
+        self.assertNotIn(self.NO_PRICE, html)
+
+    def test_the_card_is_not_a_link_and_there_is_no_bill_link_card(self):
+        visit = self._done(self._range_service())
+        html = self._page(visit)
+        self.assertNotIn(self._bill_link(visit), html)
+        self.assertNotIn("Bill HV-", html)
+        pattern = (
+            r'(?s)<div class="flex items-start[^"]*border-dashed' r".*?</div>\s*</div>"
+        )
+        card = re.search(pattern, html).group(0)
+        self.assertIn("border border-dashed border-gray-300 bg-white p-4", card)
+        self.assertEqual(card.count("<a "), 0)
+        self.assertNotIn("bg-violet", card)
+        tile = "size-11 shrink-0 place-content-center rounded-xl bg-gray-100"
+        self.assertIn(tile, card)
+        self.assertIn("<svg", card)
+        # The page keeps its one violet button (Book another visit)
+        self.assertEqual(len(self._violet(html)), 1)
+
+    def test_the_card_comes_after_the_notes_link_card(self):
+        visit = self._done(self._range_service())
+        record = MedicalRecord.objects.create(
+            pet=self.pet, appointment=visit, record_date=self.today
+        )
+        html = self._page(visit)
+        notes = reverse("owner_medical_record", args=[self.pet.pk, record.pk])
+        self.assertLess(html.index(notes), html.index(self.TITLE))
+
+    def test_no_service_shows_the_card_without_a_price_line(self):
+        html = self._page(self._done(None))
+        self.assertEqual(html.count(self.TITLE), 1)
+        self.assertIn(self.NO_PRICE, html)
+        self.assertNotIn(self.WITH_PRICE, html)
+        self.assertNotIn('<p class="mt-1 text-base"><span', html)
+
+    def test_other_services_get_the_card_without_a_price_line(self):
+        cases = {
+            "fixed offered": Service.objects.create(
+                service_name="Vaccine",
+                status=Service.ACTIVE,
+                base_price=Decimal("350.00"),
+            ),
+            "fixed not offered": Service.objects.create(
+                service_name="Old shot",
+                status=Service.UNLISTED,
+                base_price=Decimal("350.00"),
+            ),
+            "fixed 0.00": Service.objects.create(
+                service_name="Free check", status=Service.ACTIVE
+            ),
+            "range missing a price": self._range_service("Surgery", max_price=None),
+        }
+        for number, (label, service) in enumerate(cases.items()):
+            with self.subTest(case=label):
+                html = self._page(self._done(service, days=-2 - number))
+                self.assertEqual(html.count(self.TITLE), 1)
+                self.assertIn(self.NO_PRICE, html)
+                self.assertNotIn(self.WITH_PRICE, html)
+                self.assertNotIn(f"{service.service_name}:", html)
+                self.assertNotIn(" to ₱", html)
+
+    def test_the_first_item_replaces_the_card_with_the_bill_link_card(self):
+        visit = self._done(self._range_service())
+        self.assertIn(self.TITLE, self._page(visit))
+        receipt = BillingReceipt.objects.get(appointment=visit)
+        BillingItem.objects.create(
+            receipt=receipt,
+            description="Consultation",
+            quantity=1,
+            unit_price=Decimal("650.00"),
+            subtotal=0,
+        )
+        receipt.calculate_totals()
+        html = self._page(visit)
+        self._assert_no_card(html)
+        self.assertRegex(html, rf'<a href="{self._bill_link(visit)}"[^>]*>')
+        self.assertIn("Bill HV-2026-", html)
+        self.assertIn("· Unpaid", html)
+        self.assertIn("₱650.00", html)
+
+    def test_a_paid_bill_gets_no_card(self):
+        visit = self._done(self._range_service(), bill=BillingReceipt.PAID)
+        html = self._page(visit)
+        self._assert_no_card(html)
+        self.assertIn("· Paid", html)
+
+    def test_a_cancelled_bill_gets_no_card_and_no_bill_link(self):
+        visit = self._done(self._range_service(), bill=BillingReceipt.CANCELLED)
+        html = self._page(visit)
+        self._assert_no_card(html)
+        self.assertNotIn(self._bill_link(visit), html)
+        self.assertNotIn("Bill HV-", html)
+
+    def test_a_visit_with_no_bill_gets_no_card(self):
+        html = self._page(self._done(self._range_service(), bill=None))
+        self._assert_no_card(html)
+
+    def test_an_archived_pet_or_owner_with_no_bill_gets_no_card(self):
+        for model, obj in ((Pet, self.pet), (PetOwner, self.owner)):
+            with self.subTest(archived=model.__name__):
+                visit = self._done(self._range_service(), bill=None)
+                model.objects.filter(pk=obj.pk).update(is_archived=True)
+                self._assert_no_card(self._page(visit))
+                model.objects.filter(pk=obj.pk).update(is_archived=False)
+                visit.delete()
+
+    def test_a_visit_that_is_not_completed_gets_no_card(self):
+        service = self._range_service()
+        statuses = (
+            Appointment.PENDING,
+            Appointment.CONFIRMED,
+            Appointment.CANCELLED,
+            Appointment.NO_SHOW,
+        )
+        for number, status in enumerate(statuses):
+            with self.subTest(status=status):
+                visit = self._visit(days=-3 - number, status=status, service=service)
+                self._bill(visit)
+                self._assert_no_card(self._page(visit))
+
+    def test_a_changed_range_shows_the_new_range(self):
+        service = self._range_service()
+        visit = self._done(service)
+        self.assertIn(self.RANGE, self._page(visit))
+        service.min_price, service.max_price = Decimal("350.00"), Decimal("900.50")
+        service.save()
+        html = self._page(visit)
+        self.assertIn("₱350.00 to ₱900.50", html)
+        self.assertNotIn(self.RANGE, html)
+
+    def test_the_service_turning_fixed_drops_the_price_line(self):
+        service = self._range_service()
+        visit = self._done(service)
+        service.pricing_type = Service.FIXED
+        service.base_price = Decimal("500.00")
+        service.save()
+        html = self._page(visit)
+        self.assertIn(self.NO_PRICE, html)
+        self.assertNotIn(" to ₱", html)
+        self.assertNotIn("Consultation:", html)
+
+    def test_the_other_pages_show_nothing_for_the_empty_bill(self):
+        visit = self._done(self._range_service())
+        receipt = BillingReceipt.objects.get(appointment=visit)
+        pages = {
+            "bills list": reverse("owner_billing_list"),
+            "dashboard": reverse("owner_dashboard"),
+        }
+        for label, url in pages.items():
+            with self.subTest(page=label):
+                html = unescape(self.client.get(url).content.decode())
+                self.assertNotIn(self.TITLE, html)
+                self.assertNotIn(receipt.receipt_number, html)
+        self.client.force_login(self.admin)
+        admin = self.client.get(reverse("admin_receipt_detail", args=[receipt.pk]))
+        self.assertEqual(admin.status_code, 200)
+        self.assertNotContains(admin, self.TITLE)
+
+    def test_the_query_count_is_the_same_with_no_items_one_item_or_no_bill(self):
+        service = self._range_service()
+        empty = self._done(service, days=-1)
+        one = self._done(service, items=1, days=-2)
+        none = self._done(service, bill=None, days=-3)
+        counts = {
+            name: self._queries("owner_appointment_detail", [visit.pk])
+            for name, visit in (("empty", empty), ("one", one), ("none", none))
+        }
+        self.assertEqual(len(set(counts.values())), 1, counts)
+        two = self._done(service, items=2, days=-4)
+        self.assertEqual(
+            self._queries("owner_appointment_detail", [two.pk]), counts["one"]
+        )
+
+    def test_the_template_follows_the_markup_rules(self):
+        path = Path(settings.BASE_DIR) / "templates/owner/visits_parts/preparing.html"
+        source = path.read_text(encoding="utf-8")
+        self.assertIsNone(re.search(r"<a\b[^>]*\n", source))
+        self.assertNotIn("<!--", source)
+        self.assertNotIn("onclick", source)
+        self.assertNotIn("<script", source)
+        self.assertIn('name="hourglass"', source)
+        html = self._page(self._done(self._range_service()))
+        self.assertIsNone(re.search(r"<a\b[^>]*\n", html))
+        self.assertIsNone(re.search(r"<[a-z][^>]*\son[a-z]+=", html))
+        self.assertIn('<path d="M5 22h14" />', html)  # the hourglass icon

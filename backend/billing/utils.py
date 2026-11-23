@@ -186,6 +186,28 @@ def owner_receipts(owner):
     ).filter(Q(payment_status=BillingReceipt.PAID) | has_items)
 
 
+def owner_visit_bill(owner, appointment):
+    """(receipt, preparing) for the owner's visit page, from one query.
+    receipt is what owner_receipts allows (Unpaid with an item, or Paid), else
+    None. preparing is True for an Unpaid bill with no items yet: the page
+    says the bill is being prepared. Cancelled or missing: (None, False)."""
+    has_items = Exists(BillingItem.objects.filter(receipt=OuterRef("pk")))
+    receipt = (
+        BillingReceipt.objects.filter(
+            owner=owner,
+            appointment=appointment,
+            payment_status__in=OWNER_RECEIPT_STATUSES,
+        )
+        .annotate(has_items=has_items)
+        .first()
+    )
+    if receipt is None:
+        return None, False
+    if receipt.payment_status == BillingReceipt.PAID or receipt.has_items:
+        return receipt, False
+    return None, True
+
+
 # ── Owner bills page (Slice 8a-2a) ───────────────────────────────────────────
 
 OWNER_BILLS_PAGE_SIZE = 25

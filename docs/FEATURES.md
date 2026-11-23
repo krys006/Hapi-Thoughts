@@ -225,7 +225,7 @@ Phase 7 — Dashboards & Polish
 | "Not sure yet" as the visit reason (saves no service) | `complete` |
 | No-pet path: step 1 sends the owner to Add a pet in booking mode and back with the new pet picked. Slice 8b-6 | `complete` |
 | Visits list (Visits tab): Upcoming / Past links with counts, a pet filter (chips, from 2 pets), cards grouped by month with a note per visit (what happens next, who moved or cancelled it), Past 25 a page; an original cancelled by a reschedule is left out (its new visit says "Was …"). Slice 8b-7a | `complete` |
-| Visit detail for every status with a coloured banner (waiting, confirmed, time passed, done, declined, cancelled by the clinic or by you, moved, missed), the clinic's own message for a cancel or decline, links to the vet's notes and the Unpaid/Paid bill, and the buttons for that state. Slice 8b-7a | `complete` |
+| Visit detail for every status with a coloured banner (waiting, confirmed, time passed, done, declined, cancelled by the clinic or by you, moved, missed), the clinic's own message for a cancel or decline, links to the vet's notes and the Unpaid/Paid bill, and the buttons for that state. While the bill has no items, a "Your bill is being prepared" card (with the service's price range when it has one) takes the place of the bill link. Slice 8b-7a | `complete` |
 | Cancel sheet on the visit page: reasons as radio cards, a "Tell us a little more" box for Other, the orange late note within 24 hours (with the clinic phone), POST only; errors and success come back to the visit page as a flash. Slice 8b-7a | `complete` |
 
 ### 3.3 Appointment Management (Admin)
@@ -370,7 +370,7 @@ PENDING or CONFIRMED → CANCELLED
 | Feature | Status |
 |---|---|
 | View the bill for completed appointments | `complete` |
-| View full billing history: Unpaid and Paid bills only (cancelled ones are never shown); an Unpaid bill appears once it has at least one item | `complete` |
+| View full billing history: Unpaid and Paid bills only (cancelled ones are never shown); an Unpaid bill appears once it has at least one item (until then the visit page shows a "Your bill is being prepared" card; the Bills page shows nothing) | `complete` |
 | Bills page: a yellow "To pay" box with the total and count, the Unpaid bills (never hidden by a filter), or a green "You're all paid up" box; "No bills yet" page when there are none | `complete` (8b-8) |
 | Bills History filter: search by bill number or pet name plus a period (All time, This month, Last 3 months, this year, last year), a plain GET form, month groups, 25 a page | `complete` (8b-8) |
 | Bill page (read-only): banner (please pay at the clinic / paid on), pet, bill date, link to the visit, items, subtotal, discount, total, "Paid by"; "Something looks wrong?" line while Unpaid, and "The clinic may still add items until you pay." while Unpaid | `complete` (8b-8) |
