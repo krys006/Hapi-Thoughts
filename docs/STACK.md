@@ -11,7 +11,7 @@
 | Layer | Technology | Version |
 |---|---|---|
 | Language | Python | 3.10.11 |
-| Framework | Django | 5.2.12 |
+| Framework | Django | 5.2.17 |
 | Database | PostgreSQL | port 5432 |
 | Styling | Tailwind CSS | v4.3.3 standalone CLI → compiled `static/css/app.css` for migrated admin pages; Play CDN on pages not migrated yet |
 | Template Engine | Django Templates | built-in |

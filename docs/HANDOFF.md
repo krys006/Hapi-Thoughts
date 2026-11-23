@@ -500,7 +500,11 @@ to needs-approval) and the appointments list.
 - `admin_owner_add_email` `@login_required` — Done 2026-11-02 (4a-1)
 - Owner same-day cutoff bug (`_slot_open_today`; `get_available_dates` deleted) — Done 2026-11-02
 - Flake8 cleanup [backend] — backend/.flake8 added in the docs commit; current count: 52 (+1: E501 on the correction_reason placeholder in medical/forms.py, left on purpose in 5a-1).
-- Re-save requirements.txt as UTF-8 [backend] — verified: currently UTF-16 LE with CRLF
+- Re-save requirements.txt as UTF-8 [backend] — Done 2026-11-23 (was UTF-16 LE with CRLF; now UTF-8, committed by Krys)
+- pip-audit: Django and small runtime packages [backend] — Done 2026-11-23 (see "Fix dependency upgrades A")
+- OPEN: pip-audit part B — Pillow 12.2.0 → 13.0.0 (major jump, its own batch) [backend]
+- OPEN: pip-audit dev tools — black, pip, setuptools, filelock (filelock, pip and setuptools are not in requirements.txt) [backend]
+- OPEN: re-run pip-audit before go-live [backend]
 - Logout always redirects to owner_login, even for admins — Done 2026-11-01
 - Admin sidebar has no logout link [frontend] → UI overhaul Slice 1 — Done 2026-11-01
 - Logout accepts GET; convert to POST form (low priority) [both] — Done 2026-11-17 (8a-1b; log-out sheet since 8b-1)
@@ -529,6 +533,12 @@ to needs-approval) and the appointments list.
   - `create_admin` no longer has a password in the code. It asks for the email (`input()`, stripped and lowercased) and the password (`getpass.getpass`, twice), checks it with `validate_password`, refuses an email that exists in any letter case (never changes an existing user), and creates the admin as before (role ADMIN, `is_staff`, `is_onboarded`, username `admin`; if that username is taken it refuses). The password is not printed anywhere.
   - Scan (no value recorded): one hardcoded password found, only in the command and one untracked report in `docs/report/` (now `(removed)`); no other real-looking secret in `backend/`, `docs/`, `.claude/`, `CLAUDE.md`; `settings.py` has no real default for any secret; `.gitignore` covers `.env`, `backend/media/`, `staticfiles/`, `venv/`; `.env.example` has empty values only.
   - Tests added: `CreateAdminCommandTests` in `accounts/tests.py`. Tests changed: none.
+- **Fix dependency upgrades A — 2026-11-23** (`requirements.txt` only; no code, settings, migration or URL change):
+  - Pins moved after Krys's `pip-audit` (2026-11-23): Django 5.2.12 → 5.2.17, sqlparse 0.5.5 → 0.6.0, urllib3 2.7.0 → 2.8.0, certifi 2026.5.20 → 2026.10.18, PyJWT 2.13.0 → 2.15.0, cryptography 48.0.0 → 50.0.0. All six were already in the file.
+  - Not done: part B (Pillow 13) and the dev tools (black, pip, setuptools, filelock).
+  - Rebuild/live picks the new pins up at its next deploy build (`pip install -r requirements.txt`); no migration.
+  - Open check: the Python version Render uses is not recorded in the repo; confirm cryptography 50 supports it.
+  - Tests added: none. Krys installs the pins, runs `pip check` and the full suite.
 
 ### FRONTEND BRANCH REVIEW
 - B3: review the `frontend/hannah-user` branch (owner templates) and decide, piece by piece, what to bring in and what to discard. It is no longer under active development. Check form field names and template tags against the current views; base_dashboard.html will conflict. [frontend]
