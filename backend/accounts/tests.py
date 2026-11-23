@@ -3834,3 +3834,46 @@ class CreateAdminCommandTests(TestCase):
         self.assertNotIn("add_argument", source)
         self.assertNotIn("environ", source)
         self.assertIn("getpass.getpass", source)
+
+
+class ResetLinkProtocolTests(TestCase):
+    """The reset email link uses https over HTTPS and http on local runserver."""
+
+    def setUp(self):
+        self.user = make_owner("ana@example.com", is_active=True)
+
+    def send_reset(self, **extra):
+        response = self.client.post(
+            reverse("forgot_password"), {"email": "ana@example.com"}, **extra
+        )
+        self.assertRedirects(
+            response, reverse("password_reset_done"), fetch_redirect_response=False
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        return mail.outbox[0].body
+
+    def link_in(self, body):
+        found = re.findall(r"https?://\S+/reset-password/\S+", body)
+        self.assertEqual(len(found), 1)
+        return found[0]
+
+    def test_over_https_the_link_starts_with_https(self):
+        body = self.send_reset(secure=True)
+        self.assertTrue(self.link_in(body).startswith("https://testserver/"))
+        self.assertNotIn("http://", body)
+
+    def test_over_plain_http_the_link_starts_with_http(self):
+        body = self.send_reset()
+        self.assertTrue(self.link_in(body).startswith("http://testserver/"))
+        self.assertNotIn("https://", body)
+
+    def test_the_link_has_the_uid_and_token_and_opens_the_confirm_page(self):
+        body = self.send_reset(secure=True)
+        link = self.link_in(body)
+        uid = urlsafe_base64_encode(force_bytes(self.user.pk))
+        self.assertTrue(link.startswith(f"https://testserver/reset-password/{uid}/"))
+        path = link.split("testserver", 1)[1]
+        _, set_url = reset_urls(self.user)
+        response = self.client.get(path, follow=True)
+        self.assertRedirects(response, set_url)
+        self.assertContains(response, "Make a new password")
