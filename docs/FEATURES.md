@@ -373,7 +373,7 @@ PENDING or CONFIRMED → CANCELLED
 | View full billing history: Unpaid and Paid bills only (cancelled ones are never shown); an Unpaid bill appears once it has at least one item | `complete` |
 | Bills page: a yellow "To pay" box with the total and count, the Unpaid bills (never hidden by a filter), or a green "You're all paid up" box; "No bills yet" page when there are none | `complete` (8b-8) |
 | Bills History filter: search by bill number or pet name plus a period (All time, This month, Last 3 months, this year, last year), a plain GET form, month groups, 25 a page | `complete` (8b-8) |
-| Bill page (read-only): banner (please pay at the clinic / paid on), pet, bill date, link to the visit, items, subtotal, discount, total, "Paid by"; "Something looks wrong?" line while Unpaid | `complete` (8b-8) |
+| Bill page (read-only): banner (please pay at the clinic / paid on), pet, bill date, link to the visit, items, subtotal, discount, total, "Paid by"; "Something looks wrong?" line while Unpaid, and "The clinic may still add items until you pay." while Unpaid | `complete` (8b-8) |
 | Save as PDF from the print window | `complete` |
 | Print bill (the button shows on a Paid bill) | `complete` (8b-8) |
 | Receive a notification when a bill is paid | `complete` |
