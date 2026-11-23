@@ -493,6 +493,7 @@ to needs-approval) and the appointments list.
 ### SMALL FIXES (no schema change), one commit each
 - **SECURITY** — `create_admin.py` hardcoded password: code fixed (asks with `getpass`, no literal) — Done 2026-11-23 (see "Fix create_admin getpass")
 - **OPEN (Krys, SECURITY)** — change the password of any admin made with the old command (local, staging, live) before go-live. The old value stays in git history. [no code]
+- **SEC-1 — 2026-11-23** (S3, S6 DONE; no migration): the password-reset email link now uses `{{ protocol }}://{{ domain }}` (https behind Render's proxy, http on local runserver); `SECURE_HSTS_SECONDS = 3600` added in the `if not DEBUG` block (no subdomains, no preload; raise it after staging works). Tests: accounts `ResetLinkProtocolTests`. Krys checks: `curl.exe -I https://<staging-domain>/login/` shows `strict-transport-security: max-age=3600`.
 - Normalize (lowercase) emails on save (walk-in, add-email, owner edit) — Done 2026-11-01 (3c-1)
 - Email data check (read-only, local and live): owner and admin login lowercase the typed email and look it up with an exact match (`User.objects.get(email=email)`), but walk-in, add-email and owner-edit saves did not lowercase before 3c-1, so existing rows may hold mixed-case emails that can't log in with a password (Google sign-in uses `iexact` and still works). Check with `User.objects.annotate(e=Lower("email")).exclude(email=F("e"))` and for case-only duplicates; plan a fix (data migration or `iexact` login lookups) only if rows turn up [backend]
 - Resend claim email (resend button on the owner detail page) — Done 2026-11-02 (4a-1, 4a-3)
@@ -593,6 +594,31 @@ to needs-approval) and the appointments list.
 - HealthArticle hard delete — Done 2026-11-16 (decided: unpublish only; built in 7a-3)
 - Double-booking approach (see above). Interim lock built (8a-1b): owner booking, owner reschedule, walk-in and admin move lock the ClinicSettings row; a DB constraint is still open.
 - `frontend/hannah-user`: which parts (if any) are worth keeping, and whether to discard the rest (see B3)
+
+---
+
+## Security audit 2026-11-23
+
+- S1 no lockout/throttle on owner and admin login: OPEN (High; needs decision: delay or lock, which shared store)
+- S2 old create_admin password in git history: OPEN (High until done; Krys must rotate every admin password)
+- S3 reset email link was `http://`: DONE (SEC-1)
+- S4 test-result files are public S3 URLs with guessable names: OPEN (Medium; private storage + random names; needs a migration and a backup)
+- S5 no throttle on forgot-password and register: OPEN (Medium; with S1)
+- S6 no HSTS: DONE (SEC-1; 3600 seconds, raise later)
+- S7 Python 3.10 end of life, Render and local are on 3.10.11: OPEN (Medium; blocks Pillow 13)
+- S8 no size/extension check on pet and owner photos: OPEN (Low/Medium)
+- S9 register message reveals existing emails; login timing differs for unknown email: OPEN (Low; decision)
+- S10 logs and `email_error` may hold personal data: OPEN (Low)
+- S11 leftover allauth pages under /accounts/: OPEN (Low; decision)
+- S12 default per-process cache: OPEN (Low now; needed for S1/S5)
+- S13 no Content-Security-Policy; three inline scripts: OPEN (Low; later)
+- S14 someone can register another person's email with their own password: OPEN (Low; decision)
+- S15 admin session lasts 2 weeks; reset and verify links 3 days: OPEN (Low; decision)
+- S16 admin check copy-pasted in about 73 views: OPEN (Low; `@admin_required`)
+- S17 black, flake8 and django-extensions ship to production: OPEN (Low; requirements-dev split)
+- S18 test files checked by extension only: OPEN (Low)
+
+Not checked (Krys): Render env vars; Supabase bucket public/listing and Data API / row-level security; Brevo SPF/DKIM; Google redirect URIs; `clearsessions` and unverified-account cleanup not scheduled.
 
 ---
 
