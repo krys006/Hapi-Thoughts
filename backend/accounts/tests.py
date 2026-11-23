@@ -1,6 +1,7 @@
 import datetime
 import re
 from html.parser import HTMLParser
+from io import StringIO
 from pathlib import Path
 from unittest import mock
 
@@ -15,6 +16,8 @@ from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.cache import cache
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.db import connection
 from django.template import Context, Template, engines
 from django.template.loader import get_template, render_to_string
@@ -3753,3 +3756,81 @@ class OwnerSwapStatesIncludeTests(SimpleTestCase):
                 self.assertIn("group/swap", tag)
                 self.assertIn('aria-live="polite"', tag)
                 self.assertIn('hx-history="false"', tag)
+
+
+class CreateAdminCommandTests(TestCase):
+    """create_admin asks for the email and the password; none is in the code."""
+
+    GOOD = "Quartz-lantern-47x"
+    EMAIL = "new.admin@example.com"
+
+    def run_command(self, typed_email, *passwords):
+        out, err = StringIO(), StringIO()
+        with mock.patch("builtins.input", return_value=typed_email), mock.patch(
+            "getpass.getpass", side_effect=list(passwords)
+        ):
+            call_command("create_admin", stdout=out, stderr=err)
+        return out.getvalue() + err.getvalue()
+
+    def refused(self, typed_email, *passwords):
+        with self.assertRaises(CommandError) as caught:
+            self.run_command(typed_email, *passwords)
+        return str(caught.exception)
+
+    def test_a_good_password_typed_twice_creates_the_admin(self):
+        self.run_command("  New.Admin@Example.COM ", self.GOOD, self.GOOD)
+        user = User.objects.get()
+        self.assertEqual(user.email, self.EMAIL)
+        self.assertEqual(user.role, User.ADMIN)
+        self.assertTrue(user.is_staff)
+        self.assertTrue(user.is_onboarded)
+        self.assertTrue(user.check_password(self.GOOD))
+
+    def test_mismatched_passwords_create_nothing(self):
+        message = self.refused(self.EMAIL, self.GOOD, "Quartz-lantern-48y")
+        self.assertIn("do not match", message)
+        self.assertEqual(User.objects.count(), 0)
+
+    def test_an_empty_password_creates_nothing(self):
+        message = self.refused(self.EMAIL, "")
+        self.assertIn("cannot be empty", message)
+        self.assertEqual(User.objects.count(), 0)
+
+    def test_a_password_the_validators_refuse_creates_nothing(self):
+        message = self.refused(self.EMAIL, "12345678", "12345678")
+        self.assertIn("not allowed", message)
+        self.assertIn("too common", message)
+        self.assertEqual(User.objects.count(), 0)
+
+    def test_an_existing_email_in_any_case_is_refused_and_left_alone(self):
+        old = "Existing-pass-91z"
+        User.objects.create_user(username="someone", email=self.EMAIL, password=old)
+        message = self.refused("NEW.ADMIN@example.com", self.GOOD, self.GOOD)
+        self.assertIn("already exists", message)
+        self.assertEqual(User.objects.count(), 1)
+        user = User.objects.get()
+        self.assertTrue(user.check_password(old))
+        self.assertFalse(user.check_password(self.GOOD))
+        self.assertNotEqual(user.role, User.ADMIN)
+
+    def test_no_output_or_error_shows_the_password(self):
+        shown = self.run_command(self.EMAIL, self.GOOD, self.GOOD)
+        self.assertIn(self.EMAIL, shown)
+        self.assertNotIn(self.GOOD, shown)
+        for typed in (("", ""), (self.GOOD, "Quartz-lantern-48y"), ("12345678",) * 2):
+            with self.subTest(typed=typed[0] != ""):
+                User.objects.all().delete()
+                message = self.refused(self.EMAIL, *typed)
+                for secret in typed:
+                    if secret:
+                        self.assertNotIn(secret, message)
+
+    def test_the_source_has_no_password_literal_and_no_password_option(self):
+        source = Path(
+            settings.BASE_DIR, "accounts", "management", "commands", "create_admin.py"
+        ).read_text(encoding="utf-8")
+        self.assertIsNone(re.search(r"password\s*=\s*[\"']", source))
+        self.assertNotIn("--password", source)
+        self.assertNotIn("add_argument", source)
+        self.assertNotIn("environ", source)
+        self.assertIn("getpass.getpass", source)

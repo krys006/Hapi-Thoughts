@@ -74,9 +74,9 @@ Last run 2026-10-16; the full protocol is in HANDOFF_ARCHIVE.md §2.
   runserver console), `USE_S3=False` (uploads go to `backend/media/`,
   gitignored).
 - Admin account: `createsuperuser` gives `role=pet_owner` and cannot log in
-  at `/admin-login/`. Create the admin in `manage.py shell` instead, with
-  `User.objects.create_user(..., role=User.ADMIN, is_onboarded=True, is_staff=True)`
-  and `getpass()` for the password.
+  at `/admin-login/`. Run `python manage.py create_admin`: it now asks for
+  the email and the password (twice, hidden, checked by the password
+  validators) and refuses an email that already exists.
 - Google sign-in: credentials come from settings (`SOCIALACCOUNT_PROVIDERS`
   `APP`), so a fresh DB needs no SocialApp row. Do not add one — it causes
   `MultipleObjectsReturned`.
@@ -491,7 +491,8 @@ to needs-approval) and the appointments list.
 - Every slice: rebuild `app.css` before committing; test at 150% zoom; re-run collectstatic locally once a template references `app.css` or vendored HTMX (tests use the manifest).
 
 ### SMALL FIXES (no schema change), one commit each
-- **SECURITY** — `accounts/management/commands/create_admin.py` has a hardcoded password committed to a public repo. Fix: prompt for the password with `getpass` instead of a literal. Must be fixed before production, and any admin created with this command must get a new password. [backend]
+- **SECURITY** — `create_admin.py` hardcoded password: code fixed (asks with `getpass`, no literal) — Done 2026-11-23 (see "Fix create_admin getpass")
+- **OPEN (Krys, SECURITY)** — change the password of any admin made with the old command (local, staging, live) before go-live. The old value stays in git history. [no code]
 - Normalize (lowercase) emails on save (walk-in, add-email, owner edit) — Done 2026-11-01 (3c-1)
 - Email data check (read-only, local and live): owner and admin login lowercase the typed email and look it up with an exact match (`User.objects.get(email=email)`), but walk-in, add-email and owner-edit saves did not lowercase before 3c-1, so existing rows may hold mixed-case emails that can't log in with a password (Google sign-in uses `iexact` and still works). Check with `User.objects.annotate(e=Lower("email")).exclude(email=F("e"))` and for case-only duplicates; plan a fix (data migration or `iexact` login lookups) only if rows turn up [backend]
 - Resend claim email (resend button on the owner detail page) — Done 2026-11-02 (4a-1, 4a-3)
@@ -524,6 +525,10 @@ to needs-approval) and the appointments list.
 - DATA_MODELS says the admin gets an EMAIL_FAILED notification when an email fails; nothing creates it and `related_notification` is never set. Decide: build it or fix the doc. [backend]
 - Read-only count on live of vaccinations wrongly flagged Corrected by the old edit bug (before 5a-1 a blank weight or next date counted as a clinical change, so saving without changes set `is_corrected`). Count only; any data fix needs its own plan (from `medical_v1_decisions.md`) [backend]
 - Walk-in same-day cutoff bug — Done 2026-11-01 (3c-1, `walk_in=True`)
+- **Fix create_admin getpass — 2026-11-23** (backend only; no migration, no URL):
+  - `create_admin` no longer has a password in the code. It asks for the email (`input()`, stripped and lowercased) and the password (`getpass.getpass`, twice), checks it with `validate_password`, refuses an email that exists in any letter case (never changes an existing user), and creates the admin as before (role ADMIN, `is_staff`, `is_onboarded`, username `admin`; if that username is taken it refuses). The password is not printed anywhere.
+  - Scan (no value recorded): one hardcoded password found, only in the command and one untracked report in `docs/report/` (now `(removed)`); no other real-looking secret in `backend/`, `docs/`, `.claude/`, `CLAUDE.md`; `settings.py` has no real default for any secret; `.gitignore` covers `.env`, `backend/media/`, `staticfiles/`, `venv/`; `.env.example` has empty values only.
+  - Tests added: `CreateAdminCommandTests` in `accounts/tests.py`. Tests changed: none.
 
 ### FRONTEND BRANCH REVIEW
 - B3: review the `frontend/hannah-user` branch (owner templates) and decide, piece by piece, what to bring in and what to discard. It is no longer under active development. Check form field names and template tags against the current views; base_dashboard.html will conflict. [frontend]
