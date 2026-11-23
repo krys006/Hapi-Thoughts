@@ -1,0 +1,27 @@
+{% extends "layouts/owner.html" %}
+
+{% block title %}Services and prices — Hapi Vet{% endblock %}
+
+{# Back bar by ?from= (the view picks back_url and back_label; the Account tab stays lit). Read only: no search, no script. #}
+{% block top_bar %}{% include "layouts/owner_parts/back_bar.html" with url=back_url label=back_label %}{% endblock %}
+
+{% block content %}
+{% if groups %}
+  <div class="space-y-6">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">Services and prices</h1>
+      <p class="mt-1 text-base text-gray-600">What Hapi Tutz offers. You pay in cash at the clinic.</p>
+    </div>
+    {% if has_range %}
+      <div class="flex gap-3 rounded-2xl bg-blue-50 p-4 text-base text-blue-900 ring-1 ring-blue-200">{% include "components/icon.html" with name="info" class="mt-0.5 size-5 shrink-0 text-blue-700" %}<p>Some prices are a range. Dr. Aga tells you the final price after checking your pet.</p></div>
+    {% endif %}
+    {% for group in groups %}
+      {% include "owner/services_parts/group.html" %}
+    {% endfor %}
+    {# The page's one violet button #}
+    <a href="{% url 'owner_book_appointment' %}" class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm hover:bg-violet-700">{% include "components/icon.html" with name="plus" class="size-6 shrink-0" %}Book a visit</a>
+  </div>
+{% else %}
+  {% include "owner/services_parts/empty.html" %}
+{% endif %}
+{% endblock %}

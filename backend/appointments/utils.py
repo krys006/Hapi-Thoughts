@@ -247,19 +247,30 @@ def vet_initials(name):
     return "".join(w[0] for w in words[:2]).upper()
 
 
+def clinic_phone_link(clinic):
+    """The clinic phone for a tel: link: digits and "+" only ("" for none)."""
+    if clinic is None:
+        return ""
+    return "".join(c for c in clinic.contact_number if c.isdigit() or c == "+")
+
+
 def owner_clinic_info_context(clinic, today):
-    """Context for the owner Clinic info page (one query: blocked dates).
+    """Context for the owner Clinic info page (two queries: blocked dates,
+    and whether any service is Offered for the Services and prices card).
     clinic may be None (no settings row yet)."""
+    # Local import: billing.utils imports this module
+    from billing.utils import owner_services_exist
+
     if clinic is None:
         return {"clinic": None}
     holidays = BlockedDate.objects.filter(date__gte=today).exists()
-    phone = "".join(c for c in clinic.contact_number if c.isdigit() or c == "+")
     return {
         "clinic": clinic,
         "hours_line": clinic_hours_line(clinic),
         "closed_line": closed_days_line(clinic, holidays),
-        "phone_link": phone,
+        "phone_link": clinic_phone_link(clinic),
         "vet_initials": vet_initials(clinic.veterinarian_name),
+        "has_services": owner_services_exist(),
     }
 
 

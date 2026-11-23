@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Services and prices + bill follow-ups — mockup v2</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }</style>
+</head>
+<body class="bg-gray-200 text-gray-900">
+<header class="mx-auto max-w-7xl px-6 pt-8">
+  <h1 class="text-2xl font-bold">Services and prices + bill follow-ups — mockup v2 (2026-11-23)</h1>
+  <p class="mt-1 text-base text-gray-700">Decisions from Krys: Account row <b>yes</b> · ₱0.00 shows <b>"Ask the clinic"</b> · "bill being prepared" card on the visit page <b>yes</b> · bill button <b>option A</b> (the owner sees a bill once it has an item; the button is only a nudge). Yellow notes are for review only.</p>
+  <nav class="mt-3 flex flex-wrap gap-3 text-base font-semibold text-blue-700">
+    <a href="#a">A · Owner: Services and prices (frames 1–5)</a>
+    <a href="#b">B · Owner: bill being prepared (frames 6–7)</a>
+    <a href="#c">C · Admin: Send bill / Remind to pay (frames 8–11)</a>
+  </nav>
+</header>
+
+<h2 id="a" class="mx-auto max-w-7xl px-6 pt-8 text-xl font-bold">A · Owner: Services and prices</h2>
+<div id="partA" class="mx-auto flex max-w-7xl flex-wrap gap-8 px-6 py-6"></div>
+<h2 id="b" class="mx-auto max-w-7xl px-6 pt-4 text-xl font-bold">B · Owner: bill being prepared (visit page)</h2>
+<div id="partB" class="mx-auto flex max-w-7xl flex-wrap gap-8 px-6 py-6"></div>
+<h2 id="c" class="mx-auto max-w-7xl px-6 pt-4 text-xl font-bold">C · Admin: Send bill / Remind to pay (bill page)</h2>
+<div id="partC" class="mx-auto flex max-w-7xl flex-col gap-10 px-6 py-6"></div>
+
+<script>
+const P = {
+  left:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  chev:'<path d="m9 18 6-6-6-6"/>',
+  tag:'<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
+  phone:'<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
+  mail:'<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
+  clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  pin:'<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  calplus:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="M12 14v4"/><path d="M10 16h4"/>',
+  home:'<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/>',
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  cal:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  book:'<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>',
+  bell:'<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+  logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  checkCircle:'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  file:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  hourglass:'<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>',
+  send:'<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  percent:'<path d="M19 5 5 19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
+  printer:'<path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/>',
+  ban:'<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
+  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  eye:'<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
+};
+const ic = (n, c='size-5') => `<svg class="${c} shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+const HL = 'outline outline-4 outline-offset-4 outline-yellow-300';
+
+const backBar = label => `
+<div class="sticky top-0 z-10 flex h-14 items-center border-b border-gray-200 bg-white px-2">
+  <a class="flex min-h-11 items-center gap-2 rounded-lg px-2 text-base font-semibold text-blue-600">${ic('left')}Back to ${label}</a>
+</div>`;
+const tabs = active => {
+  const t = [['home','Home'],['paw','Pets'],['cal','Visits'],['receipt','Bills'],['user','Account']];
+  return `<nav class="mt-auto grid grid-cols-5 border-t border-gray-200 bg-white pb-2 pt-1">${t.map(([i,l]) =>
+    `<a class="flex min-h-14 flex-col items-center justify-center gap-0.5 text-sm ${l===active?'font-semibold text-violet-700':'text-gray-600'}">${ic(i, l===active?'size-6 text-violet-700':'size-6')}${l}</a>`).join('')}</nav>`;
+};
+const notes = n => `<ul class="mt-3 list-disc space-y-1 rounded-xl bg-yellow-50 p-4 pl-8 text-sm text-gray-800 ring-1 ring-yellow-300">${n.map(x=>`<li>${x}</li>`).join('')}</ul>`;
+const phone = (title, body, n) => `
+<figure class="w-[390px]">
+  <figcaption class="mb-2 text-base font-bold">${title}</figcaption>
+  <div class="flex min-h-[780px] flex-col overflow-hidden rounded-[2rem] border-8 border-gray-900 bg-gray-50 shadow-xl">${body}</div>
+  ${notes(n)}
+</figure>`;
+
+/* ================= A · Services ================= */
+const infoRow = (icon, label, value, extra='') => `
+<div class="flex items-start gap-4 py-4">
+  <span class="grid size-10 shrink-0 place-content-center rounded-xl bg-gray-100 text-gray-700">${ic(icon)}</span>
+  <div class="flex-1"><p class="text-base text-gray-600">${label}</p><p class="text-base font-semibold">${value}</p>${extra}</div>
+</div>`;
+
+const f1 = phone('1 · Clinic info: new link card', backBar('Account') + `
+<main class="flex-1 space-y-5 px-4 py-5">
+  <div class="flex items-center gap-4">
+    <span class="grid size-16 shrink-0 place-content-center rounded-2xl bg-violet-600 text-white">${ic('paw','size-8')}</span>
+    <h1 class="text-2xl font-bold leading-7">Hapi Tutz Vet. Supplies</h1>
+  </div>
+  <div class="grid grid-cols-2 gap-3">
+    <a class="flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm">${ic('phone')}Call</a>
+    <a class="flex min-h-14 items-center justify-center gap-2 rounded-2xl border border-gray-300 bg-white text-lg font-medium text-gray-800">${ic('mail')}Email</a>
+  </div>
+  <a class="flex min-h-16 items-center gap-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm ${HL}">
+    <span class="grid size-12 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-700">${ic('tag','size-6')}</span>
+    <span class="flex-1"><span class="block text-lg font-bold">Services and prices</span><span class="block text-base text-gray-600">What the clinic offers and what each one costs</span></span>
+    <span class="text-gray-500">${ic('chev')}</span>
+  </a>
+  <section class="divide-y divide-gray-100 rounded-2xl border border-gray-200 bg-white px-4 shadow-sm">
+    ${infoRow('clock','Open','Mon to Fri, 8:00 AM to 5:00 PM','<p class="mt-1 text-base text-gray-600">Closed Saturday and Sunday</p>')}
+    ${infoRow('phone','Phone','0954 288 9774')}
+    ${infoRow('pin','Address','Bognuyan, Gasan, Marinduque')}
+  </section>
+  <section class="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"><h2 class="text-lg font-bold">Your vet</h2><p class="mt-2 text-base text-gray-600">… (unchanged)</p></section>
+</main>` + tabs('Account'), [
+  'New: the card with the yellow outline (the outline is for review only). The rest of the page is unchanged.',
+  'Not violet, so <b>Call</b> stays the only violet button. Shown only when at least one service is Offered.',
+  'Link: <code>owner_services?from=clinic</code>.',
+]);
+
+const svc = (name, price, desc, range=false) => `
+<li class="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+  <h3 class="text-lg font-bold">${name}</h3>
+  <p class="mt-1 flex flex-wrap items-center gap-2">
+    <span class="text-lg font-semibold text-gray-900">${price}</span>
+    ${range ? '<span class="rounded-full bg-gray-100 px-2.5 py-0.5 text-sm font-medium text-gray-700 ring-1 ring-gray-300">Price range</span>' : ''}
+  </p>
+  ${desc ? `<p class="mt-2 text-base text-gray-700">${desc}</p>` : ''}
+</li>`;
+const group = (title, items) => `<section class="space-y-3"><h2 class="text-lg font-bold text-gray-800">${title}</h2><ul class="space-y-3">${items}</ul></section>`;
+const head = `
+  <div><h1 class="text-2xl font-bold">Services and prices</h1><p class="mt-1 text-base text-gray-600">What Hapi Tutz offers. You pay in cash at the clinic.</p></div>
+  <div class="flex gap-3 rounded-2xl bg-blue-50 p-4 text-base text-blue-900 ring-1 ring-blue-200">${ic('info','size-5 mt-0.5 text-blue-700')}<p>Some prices are a range. Dr. Aga tells you the final price after checking your pet.</p></div>`;
+
+const f2 = phone('2 · Services and prices (top)', backBar('Clinic info') + `
+<main class="flex-1 space-y-6 px-4 py-5">
+  ${head}
+  ${group('Check-ups', svc('Consultation','₱300.00','A full check of your pet by Dr. Aga. Bring any past records you have.'))}
+  ${group('Vaccines and deworming', svc('Anti-rabies vaccine','₱250.00','Once a year for dogs and cats from 3 months old.') + svc('Deworming','₱150.00 to ₱400.00','The price depends on your pet\'s weight.', true))}
+</main>` + tabs('Account'), [
+  'Offered services only. Groups by Category (letter case and outer spaces ignored), A to Z; services A to Z inside; no category → last, under "Other services"; no categories at all → no headings.',
+  'One price "₱300.00"; a range "₱150.00 to ₱400.00" + gray "Price range" tag. Full description with its line breaks.',
+  'Back bar follows <code>?from=</code>: "Back to Clinic info" (from=clinic) or "Back to Account" (from=account, and the default). Account tab lit.',
+]);
+
+const f3 = phone('3 · Services and prices (end of the list)', backBar('Clinic info') + `
+<main class="flex-1 space-y-6 px-4 py-5">
+  ${group('Surgery', svc('Spay or neuter','₱1,500.00 to ₱3,500.00','Your pet stays at the clinic for the day. Do not feed your pet after 10 PM the night before.', true))}
+  ${group('Other services', svc('Nail trim','₱100.00','') + svc('Wound cleaning','Ask the clinic','The price depends on the wound.'))}
+  <a class="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 text-lg font-semibold text-white shadow-sm">${ic('calplus')}Book a visit</a>
+</main>` + tabs('Account'), [
+  'One violet button: <b>Book a visit</b> (booking step 1).',
+  '<b>Settled:</b> a One price service at ₱0.00 shows <b>"Ask the clinic"</b> (no "Price range" tag).',
+  'No search box.',
+]);
+
+const f4 = phone('4 · No services offered yet', backBar('Account') + `
+<main class="flex-1 space-y-5 px-4 py-5">
+  <h1 class="text-2xl font-bold">Services and prices</h1>
+  <div class="rounded-2xl border border-dashed border-gray-300 bg-white p-6 text-center">
+    <span class="mx-auto grid size-14 place-content-center rounded-2xl bg-violet-50 text-violet-700">${ic('tag','size-7')}</span>
+    <h2 class="mt-3 text-lg font-bold">No services listed yet</h2>
+    <p class="mt-1 text-base text-gray-600">Call the clinic to ask what a visit costs.</p>
+    <a class="mx-auto mt-4 flex min-h-12 w-fit items-center gap-2 rounded-xl border border-gray-300 bg-white px-5 text-base font-medium text-gray-800">${ic('phone')}Call the clinic</a>
+  </div>
+</main>` + tabs('Account'), [
+  'Only reached by typing the address: the Clinic info card and the Account row are hidden while nothing is Offered.',
+  'Outline Call button only when a phone number is saved. No violet button.',
+]);
+
+const row = (icon, label, hl=false) => `
+<a class="flex min-h-14 items-center gap-4 px-4 py-3 ${hl?'outline outline-4 -outline-offset-4 outline-yellow-300':''}">
+  <span class="grid size-10 shrink-0 place-content-center rounded-xl bg-gray-100 text-gray-700">${ic(icon)}</span>
+  <span class="flex-1 text-base font-semibold">${label}</span><span class="text-gray-500">${ic('chev')}</span></a>`;
+const f5 = phone('5 · Account: new row under "The clinic"', `
+<div class="flex h-16 items-center justify-between border-b border-gray-200 bg-white px-4">
+  <span class="flex items-center gap-2 text-lg font-bold"><span class="grid size-9 place-content-center rounded-xl bg-violet-600 text-white">${ic('paw')}</span>Hapi Tutz</span>
+  <span class="grid size-11 place-content-center text-gray-700">${ic('bell','size-6')}</span>
+</div>
+<main class="flex-1 space-y-5 px-4 py-5">
+  <h1 class="text-2xl font-bold">Account</h1>
+  <p class="text-base text-gray-600">… profile card and "My account" group unchanged …</p>
+  <section><h2 class="mb-2 text-base font-semibold text-gray-700">The clinic</h2>
+    <div class="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+      ${row('clock','Clinic info')}${row('tag','Services and prices', true)}${row('book','Health library')}
+    </div></section>
+  <a class="flex min-h-14 items-center gap-4 rounded-2xl border border-gray-200 bg-white px-4 text-base font-semibold text-red-700 shadow-sm">${ic('logout')}Log out</a>
+</main>` + tabs('Account'), [
+  '<b>Settled:</b> a row between Clinic info and Health library, same <code>link_row.html</code> as the others, icon <code>tag</code> (already in icon.html).',
+  'Link: <code>owner_services?from=account</code>. Hidden while nothing is Offered.',
+]);
+
+/* ================= B · Bill being prepared ================= */
+const linkCard = (icon, tone, title, sub) => `
+<a class="flex items-center gap-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+  <span class="grid size-11 shrink-0 place-content-center rounded-xl ${tone}">${ic(icon,'size-6')}</span>
+  <span class="flex-1"><span class="block text-base font-semibold">${title}</span><span class="block text-base text-gray-600">${sub}</span></span>
+  ${ic('chev','size-5 text-gray-400')}</a>`;
+const preparing = (line2, line3) => `
+<div class="flex items-start gap-4 rounded-2xl border border-dashed border-gray-300 bg-white p-4 ${HL}">
+  <span class="grid size-11 shrink-0 place-content-center rounded-xl bg-gray-100 text-gray-700">${ic('hourglass','size-6')}</span>
+  <div class="flex-1">
+    <p class="text-base font-semibold">Your bill is being prepared</p>
+    ${line2}
+    <p class="mt-1 text-base text-gray-600">${line3}</p>
+  </div>
+</div>`;
+const visitTop = `
+  <div class="flex items-center gap-4">
+    <span class="grid size-16 shrink-0 place-content-center rounded-2xl bg-violet-50 text-violet-700 ring-1 ring-violet-200">${ic('paw','size-8')}</span>
+    <div><h1 class="text-2xl font-bold leading-7">Bantay · Consultation</h1><p class="text-base text-gray-600">Today, Mon, Nov 23 at 2:00 PM</p></div>
+  </div>
+  <div class="flex items-start gap-3 rounded-2xl border border-green-300 bg-green-50 p-4 text-green-900">${ic('checkCircle','mt-0.5 size-5')}
+    <div><p class="text-base font-bold">Visit done</p><p class="text-base">Thank you for coming in. The vet's notes and the bill are below.</p></div></div>`;
+const details = `<section class="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"><h2 class="text-lg font-bold">Visit details</h2><p class="mt-2 text-base text-gray-600">… (unchanged)</p></section>`;
+
+const f6 = phone('6 · Visit done, range-price service, bill still empty', backBar('Visits') + `
+<main class="flex-1 space-y-5 px-4 py-5">
+  ${visitTop}
+  ${linkCard('file','bg-violet-50 text-violet-700','Vet\'s notes and medicines','What Dr. Aga found and what to give Bantay')}
+  ${preparing('<p class="mt-1 text-base"><span class="text-gray-700">Consultation:</span> <span class="font-semibold">₱300.00 to ₱800.00</span></p>',
+     'Dr. Aga sets the final price after checking Bantay. You\'ll see the bill here once it is ready.')}
+  ${details}
+</main>` + tabs('Visits'), [
+  'Shown in the place of the bill link card, only when: the visit is Completed, its bill is Unpaid and has <b>no items yet</b>. Not a link (there is no bill page to open yet). Outline is for review only.',
+  'The range line comes from the visit\'s service (its lowest and highest price), read at page time. Nothing is saved; no migration.',
+  'As soon as the admin adds the first item, this card is replaced by the normal "Bill HV-2026-0012 · Unpaid · ₱650.00" link card (the rule that already exists).',
+  'No card at all when the visit has no bill (archived owner/pet, or a visit completed before auto-bill), or the bill was cancelled.',
+]);
+
+const f7 = phone('7 · Same, visit with no service ("Not sure yet")', backBar('Visits') + `
+<main class="flex-1 space-y-5 px-4 py-5">
+  ${visitTop.replace('Bantay · Consultation','Bantay · Not sure yet')}
+  ${preparing('', 'Dr. Aga is adding what was done today. You\'ll see the bill here once it is ready.')}
+  ${details}
+</main>` + tabs('Visits'), [
+  'No service, so no price line. A service that is a One price but no longer Offered (so auto-bill added nothing) uses this same wording; a One price at ₱0.00 also gets no price line.',
+  'Only on the visit page. The Bills tab and dashboard still show nothing until the bill has an item (decision 7 of auto-bill, unchanged).',
+]);
+
+/* ================= C · Admin ================= */
+const BTN = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 py-2 text-base font-medium';
+const OUT = `${BTN} border border-gray-300 bg-white text-gray-800`;
+const VIO = `${BTN} bg-violet-600 text-white font-semibold`;
+const actions = (variant) => {
+  const send = {
+    first: `<button class="${OUT} w-full ${HL}">${ic('send')}Send bill to Ana Cruz</button>
+            <p class="text-sm text-gray-700">Not sent yet. Ana can already see it in her Bills page.</p>`,
+    again: `<button class="${OUT} w-full ${HL}">${ic('send')}Remind Ana Cruz to pay</button>
+            <p class="text-sm text-gray-700">Last sent: Today, 3:58 PM</p>`,
+    noacct:`<div class="rounded-lg border border-yellow-300 bg-yellow-50 p-3 text-base text-yellow-900 ${HL}">
+              <p class="font-semibold">Ana Cruz can't get it in the app.</p>
+              <p class="mt-1">She has no account yet. Call her instead: 0917 555 0123.</p></div>`,
+  }[variant];
+  return `
+<section class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+  <h2 class="text-lg font-bold">Actions</h2>
+  <div class="mt-4 space-y-3">
+    <button class="${VIO} w-full">${ic('check')}Mark as paid</button>
+    ${send}
+    <div class="border-t border-gray-100 pt-3 space-y-3">
+      <button class="${OUT} w-full">${ic('plus')}Add item</button>
+      <button class="${OUT} w-full">${ic('percent')}Add discount</button>
+      <button class="${OUT} w-full">${ic('printer')}Print bill</button>
+    </div>
+    <button class="${BTN} w-full border border-red-300 bg-white text-red-700">${ic('ban')}Cancel bill</button>
+  </div>
+</section>`;
+};
+const adminPage = (variant, overlay='', flash='') => `
+<div class="relative overflow-hidden rounded-2xl border border-gray-300 bg-gray-50 p-8 shadow-xl" style="width:1100px">
+  ${flash}
+  <a class="text-base font-semibold text-blue-600">← Back to Billing</a>
+  <div class="mt-3 flex items-center gap-4">
+    <span class="grid size-14 place-content-center rounded-2xl bg-violet-50 text-violet-700">${ic('receipt','size-7')}</span>
+    <div><h1 class="flex items-center gap-3 text-2xl font-bold">Bill HV-2026-0012 <span class="rounded-full bg-yellow-100 px-3 py-0.5 text-sm font-medium text-yellow-800">Unpaid</span></h1>
+    <p class="text-base text-gray-600">Billed to Ana Cruz · for Bantay · From the visit Today at 2:00 PM</p></div>
+  </div>
+  <div class="mt-6 grid grid-cols-3 items-start gap-6">
+    <section class="col-span-2 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+      <h2 class="text-lg font-bold">Items (2)</h2>
+      <div class="mt-3 divide-y divide-gray-100 text-base">
+        <div class="flex justify-between py-3"><span>Consultation <span class="text-gray-600">× 1</span></span><span>₱500.00</span></div>
+        <div class="flex justify-between py-3"><span>Amoxicillin 500mg <span class="text-gray-600">× 3</span></span><span>₱150.00</span></div>
+        <div class="flex justify-between py-3 text-lg font-bold"><span>Total</span><span>₱650.00</span></div>
+      </div>
+    </section>
+    <div class="space-y-6">${actions(variant)}
+      <section class="rounded-xl border border-gray-200 bg-white p-5 text-base text-gray-700 shadow-sm"><p>Created Today, 2:31 PM</p><p class="mt-1">Payment: cash</p>
+      <p class="mt-3 flex items-start gap-2 text-sm">${ic('eye','mt-0.5 size-4')}Ana Cruz sees it as Unpaid in their Bills page.</p></section>
+    </div>
+  </div>
+  ${overlay}
+</div>`;
+const fig = (title, html, n) => `<figure><figcaption class="mb-2 text-base font-bold">${title}</figcaption>${html}<div class="max-w-[1100px]">${notes(n)}</div></figure>`;
+
+const dialog = `
+<div class="absolute inset-0 flex items-start justify-center bg-gray-900/50 p-8 pt-24">
+  <div class="w-full max-w-lg rounded-2xl bg-white p-7 shadow-xl">
+    <h2 class="text-xl font-bold">Send this bill to Ana Cruz?</h2>
+    <p class="mt-3 text-base">Total to pay: <span class="text-2xl font-bold">₱650.00</span></p>
+    <p class="mt-2 text-base text-gray-700">Ana will get a notification in the app and an email at ana.cruz@gmail.com.</p>
+    <p class="mt-2 text-base text-gray-700">You can still add items after sending.</p>
+    <div class="mt-6 flex justify-end gap-3">
+      <button class="${OUT} min-h-12 font-semibold ring-2 ring-violet-400 ring-offset-2">Go back</button>
+      <button class="${VIO} min-h-12">${ic('send')}Yes, send it</button>
+    </div>
+  </div>
+</div>`;
+const flash = `<div class="mb-6 flex items-start gap-3 rounded-xl border border-green-300 bg-green-50 px-5 py-3 text-base text-green-900">${ic('checkCircle','mt-0.5 size-5')}
+  <p class="flex-1"><b>Bill sent to Ana Cruz.</b> She was told the total is ₱650.00.</p><button class="${OUT} min-h-10 px-3 py-1.5">${ic('x','size-4')}Close</button></div>`;
+
+const c8 = fig('8 · Unpaid bill with items, not sent yet', adminPage('first'), [
+  'New outline button under <b>Mark as paid</b> (which stays the one violet button). Shown only while the bill is <b>Unpaid and has at least one item</b>, and the owner is not archived.',
+  'The line under it says the owner can already see the bill (option A): sending is a nudge, not "publishing".',
+  'Empty bill: no button (nothing to send yet). Paid / Cancelled: no button (bill is locked).',
+]);
+const c9 = fig('9 · Dialog: Send bill', adminPage('first', dialog), [
+  'Every action asks first (senior rule). "Go back" is focused. The email line changes to "in the app only (no email on file)" when the owner has no email, or "in the app only (Ana turned off bill emails)" when her Bills email switch is off.',
+  'Owner notification (compact style of 8a-2b): title <b>"Bill ready: ₱650.00"</b>, message "Bantay · HV-2026-0012. Please pay in cash at the clinic.", opens the bill page. Reminder: title <b>"Reminder: bill to pay ₱650.00"</b>, same message.',
+  'Email: subject "Bill HV-2026-0012 for Bantay — Hapi Vet" (the paid email already uses this), body with the total and "Please pay in cash at the clinic." It follows the owner\'s <b>Bills</b> email switch, whose text becomes "When the clinic sends a bill or records your payment."',
+]);
+const c10 = fig('10 · After sending: the button becomes "Remind … to pay"', adminPage('again', '', flash), [
+  'Flash: "Bill sent to Ana Cruz. She was told the total is ₱650.00." (reminder: "Reminder sent to Ana Cruz.")',
+  '"Last sent: Today, 3:58 PM" so Dr. Aga doesn\'t send twice by mistake. <b>Where this time comes from is the open question for the Step 0 audit</b> (notifications aren\'t linked to a bill today). If it needs a new field, that becomes a written migration plan for you to approve before anything is built.',
+  'No limit on how often, but a second send within 1 minute is refused with "Already sent a moment ago." (a double click).',
+]);
+const c11 = fig('11 · Owner with no account (walk-in, never logged in)', adminPage('noacct'), [
+  'An owner who can\'t log in (no email, or never set a password) can\'t see the bill in the app, so instead of the button: the yellow box with the phone number (the <code>reminder_contact.html</code> pattern from the vaccination reminders).',
+  'An owner with an account but no email still gets the button (in-app only).',
+]);
+
+document.getElementById('partA').innerHTML = f1 + f2 + f3 + f4 + f5;
+document.getElementById('partB').innerHTML = f6 + f7;
+document.getElementById('partC').innerHTML = c8 + c9 + c10 + c11;
+</script>
+</body>
+</html>

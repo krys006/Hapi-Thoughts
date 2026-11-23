@@ -97,6 +97,7 @@ OWNER_TABS = {
         "owner_profile_edit",
         "owner_notification_preferences",
         "clinic_info",
+        "owner_services",
         "owner_health_article_list",
         "owner_health_article_detail",
     ],

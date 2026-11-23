@@ -404,7 +404,11 @@ def owner_account(request):
     """
     if request.user.role != User.PET_OWNER:
         return redirect("admin_dashboard")
-    return render(request, "owner/account/index.html", {"owner": request.owner})
+    # Local import: the row shows only while a service is Offered
+    from billing.utils import owner_services_exist
+
+    context = {"owner": request.owner, "has_services": owner_services_exist()}
+    return render(request, "owner/account/index.html", context)
 
 
 @login_required

@@ -8588,7 +8588,8 @@ class ClosedDaysLineTests(SimpleTestCase):
 class OwnerClinicInfoPageTests(AppointmentTestBase):
     """Slice 8b-9b: the owner's Clinic info on layouts/owner.html (frame 5)."""
 
-    PAGE_QUERIES = 4  # session, user, settings, blocked dates (estimated 5)
+    # session, user, settings, blocked dates, any service Offered (was 4)
+    PAGE_QUERIES = 5
 
     def setUp(self):
         super().setUp()
@@ -9688,3 +9689,67 @@ class BillWordingTests(AppointmentTestBase):
             self._messages(response),
             ["Marked Bantay's appointment on today at 9:00 AM as completed."],
         )
+
+
+class OwnerClinicInfoServicesCardTests(AppointmentTestBase):
+    """The Services and prices card on the owner's Clinic info page."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("clinic_info")
+        self.client.force_login(self.owner.user)
+
+    def _main(self):
+        html = self.client.get(self.url).content.decode()
+        return html.split('<main id="main"')[1].split("</main>")[0]
+
+    def _service(self, status, name="Consultation"):
+        return Service.objects.create(service_name=name, status=status)
+
+    def _card(self, main):
+        return re.findall(r'<a href="/owner/services/[^"]*"[^>]*>', main)
+
+    def test_the_card_shows_with_an_offered_service(self):
+        self._service(Service.ACTIVE)
+        main = self._main()
+        found = self._card(main)
+        self.assertEqual(len(found), 1)
+        self.assertIn(f'href="{reverse("owner_services")}?from=clinic"', found[0])
+        self.assertIn(
+            'text-lg font-bold text-gray-900">Services and prices</span>', main
+        )
+        self.assertIn("What the clinic offers and what each one costs", main)
+
+    def test_the_card_sits_between_the_buttons_and_the_details(self):
+        self._service(Service.ACTIVE)
+        row = get_clinic_settings()
+        row.contact_number = "0917 000 0000"
+        row.save()
+        main = self._main()
+        card = main.index("/owner/services/")
+        self.assertLess(main.index('href="tel:09170000000"'), card)
+        self.assertLess(card, main.index('aria-label="Clinic details"'))
+
+    def test_the_card_is_hidden_without_an_offered_service(self):
+        for status in (Service.DRAFT, Service.UNLISTED, Service.CLOSED):
+            self._service(status, name=f"Hidden {status}")
+        main = self._main()
+        self.assertEqual(self._card(main), [])
+        self.assertNotIn("Services and prices", main)
+
+    def test_call_stays_the_only_violet_button(self):
+        self._service(Service.ACTIVE)
+        row = get_clinic_settings()
+        row.contact_number = "0917 000 0000"
+        row.save()
+        violet = re.findall(r"<a [^>]*bg-violet-600[^>]*>", self._main())
+        self.assertEqual(len(violet), 1)
+        self.assertIn('href="tel:09170000000"', violet[0])
+
+    def test_the_admin_clinic_info_page_has_no_card(self):
+        self._service(Service.ACTIVE)
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertTemplateUsed(response, "admin/clinic_info.html")
+        self.assertNotContains(response, "/owner/services/")
+        self.assertNotContains(response, "what each one costs")

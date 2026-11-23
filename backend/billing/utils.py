@@ -22,6 +22,7 @@ from appointments.models import Appointment
 from appointments.utils import (
     WALKIN_PAGE_SIZE,
     WALKIN_SEARCH_LIMIT,
+    clinic_phone_link,
     get_clinic_settings,
     paging_links,
     search_walkin_owners,
@@ -877,3 +878,89 @@ def services_list_context(params):
         "counts": {"all": len(services), **{g["key"]: g["count"] for g in groups}},
         "status_choices": Service.STATUS_CHOICES,
     }
+
+
+# ── Owner — Services and prices ───────────────────────────────────────────────
+
+OWNER_OTHER_SERVICES = "Other services"
+ASK_THE_CLINIC = "Ask the clinic"
+# ?from= values the page reads: (URL name, words after "Back to")
+OWNER_SERVICES_BACK = {
+    "clinic": ("clinic_info", "Clinic info"),
+    "account": ("owner_account", "Account"),
+}
+
+
+def owner_services_exist():
+    """True when at least one service is Offered (status Active)."""
+    return Service.objects.filter(status=Service.ACTIVE).exists()
+
+
+def owner_service_price(service):
+    """(words, is_range) for an owner: a range with both prices reads
+    "₱150.00 to ₱400.00"; anything else is the base price, or "Ask the
+    clinic" when that is 0 (a range missing a price counts as one price)."""
+    if (
+        service.pricing_type == Service.RANGE
+        and service.min_price is not None
+        and service.max_price is not None
+    ):
+        return f"{peso(service.min_price)} to {peso(service.max_price)}", True
+    if service.base_price > 0:
+        return peso(service.base_price), False
+    return ASK_THE_CLINIC, False
+
+
+def owner_service_groups(services):
+    """Offered services as groups [{"heading", "services"}]. The group key is
+    the category without outer spaces, ignoring letter case; its heading is
+    the spelling of the group's first service (A to Z by name). Groups are A
+    to Z by key, a blank category goes last under "Other services", and when
+    no service has a category there is one group with an empty heading."""
+    cards = []
+    for service in sorted(services, key=lambda s: (s.service_name.lower(), s.pk)):
+        words, is_range = owner_service_price(service)
+        cards.append(
+            {
+                "category": service.category.strip(),
+                "name": service.service_name,
+                "price": words,
+                "is_range": is_range,
+                "description": service.description.strip(),
+            }
+        )
+    named = {}
+    others = []
+    for card in cards:
+        if card["category"]:
+            key = card["category"].lower()
+            named.setdefault(key, {"heading": card["category"], "services": []})
+            named[key]["services"].append(card)
+        else:
+            others.append(card)
+    if not named:
+        return [{"heading": "", "services": others}] if others else []
+    groups = [named[key] for key in sorted(named)]
+    if others:
+        groups.append({"heading": OWNER_OTHER_SERVICES, "services": others})
+    return groups
+
+
+def owner_services_context(params):
+    """Context for the owner Services and prices page: the groups (one
+    query for the list), has_range (shows the blue note), the back bar from
+    ?from= (only "clinic" and "account" are read) and, when nothing is
+    Offered, the clinic's phone for the Call link."""
+    groups = owner_service_groups(Service.objects.filter(status=Service.ACTIVE))
+    back_name, back_label = OWNER_SERVICES_BACK.get(
+        params.get("from"), OWNER_SERVICES_BACK["account"]
+    )
+    context = {
+        "groups": groups,
+        "has_range": any(c["is_range"] for g in groups for c in g["services"]),
+        "back_url": reverse(back_name),
+        "back_label": back_label,
+    }
+    if not groups:
+        context["phone_link"] = clinic_phone_link(get_clinic_settings())
+    return context

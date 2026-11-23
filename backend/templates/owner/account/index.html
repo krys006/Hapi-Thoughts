@@ -23,6 +23,8 @@
     <h2 id="account-clinic" class="mb-2 px-1 text-base font-semibold text-gray-600">The clinic</h2>
     <div class="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
       {% include "owner/account_parts/link_row.html" with url_name="clinic_info" icon="building-2" label="Clinic info" sub="Hours, phone, and your vet" %}
+      {# Only while a service is Offered #}
+      {% if has_services %}{% include "owner/account_parts/link_row.html" with url_name="owner_services" query="?from=account" icon="tag" label="Services and prices" sub="What the clinic offers and costs" %}{% endif %}
       {% include "owner/account_parts/link_row.html" with url_name="owner_health_article_list" icon="book-open" label="Health library" sub="Common pet illnesses and care" %}
     </div>
   </section>

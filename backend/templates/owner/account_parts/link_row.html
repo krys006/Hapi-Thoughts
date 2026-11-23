@@ -1,5 +1,6 @@
 {% comment %}
   One row of an Account group: an icon tile, a label with one line under it,
   and a chevron; the whole row is one link. Needs url_name, icon, label, sub.
+  Optional query: a literal like "?from=account" written in the page template, never from the request.
 {% endcomment %}
-<a href="{% url url_name %}" class="flex min-h-16 items-center gap-4 px-4 py-3 hover:bg-gray-50">{% include "components/icon.html" with name=icon class="size-10 shrink-0 rounded-xl bg-gray-100 p-2.5 text-gray-700" %}<span class="flex-1"><span class="block text-base font-semibold text-gray-900">{{ label }}</span><span class="block text-base text-gray-600">{{ sub }}</span></span>{% include "components/icon.html" with name="chevron-right" class="size-5 shrink-0 text-gray-500" %}</a>
+<a href="{% url url_name %}{{ query }}" class="flex min-h-16 items-center gap-4 px-4 py-3 hover:bg-gray-50">{% include "components/icon.html" with name=icon class="size-10 shrink-0 rounded-xl bg-gray-100 p-2.5 text-gray-700" %}<span class="flex-1"><span class="block text-base font-semibold text-gray-900">{{ label }}</span><span class="block text-base text-gray-600">{{ sub }}</span></span>{% include "components/icon.html" with name="chevron-right" class="size-5 shrink-0 text-gray-500" %}</a>
