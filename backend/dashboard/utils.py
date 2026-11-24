@@ -299,11 +299,15 @@ def _owner_visits_not_ended(owner, now, minutes):
     ends `minutes` after it starts, so it is still going when its start is
     later than now minus the slot length (Manila date and time)."""
     cutoff = timezone.localtime(now) - timedelta(minutes=minutes)
-    return Appointment.objects.filter(
-        Q(date__gt=cutoff.date()) | Q(date=cutoff.date(), time__gt=cutoff.time()),
-        owner=owner,
-        status__in=OWNER_UPCOMING_STATUSES,
-    ).select_related("pet", "service")
+    return (
+        Appointment.objects.filter(
+            Q(date__gt=cutoff.date()) | Q(date=cutoff.date(), time__gt=cutoff.time()),
+            owner=owner,
+            status__in=OWNER_UPCOMING_STATUSES,
+        )
+        .select_related("pet", "service")
+        .defer("notes")
+    )
 
 
 def owner_dashboard_context(owner, today, now):

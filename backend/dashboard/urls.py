@@ -20,5 +20,4 @@ urlpatterns = [
         name="admin_dashboard_day",
     ),
     path("admin/search/", views.admin_global_search, name="admin_global_search"),
-    path("owner/search/", views.owner_global_search, name="owner_global_search"),
 ]

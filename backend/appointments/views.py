@@ -45,7 +45,6 @@ from .utils import (
     create_walkin_appointment,
     filter_appointments,
     first_error_tab,
-    get_admin_calendar_context,
     get_available_slots,
     get_booking_draft,
     get_clinic_settings,
@@ -465,7 +464,7 @@ def owner_book_sent(request, pk):
         return redirect("admin_dashboard")
 
     appointment = get_object_or_404(
-        Appointment.objects.select_related("pet", "service"),
+        Appointment.objects.select_related("pet", "service").defer("notes"),
         pk=pk,
         owner=request.owner,
     )
@@ -486,7 +485,7 @@ def owner_appointment_detail(request, pk):
     appointment = get_object_or_404(
         Appointment.objects.select_related(
             "pet", "service", "cancelled_by", "rescheduled_from__cancelled_by"
-        ),
+        ).defer("notes", "rescheduled_from__notes"),
         pk=pk,
         owner=request.owner,
     )
@@ -536,7 +535,7 @@ def owner_appointment_reschedule(request, pk):
     now = timezone.now()  # the one read of the clock
     today = timezone.localdate(now)
     appointment = get_object_or_404(
-        Appointment.objects.select_related("pet", "service"),
+        Appointment.objects.select_related("pet", "service").defer("notes"),
         pk=pk,
         owner=request.owner,
     )
@@ -1286,60 +1285,5 @@ def admin_get_slots_for_date(request):
             "slots_date": date,
             "now_slot": now_slot,
             "selected": request.GET.get("selected", ""),
-        },
-    )
-
-
-@login_required
-def admin_appointment_calendar_grid(request):
-    """
-    HTMX view — returns the calendar grid + nav controls for the admin
-    dashboard calendar widget. e.g. ?view=month&date=2026-06-01
-    Self-targeting swap — triggered by click (nav/toggle), not a timer,
-    so it never collides with the dashboard's 30s stats polling.
-    """
-    if request.user.role != "admin":
-        return redirect("owner_dashboard")
-
-    view = request.GET.get("view", "month")
-    date_str = request.GET.get("date", "")
-
-    context = get_admin_calendar_context(view, date_str)
-
-    return render(request, "admin/appointments/_calendar_grid.html", context)
-
-
-@login_required
-def admin_appointment_calendar_day(request):
-    """
-    HTMX view — returns the day-detail panel for the admin calendar
-    widget. Shows all appointments for the selected date, all statuses
-    (including cancelled, for the full picture). View-only — links out
-    to admin_appointment_detail, where all actions already live.
-    """
-    if request.user.role != "admin":
-        return redirect("owner_dashboard")
-
-    date_str = request.GET.get("date", "")
-    selected_date = None
-    appointments = Appointment.objects.none()
-
-    if date_str:
-        try:
-            selected_date = datetime.date.fromisoformat(date_str)
-            appointments = (
-                Appointment.objects.filter(date=selected_date)
-                .select_related("owner", "pet", "service")
-                .order_by("time")
-            )
-        except ValueError:
-            pass
-
-    return render(
-        request,
-        "admin/appointments/_calendar_day_panel.html",
-        {
-            "selected_date": selected_date,
-            "day_appointments": appointments,
         },
     )

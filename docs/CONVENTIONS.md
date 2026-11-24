@@ -152,12 +152,8 @@ templates/
 ├── shared/                           ← Used by both roles
 │   ├── sidebar_admin.html
 │   ├── _global_search_results.html
-│   ├── _owner_search_results.html
-│   ├── billing/
-│   │   └── _receipt_print.html
-│   └── notifications/
-│       ├── _panel.html
-│       └── _notification_row.html
+│   └── billing/
+│       └── _receipt_print.html
 ├── admin/
 │   ├── login.html
 │   ├── walkin_create.html            ← walk-in "New owner" (owner + pet, still step 1)
@@ -209,8 +205,6 @@ templates/
 │   │   │   ├── header.html           ← back link, title, subtitle, steps
 │   │   │   ├── steps.html            ← 1 Who is it for? · 2 The visit · 3 Check and book
 │   │   │   └── step.html
-│   │   ├── _calendar_grid.html
-│   │   ├── _calendar_day_panel.html
 │   │   ├── _pet_options.html         ← unused since 6a-3 (view and URL removed); Krys deletes it
 │   │   ├── _slot_buttons.html
 │   │   ├── _slot_options.html

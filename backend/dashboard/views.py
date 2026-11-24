@@ -10,7 +10,6 @@ from accounts.utils import owner_profile_required
 from appointments.models import Appointment
 from appointments.utils import get_clinic_settings
 from billing.models import BillingReceipt
-from billing.utils import owner_receipts
 from dashboard.utils import (
     dashboard_calendar_context,
     day_schedule,
@@ -156,59 +155,6 @@ def _get_owner_dashboard_context(request):
     return context
 
 
-def _run_owner_search(owner, query):
-    """
-    Pet owner scoped search — own pets, appointments, billing, and
-    medical records only. Each group capped at 5 results.
-    """
-    pets = Pet.objects.filter(
-        Q(name__icontains=query)
-        | Q(species__icontains=query)
-        | Q(breed__icontains=query),
-        owner=owner,
-        is_archived=False,
-    )[:5]
-
-    appointments = (
-        Appointment.objects.filter(
-            Q(pet__name__icontains=query) | Q(reason__icontains=query),
-            owner=owner,
-        )
-        .select_related("pet")
-        .order_by("-date", "-time")[:5]
-    )
-
-    # Unpaid and Paid only: owners never see a cancelled receipt
-    receipts = (
-        owner_receipts(owner)
-        .filter(Q(receipt_number__icontains=query) | Q(pet__name__icontains=query))
-        .select_related("pet")
-        .order_by("-billing_date")[:5]
-    )
-
-    # Matches on diagnosis/symptoms text only — private_notes is never
-    # searched or displayed, consistent with the public/private note rule.
-    medical_records = (
-        MedicalRecord.objects.filter(
-            Q(pet__name__icontains=query)
-            | Q(diagnosis__icontains=query)
-            | Q(symptoms__icontains=query),
-            pet__owner=owner,
-        )
-        .select_related("pet")
-        .order_by("-record_date")[:5]
-    )
-
-    return {
-        "search_query": query,
-        "search_pets": pets,
-        "search_appointments": appointments,
-        "search_receipts": receipts,
-        "search_medical_records": medical_records,
-        "has_results": any([pets, appointments, receipts, medical_records]),
-    }
-
-
 @login_required
 def admin_dashboard(request):
     """Admin dashboard — full page, stats/widgets/calendar render server-side first."""
@@ -309,28 +255,3 @@ def owner_dashboard(request):
 
     context = _get_owner_dashboard_context(request)
     return render(request, "owner/dashboard/index.html", context)
-
-
-@login_required
-@owner_profile_required
-def owner_global_search(request):
-    """
-    HTMX view — header scoped search for pet owners. Returns a grouped
-    dropdown of the owner's own pets, appointments, billing, and
-    medical records only.
-    """
-    if request.user.role != "pet_owner":
-        return redirect("admin_dashboard")
-
-    owner = request.owner
-    query = request.GET.get("q", "").strip()
-
-    if len(query) < 2:
-        return render(
-            request,
-            "shared/_owner_search_results.html",
-            {"search_query": query, "has_results": False, "too_short": True},
-        )
-
-    context = _run_owner_search(owner, query)
-    return render(request, "shared/_owner_search_results.html", context)

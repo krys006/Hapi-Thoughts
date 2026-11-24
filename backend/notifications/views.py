@@ -3,6 +3,7 @@
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, redirect, render
 from django.http import HttpResponse
+from django.urls import reverse
 from django.utils import timezone
 
 from accounts.utils import owner_profile_required
@@ -14,21 +15,29 @@ from .forms import NotificationPreferenceForm
 
 from django.contrib import messages
 
+ADMIN_PANEL_TEMPLATE = "admin/notifications/_panel.html"
 
-def _panel_template(request):
-    """Admin pages (they send X-Admin-Layout) get the admin panel; everyone
-    else gets the shared one."""
-    if request.user.is_admin and request.headers.get("X-Admin-Layout") == "1":
-        return "admin/notifications/_panel.html"
-    return "shared/notifications/_panel.html"
+
+def _owner_page_redirect(request):
+    """A pet owner never gets the panel: they go to the Notifications page.
+    An HTMX request gets 200 with HX-Redirect (the same as the middleware)."""
+    url = reverse("owner_notifications")
+    if request.headers.get("HX-Request") == "true":
+        response = HttpResponse("")
+        response["HX-Redirect"] = url
+        return response
+    return redirect(url)
 
 
 @login_required
 def notification_panel(request):
     """
-    Returns the notification panel partial.
-    Loaded via HTMX when the bell icon is clicked.
+    Returns the admin notification panel partial (HTMX, the bell). A pet
+    owner is sent to the Notifications page instead.
     """
+    if not request.user.is_admin:
+        return _owner_page_redirect(request)
+
     notifications = Notification.objects.filter(
         recipient=request.user,
     ).order_by(
@@ -37,7 +46,7 @@ def notification_panel(request):
 
     return render(
         request,
-        _panel_template(request),
+        ADMIN_PANEL_TEMPLATE,
         {"notifications": notifications},
     )
 
@@ -47,9 +56,9 @@ def notification_mark_all_read(request):
     """
     Marks all unread notifications as read.
     Called via HTMX POST from the Mark All Read button.
-    Returns the full refreshed panel. POST return_to=page (a fixed choice,
-    not a URL) is the owner notifications page's button: it goes back to
-    that page instead.
+    Returns the full refreshed admin panel. For a pet owner, POST
+    return_to=page (a fixed choice, not a URL) is the Notifications page's
+    button; any other owner POST also goes back to that page.
     """
     if request.method != "POST":
         return HttpResponse(status=405)
@@ -59,8 +68,8 @@ def notification_mark_all_read(request):
         is_read=False,
     ).update(is_read=True, read_at=timezone.now())
 
-    if request.POST.get("return_to") == "page" and not request.user.is_admin:
-        return redirect("owner_notifications")
+    if not request.user.is_admin:
+        return _owner_page_redirect(request)
 
     # Reload the full panel with updated state
     notifications = Notification.objects.filter(
@@ -71,7 +80,7 @@ def notification_mark_all_read(request):
 
     return render(
         request,
-        _panel_template(request),
+        ADMIN_PANEL_TEMPLATE,
         {"notifications": notifications},
     )
 
@@ -110,7 +119,7 @@ def notification_clear(request):
 
     return render(
         request,
-        _panel_template(request),
+        ADMIN_PANEL_TEMPLATE,
         {"notifications": notifications},
     )
 

@@ -17,7 +17,7 @@ from django.template import engines
 from django.template.loader import render_to_string
 from django.test import RequestFactory, SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
-from django.urls import reverse
+from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
 from appointments.models import Appointment
@@ -459,59 +459,6 @@ class LegacyLayerRetiredTests(ShellTestBase):
         for word in ("legacy_css", "layer(legacy)", "shared/modals.html"):
             with self.subTest(word=word):
                 self.assertNotIn(word, source)
-
-
-class OwnerSearchReceiptTests(ShellTestBase):
-    """Slice 6a-4 (rule 23): the owner's header search never shows a
-    cancelled receipt; the others show "Unpaid" / "Paid"."""
-
-    def setUp(self):
-        super().setUp()
-        self.receipts = {
-            status: BillingReceipt.objects.create(
-                receipt_number=f"HV-2026-000{number}",
-                owner=self.owner,
-                pet=self.pet,
-                payment_status=status,
-            )
-            for number, status in enumerate(
-                [BillingReceipt.PENDING, BillingReceipt.PAID, BillingReceipt.CANCELLED],
-                start=1,
-            )
-        }
-        # An owner only sees an Unpaid bill that has an item
-        BillingItem.objects.create(
-            receipt=self.receipts[BillingReceipt.PENDING],
-            description="Consultation",
-            quantity=1,
-            unit_price=Decimal("100.00"),
-            subtotal=0,  # Overwritten by BillingItem.save()
-        )
-        self.client.force_login(self.owner.user)
-
-    def _search(self, q):
-        return self.client.get(reverse("owner_global_search"), {"q": q})
-
-    def test_cancelled_receipts_are_left_out(self):
-        for q in ["HV-2026", "Bantay"]:
-            with self.subTest(q=q):
-                response = self._search(q)
-                found = {r.pk for r in response.context["search_receipts"]}
-                self.assertEqual(
-                    found,
-                    {
-                        self.receipts[BillingReceipt.PENDING].pk,
-                        self.receipts[BillingReceipt.PAID].pk,
-                    },
-                )
-                self.assertNotContains(response, "HV-2026-0003")
-                self.assertContains(response, "Bantay — Unpaid")
-                self.assertContains(response, "Bantay — Paid")
-
-    def test_only_a_cancelled_match_finds_no_receipt(self):
-        response = self._search("0003")
-        self.assertFalse(response.context["search_receipts"])
-        self.assertNotContains(response, "HV-2026-0003")
 
 
 class ShellLayoutTests(ShellTestBase):
@@ -2390,3 +2337,73 @@ class SidebarQuietScrollTests(ShellTestBase):
         self.assertNotIn("<script", text)
         self.assertNotIn("<!--", text)
         self.assertNotRegex(text, r"\son[a-z]+\s*=")
+
+
+class RemovedDeadRoutesTests(ShellTestBase):
+    """Audit cleanup part 1: the owner header search and the old admin
+    calendar are gone (names, paths and views)."""
+
+    OWNER_PATHS = ("/owner/search/",)
+    ADMIN_PATHS = (
+        "/admin/appointments/calendar-grid/",
+        "/admin/appointments/calendar-day/",
+    )
+    NAMES = (
+        "owner_global_search",
+        "admin_appointment_calendar_grid",
+        "admin_appointment_calendar_day",
+    )
+
+    def test_the_names_no_longer_reverse(self):
+        for name in self.NAMES:
+            with self.subTest(name=name):
+                with self.assertRaises(NoReverseMatch):
+                    reverse(name)
+
+    def test_a_logged_in_owner_gets_404_on_the_old_owner_path(self):
+        self.client.force_login(self.owner.user)
+        for path in self.OWNER_PATHS:
+            with self.subTest(path=path):
+                self.assertEqual(self.client.get(path, {"q": "max"}).status_code, 404)
+
+    def test_a_logged_in_admin_gets_404_on_the_old_admin_paths(self):
+        self.client.force_login(self.admin)
+        for path in self.ADMIN_PATHS:
+            with self.subTest(path=path):
+                self.assertEqual(self.client.get(path).status_code, 404)
+
+    def test_the_other_role_never_reaches_a_view_on_them(self):
+        # The role middleware answers first (a redirect); nothing renders
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get(self.OWNER_PATHS[0]).status_code, 302)
+        self.client.force_login(self.owner.user)
+        for path in self.ADMIN_PATHS:
+            with self.subTest(path=path):
+                self.assertEqual(self.client.get(path).status_code, 302)
+
+
+class NoHtmlCommentsInTemplatesTests(SimpleTestCase):
+    """Audit cleanup part 1: no template has an HTML comment (it would reach
+    the browser). Template comments are {# #} or {% comment %}."""
+
+    # Files on Krys's delete list: they are deleted with `git rm` in the same
+    # commit as this test, and are skipped here until then. A missing file
+    # never fails this test; Krys removes an entry only if the test fails.
+    FILES_DELETED_IN_THIS_COMMIT = {
+        "admin/appointments/_calendar_grid.html",
+        "admin/appointments/_calendar_day_panel.html",
+        "shared/_owner_search_results.html",
+        "shared/notifications/_panel.html",
+        "shared/notifications/_notification_row.html",
+    }
+
+    def test_no_template_has_an_html_comment(self):
+        root = Path(settings.BASE_DIR, "templates")
+        found = []
+        for path in sorted(root.rglob("*.html")):
+            name = path.relative_to(root).as_posix()
+            if name in self.FILES_DELETED_IN_THIS_COMMIT:
+                continue
+            if "<!--" in path.read_text(encoding="utf-8"):
+                found.append(name)
+        self.assertEqual(found, [])
