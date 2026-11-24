@@ -293,7 +293,8 @@ class ClinicInfoFrameTests(ShellTestBase):
 
 
 class SidebarTests(ShellTestBase):
-    """Ten sidebar links in three groups; tab-only pages light up their parent."""
+    """Eleven sidebar links in three groups (Income joined under Billing,
+    2026-11-24); tab-only pages light up their parent."""
 
     LABELS = (
         "Dashboard",
@@ -304,6 +305,7 @@ class SidebarTests(ShellTestBase):
         "Vaccinations",
         "Health library",
         "Billing",
+        "Income",
         "Services and prices",
         "Clinic settings",
     )
@@ -324,12 +326,12 @@ class SidebarTests(ShellTestBase):
         self.assertIsNotNone(match, f"No sidebar link to {url_name}")
         return match.group(0)
 
-    def test_ten_links_and_no_tab_pages(self):
+    def test_eleven_links_and_no_tab_pages(self):
         nav = self._sidebar(self.client.get(reverse("admin_dashboard")))
         for label in self.LABELS:
             with self.subTest(label=label):
                 self.assertIn(f'<span class="flex-1">{label}</span>', nav)
-        self.assertEqual(nav.count("<a "), 10)
+        self.assertEqual(nav.count("<a "), 11)
         for name in ("admin_deletion_requests", "clinic_info"):
             with self.subTest(name=name):
                 self.assertNotIn(f'href="{reverse(name)}"', nav)

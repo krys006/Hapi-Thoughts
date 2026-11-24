@@ -390,7 +390,14 @@ PENDING or CONFIRMED → CANCELLED
 | Bills paid on a day (Day view) | `complete (backend, I-1)` |
 | Day-by-day and month-by-month table | `complete (backend, I-1)` |
 | "Not paid yet" snapshot (Unpaid bills with items), linking to the Billing Unpaid tab | `complete (backend, I-1)` |
-| Bar chart at the side and a bigger chart (the design, sidebar link and icons) | `planned` (I-2) |
+| Violet money card ("Money received", amount, "from N bills paid", comparison pill) | `complete (I-2a)` |
+| Three tiles: From visits, Over the counter, Discounts given | `complete (I-2a)` |
+| Bill list on a Day (bill number, owner link, pet, total, Open link, Total line; empty-day card) | `complete (I-2a)` |
+| Day-by-day and month-by-month table with links, "Not yet" rows and a tagged current row | `complete (I-2a)` |
+| "Not paid yet" card | `complete (I-2a)` |
+| Sidebar link "Income" under Billing | `complete (I-2a)` |
+| Phone layout (one column) | `complete (I-2a)` |
+| Compact bar chart at the side and a bigger chart that opens on click | `planned (I-2b)` |
 
 ### Bill Format (the printout)
 ```

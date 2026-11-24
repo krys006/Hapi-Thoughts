@@ -9043,6 +9043,14 @@ INCOME_URL = "/admin/income/"
 # Day view: totals, rows, bills, unpaid; 3 on the others). It must stay under
 # this and must not grow with the number of bills.
 INCOME_PAGE_QUERIES_MAX = 14
+# An <a> whose content (an icon, then the word) holds Previous / Next
+INCOME_PREVIOUS_LINK = r"(?s)<a [^>]*>(?:(?!</a>).)*Previous"
+INCOME_NEXT_LINK = r"(?s)<a [^>]*>(?:(?!</a>).)*Next"
+INCOME_TEMPLATES = BILLING_TEMPLATES / "income_parts"
+INCOME_SOURCES = [
+    BILLING_TEMPLATES / "income.html",
+    *sorted(INCOME_TEMPLATES.glob("*.html")),
+]
 
 
 class IncomeTestBase(FrozenBillingTestBase):
@@ -9841,14 +9849,14 @@ class AdminIncomePageTests(IncomeTestBase):
         self.assertIn("from 1 bill paid", text)
         self.assertIn("Yesterday: ₱100.00 from 1 bill", text)
         self.assertIn("Not paid yet", text)
-        self.assertIn("₱300.00 from 1 bill", text)
-        self.assertIn("From visits: ₱0.00", text)
-        self.assertIn("Over the counter: ₱650.00", text)
+        self.assertIn("₱300.00 1 bill waiting for payment", text)
+        self.assertIn("From visits ₱0.00", text)
+        self.assertIn("Over the counter ₱650.00", text)
 
     def test_no_bills_says_so(self):
         text = page_text(self._html())
         self.assertIn("No bills were paid.", text)
-        self.assertIn("No bills were paid on this day.", text)
+        self.assertIn("No bills were paid on this day", text)
         self.assertIn("Yesterday: no bills paid", text)
         self.assertNotIn("Over the counter", text)
 
@@ -9893,22 +9901,25 @@ class AdminIncomePageTests(IncomeTestBase):
         for kind in ("day", "week", "month", "year"):
             with self.subTest(kind=kind):
                 html = self._html(period=kind)
-                self.assertIsNone(re.search(r"<a [^>]*>Next</a>", html))
+                self.assertIsNone(re.search(INCOME_NEXT_LINK, html))
                 self.assertIn("Next", page_text(html))
-                self.assertIsNotNone(re.search(r"<a [^>]*>Previous</a>", html))
+                self.assertIsNotNone(re.search(INCOME_PREVIOUS_LINK, html))
                 self.assertNotIn("Back to today", html)
 
     def test_a_past_period_has_next_and_back_to_today(self):
         html = self._html(date="2026-11-20")
         self.assertIsNotNone(
-            re.search(r'<a href="[^"]*date=2026-11-21[^"]*"[^>]*>Next</a>', html)
+            re.search(
+                r'(?s)<a href="[^"]*date=2026-11-21[^"]*"[^>]*>(?:(?!</a>).)*Next',
+                html,
+            )
         )
         self.assertIn("Back to today", html)
         self.assertIn('href="/admin/income/?period=day"', html)
 
     def test_previous_is_not_a_link_at_the_first_day(self):
         html = self._html(date="2000-01-01")
-        self.assertIsNone(re.search(r"<a [^>]*>Previous</a>", html))
+        self.assertIsNone(re.search(INCOME_PREVIOUS_LINK, html))
 
     def test_period_links_keep_the_date(self):
         html = self._html(period="month", date="2026-10-15")
@@ -9954,7 +9965,7 @@ class AdminIncomePageTests(IncomeTestBase):
                 self.assertEqual(response.status_code, 200)
 
     def test_template_source_rules(self):
-        source = (BILLING_TEMPLATES / "income.html").read_text(encoding="utf-8")
+        source = "\n".join(p.read_text(encoding="utf-8") for p in INCOME_SOURCES)
         self.assertNotIn("<!--", source)
         self.assertNotIn("onclick", source)
         self.assertNotIn("btn-primary", source)
@@ -9965,3 +9976,581 @@ class AdminIncomePageTests(IncomeTestBase):
         self.assertTrue(links)
         for link in links:
             self.assertNotIn("\n", link)
+
+
+# ── Income summary, batch I-2a (the page design) ─────────────────────────────
+
+
+def income_main(html):
+    """The page's own markup: what is inside <main> (the layout's sidebar and
+    top bar have buttons and a form that are not the page's)."""
+    return html[html.index("<main") : html.index("</main>")]
+
+
+def income_section(html, heading_id):
+    """The <section> or <aside> that carries aria-labelledby=heading_id."""
+    found = re.search(
+        rf'(?s)<(section|aside)[^>]*aria-labelledby="{heading_id}".*?</\1>', html
+    )
+    assert found, f"No block labelled {heading_id}"
+    return found.group(0)
+
+
+@PLAIN_STATIC
+class IncomePageDesignTests(IncomeTestBase):
+
+    def _html(self, **params):
+        response = self.client.get(INCOME_URL, params)
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _unpaid_with_item(self, price="300.00"):
+        receipt = self._empty_receipt()
+        self._item(receipt, price)
+        receipt.calculate_totals()
+        return receipt
+
+    # ─── Money card ───────────────────────────────────────────────────────
+
+    def test_the_money_card_has_the_amount_the_count_and_the_comparison(self):
+        self._paid(total="650.00")
+        self._paid(paid_on=datetime.date(2026, 11, 23), total="100.00")
+        card = income_section(self._html(), "money-heading")
+        text = page_text(card)
+        self.assertIn("Money received · Today", text)
+        self.assertIn("₱650.00", text)
+        self.assertIn("from 1 bill paid", text)
+        self.assertIn("Yesterday: ₱100.00 from 1 bill", text)
+        self.assertIn("bg-gradient-to-br from-violet-800 to-violet-600", card)
+        self.assertIn("text-white", card)
+        self.assertIn("text-4xl", card)
+        self.assertIn("sm:text-5xl", card)
+        self.assertNotIn("<a ", card)
+        self.assertNotIn("<button", card)
+
+    def test_two_bills_say_bills(self):
+        self._paid(total="100.00")
+        self._paid(total="200.00")
+        card = income_section(self._html(), "money-heading")
+        self.assertIn("from 2 bills paid", page_text(card))
+
+    def test_nothing_paid_says_so_and_still_shows_the_card(self):
+        card = income_section(self._html(), "money-heading")
+        text = page_text(card)
+        self.assertIn("₱0.00", text)
+        self.assertIn("No bills were paid.", text)
+        self.assertNotIn("from 0 bills", text)
+        self.assertIn("Yesterday: no bills paid", text)
+
+    def test_the_card_names_the_period(self):
+        self._paid(paid_on=datetime.date(2026, 11, 23))
+        cases = (
+            ({"period": "week"}, "Money received · This week"),
+            ({"period": "month"}, "Money received · This month"),
+            ({"period": "year"}, "Money received · 2026 so far"),
+            ({"date": "2026-11-23"}, "Money received · Yesterday"),
+        )
+        for params, words in cases:
+            with self.subTest(params=params):
+                card = income_section(self._html(**params), "money-heading")
+                self.assertIn(words, page_text(card))
+
+    # ─── Tiles ────────────────────────────────────────────────────────────
+
+    def test_three_tiles_with_the_numbers(self):
+        self._paid(total="450.00", subtotal="500.00", visit=True)
+        self._paid(total="100.00")
+        text = page_text(self._html())
+        self.assertIn("From visits ₱450.00", text)
+        self.assertIn("Over the counter ₱100.00", text)
+        self.assertIn("Discounts given ₱50.00 on 1 bill", text)
+
+    def test_discounts_say_none_without_a_discount(self):
+        self._paid(total="100.00")
+        text = page_text(self._html())
+        self.assertIn("Discounts given None", text)
+        self.assertNotIn(" on 0 bills", text)
+
+    def test_discounts_count_the_bills(self):
+        self._paid(total="450.00", subtotal="500.00")
+        self._paid(total="90.00", subtotal="100.00")
+        text = page_text(self._html())
+        self.assertIn("Discounts given ₱60.00 on 2 bills", text)
+
+    def test_no_tiles_when_nothing_was_paid(self):
+        for params in ({}, {"period": "week"}, {"period": "year"}):
+            with self.subTest(params=params):
+                text = page_text(self._html(**params))
+                self.assertNotIn("From visits", text)
+                self.assertNotIn("Over the counter", text)
+                self.assertNotIn("Discounts given", text)
+
+    def test_tiles_use_the_row_card_until_xl(self):
+        self._paid()
+        html = self._html()
+        self.assertIn("min-[1180px]:grid-cols-3", html)
+        self.assertIn("divide-y", html)
+
+    # ─── Day view ─────────────────────────────────────────────────────────
+
+    def test_the_day_view_lists_each_bill_in_order(self):
+        first = self._paid(total="450.00", subtotal="500.00", visit=True)
+        second = self._paid(total="100.00")
+        third = self._paid(total="75.00")
+        BillingReceipt.objects.filter(pk=third.pk).update(pet=None)
+        html = self._html()
+        section = income_section(html, "list-heading")
+        text = page_text(section)
+        self.assertIn("Bills paid on this day (3)", text)
+        self.assertIn("Oldest bill first", text)
+        positions = [section.index(b.receipt_number) for b in (first, second, third)]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("From a visit · ₱50.00 off", text)
+        self.assertEqual(text.count(" off"), 1)
+        self.assertEqual(text.count("From a visit"), 1)
+        self.assertEqual(text.count("Over the counter"), 2)
+        self.assertIn("for Bantay", text)
+        self.assertEqual(text.count("for Bantay"), 2)
+        self.assertEqual(text.count("Clinic bill"), 1)
+        self.assertIn("₱450.00", text)
+        self.assertIn("Total · 3 bills ₱625.00", text)
+
+    def test_each_row_links_to_the_owner_and_opens_the_bill(self):
+        bill = self._paid(total="450.00")
+        section = income_section(self._html(), "list-heading")
+        owner_url = reverse("admin_owner_detail", args=[self.owner.pk])
+        self.assertIn(f'<a href="{owner_url}"', section)
+        self.assertIn("text-blue-600", section)
+        bill_url = reverse("admin_receipt_detail", args=[bill.pk])
+        link = re.search(rf'(?s)<a href="{re.escape(bill_url)}"[^>]*>.*?</a>', section)
+        self.assertIsNotNone(link)
+        link = link.group(0)
+        self.assertIn(
+            f'>Open<span class="sr-only"> bill {bill.receipt_number}</span>', link
+        )
+        self.assertIn("min-h-11", link)
+        self.assertIn("border-violet-300 bg-violet-50", link)
+        self.assertIn("<svg", link)
+
+    def test_one_bill_total_says_bill(self):
+        self._paid(total="450.00")
+        text = page_text(income_section(self._html(), "list-heading"))
+        self.assertIn("Total · 1 bill ₱450.00", text)
+
+    def test_an_empty_day_has_the_empty_card_and_no_list_or_tiles(self):
+        html = self._html(date="2026-11-22")
+        text = page_text(income_main(html))
+        self.assertIn("No bills were paid on this day", text)
+        self.assertIn("Look at the day before, or at the whole week.", text)
+        self.assertNotIn("Bills paid on this day (", text)
+        self.assertNotIn("Oldest bill first", text)
+        self.assertNotIn("From visits", text)
+        self.assertNotIn('aria-labelledby="list-heading"', html)
+
+    def test_the_day_view_has_no_table(self):
+        self._paid()
+        html = self._html()
+        self.assertNotIn("<table", html)
+        self.assertNotIn("Day by day", page_text(html))
+
+    # ─── Week, Month, Year ────────────────────────────────────────────────
+
+    def test_week_and_month_have_a_day_table_and_year_a_month_table(self):
+        cases = (
+            ("week", "Day by day", "Day", "Click a day to see it on its own."),
+            ("month", "Day by day", "Day", "Click a day to see it on its own."),
+            ("year", "Month by month", "Month", "Click a month to see it on its own."),
+        )
+        for kind, title, column, hint in cases:
+            with self.subTest(kind=kind):
+                html = self._html(period=kind)
+                section = income_section(html, "table-heading")
+                text = page_text(section)
+                self.assertIn(title, text)
+                self.assertIn(hint, text)
+                self.assertEqual(section.count('scope="col"'), 3)
+                heads = re.findall(r'<th scope="col"[^>]*>(.*?)</th>', section)
+                self.assertEqual(heads, [column, "Bills paid", "Money received"])
+                self.assertIn("overflow-x-auto", section)
+                self.assertIn('<h3 id="table-heading"', section)
+                self.assertNotIn("Bills paid on this day", page_text(html))
+
+    def test_rows_link_to_their_day_or_month_and_future_rows_do_not(self):
+        self._paid(paid_on=datetime.date(2026, 11, 23), total="100.00")
+        week = self._html(period="week")
+        self.assertRegex(
+            week,
+            r'<a href="[^"]*period=day&amp;date=2026-11-23"[^>]*min-h-11[^>]*>'
+            r"Mon, Nov 23</a>",
+        )
+        self.assertIsNone(re.search(r"<a [^>]*>Wed, Nov 25</a>", week))
+        self.assertIn("Wed, Nov 25", page_text(week))
+        year = self._html(period="year")
+        self.assertIsNotNone(re.search(r"<a [^>]*>January</a>", year))
+        self.assertIsNone(re.search(r"<a [^>]*>December</a>", year))
+
+    def test_future_rows_say_not_yet_and_past_empty_rows_say_no_payments(self):
+        self._paid(paid_on=datetime.date(2026, 11, 23), total="100.00")
+        section = income_section(self._html(period="week"), "table-heading")
+        body = re.search(r"(?s)<tbody>.*?</tbody>", section).group(0)
+        rows = re.findall(r"(?s)<tr .*?</tr>", body)
+        self.assertEqual(len(rows), 7)
+        monday, tuesday, wednesday = rows[0], rows[1], rows[2]
+        self.assertIn("Mon, Nov 23 1 bill ₱100.00", page_text(monday))
+        self.assertIn("Tue, Nov 24 Today No payments ₱0.00", page_text(tuesday))
+        self.assertIn('colspan="2"', wednesday)
+        self.assertIn("Wed, Nov 25 Not yet", page_text(wednesday))
+        self.assertNotIn("₱", page_text(wednesday))
+        self.assertEqual(body.count("Not yet"), 5)
+
+    def test_the_marked_row_is_tinted_and_tagged(self):
+        self._paid(total="100.00")
+        cases = (
+            ("week", "Today"),
+            ("month", "Today"),
+            ("year", "So far"),
+        )
+        for kind, word in cases:
+            with self.subTest(kind=kind):
+                section = income_section(self._html(period=kind), "table-heading")
+                tinted = re.findall(r'<tr class="[^"]*bg-violet-50[^"]*">', section)
+                self.assertEqual(len(tinted), 1)
+                tags = re.findall(
+                    r'<span class="[^"]*bg-violet-100[^"]*">(.*?)</span>', section
+                )
+                self.assertEqual(tags, [word])
+
+    def test_a_past_week_has_no_tinted_row(self):
+        self._paid(paid_on=datetime.date(2026, 11, 20))
+        html = self._html(period="week", date="2026-11-20")
+        section = income_section(html, "table-heading")
+        self.assertNotIn("bg-violet-100", section)
+        self.assertIsNone(re.search(r'<tr class="[^"]*bg-violet-50', section))
+
+    def test_the_table_total_row_equals_the_money_card(self):
+        for day in (23, 24):
+            self._paid(paid_on=datetime.date(2026, 11, day), total="125.50")
+        for kind in ("week", "month", "year"):
+            with self.subTest(kind=kind):
+                html = self._html(period=kind)
+                footer = re.search(r"(?s)<tfoot>.*?</tfoot>", html).group(0)
+                self.assertIn("Total 2 bills ₱251.00", page_text(footer))
+                card = income_section(html, "money-heading")
+                self.assertIn("₱251.00", page_text(card))
+
+    # ─── Toolbar ──────────────────────────────────────────────────────────
+
+    def test_the_switch_has_four_links_and_one_current(self):
+        html = self._html(period="week")
+        nav = re.search(r'(?s)<nav aria-label="Show income by".*?</nav>', html)
+        nav = nav.group(0)
+        self.assertEqual(nav.count("<a "), 4)
+        self.assertEqual(nav.count('aria-current="page"'), 1)
+        labels = re.findall(r"<a [^>]*>(Day|Week|Month|Year)</a>", nav)
+        self.assertEqual(labels, ["Day", "Week", "Month", "Year"])
+        current = re.search(r'<a [^>]*aria-current="page">Week</a>', nav).group(0)
+        self.assertIn("font-semibold", current)
+        self.assertIn("bg-white", current)
+        self.assertIn("ring-2", current)
+        self.assertEqual(nav.count("min-h-11"), 4)
+        self.assertIn("grid-cols-4", nav)
+        self.assertEqual(income_main(html).count('aria-current="page"'), 1)
+
+    def test_the_label_is_the_h2_with_a_calendar_icon(self):
+        html = self._html()
+        main = income_main(html)
+        self.assertEqual(main.count("<h2"), 1)
+        heading = re.search(r"(?s)<h2.*?</h2>", main).group(0)
+        self.assertIn("Today, Tuesday, November 24", page_text(heading))
+        self.assertIn("<svg", heading)
+        self.assertIn('<path d="M8 2v3" />', heading)
+
+    def test_next_is_a_grayed_span_on_the_current_period(self):
+        for kind in ("day", "week", "month", "year"):
+            with self.subTest(kind=kind):
+                html = self._html(period=kind)
+                spans = re.findall(
+                    r'(?s)<span [^>]*aria-disabled="true"[^>]*>.*?</svg>\s*</span>',
+                    html,
+                )
+                self.assertEqual(len(spans), 1)
+                self.assertIn("Next", spans[0])
+                self.assertIn("cursor-not-allowed", spans[0])
+                self.assertIn(f'<span class="sr-only"> {kind}</span>', spans[0])
+                self.assertIsNone(re.search(INCOME_NEXT_LINK, html))
+
+    def test_previous_and_next_say_which_period_to_a_screen_reader(self):
+        html = self._html(date="2026-11-20", period="week")
+        self.assertIn('Previous<span class="sr-only"> week</span>', html)
+        self.assertIn('Next<span class="sr-only"> week</span>', html)
+        previous = re.search(INCOME_PREVIOUS_LINK, html).group(0)
+        following = re.search(INCOME_NEXT_LINK + r".*?</a>", html).group(0)
+        for link in (previous, following):
+            self.assertIn("min-h-11", link)
+            self.assertIn("<svg", link)
+
+    def test_previous_is_a_grayed_span_before_the_first_day(self):
+        html = self._html(date="2000-01-01")
+        self.assertIsNone(re.search(INCOME_PREVIOUS_LINK, html))
+        span = re.search(
+            r'(?s)<span [^>]*aria-disabled="true"[^>]*>(?:(?!</span>).)*Previous', html
+        )
+        self.assertIsNotNone(span)
+        self.assertIn("cursor-not-allowed", span.group(0))
+        # Next is still a link on a past day
+        self.assertEqual(html.count('aria-disabled="true"'), 1)
+        self.assertIsNotNone(re.search(INCOME_NEXT_LINK, html))
+
+    def test_back_to_today_only_on_a_past_period(self):
+        for kind in ("day", "week", "month", "year"):
+            with self.subTest(kind=kind):
+                self.assertNotIn("Back to today", self._html(period=kind))
+        html = self._html(period="week", date="2026-11-10")
+        link = re.search(r'(?s)<a href="[^"]*"[^>]*>(?:(?!</a>).)*Back to today', html)
+        self.assertIsNotNone(link)
+        self.assertIn('href="/admin/income/?period=week"', link.group(0))
+        self.assertIn("<svg", link.group(0))
+        self.assertIn("min-h-11", link.group(0))
+        # A right-aligned row with a top border, under the strip
+        self.assertRegex(
+            html,
+            r'<div class="[^"]*justify-end[^"]*border-t[^"]*">\s*'
+            r'<a href="/admin/income/\?period=week"',
+        )
+
+    # ─── Not paid yet ─────────────────────────────────────────────────────
+
+    def test_not_paid_yet_shows_the_numbers_and_the_link(self):
+        self._unpaid_with_item("300.00")
+        self._unpaid_with_item("200.00")
+        html = self._html()
+        card = income_section(html, "unpaid-heading")
+        text = page_text(card)
+        self.assertTrue(card.startswith("<aside"))
+        self.assertIn("Not paid yet", text)
+        self.assertIn("₱500.00", text)
+        self.assertIn("2 bills waiting for payment", text)
+        self.assertIn(
+            "Not counted in money received. Shows how things stand right now.", text
+        )
+        url = reverse("admin_receipt_list") + "?status=pending"
+        self.assertIn(f'<a href="{url}"', card)
+        self.assertIn("See unpaid bills", text)
+
+    def test_one_bill_waiting(self):
+        self._unpaid_with_item("300.00")
+        text = page_text(income_section(self._html(), "unpaid-heading"))
+        self.assertIn("1 bill waiting for payment", text)
+
+    def test_nothing_waiting_has_no_link(self):
+        card = income_section(self._html(), "unpaid-heading")
+        text = page_text(card)
+        self.assertIn("₱0.00", text)
+        self.assertIn("No bills waiting for payment", text)
+        self.assertNotIn("See unpaid bills", text)
+        self.assertNotIn("<a ", card)
+        self.assertIn("Not counted in money received.", text)
+
+    def test_not_paid_yet_is_the_same_on_every_period(self):
+        self._unpaid_with_item("300.00")
+        for kind in ("day", "week", "month", "year"):
+            with self.subTest(kind=kind):
+                card = income_section(self._html(period=kind), "unpaid-heading")
+                self.assertIn("₱300.00", page_text(card))
+
+    # ─── Layout ───────────────────────────────────────────────────────────
+
+    def test_the_grid_has_three_children_in_phone_order(self):
+        self._paid()
+        html = self._html()
+        main = income_main(html)
+        money = main.index('aria-labelledby="money-heading"')
+        unpaid = main.index('aria-labelledby="unpaid-heading"')
+        below = main.index('aria-labelledby="list-heading"')
+        self.assertLess(money, unpaid)
+        self.assertLess(unpaid, below)
+        self.assertIn("lg:grid-cols-[minmax(0,1fr)_22rem]", main)
+        self.assertIn("lg:col-start-1 lg:row-start-1", main)
+        self.assertIn("lg:col-start-2 lg:row-start-1 lg:row-span-2", main)
+        self.assertIn("lg:sticky lg:top-6", main)
+        self.assertIn("lg:col-start-1 lg:row-start-2", main)
+        self.assertIn('<div class="space-y-6 lg:sticky', main)
+
+    def test_the_table_comes_after_not_paid_yet_too(self):
+        main = income_main(self._html(period="week"))
+        self.assertLess(
+            main.index('aria-labelledby="unpaid-heading"'),
+            main.index('aria-labelledby="table-heading"'),
+        )
+
+    def test_the_title_and_subtitle_are_unchanged(self):
+        text = page_text(self._html())
+        self.assertIn("Income", text)
+        self.assertIn("Money received from paid bills. Payment is cash.", text)
+
+
+@PLAIN_STATIC
+class IncomeSidebarTests(IncomeTestBase):
+
+    def _nav(self, url):
+        html = self.client.get(url).content.decode()
+        start = html.rindex("<nav", 0, html.index('aria-label="Admin"'))
+        return html[start : html.index("</nav>", start)]
+
+    def _link(self, nav, url):
+        found = re.search(rf'(?s)<a href="{re.escape(url)}"[^>]*>.*?</a>', nav)
+        self.assertIsNotNone(found, f"No sidebar link to {url}")
+        return found.group(0)
+
+    def test_the_link_is_right_under_billing(self):
+        nav = self._nav(INCOME_URL)
+        billing = reverse("admin_receipt_list")
+        services = reverse("admin_service_list")
+        self.assertLess(nav.index(billing), nav.index(INCOME_URL))
+        self.assertLess(nav.index(INCOME_URL), nav.index(services))
+        links = re.findall(r'<a href="([^"]*)"', nav)
+        self.assertEqual(links.index(INCOME_URL), links.index(billing) + 1)
+
+    def test_the_link_goes_to_income_with_its_label_icon_and_target_size(self):
+        self.assertEqual(reverse("admin_income"), "/admin/income/")
+        link = self._link(self._nav(reverse("admin_dashboard")), INCOME_URL)
+        self.assertIn('<span class="flex-1">Income</span>', link)
+        self.assertIn('x="2" y="6" rx="2"', link)  # the banknote
+        self.assertIn("min-h-11", link)
+        self.assertNotIn("rounded-full", link)  # no badge
+
+    def test_it_is_on_every_admin_page(self):
+        for url in (reverse("admin_dashboard"), reverse("admin_receipt_list")):
+            with self.subTest(url=url):
+                self.assertIn(f'<a href="{INCOME_URL}"', self._nav(url))
+
+    def test_income_is_lit_on_the_income_page_and_billing_is_not(self):
+        for params in ("", "?period=week", "?period=month", "?period=year"):
+            with self.subTest(params=params):
+                nav = self._nav(INCOME_URL + params)
+                self.assertIn('aria-current="page"', self._link(nav, INCOME_URL))
+                self.assertNotIn(
+                    'aria-current="page"',
+                    self._link(nav, reverse("admin_receipt_list")),
+                )
+                self.assertEqual(nav.count('aria-current="page"'), 1)
+
+    def test_billing_is_lit_on_billing_pages_and_income_is_not(self):
+        receipt = self._empty_receipt()
+        urls = (
+            reverse("admin_receipt_list"),
+            reverse("admin_receipt_detail", args=[receipt.pk]),
+        )
+        for url in urls:
+            with self.subTest(url=url):
+                nav = self._nav(url)
+                self.assertIn(
+                    'aria-current="page"',
+                    self._link(nav, reverse("admin_receipt_list")),
+                )
+                self.assertNotIn('aria-current="page"', self._link(nav, INCOME_URL))
+                self.assertEqual(nav.count('aria-current="page"'), 1)
+
+    def test_income_is_not_lit_on_services_or_the_dashboard(self):
+        for name in ("admin_service_list", "admin_dashboard"):
+            with self.subTest(name=name):
+                nav = self._nav(reverse(name))
+                self.assertNotIn('aria-current="page"', self._link(nav, INCOME_URL))
+
+    def test_the_banknote_icon_is_in_the_icon_file_and_maximize_is_not(self):
+        icon = (Path(settings.BASE_DIR) / "templates/components/icon.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('name == "banknote"', icon)
+        self.assertNotIn("maximize-2", icon)
+
+
+@PLAIN_STATIC
+class IncomePageMarkupTests(IncomeTestBase):
+
+    def _html(self, **params):
+        response = self.client.get(INCOME_URL, params)
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _every_view(self):
+        self._paid(total="450.00", subtotal="500.00", visit=True)
+        self._paid(paid_on=datetime.date(2026, 11, 23))
+        self._empty_receipt()
+        for params in (
+            {},
+            {"date": "2026-11-22"},
+            {"period": "week"},
+            {"period": "month"},
+            {"period": "year"},
+        ):
+            yield params, self._html(**params)
+
+    def test_no_button_form_dialog_script_htmx_or_html_comment_in_the_page(self):
+        for params, html in self._every_view():
+            with self.subTest(params=params):
+                main = income_main(html)
+                for forbidden in (
+                    "<button",
+                    "<form",
+                    "<dialog",
+                    "<script",
+                    "<!--",
+                    "hx-",
+                    "onclick",
+                    "data-dialog",
+                    "btn-primary",
+                    "btn btn",
+                ):
+                    self.assertNotIn(forbidden, main)
+
+    def test_the_layout_keeps_its_own_single_form(self):
+        html = self._html()
+        self.assertEqual(html.count("<form"), 1)
+        self.assertIn(reverse("logout"), html[html.index("<form") :][:120])
+
+    def test_no_chart_markup_yet(self):
+        icon = (Path(settings.BASE_DIR) / "templates/components/icon.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("maximize", icon)
+        for params, html in self._every_view():
+            with self.subTest(params=params):
+                main = income_main(html)
+                hidden = re.findall(r'<(\w+)[^>]*aria-hidden="true"', main)
+                self.assertTrue(set(hidden) <= {"svg"}, hidden)
+                self.assertNotIn("See the chart bigger", main)
+                self.assertNotIn("border-dashed", main)
+
+    def test_one_h1_one_h2_and_h3_for_the_list_and_table_titles(self):
+        for params, html in self._every_view():
+            with self.subTest(params=params):
+                self.assertEqual(html.count("<h1"), 1)
+                self.assertEqual(income_main(html).count("<h2"), 1)
+                self.assertLessEqual(income_main(html).count("<h3"), 1)
+
+    def test_every_link_is_on_one_line_in_every_source(self):
+        for path in INCOME_SOURCES:
+            with self.subTest(path=path.name):
+                for link in re.findall(r"(?s)<a\b.*?</a>", path.read_text("utf-8")):
+                    self.assertNotIn("\n", link)
+
+    def test_the_parts_exist_and_each_says_what_it_reads(self):
+        names = {p.name for p in INCOME_TEMPLATES.glob("*.html")}
+        self.assertEqual(
+            names,
+            {
+                "toolbar.html",
+                "hero.html",
+                "tiles.html",
+                "bill_list.html",
+                "period_table.html",
+                "not_paid.html",
+            },
+        )
+        for path in INCOME_TEMPLATES.glob("*.html"):
+            with self.subTest(path=path.name):
+                source = path.read_text(encoding="utf-8")
+                self.assertIn("{% comment %}", source)
+                self.assertIn("Reads:", source)
+                self.assertNotIn("<!--", source)

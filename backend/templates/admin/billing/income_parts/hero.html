@@ -1,0 +1,11 @@
+{% load billing_extras %}
+{% comment %}
+  The violet money card. Reads: period.when, totals.total, totals.count,
+  compare_line. A heading card, not a link.
+{% endcomment %}
+<section class="rounded-2xl bg-gradient-to-br from-violet-800 to-violet-600 p-5 text-white shadow-sm sm:p-6" aria-labelledby="money-heading">
+  <p id="money-heading" class="flex items-center gap-2 text-base font-semibold text-violet-100">{% include "components/icon.html" with name="banknote" %}Money received · {{ period.when }}</p>
+  <p class="mt-2 text-4xl font-bold tracking-tight sm:text-5xl">{{ totals.total|peso }}</p>
+  <p class="mt-1 text-lg text-violet-50">{% if totals.count %}from {{ totals.count }} bill{{ totals.count|pluralize }} paid{% else %}No bills were paid.{% endif %}</p>
+  <p class="mt-4 inline-flex rounded-full bg-white/15 px-4 py-1.5 text-base text-white">{{ compare_line }}</p>
+</section>
