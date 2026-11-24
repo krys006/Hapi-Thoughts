@@ -119,6 +119,13 @@ does everything): [backend] = Python (models, views, settings),
 [frontend] = templates, Tailwind, CSS, JS, [both] = both.
 
 ### DONE (2026-11-25)
+- **Fix no-store pages — 2026-11-25** (branch `fix/no-store-pages`; no model change, no migration, no new URL, no Tailwind rebuild). Audit findings D1 and D10.
+  - Middleware: `NoStoreMiddleware` (`accounts/middleware.py`) calls Django's `add_never_cache_headers` on every response except paths that start with `STATIC_URL` or `MEDIA_URL`. It sits in `MIDDLEWARE` right after `WhiteNoiseMiddleware` (WhiteNoise answers static files first, so they keep their long cache). No view sets its own cache header (grep found none).
+  - htmx: `<meta name="htmx-config" content='{"historyCacheSize": 0, "refreshOnHistoryMiss": true}'>` in `layouts/owner.html` (was only `refreshOnHistoryMiss`) and, new, in `layouts/admin.html` before the htmx script. These are the only two templates that load htmx.
+  - htmx answer (read in `htmx-2.0.11.min.js`): with `historyCacheSize` 0 htmx saves no snapshot, and on that same save step it runs `sessionStorage.removeItem("htmx-history-cache")`, so an old key is removed on the next history save. The key lives in `sessionStorage` (not `localStorage`): it goes when the tab closes, but it survived logout inside one tab.
+  - D10: `RoleAccessMiddleware` builds `?next=` with `urlencode({"next": request.path})` (same value as before, only encoded); the `HX-Redirect` header uses the same URL. The query string was never part of `next`.
+  - Tests added (end of `accounts/tests.py`): `NoStoreHeaderTests`, `MiddlewareOrderTests`, `HtmxHistoryConfigTests`, `LoginNextEncodingTests`.
+  - Tests changed (approved decision: `next` is encoded; each now expects the encoded form, same check otherwise): `accounts` `LoggedOutHtmxRedirectTests` (two tests: `?next={path}` → `?{urlencode({'next': path})}`), `dashboard` `test_logged_out_owner_page_goes_to_owner_login` and `appointments` `test_logged_out_goes_to_the_login_page` (`?next=/owner/...` → `?next=%2Fowner%2F...`). The appointments test `test_the_owner_layout_loads_the_script_with_defer_and_keeps_history_safe` still passes unchanged (its substring is still in the new meta).
 - **Add buttons on Pets, Medical records and Vaccinations — 2026-11-25** (branch `fix/add-buttons-on-lists`; mockup `docs/mockups/add_buttons_v1.html`, all 8 states approved; no model change, no migration, no new JavaScript, no new Tailwind class; three new read-only URLs).
   - Buttons: one violet `btn btn-primary` (icon `plus`) in the `page_actions` block, the same block and classes as Add owner: **Add pet** (`pets_list.html` and `deletion_requests.html`, so every tab), **Add medical record** (`record_list.html`), **Add vaccination** (`vaccination_list.html`). Each page keeps exactly one `btn-primary` outside dialogs.
   - Views (function views, `@login_required` + `@require_GET`, non-admin sent to `owner_dashboard`, nothing is written): `admin_pet_choose_owner` (`pets/views.py`, `admin/pets/add/`), `admin_medical_record_choose_pet` (`admin/medical/add/`) and `admin_vaccination_choose_pet` (`admin/vaccinations/add/`) (both `medical/views.py`, sharing `_choose_pet_response`). None clashes with an `<int:pk>` route.
@@ -712,6 +719,20 @@ to needs-approval) and the appointments list.
 - S18 test files checked by extension only: OPEN (Low)
 
 Not checked (Krys): Render env vars; Supabase bucket public/listing and Data API / row-level security; Brevo SPF/DKIM; Google redirect URIs; `clearsessions` and unverified-account cleanup not scheduled.
+
+## Security audit 2026-11-25 (what the browser receives)
+
+- Area A: all admin routes refuse owners; the middleware refuses owners on every `/admin/` path; owner-login tests exist, there is no HTMX owner test.
+- D1 no `Cache-Control` on any page (Back after logout could show the last page): DONE (`NoStoreMiddleware`, htmx `historyCacheSize` 0)
+- D2 login time differs for an unknown email; forgot-password and resend send mail only for real accounts: OPEN (Low; with S9 in SEC-3, dummy password check)
+- D3 owner pages load the whole appointment, including internal `notes` (not printed today): OPEN (Low; cleanup batch, `.defer("notes")`)
+- D4 HSTS only 3600 s, no Permissions-Policy: OPEN (Low; raise after staging, with S13)
+- D5 no owner HTMX test on the admin routes, no test that a view's own check works without the middleware: OPEN (Low; SEC-6, before `@admin_required`)
+- D6 three inline scripts and `hx-confirm` in the notification panels; a csrf token inside a `<button>` tag: OPEN (Low; cleanup batch, native dialog)
+- D7 `<!-- -->` comments reach the browser, mostly in unused templates: OPEN (Low; cleanup batch, delete or `{# #}`)
+- D8 owner search shows visits and records of archived pets; the owner search is unused since 8b-10a: OPEN (Low; cleanup batch, remove it)
+- D9 upload filenames kept and files public: OPEN (with S4 / S8)
+- D10 `?next=` and `HX-Redirect` held the path unencoded: DONE (`urlencode`)
 
 ---
 

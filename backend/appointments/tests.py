@@ -7,6 +7,7 @@ from decimal import Decimal
 from html import unescape
 from pathlib import Path
 from unittest import mock
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -4291,7 +4292,9 @@ class ClinicInfoPageTests(AppointmentTestBase):
         self.client.logout()
         response = self.client.get(self.url)
         self.assertRedirects(
-            response, f"/login/?next={self.url}", fetch_redirect_response=False
+            response,
+            f"/login/?next={quote(self.url, safe='')}",
+            fetch_redirect_response=False,
         )
 
 

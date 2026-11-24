@@ -1,9 +1,11 @@
 import datetime
+import json
 import re
 from html.parser import HTMLParser
 from io import StringIO
 from pathlib import Path
 from unittest import mock
+from urllib.parse import urlencode
 
 from allauth.core.exceptions import ImmediateHttpResponse
 from allauth.socialaccount.models import SocialAccount, SocialLogin
@@ -3626,7 +3628,7 @@ class LoggedOutHtmxRedirectTests(TestCase):
                 response = self.client.get(path, headers=self.HTMX)
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.content, b"")
-                login = f"{reverse('owner_login')}?next={path}"
+                login = f"{reverse('owner_login')}?{urlencode({'next': path})}"
                 self.assertEqual(response.headers["HX-Redirect"], login)
 
     def test_an_admin_path_gets_hx_redirect_to_the_admin_login(self):
@@ -3644,7 +3646,7 @@ class LoggedOutHtmxRedirectTests(TestCase):
         for name, path in self._paths().items():
             with self.subTest(path=name):
                 response = self.client.get(path)
-                login = f"{reverse('owner_login')}?next={path}"
+                login = f"{reverse('owner_login')}?{urlencode({'next': path})}"
                 self.assertRedirects(response, login, fetch_redirect_response=False)
                 self.assertNotIn("HX-Redirect", response.headers)
         admin = self.client.get(reverse("admin_dashboard"))
@@ -4292,3 +4294,152 @@ class OwnerAccountServicesRowTests(_LoggedInBase):
             {"url_name": "clinic_info", "icon": "tag", "label": "A", "sub": "B"},
         )
         self.assertIn(f'<a href="{reverse("clinic_info")}" class=', html)
+
+
+# ── Fix no-store pages (browser audit D1, D10) ───────────────────────────────
+
+NEVER_CACHE_WORDS = (
+    "no-store",
+    "no-cache",
+    "must-revalidate",
+    "private",
+    "max-age=0",
+)
+
+
+class NoStoreHeaderTests(_LoggedInBase):
+    """Every response except static and media files says: keep no copy."""
+
+    def assertNoStore(self, response):
+        header = response.headers.get("Cache-Control", "")
+        for word in NEVER_CACHE_WORDS:
+            self.assertIn(word, header)
+
+    def _pets(self):
+        owner = PetOwner.objects.get(user=self.owner_user)
+        for name in ("Rex", "Max", "Tom", "Kiko", "Mimi"):
+            Pet.objects.create(owner=owner, name=name, species="Dog")
+
+    def test_the_owner_login_page_for_a_visitor(self):
+        self.assertNoStore(self.client.get(reverse("owner_login")))
+
+    def test_an_owner_page(self):
+        self.client.force_login(self.owner_user)
+        response = self.client.get(reverse("owner_dashboard"))
+        self.assertEqual(response.status_code, 200)
+        self.assertNoStore(response)
+
+    def test_an_admin_page(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("admin_dashboard"))
+        self.assertEqual(response.status_code, 200)
+        self.assertNoStore(response)
+
+    def test_an_htmx_partial_and_its_vary_header(self):
+        self._pets()
+        self.client.force_login(self.owner_user)
+        response = self.client.get(
+            reverse("owner_pet_list"), headers={"HX-Request": "true"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertNoStore(response)
+        self.assertIn("HX-Request", response.headers["Vary"])
+
+    def test_a_redirect(self):
+        response = self.client.get(reverse("owner_dashboard"))
+        self.assertEqual(response.status_code, 302)
+        self.assertNoStore(response)
+
+    def test_a_404(self):
+        response = self.client.get("/accounts/no-such-page-here/")
+        self.assertEqual(response.status_code, 404)
+        self.assertNoStore(response)
+
+    def test_a_post_response(self):
+        response = self.client.post(
+            reverse("owner_login"),
+            {"email": "ana@example.com", "password": "wrong-password"},
+        )
+        self.assertNoStore(response)
+
+    @override_settings(STATIC_URL="/static/", MEDIA_URL="/media/")
+    def test_static_and_media_files_are_left_alone(self):
+        from accounts.middleware import NoStoreMiddleware
+        from django.http import HttpResponse
+
+        middleware = NoStoreMiddleware(lambda request: HttpResponse("x"))
+        for path in ("/static/css/app.css", "/media/pets/x.jpg"):
+            with self.subTest(path=path):
+                response = middleware(RequestFactory().get(path))
+                self.assertNotIn("Cache-Control", response.headers)
+        other = middleware(RequestFactory().get("/owner/pets/"))
+        self.assertIn("no-store", other.headers["Cache-Control"])
+
+
+class MiddlewareOrderTests(SimpleTestCase):
+    def test_no_store_comes_right_after_whitenoise(self):
+        names = settings.MIDDLEWARE
+        whitenoise = names.index("whitenoise.middleware.WhiteNoiseMiddleware")
+        after = names[whitenoise + 1]
+        self.assertEqual(after, "accounts.middleware.NoStoreMiddleware")
+
+
+class HtmxHistoryConfigTests(_LoggedInBase):
+    """htmx keeps no page copies; Back reloads the page from the server."""
+
+    EXPECTED = {"historyCacheSize": 0, "refreshOnHistoryMiss": True}
+
+    def _pages(self):
+        self.client.force_login(self.owner_user)
+        owner = self.client.get(reverse("owner_dashboard")).content.decode()
+        self.client.force_login(self.admin)
+        admin = self.client.get(reverse("admin_dashboard")).content.decode()
+        return {"owner": owner, "admin": admin}
+
+    def test_one_config_meta_with_the_expected_json_before_the_script(self):
+        for name, html in self._pages().items():
+            with self.subTest(layout=name):
+                self.assertEqual(html.count('<meta name="htmx-config"'), 1)
+                meta = r"<meta name=\"htmx-config\" content='([^']*)'>"
+                found = re.search(meta, html)
+                self.assertEqual(json.loads(found.group(1)), self.EXPECTED)
+                script = re.search(r'<script src="[^"]*htmx-2\.0\.11', html)
+                self.assertLess(found.start(), script.start())
+
+
+class LoginNextEncodingTests(TestCase):
+    """The path put into ?next= (and HX-Redirect) is URL-encoded."""
+
+    def test_the_path_is_encoded_in_the_redirect(self):
+        response = self.client.get("/owner/a%20b%26c/")
+        self.assertEqual(response.status_code, 302)
+        location = response["Location"]
+        self.assertEqual(
+            location, f"{reverse('owner_login')}?next=%2Fowner%2Fa+b%26c%2F"
+        )
+
+    def test_the_pets_url_with_a_query_keeps_only_the_encoded_path(self):
+        response = self.client.get("/owner/pets/?q=a b&type=dog")
+        self.assertEqual(
+            response["Location"], f"{reverse('owner_login')}?next=%2Fowner%2Fpets%2F"
+        )
+
+    def test_htmx_gets_the_same_encoded_url_in_hx_redirect(self):
+        response = self.client.get("/owner/a%20b%26c/", headers={"HX-Request": "true"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response["HX-Redirect"],
+            f"{reverse('owner_login')}?next=%2Fowner%2Fa+b%26c%2F",
+        )
+
+    def test_a_line_break_in_the_path_is_a_redirect_not_an_error(self):
+        for headers in ({}, {"HX-Request": "true"}):
+            with self.subTest(htmx=bool(headers)):
+                path = "/owner/pets/%0d%0aX-Evil:1"
+                response = self.client.get(path, headers=headers)
+                self.assertIn(response.status_code, (200, 302))
+                for name, value in response.headers.items():
+                    self.assertNotIn("\r", name + value)
+                    self.assertNotIn("\n", name + value)
+                target = response.headers.get("Location") or response["HX-Redirect"]
+                self.assertIn("%0D%0A", target)

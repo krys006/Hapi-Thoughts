@@ -1,6 +1,10 @@
+from urllib.parse import urlencode
+
+from django.conf import settings
 from django.http import HttpResponse, HttpResponseForbidden
 from django.shortcuts import redirect
 from django.urls import reverse
+from django.utils.cache import add_never_cache_headers
 
 # URLs that don't require login
 PUBLIC_URLS = [
@@ -23,6 +27,24 @@ PUBLIC_PREFIXES = [
     "/reset-password/",
     "/accounts/",
 ]
+
+
+class NoStoreMiddleware:
+    """
+    Tells the browser to keep no copy of any page (Back after logout must not
+    show the last user's page). Static and media files keep their own caching.
+    Sits right after WhiteNoise, which answers static files before this runs.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        if request.path.startswith((settings.STATIC_URL, settings.MEDIA_URL)):
+            return response
+        add_never_cache_headers(response)
+        return response
 
 
 class RoleAccessMiddleware:
@@ -56,7 +78,9 @@ class RoleAccessMiddleware:
             if path.startswith("/admin/"):
                 login_url = reverse("admin_login")
             else:
-                login_url = f"{reverse('owner_login')}?next={path}"
+                # urlencode: the path is user input and goes into a header
+                query = urlencode({"next": path})
+                login_url = f"{reverse('owner_login')}?{query}"
             # HTMX would follow a redirect and swap the login page into the
             # target. HX-Redirect makes it load the whole page instead.
             if request.headers.get("HX-Request"):
