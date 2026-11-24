@@ -223,6 +223,7 @@ def follow_up_visit(record):
             date__gte=record.follow_up_date,
             status__in=FOLLOW_UP_VISIT_STATUSES,
         )
+        .defer("notes")
         .order_by("date", "time", "pk")
         .first()
     )
@@ -894,10 +895,11 @@ def record_detail_context(record, today):
 
 def owner_record_queryset():
     """Records for the owner's page: the pet and the visit loaded, and
-    private_notes never read (so no page can show it)."""
+    private_notes never read (so no page can show it). The visit's internal
+    notes are deferred too."""
     return MedicalRecord.objects.select_related(
         "pet", "appointment", "appointment__service"
-    ).defer("private_notes")
+    ).defer("private_notes", "appointment__notes")
 
 
 def owner_test_files(record):

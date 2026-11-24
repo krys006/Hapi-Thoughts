@@ -593,12 +593,12 @@ class OwnerProfileRequiredTests(TestCase):
 
     def _pages(self):
         """One owner view from each app: appointments, billing, medical
-        history, owner search, pets list."""
+        history, notifications, pets list."""
         return [
             reverse("owner_appointments"),
             reverse("owner_billing_list"),
             reverse("owner_pet_medical_history", args=[1]),
-            reverse("owner_global_search") + "?q=max",
+            reverse("owner_notifications"),
             reverse("owner_pet_list"),
         ]
 
@@ -621,7 +621,7 @@ class OwnerProfileRequiredTests(TestCase):
     def test_htmx_request_gets_hx_redirect(self):
         self._user()
         response = self.client.get(
-            reverse("owner_global_search") + "?q=max", HTTP_HX_REQUEST="true"
+            reverse("owner_notifications"), HTTP_HX_REQUEST="true"
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["HX-Redirect"], self.step1)
@@ -641,7 +641,7 @@ class OwnerProfileRequiredTests(TestCase):
             reverse("owner_appointments"),
             reverse("owner_billing_list"),
             reverse("owner_pet_medical_history", args=[pet.pk]),
-            reverse("owner_global_search") + "?q=max",
+            reverse("owner_notifications"),
             reverse("owner_pet_list"),
         ]
         for url in urls:

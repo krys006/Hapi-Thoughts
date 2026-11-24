@@ -445,9 +445,9 @@ def owner_receipt_detail(request, pk):
         return redirect("admin_dashboard")
 
     receipt = get_object_or_404(
-        owner_receipts(request.owner).select_related(
-            "pet", "owner", "appointment", "appointment__service"
-        ),
+        owner_receipts(request.owner)
+        .select_related("pet", "owner", "appointment", "appointment__service")
+        .defer("appointment__notes"),
         pk=pk,
     )
     context = owner_receipt_context(receipt)

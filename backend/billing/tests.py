@@ -7894,12 +7894,6 @@ class OwnerHidesEmptyBillTests(OwnerBillingPageBase):
         self.assertEqual(response.context["unpaid_count"], 0)
         self.assertEqual(response.context["unpaid_total"], Decimal("0"))
 
-    def test_the_header_search_does_not_find_it(self):
-        response = self.client.get(
-            reverse("owner_global_search"), {"q": self.empty.receipt_number}
-        )
-        self.assertEqual(list(response.context["search_receipts"]), [])
-
     def test_after_one_item_it_shows_everywhere_with_the_right_total(self):
         self._fill()
         for name, response in self._pages():
@@ -7915,10 +7909,6 @@ class OwnerHidesEmptyBillTests(OwnerBillingPageBase):
         dashboard = self._as_owner("owner_dashboard")
         self.assertEqual(dashboard.context["unpaid_count"], 1)
         self.assertEqual(dashboard.context["unpaid_total"], Decimal("250.00"))
-        found = self.client.get(
-            reverse("owner_global_search"), {"q": self.empty.receipt_number}
-        )
-        self.assertEqual(list(found.context["search_receipts"]), [self.empty])
 
     def test_a_paid_bill_is_always_shown(self):
         self._fill()

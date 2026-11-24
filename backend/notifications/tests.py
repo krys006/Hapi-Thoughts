@@ -1335,7 +1335,8 @@ class OwnerNotificationsPageTests(FrozenRemindersTestBase):
         self.assertIsNotNone(mine.read_at)
         self.assertFalse(theirs.is_read)
 
-    def test_mark_all_without_return_to_keeps_the_panel_behaviour(self):
+    def test_mark_all_without_return_to_goes_to_the_page(self):
+        # Old: 200 with the shared panel. New: the owner never gets a panel.
         mine = self._notice("Mine", created=self.MIDNIGHT)
         self.client.force_login(self.owner.user)
         other_values = ({}, {"return_to": "somewhere"}, {"return_to": "https://x.test"})
@@ -1344,8 +1345,7 @@ class OwnerNotificationsPageTests(FrozenRemindersTestBase):
                 mine.is_read = False
                 mine.save(update_fields=["is_read"])
                 response = self.client.post(reverse("notification_mark_all_read"), data)
-                self.assertEqual(response.status_code, 200)
-                self.assertTemplateUsed(response, "shared/notifications/_panel.html")
+                self.assertRedirects(response, self.URL, fetch_redirect_response=False)
                 mine.refresh_from_db()
                 self.assertTrue(mine.is_read)
 
@@ -1354,17 +1354,15 @@ class OwnerNotificationsPageTests(FrozenRemindersTestBase):
         response = self.client.get(reverse("notification_mark_all_read"))
         self.assertEqual(response.status_code, 405)
 
-    def test_the_bell_panel_links_to_the_page(self):
+    def test_the_bell_panel_sends_an_owner_to_the_page(self):
+        # Old: the owner got a panel with a "See all notifications" link.
         self.client.force_login(self.owner.user)
         response = self.client.get(reverse("notifications_panel"))
-        self.assertContains(
-            response,
-            f'<a href="{self.URL}" class="notification-mark-all-btn">'
-            "See all notifications</a>",
-            count=1,
-        )
+        self.assertRedirects(response, self.URL, fetch_redirect_response=False)
+        # The admin gets the admin panel, sent once without X-Admin-Layout
         self.client.force_login(self.admin)
         response = self.client.get(reverse("notifications_panel"))
+        self.assertTemplateUsed(response, "admin/notifications/_panel.html")
         self.assertNotContains(response, "See all notifications")
 
     def _query_count(self):
@@ -2101,3 +2099,90 @@ class BillSendNotificationTypeTests(FrozenRemindersTestBase):
                     notification_target(for_admin),
                     reverse("admin_receipt_detail", args=[self.receipt.pk]),
                 )
+
+
+class OwnerNotificationPanelRedirectTests(FrozenRemindersTestBase):
+    """Audit cleanup part 1: a pet owner never gets the bell panel; the admin
+    always gets the admin panel, with or without X-Admin-Layout."""
+
+    PAGE = "/owner/notifications/"
+    ADMIN_PANEL = "admin/notifications/_panel.html"
+
+    def setUp(self):
+        super().setUp()
+        self.admin = User.objects.create_user(
+            username="admin",
+            email="admin@example.com",
+            password="unused-pass-123",
+            role=User.ADMIN,
+            is_onboarded=True,
+        )
+
+    def _assert_htmx_redirect(self, response):
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["HX-Redirect"], self.PAGE)
+        self.assertEqual(response.content, b"")
+
+    def test_owner_get_redirects_to_the_page(self):
+        self.client.force_login(self.owner.user)
+        response = self.client.get(reverse("notifications_panel"))
+        self.assertRedirects(response, self.PAGE, fetch_redirect_response=False)
+
+    def test_owner_htmx_get_gets_hx_redirect(self):
+        self.client.force_login(self.owner.user)
+        response = self.client.get(
+            reverse("notifications_panel"), HTTP_HX_REQUEST="true"
+        )
+        self._assert_htmx_redirect(response)
+
+    def test_owner_post_without_return_to_redirects_and_marks_read(self):
+        mine = Notification.objects.create(
+            recipient=self.owner.user,
+            notification_type=Notification.APPOINTMENT_APPROVED,
+            title="T",
+            message="M",
+        )
+        self.client.force_login(self.owner.user)
+        response = self.client.post(reverse("notification_mark_all_read"))
+        self.assertRedirects(response, self.PAGE, fetch_redirect_response=False)
+        mine.refresh_from_db()
+        self.assertTrue(mine.is_read)
+
+    def test_owner_htmx_post_without_return_to_gets_hx_redirect(self):
+        self.client.force_login(self.owner.user)
+        response = self.client.post(
+            reverse("notification_mark_all_read"), HTTP_HX_REQUEST="true"
+        )
+        self._assert_htmx_redirect(response)
+
+    def test_admin_panel_without_the_layout_header_is_the_admin_one(self):
+        self.client.force_login(self.admin)
+        for name in ("notifications_panel",):
+            with self.subTest(name=name):
+                response = self.client.get(reverse(name))
+                self.assertEqual(response.status_code, 200)
+                self.assertTemplateUsed(response, self.ADMIN_PANEL)
+
+    def test_admin_mark_all_read_without_the_header_is_the_admin_panel(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(reverse("notification_mark_all_read"))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, self.ADMIN_PANEL)
+
+    def test_admin_clear_without_the_header_is_the_admin_panel(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(reverse("notification_clear"))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, self.ADMIN_PANEL)
+
+    def test_admin_panel_with_the_header_is_the_same_template(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(
+            reverse("notifications_panel"), HTTP_X_ADMIN_LAYOUT="1"
+        )
+        self.assertTemplateUsed(response, self.ADMIN_PANEL)
+
+    def test_owner_clear_is_still_forbidden(self):
+        self.client.force_login(self.owner.user)
+        response = self.client.post(reverse("notification_clear"))
+        self.assertEqual(response.status_code, 403)

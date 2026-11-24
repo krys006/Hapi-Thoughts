@@ -63,7 +63,9 @@ from appointments.utils import (
 )
 from billing.models import BillingItem, BillingReceipt, Service
 from dashboard.templatetags.friendly_dates import friendly_date, long_date
+from dashboard.utils import owner_dashboard_context
 from medical.models import MedicalRecord
+from medical.utils import follow_up_visit, owner_record_queryset
 from notifications.models import Notification
 from pets.models import Pet, PetOwner
 
@@ -10030,3 +10032,125 @@ class OwnerBillBeingPreparedTests(_OwnerVisitsBase):
         self.assertIsNone(re.search(r"<a\b[^>]*\n", html))
         self.assertIsNone(re.search(r"<[a-z][^>]*\son[a-z]+=", html))
         self.assertIn('<path d="M5 22h14" />', html)  # the hourglass icon
+
+
+class OwnerAppointmentNotesDeferredTests(_OwnerVisitsBase):
+    """Audit cleanup part 1 (D3): every owner query that loads an Appointment
+    defers the clinic's internal `notes`, so no owner page can show them."""
+
+    SECRET = "INTERNAL-NOTE-123"
+
+    def _noted(self, **fields):
+        return self._visit(notes=self.SECRET, **fields)
+
+    def _assert_deferred(self, visit):
+        self.assertIn("notes", visit.get_deferred_fields())
+
+    def _get(self, name, *args):
+        return self.client.get(reverse(name, args=args))
+
+    def _completed_visit_with_record_and_bill(self):
+        visit = self._noted(days=-1, status=Appointment.COMPLETED)
+        record = MedicalRecord.objects.create(
+            pet=self.pet, appointment=visit, record_date=self.today
+        )
+        receipt = BillingReceipt.objects.create(
+            appointment=visit,
+            owner=self.owner,
+            pet=self.pet,
+            receipt_number="HV-2026-0001",
+            payment_status=BillingReceipt.PAID,
+        )
+        return visit, record, receipt
+
+    def test_the_visits_list_rows_and_their_original_defer_notes(self):
+        original, new = self._moved(self.admin, Appointment.CONFIRMED)
+        Appointment.objects.filter(pk__in=[original.pk, new.pk]).update(
+            notes=self.SECRET
+        )
+        self._noted(days=1)
+        self._noted(days=-3, status=Appointment.COMPLETED)
+        for show in ("upcoming", "past"):
+            with self.subTest(show=show):
+                ctx = owner_visits_context(
+                    self.owner, {"show": show}, self.today, self.NOW
+                )
+                cards = [card for group in ctx["groups"] for card in group["cards"]]
+                self.assertTrue(cards)
+                for card in cards:
+                    self._assert_deferred(card["visit"])
+                    if card["visit"].rescheduled_from is not None:
+                        self._assert_deferred(card["visit"].rescheduled_from)
+
+    def test_the_dashboard_visits_defer_notes(self):
+        for days in (1, 2, 3, 4):
+            self._noted(days=days)
+        ctx = owner_dashboard_context(self.owner, self.today, self.NOW)
+        shown = [ctx["next_visit"], *ctx["upcoming"]]
+        self.assertEqual(len(shown), 4)
+        for visit in shown:
+            self._assert_deferred(visit)
+
+    def test_the_record_queryset_defers_the_visits_notes(self):
+        _visit, record, _receipt = self._completed_visit_with_record_and_bill()
+        loaded = owner_record_queryset().get(pk=record.pk)
+        self._assert_deferred(loaded.appointment)
+        self.assertIn("private_notes", loaded.get_deferred_fields())
+
+    def test_the_follow_up_visit_defers_notes(self):
+        record = MedicalRecord.objects.create(
+            pet=self.pet,
+            record_date=self.today,
+            follow_up_required=True,
+            follow_up_date=self.today + datetime.timedelta(days=2),
+        )
+        self._noted(days=3, status=Appointment.PENDING)
+        found = follow_up_visit(record)
+        self.assertIsNotNone(found)
+        self._assert_deferred(found)
+
+    def test_the_owner_pages_do_not_contain_the_notes(self):
+        original, new = self._moved(self.admin, Appointment.PENDING)
+        Appointment.objects.filter(pk__in=[original.pk, new.pk]).update(
+            notes=self.SECRET
+        )
+        done, record, receipt = self._completed_visit_with_record_and_bill()
+        pages = {
+            "visit": ("owner_appointment_detail", done.pk),
+            "visit moved to": ("owner_appointment_detail", original.pk),
+            "visit moved from": ("owner_appointment_detail", new.pk),
+            "visits": ("owner_appointments",),
+            "dashboard": ("owner_dashboard",),
+            "request sent": ("owner_book_sent", new.pk),
+            "change day": ("owner_appointment_reschedule", new.pk),
+            "bill": ("owner_receipt_detail", receipt.pk),
+            "record": ("owner_medical_record", self.pet.pk, record.pk),
+        }
+        for label, (name, *args) in pages.items():
+            with self.subTest(page=label):
+                response = self._get(name, *args)
+                self.assertEqual(response.status_code, 200)
+                self.assertNotContains(response, self.SECRET)
+
+    def test_the_pages_carry_deferred_appointments(self):
+        _original, new = self._moved(self.admin, Appointment.PENDING)
+        _done, record, receipt = self._completed_visit_with_record_and_bill()
+        detail = self._get("owner_appointment_detail", new.pk)
+        self._assert_deferred(detail.context["appointment"])
+        self._assert_deferred(detail.context["appointment"].rescheduled_from)
+        sent = self._get("owner_book_sent", new.pk)
+        self._assert_deferred(sent.context["appointment"])
+        bill = self._get("owner_receipt_detail", receipt.pk)
+        self._assert_deferred(bill.context["visit"])
+        page = self._get("owner_medical_record", self.pet.pk, record.pk)
+        self._assert_deferred(page.context["visit"])
+
+    def test_the_query_counts_do_not_change(self):
+        """Deferring costs no extra query: nothing reads the field."""
+        visit = self._noted(days=2)
+        with CaptureQueriesContext(connection) as noted:
+            self._get("owner_appointment_detail", visit.pk)
+        Appointment.objects.filter(pk=visit.pk).update(notes="")
+        with CaptureQueriesContext(connection) as empty:
+            self._get("owner_appointment_detail", visit.pk)
+        self.assertEqual(len(noted), len(empty))
