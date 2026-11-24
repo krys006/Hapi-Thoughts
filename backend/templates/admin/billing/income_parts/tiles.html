@@ -1,0 +1,40 @@
+{% load billing_extras %}
+{% comment %}
+  The three numbers under the money card, only when bills were paid. Reads:
+  totals.count, totals.visits, totals.over_counter, totals.discount,
+  totals.discount_count. One list: three tiles in a row from a 1180px-wide
+  viewport (the side column leaves little room before that), else one card of
+  three rows.
+{% endcomment %}
+{% if totals.count %}
+  <ul class="mt-4 divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white shadow-sm min-[1180px]:grid min-[1180px]:grid-cols-3 min-[1180px]:gap-4 min-[1180px]:divide-y-0 min-[1180px]:rounded-none min-[1180px]:border-0 min-[1180px]:bg-transparent min-[1180px]:shadow-none">
+    <li class="flex items-center gap-3 p-4 min-[1180px]:items-start min-[1180px]:rounded-xl min-[1180px]:border min-[1180px]:border-gray-200 min-[1180px]:bg-white min-[1180px]:shadow-sm">
+      <span class="grid size-10 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-700 ring-1 ring-violet-200">{% include "components/icon.html" with name="stethoscope" %}</span>
+      <div class="flex min-w-0 flex-1 items-center justify-between gap-3 min-[1180px]:block">
+        <p class="text-base text-gray-700">From visits</p>
+        <p class="text-base font-semibold text-gray-900 min-[1180px]:text-xl">{{ totals.visits|peso }}</p>
+      </div>
+    </li>
+    <li class="flex items-center gap-3 p-4 min-[1180px]:items-start min-[1180px]:rounded-xl min-[1180px]:border min-[1180px]:border-gray-200 min-[1180px]:bg-white min-[1180px]:shadow-sm">
+      <span class="grid size-10 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-700 ring-1 ring-violet-200">{% include "components/icon.html" with name="pill" %}</span>
+      <div class="flex min-w-0 flex-1 items-center justify-between gap-3 min-[1180px]:block">
+        <p class="text-base text-gray-700">Over the counter</p>
+        <p class="text-base font-semibold text-gray-900 min-[1180px]:text-xl">{{ totals.over_counter|peso }}</p>
+      </div>
+    </li>
+    <li class="flex items-center gap-3 p-4 min-[1180px]:items-start min-[1180px]:rounded-xl min-[1180px]:border min-[1180px]:border-gray-200 min-[1180px]:bg-white min-[1180px]:shadow-sm">
+      <span class="grid size-10 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-700 ring-1 ring-violet-200">{% include "components/icon.html" with name="percent" %}</span>
+      <div class="flex min-w-0 flex-1 items-center justify-between gap-3 min-[1180px]:block">
+        <p class="text-base text-gray-700">Discounts given</p>
+        <div class="text-right min-[1180px]:text-left">
+          {% if totals.discount %}
+            <p class="text-base font-semibold text-gray-900 min-[1180px]:text-xl">{{ totals.discount|peso }}</p>
+            <p class="text-sm text-gray-700">on {{ totals.discount_count }} bill{{ totals.discount_count|pluralize }}</p>
+          {% else %}
+            <p class="text-base font-semibold text-gray-900 min-[1180px]:text-xl">None</p>
+          {% endif %}
+        </div>
+      </div>
+    </li>
+  </ul>
+{% endif %}

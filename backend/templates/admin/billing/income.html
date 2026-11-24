@@ -1,5 +1,4 @@
 {% extends "layouts/admin.html" %}
-{% load billing_extras %}
 
 {% block title %}Income — Hapi Vet Admin{% endblock %}
 
@@ -7,125 +6,27 @@
 {% block page_subtitle %}Money received from paid bills. Payment is cash.{% endblock %}
 
 {% block content %}
-  {# Plain version (batch I-1): prints every number the page needs. The approved design (hero, tiles, chart, dialog) is batch I-2. Read-only: links only, no forms. #}
+  {# Income page (batch I-2a, mockup docs/mockups/income_v2.html). Read-only: links only, no form, no button, no script. The numbers come from billing.utils.income_context. Parts are in income_parts/. #}
 
-  {# Day / Week / Month / Year, all for the same date #}
-  <nav class="mb-6 flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white p-2 shadow-sm" aria-label="Income period">
-    {% for link in period_links %}
-      <a href="{{ link.url }}" class="inline-flex min-h-12 items-center gap-2 rounded-lg px-4 text-base {% if link.is_active %}bg-violet-50 font-semibold text-violet-800 ring-2 ring-violet-600{% else %}text-gray-800 hover:bg-gray-100{% endif %}"{% if link.is_active %} aria-current="page"{% endif %}>{{ link.label }}</a>
-    {% endfor %}
-  </nav>
+  {% include "admin/billing/income_parts/toolbar.html" %}
 
-  {# Previous, the period's name, Next. Next is plain text on the current period. #}
-  <div class="mb-4 flex flex-wrap items-center gap-3">
-    {% if prev_url %}
-      <a href="{{ prev_url }}" class="inline-flex min-h-12 items-center rounded-lg px-4 text-base font-medium text-blue-600 underline underline-offset-2">Previous</a>
-    {% else %}
-      <span class="inline-flex min-h-12 items-center px-4 text-base text-gray-500">Previous</span>
-    {% endif %}
-    <h2 class="text-lg font-semibold text-gray-900">{{ period.label }}</h2>
-    {% if next_url %}
-      <a href="{{ next_url }}" class="inline-flex min-h-12 items-center rounded-lg px-4 text-base font-medium text-blue-600 underline underline-offset-2">Next</a>
-    {% else %}
-      <span class="inline-flex min-h-12 items-center px-4 text-base text-gray-500">Next</span>
-    {% endif %}
-    {% if back_to_today_url %}
-      <a href="{{ back_to_today_url }}" class="inline-flex min-h-12 items-center rounded-lg px-4 text-base font-medium text-blue-600 underline underline-offset-2">Back to today</a>
-    {% endif %}
-  </div>
+  {# Three children in one grid. In the HTML (and on a phone) they come in this order: top (money card and tiles), side (Not paid yet), below (the bills or the table). From lg: the top and the below sit in the left column (rows 1 and 2), and the side is the right column, as tall as both rows, and sticky. Batch I-2b adds the compact chart to the side child, above Not paid yet, so the side child stays a wrapper. #}
+  <div class="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+    <div class="min-w-0 lg:col-start-1 lg:row-start-1">
+      {% include "admin/billing/income_parts/hero.html" %}
+      {% include "admin/billing/income_parts/tiles.html" %}
+    </div>
 
-  {# Money received, the comparison and the three tiles #}
-  <section class="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm" aria-labelledby="income-money">
-    <h2 id="income-money" class="text-base text-gray-600">Money received · {{ period.when }}</h2>
-    <p class="mt-1 text-3xl font-bold text-gray-900">{{ totals.total|peso }}</p>
-    {% if totals.count %}
-      <p class="mt-1 text-base text-gray-700">from {{ totals.count }} bill{{ totals.count|pluralize }} paid</p>
-    {% else %}
-      <p class="mt-1 text-base text-gray-700">No bills were paid.</p>
-    {% endif %}
-    <p class="mt-3 text-base text-gray-700">{{ compare_line }}</p>
+    <div class="space-y-6 lg:sticky lg:top-6 lg:col-start-2 lg:row-start-1 lg:row-span-2">
+      {% include "admin/billing/income_parts/not_paid.html" %}
+    </div>
 
-    {% if totals.count %}
-      <ul class="mt-4">
-        <li class="py-1 text-base text-gray-900">From visits: {{ totals.visits|peso }}</li>
-        <li class="py-1 text-base text-gray-900">Over the counter: {{ totals.over_counter|peso }}</li>
-        <li class="py-1 text-base text-gray-900">Discounts given: {% if totals.discount_count %}{{ totals.discount|peso }} on {{ totals.discount_count }} bill{{ totals.discount_count|pluralize }}{% else %}None{% endif %}</li>
-      </ul>
-    {% endif %}
-  </section>
-
-  {# Not paid yet: how things stand right now, not counted in the money above #}
-  <section class="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm" aria-labelledby="income-unpaid">
-    <h2 id="income-unpaid" class="text-lg font-semibold text-gray-900">Not paid yet</h2>
-    <p class="mt-1 text-base text-gray-900">{{ unpaid.total|peso }} from {{ unpaid.count }} bill{{ unpaid.count|pluralize }}</p>
-    <p class="mt-1 text-base text-gray-600">Not counted in money received. Shows how things stand right now.</p>
-    <p class="mt-3"><a href="{{ unpaid.url }}" class="font-medium text-blue-600 underline underline-offset-2">See unpaid bills</a></p>
-  </section>
-
-  {% if bills is not None %}
-    {# Day view: the bills paid on that day, oldest first #}
-    <section aria-labelledby="income-bills">
-      <h2 id="income-bills" class="mb-2 text-lg font-semibold text-gray-900">Bills paid on this day ({{ bills|length }})</h2>
-      {% if bills %}
-        <ul class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-          {% for bill in bills %}
-            <li class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-5 py-3 text-base text-gray-900">
-              <span>
-                {{ bill.receipt_number }} ·
-                {% if bill.from_visit %}From a visit{% else %}Over the counter{% endif %}
-                {% if bill.discount > 0 %}· {{ bill.discount|peso }} off{% endif %}
-                ·
-                {% if bill.owner %}<a href="{% url 'admin_owner_detail' bill.owner.pk %}" class="font-medium text-blue-600 underline underline-offset-2">{{ bill.owner.full_name }}</a>{% else %}No owner{% endif %}
-                {% if bill.pet %}for {{ bill.pet.name }}{% else %}Clinic bill{% endif %}
-              </span>
-              <span class="flex items-center gap-3">
-                <span class="font-semibold">{{ bill.total_amount|peso }}</span>
-                <a href="{% url 'admin_receipt_detail' bill.pk %}" class="font-medium text-blue-600 underline underline-offset-2">Open</a>
-              </span>
-            </li>
-          {% endfor %}
-        </ul>
-        <p class="mt-2 text-base font-semibold text-gray-900">Total · {{ totals.count }} bill{{ totals.count|pluralize }}: {{ totals.total|peso }}</p>
+    <div class="min-w-0 lg:col-start-1 lg:row-start-2">
+      {% if period.kind == "day" %}
+        {% include "admin/billing/income_parts/bill_list.html" %}
       {% else %}
-        <p class="text-base text-gray-700">No bills were paid on this day. Look at the day before, or at the whole week.</p>
+        {% include "admin/billing/income_parts/period_table.html" %}
       {% endif %}
-    </section>
-  {% else %}
-    {# Week, Month, Year: one row per day or month, each a link to that day or month #}
-    <section aria-labelledby="income-table">
-      <h2 id="income-table" class="mb-2 text-lg font-semibold text-gray-900">{% if period.kind == "year" %}Month by month{% else %}Day by day{% endif %}</h2>
-      <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-        <table class="w-full text-left text-base text-gray-900">
-          <thead>
-            <tr class="border-b border-gray-200 bg-gray-50 text-sm font-semibold text-gray-700">
-              <th scope="col" class="px-5 py-2">{% if period.kind == "year" %}Month{% else %}Day{% endif %}</th>
-              <th scope="col" class="px-5 py-2">Bills paid</th>
-              <th scope="col" class="px-5 py-2 text-right">Money received</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in rows %}
-              <tr class="border-b border-gray-200">
-                {% if row.state == "future" %}
-                  <td class="px-5 py-3 text-gray-500">{{ row.label }}</td>
-                  <td class="px-5 py-3 text-gray-500" colspan="2">Not yet</td>
-                {% else %}
-                  <td class="px-5 py-3"><a href="{{ row.url }}" class="font-medium text-blue-600 underline underline-offset-2">{{ row.label }}</a>{% if row.state == "marked" %} · {{ chart.marked_word }}{% endif %}</td>
-                  <td class="px-5 py-3">{{ row.count }}</td>
-                  <td class="px-5 py-3 text-right tabular-nums">{% if row.count %}{{ row.total|peso }}{% else %}No payments · {{ row.total|peso }}{% endif %}</td>
-                {% endif %}
-              </tr>
-            {% endfor %}
-          </tbody>
-          <tfoot>
-            <tr class="font-semibold">
-              <th scope="row" class="px-5 py-3">Total</th>
-              <td class="px-5 py-3">{{ totals.count }}</td>
-              <td class="px-5 py-3 text-right tabular-nums">{{ totals.total|peso }}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    </section>
-  {% endif %}
+    </div>
+  </div>
 {% endblock %}
