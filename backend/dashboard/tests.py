@@ -2294,3 +2294,98 @@ class OwnerDashboardPageTests(DashboardV5TestBase):
         ):
             with self.subTest(file=name):
                 self.assertNotIn("<!--", _source(name))
+
+
+class SidebarQuietScrollTests(ShellTestBase):
+    """The admin menu scrolls with a quiet scrollbar and edge shadows
+    (class sidebar-scroll, rules in assets/tailwind/input.css; no JavaScript)."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.admin)
+
+    def _page(self):
+        return self.client.get(reverse("admin_dashboard")).content.decode()
+
+    def _css(self):
+        """The sidebar section of input.css, from its heading to the next one."""
+        source = Path(settings.BASE_DIR, "assets", "tailwind", "input.css")
+        text = source.read_text(encoding="utf-8")
+        start = text.index("/* ---------- Admin sidebar menu")
+        return text[start : text.index("/* ---------- Owner loading", start)]
+
+    def _rule(self, css, selector):
+        """The body of the rule that starts with this exact selector list."""
+        pattern = rf"(?ms)^{re.escape(selector)}\s*\{{(.*?)\}}"
+        found = re.search(pattern, css)
+        self.assertIsNotNone(found, selector)
+        return found.group(1)
+
+    def test_the_scrolling_nav_has_the_class_and_log_out_is_outside(self):
+        html = self._page()
+        nav = re.search(r'<nav [^>]*aria-label="Admin"[^>]*>', html).group(0)
+        classes = re.search(r'class="([^"]*)"', nav).group(1).split()
+        self.assertIn("sidebar-scroll", classes)
+        self.assertIn("overflow-y-auto", classes)
+        self.assertEqual(html.count("sidebar-scroll"), 1)
+        nav_end = html.index("</nav>", html.index(nav))
+        logout = html.index(f'action="{reverse("logout")}"')
+        self.assertGreater(logout, nav_end)
+        self.assertNotIn(reverse("logout"), html[html.index(nav) : nav_end])
+
+    def test_the_scrollbar_is_thin_and_quiet_until_hover_or_focus(self):
+        css = self._css()
+        rule = self._rule(css, ".sidebar-scroll")
+        self.assertIn("scrollbar-width: thin;", rule)
+        self.assertIn("scrollbar-color: transparent transparent;", rule)
+        shown = self._rule(css, ".sidebar-scroll:hover,\n.sidebar-scroll:focus-within")
+        self.assertRegex(shown, r"scrollbar-color: var\(--color-violet-400\) ")
+        self.assertNotIn("transparent", shown)
+        bar = self._rule(css, ".sidebar-scroll::-webkit-scrollbar")
+        self.assertIn("width: 8px;", bar)
+        thumb = self._rule(css, ".sidebar-scroll::-webkit-scrollbar-thumb")
+        self.assertIn("border-radius: 8px;", thumb)
+        self.assertIn("background-color: transparent;", thumb)
+        webkit_shown = self._rule(
+            css,
+            ".sidebar-scroll:hover::-webkit-scrollbar-thumb,\n"
+            ".sidebar-scroll:focus-within::-webkit-scrollbar-thumb",
+        )
+        self.assertIn("var(--color-violet-400)", webkit_shown)
+
+    def test_edge_shadows_use_the_scroll_shadow_layers(self):
+        rule = self._rule(self._css(), ".sidebar-scroll")
+        self.assertIn("background-attachment: local, local, scroll, scroll;", rule)
+        self.assertIn("background-repeat: no-repeat;", rule)
+        self.assertIn("background-color: var(--color-violet-100);", rule)
+        self.assertEqual(rule.count("linear-gradient("), 4)
+        self.assertIn("100% 32px, 100% 32px, 100% 14px, 100% 14px", rule)
+        self.assertIn("var(--color-violet-900) 28%", rule)
+
+    def test_the_scrollbar_is_never_hidden(self):
+        css = self._css()
+        self.assertNotIn("display: none", css)
+        self.assertNotIn("display:none", css)
+        self.assertNotIn("scrollbar-width: none", css)
+        self.assertNotIn("scrollbar-width:none", css)
+
+    def test_the_sidebar_background_is_violet_100_like_the_rule(self):
+        aside = re.search(r'<aside id="admin-sidebar" class="([^"]*)"', self._page())
+        self.assertIn("bg-violet-100", aside.group(1).split())
+
+    def test_same_links_in_the_same_order(self):
+        html = self._page()
+        nav = html[html.index('aria-label="Admin"') : html.index("</nav>")]
+        positions = [
+            nav.index(f'<span class="flex-1">{label}</span>')
+            for label in SidebarTests.LABELS
+        ]
+        self.assertEqual(positions, sorted(positions))
+        self.assertEqual(nav.count("<a "), len(SidebarTests.LABELS))
+
+    def test_the_page_adds_no_script_for_the_scrollbar(self):
+        source = Path(settings.BASE_DIR, "templates", "layouts", "admin_sidebar.html")
+        text = source.read_text(encoding="utf-8")
+        self.assertNotIn("<script", text)
+        self.assertNotIn("<!--", text)
+        self.assertNotRegex(text, r"\son[a-z]+\s*=")

@@ -1264,6 +1264,7 @@ backend\bin\tailwindcss.exe -i backend\assets\tailwind\input.css -o backend\stat
 - Shared classes live in `input.css`: `.btn`, `.btn-primary`, `.btn-outline`,
   `.btn-danger`, `.input`, `.card`, `.badge`, `.form-field`. Everything else
   uses utility classes in the template.
+- The admin sidebar menu scrolls with a quiet scrollbar (class `sidebar-scroll` on the `<nav>`, rules in `input.css`): the scrollbar shows only on hover or keyboard focus, and soft edge shadows show there is more menu above or below.
 
 ### Class ordering convention
 Follow this order for Tailwind classes:
