@@ -887,7 +887,7 @@ class AppointmentBookingForm(forms.ModelForm):
 | Base | Used by | What it provides |
 |---|---|---|
 | `layouts/owner.html` | Every logged-in owner page (since 8b-9b) | See "Owner layout" below |
-| `layouts/admin.html` | Every admin page (e.g. `admin/dashboard/index.html`, `admin/health/article_list.html`). No admin page has a legacy layer | Sidebar with count badges and logout, top bar with search ("Find a pet or owner"; the appointments, pet owners, pets, vaccinations and medical records lists and the deletion requests page put their own search there) and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/shared/dialogs.js`, `static/js/shared/flash.js`, `static/js/admin/auto_submit.js`, CSRF + `X-Admin-Layout` via `hx-headers`. No confirm modal: confirmations are native `<dialog>`s (see Dialogs) |
+| `layouts/admin.html` | Every admin page (e.g. `admin/dashboard/index.html`, `admin/health/article_list.html`). No admin page has a legacy layer | Sidebar with count badges and logout, top bar with search ("Find a pet or owner"; the appointments, pet owners, pets, vaccinations and medical records lists and the deletion requests page put their own search there) and Notifications, flash messages, compiled `app.css`, vendored HTMX, `static/js/shared/dialogs.js`, `static/js/shared/flash.js`, `static/js/admin/auto_submit.js`, CSRF + `X-Admin-Layout` via `hx-headers`. Every response except static and media files is sent with `Cache-Control: no-store` by `NoStoreMiddleware`; the `<meta name="htmx-config">` is `{"historyCacheSize": 0, "refreshOnHistoryMiss": true}` (htmx keeps no page copies in the browser). No confirm modal: confirmations are native `<dialog>`s (see Dialogs) |
 | `layouts/auth.html` | `admin/login.html` | Admin login: standalone card on a violet background, `app.css`, no HTMX |
 | `layouts/owner_auth.html` | The owner auth pages (`owner/login.html`, `owner/register.html`, password reset, the `socialaccount/` pages) | Standalone page, compiled `app.css`, `js/shared/flash.js`, `js/shared/password_toggle.js` |
 
@@ -1022,7 +1022,10 @@ Loads compiled `app.css`, vendored HTMX, `js/shared/dialogs.js` and
   or month for the loading line). `booking_parts/day_states.html` hands the
   shared `owner/swap_parts/states.html` its own loading line and nine boxes.
   A redirect inside such a view is `day_area_redirect` (`HX-Redirect` for a
-  swap). `layouts/owner.html` sets `htmx-config` `refreshOnHistoryMiss`.
+  swap). Every response except static and media files is sent with
+  `Cache-Control: no-store` by `NoStoreMiddleware`, and both layouts set
+  `htmx-config` `{"historyCacheSize": 0, "refreshOnHistoryMiss": true}` (htmx
+  keeps no page copies in the browser).
   Not saved by htmx history (`hx-history="false"`).
 - Owner booking calendar and times (8b-10b-5): open day / open time = light
   violet tint (`bg-violet-50 ring-violet-300 text-violet-900`); picked = solid

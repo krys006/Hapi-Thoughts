@@ -5,6 +5,7 @@ from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -776,7 +777,7 @@ class RoleAccessMiddlewareTests(ShellTestBase):
         url = reverse("owner_dashboard")
         self.assertRedirects(
             self.client.get(url),
-            f"{reverse('owner_login')}?next={url}",
+            f"{reverse('owner_login')}?next={quote(url, safe='')}",
             fetch_redirect_response=False,
         )
 
