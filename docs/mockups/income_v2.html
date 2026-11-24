@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Income summary v2</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif; }
+</style>
+</head>
+<body class="bg-gray-200 text-gray-900 antialiased">
+<header class="sticky top-0 z-30 border-b border-gray-300 bg-white/95 px-6 py-3 backdrop-blur">
+  <p class="mb-2 text-sm font-semibold text-gray-700">Income summary v2 · chart always at the side, click it to see it big · frame copied from layouts/admin.html · today is Tue, Nov 24, 2026</p>
+  <div id="switcher" class="flex flex-wrap gap-2"></div>
+</header>
+<div class="overflow-x-auto p-6">
+  <div id="caption" class="mb-4 max-w-[1280px] space-y-2 rounded-xl border border-violet-200 bg-violet-50 p-4 text-base text-gray-800"></div>
+  <div id="stage"></div>
+  <p class="mt-3 text-sm text-gray-600">Desktop frame is 1280 px wide: a 1920×1080 screen at 150% zoom. All money is made up, but every total adds up across frames.</p>
+</div>
+<script>
+// ---------- Icons (Lucide shapes; when built, copy banknote and maximize-2 from lucide-static@1.66.0) ----------
+const P = {
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  house:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  fileText:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  syringe:'<path d="m18 2 4 4"/><path d="m17 7 3-3"/><path d="M19 9 8.7 19.3c-1 1-2.5 1-3.4 0l-.6-.6c-1-1-1-2.5 0-3.4L15 5"/><path d="m9 11 4 4"/><path d="m5 19-3 3"/><path d="m14 4 6 6"/>',
+  bookOpen:'<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  banknote:'<rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/>',
+  tag:'<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
+  settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="m4.9 4.9 2.1 2.1"/><path d="m17 17 2.1 2.1"/><path d="M2 12h3"/><path d="M19 12h3"/><path d="m4.9 19.1 2.1-2.1"/><path d="m17 7 2.1-2.1"/>',
+  logout:'<path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>',
+  search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  arrowRight:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  arrowLeft:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  chevLeft:'<path d="m15 18-6-6 6-6"/>',
+  chevRight:'<path d="m9 18 6-6-6-6"/>',
+  clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  menu:'<path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/>',
+  x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  maximize:'<path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/><path d="M9 21H3v-6"/>',
+  stethoscope:'<path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/>',
+  pill:'<path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"/><path d="m8.5 8.5 7 7"/>',
+  percent:'<line x1="19" x2="5" y1="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
+  image:'<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>'
+};
+const ic = (n, c = 'size-5 shrink-0', s = 2) =>
+  `<svg class="${c}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${s}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// ---------- Shared classes ----------
+const BTN = 'inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-base font-medium whitespace-nowrap transition-colors';
+const BTN_OUTLINE = `${BTN} border border-gray-300 bg-white font-semibold text-gray-800 hover:bg-gray-50`;
+const BTN_OFF = `${BTN} cursor-not-allowed border border-gray-200 bg-gray-100 text-gray-500`;
+const INPUT = 'block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-base text-gray-900 placeholder:text-gray-500';
+const CARD = 'rounded-xl border border-gray-200 bg-white shadow-sm';
+const OPEN = 'inline-flex min-h-11 items-center gap-2 rounded-lg border border-violet-300 bg-violet-50 px-4 text-base font-semibold text-violet-800 hover:bg-violet-100';
+const aLink = t => `<a class="font-medium text-blue-600 underline underline-offset-2">${t}</a>`;
+const peso = n => '₱' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const pesoWhole = n => '₱' + Math.round(n).toLocaleString('en-PH');
+const bills = n => `${n.toLocaleString('en-PH')} ${n === 1 ? 'bill' : 'bills'}`;
+
+// ---------- Frame ----------
+const navLink = (icon, label, active = false, count = 0) =>
+  `<a class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base ${active ? 'bg-white font-semibold text-violet-800 shadow-sm ring-1 ring-violet-200' : 'text-gray-800 hover:bg-violet-200/70'}">${ic(icon)}<span class="flex-1">${label}</span>${count ? `<span class="rounded-full bg-violet-600 px-2 text-sm font-semibold text-white">${count}</span>` : ''}</a>`;
+const sidebar = () => `
+<aside class="flex w-56 shrink-0 flex-col border-r border-violet-200 bg-violet-100">
+  <div class="flex h-16 shrink-0 items-center gap-3 px-5">
+    <a class="-mx-2 flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-lg px-2"><span class="grid size-10 shrink-0 place-content-center rounded-lg bg-gradient-to-br from-amber-300 to-amber-700 text-white">${ic('image')}</span>
+      <p class="line-clamp-2 text-base font-semibold leading-5 text-gray-900">Hapi Tutz Vet. Supplies</p></a>
+  </div>
+  <nav class="flex-1 space-y-1 px-3 py-2">
+    <p class="px-3 pb-1 pt-1 text-sm font-semibold text-violet-800">Daily work</p>
+    ${navLink('house','Dashboard')}${navLink('calendar','Appointments',false,2)}${navLink('users','Pet owners')}${navLink('paw','Pets')}
+    <p class="px-3 pb-1 pt-5 text-sm font-semibold text-violet-800">Records</p>
+    ${navLink('fileText','Medical records')}${navLink('syringe','Vaccinations')}${navLink('bookOpen','Health library')}
+    <p class="px-3 pb-1 pt-5 text-sm font-semibold text-violet-800">Clinic</p>
+    ${navLink('receipt','Billing')}${navLink('banknote','Income',true)}${navLink('tag','Services and prices')}${navLink('settings','Clinic settings')}
+  </nav>
+  <div class="border-t border-violet-200 px-3 py-3"><a class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base text-gray-800">${ic('logout')}Log out</a></div>
+</aside>`;
+const topSearch = `
+<form class="flex w-full max-w-[36rem] items-center gap-2" role="search">
+  <div class="relative flex-1"><span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-600">${ic('search')}</span>
+  <input type="search" placeholder="Find a pet or owner" class="${INPUT} pl-10"></div>
+  <button type="submit" class="${BTN_OUTLINE}">Search</button>
+</form>`;
+const frame = (body, overlay = '') => `
+<div class="relative flex min-h-[960px] w-[1280px] overflow-hidden rounded-xl border border-gray-300 bg-gray-50 shadow-sm">
+  ${sidebar()}
+  <div class="min-w-0 flex-1">
+    <header class="flex h-16 shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-8">
+      ${topSearch}
+      <div class="ml-auto"><span class="${BTN_OUTLINE}">${ic('bell')}<span>Notifications</span></span></div>
+    </header>
+    <main class="px-8 py-6">${body}</main>
+  </div>
+  ${overlay}
+</div>`;
+
+// ---------- Data (every figure adds up) ----------
+const WEEK = [ // this week, Mon Nov 23 to Sun Nov 29
+  { label:'Mon, Nov 23', count:6, total:4850, visits:4200, disc:200, discCount:1 },
+  { label:'Tue, Nov 24', count:5, total:4300, visits:3450, disc:150, discCount:1, state:'today' },
+  { label:'Wed, Nov 25', state:'future' }, { label:'Thu, Nov 26', state:'future' },
+  { label:'Fri, Nov 27', state:'future' }, { label:'Sat, Nov 28', state:'future' }, { label:'Sun, Nov 29', state:'future' }
+];
+const LASTWEEK = [ // Mon Nov 16 to Sun Nov 22 (frame 2 looks at Sun Nov 22)
+  { label:'Mon, Nov 16', count:4, total:3600 }, { label:'Tue, Nov 17', count:5, total:4100 },
+  { label:'Wed, Nov 18', count:4, total:3250 }, { label:'Thu, Nov 19', count:4, total:2900 },
+  { label:'Fri, Nov 20', count:5, total:3650 }, { label:'Sat, Nov 21', count:5, total:3900 },
+  { label:'Sun, Nov 22', count:0, total:0, state:'sel' }
+];
+const WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const OCT = [];
+for (let d = 1; d <= 31; d++) {
+  const wd = new Date(2026, 9, d).getDay();
+  if (wd === 0) { OCT.push({ label:`${WD[wd]}, Oct ${d}`, count:0, total:0, visits:0, disc:0, discCount:0 }); continue; }
+  const count = 2 + (d * 7) % 5;
+  const total = count * (400 + ((d * 137) % 9) * 50);
+  const otc = Math.min(total, (d % 3) * 250);
+  const discCount = d % 4 === 0 ? 1 : 0;
+  OCT.push({ label:`${WD[wd]}, Oct ${d}`, count, total, visits: total - otc, disc: discCount * 100, discCount });
+}
+const done = rows => rows.filter(r => r.state !== 'future');
+const sum = (rows, k) => done(rows).reduce((s, r) => s + (r[k] || 0), 0);
+const totals = rows => ({ count: sum(rows,'count'), total: sum(rows,'total'), visits: sum(rows,'visits'), disc: sum(rows,'disc'), discCount: sum(rows,'discCount') });
+const OCT_T = totals(OCT);
+const YEAR = [
+  ['January',88,61200,52300,900,6],['February',79,55800,47600,700,5],['March',91,64350,55100,1200,8],
+  ['April',85,60100,51200,800,5],['May',97,69400,59800,1100,7],['June',83,58900,50300,600,4],
+  ['July',90,63700,54200,1000,6],['August',94,66850,57400,900,6],['September',86,61450,52700,700,5]
+].map(([label, count, total, visits, disc, discCount]) => ({ label, count, total, visits, disc, discCount }));
+YEAR.push({ label:'October', ...OCT_T });
+YEAR.push({ label:'November', count:71, total:52600, visits:45100, disc:800, discCount:5, state:'today' });
+YEAR.push({ label:'December', state:'future' });
+const TODAY_BILLS = [
+  { n:'HV-2026-0041', owner:'Rosa Dela Cruz', pet:'Max', visit:true, total:450 },
+  { n:'HV-2026-0042', owner:'Ana Cruz', pet:'Bantay', visit:true, total:1350, disc:150 },
+  { n:'HV-2026-0043', owner:'Jun Reyes', pet:'', visit:false, total:850 },
+  { n:'HV-2026-0044', owner:'Liza Cruz', pet:'Brownie', visit:true, total:1650 },
+  { n:'HV-2026-0045', owner:'Pedro Santos', pet:'Choco', visit:true, total:0 }
+];
+
+// ---------- Period toolbar ----------
+const KINDS = [['day','Day'],['week','Week'],['month','Month'],['year','Year']];
+const toolbar = (kind, label, current) => `
+<section class="mb-6 ${CARD} p-3">
+  <div class="flex flex-wrap items-center gap-3">
+    <nav aria-label="Show income by" class="inline-flex rounded-xl bg-gray-100 p-1">
+      ${KINDS.map(([k, l]) => `<a class="inline-flex min-h-11 items-center rounded-lg px-5 text-base ${k === kind ? 'bg-white font-semibold text-violet-800 shadow-sm ring-2 ring-violet-600' : 'text-gray-800 hover:bg-white/70'}" ${k === kind ? 'aria-current="page"' : ''}>${l}</a>`).join('')}
+    </nav>
+    <div class="ml-auto flex flex-wrap items-center gap-2">
+      <a class="${BTN_OUTLINE}">${ic('chevLeft')}Previous<span class="sr-only"> ${kind}</span></a>
+      <h2 class="flex min-w-[16rem] items-center justify-center gap-2 px-2 text-xl font-bold text-gray-900">${ic('calendar','size-5 shrink-0 text-violet-700')}${label}</h2>
+      ${current ? `<span class="${BTN_OFF}" aria-disabled="true">Next<span class="sr-only"> ${kind}</span>${ic('chevRight')}</span>` : `<a class="${BTN_OUTLINE}">Next<span class="sr-only"> ${kind}</span>${ic('chevRight')}</a>`}
+    </div>
+  </div>
+  ${current ? '' : `<div class="mt-2 flex justify-end border-t border-gray-100 pt-2"><a class="inline-flex min-h-11 items-center gap-2 px-2 text-base font-medium text-blue-600 underline underline-offset-2">${ic('arrowLeft')}Back to today</a></div>`}
+</section>`;
+
+// ---------- Hero + tiles ----------
+const hero = h => `
+<section class="rounded-2xl bg-gradient-to-br from-violet-800 to-violet-600 p-6 text-white shadow-sm" aria-labelledby="money-heading">
+  <p id="money-heading" class="flex items-center gap-2 text-base font-semibold text-violet-100">${ic('banknote')}Money received · ${h.when}</p>
+  <p class="mt-2 text-5xl font-bold tracking-tight">${peso(h.total)}</p>
+  <p class="mt-1 text-lg text-violet-50">${h.count ? `from ${bills(h.count)} paid` : 'No bills were paid.'}</p>
+  <p class="mt-4 inline-flex rounded-full bg-white/15 px-4 py-1.5 text-base text-white">${h.compare}</p>
+</section>`;
+const tile = (icon, label, value, sub = '') => `
+<div class="flex items-start gap-3 ${CARD} p-4">
+  <span class="grid size-10 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-700 ring-1 ring-violet-200">${ic(icon)}</span>
+  <div class="min-w-0"><p class="text-base text-gray-700">${label}</p><p class="text-xl font-semibold text-gray-900">${value}</p>${sub ? `<p class="text-sm text-gray-700">${sub}</p>` : ''}</div>
+</div>`;
+const tiles = h => h.count ? `
+<div class="mt-4 grid grid-cols-3 gap-4">
+  ${tile('stethoscope','From visits', peso(h.visits))}
+  ${tile('pill','Over the counter', peso(h.total - h.visits))}
+  ${tile('percent','Discounts given', h.disc ? peso(h.disc) : 'None', h.disc ? `on ${bills(h.discCount)}` : '')}
+</div>` : '';
+
+// ---------- Side: compact chart (a button that opens the big chart) ----------
+const niceMax = m => { if (!m) return 1000; const mag = Math.pow(10, Math.floor(Math.log10(m))); return Math.ceil(m / mag * 2) / 2 * mag; };
+const short = n => n >= 1000 ? '₱' + (Math.round(n / 100) / 10).toLocaleString('en-PH') + 'k' : '₱' + n;
+const bar = (r, max, cls) => {
+  if (r.state === 'future') return `<span class="block h-2 w-[72%] rounded-t border-2 border-dashed border-gray-300"></span>`;
+  if (!r.total) return `<span class="block h-1 w-[72%] rounded bg-gray-300"></span>`;
+  const on = r.state === 'today' || r.state === 'sel';
+  return `<span class="block w-[72%] rounded-t-md ${on ? 'bg-violet-700' : cls}" style="height:${Math.round(r.total / max * 100)}%"></span>`;
+};
+const compactChart = c => {
+  const max = niceMax(Math.max(...c.rows.map(r => r.total || 0)));
+  return `
+<button type="button" class="group block w-full ${CARD} p-5 text-left hover:border-violet-300 hover:ring-2 hover:ring-violet-200">
+  <span class="block text-lg font-semibold text-gray-900">${c.title}</span>
+  <span class="block text-sm text-gray-700">${c.sub}</span>
+  <span class="mt-4 flex gap-2" aria-hidden="true">
+    <span class="flex h-36 w-12 shrink-0 flex-col justify-between text-right text-sm text-gray-700"><span>${short(max)}</span><span>₱0</span></span>
+    <span class="relative block flex-1">
+      <span class="absolute inset-x-0 top-0 border-t border-gray-200"></span>
+      <span class="absolute inset-x-0 top-36 border-t border-gray-400"></span>
+      <span class="relative flex ${c.gap}">
+        ${c.rows.map((r, i) => `<span class="flex min-w-0 flex-1 flex-col items-center"><span class="flex h-36 w-full items-end justify-center">${bar(r, max, 'bg-violet-300')}</span><span class="mt-1 h-5 text-sm ${r.state === 'today' || r.state === 'sel' ? 'font-bold text-violet-800' : 'text-gray-700'}">${c.tick(r, i)}</span></span>`).join('')}
+      </span>
+    </span>
+  </span>
+  <span class="mt-4 flex min-h-11 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white text-base font-semibold text-gray-800 group-hover:bg-gray-50">${ic('maximize')}See the chart bigger</span>
+</button>`;
+};
+
+const notPaid = `
+<aside class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm" aria-labelledby="unpaid-heading">
+  <p id="unpaid-heading" class="flex items-center gap-2 text-lg font-semibold text-gray-900"><span class="grid size-9 place-content-center rounded-lg bg-yellow-50 text-yellow-800 ring-1 ring-yellow-200">${ic('clock')}</span>Not paid yet</p>
+  <p class="mt-3 text-2xl font-bold text-gray-900">${peso(2150)}</p>
+  <p class="text-base text-gray-800">${bills(4)} waiting for payment</p>
+  <p class="mt-2 text-base text-gray-700">Not counted in money received. Shows how things stand right now.</p>
+  <p class="mt-3">${aLink('See unpaid bills')}</p>
+</aside>`;
+
+// ---------- Main column: bills (day) or table (week, month, year) ----------
+const ROW_COLS = 'grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_7rem_auto]';
+const billRow = b => `
+<li class="grid ${ROW_COLS} items-center gap-4 border-b border-gray-100 px-5 py-4 last:border-b-0">
+  <div class="flex min-w-0 items-center gap-3">
+    <span class="grid size-10 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-700 ring-1 ring-violet-200">${ic('receipt')}</span>
+    <div class="min-w-0"><p class="text-lg font-semibold text-gray-900">${b.n}</p>
+      <p class="text-sm text-gray-700">${b.visit ? 'From a visit' : 'Over the counter'}${b.disc ? ` · ${peso(b.disc)} off` : ''}</p></div>
+  </div>
+  <div class="min-w-0"><p class="truncate text-base">${aLink(b.owner)}</p><p class="text-sm text-gray-700">${b.pet ? `for ${b.pet}` : 'Clinic bill'}</p></div>
+  <p class="text-right text-lg font-semibold text-gray-900">${peso(b.total)}</p>
+  <a class="${OPEN}">Open<span class="sr-only"> bill ${b.n}</span>${ic('arrowRight')}</a>
+</li>`;
+const billList = list => `
+<section class="mt-6 overflow-hidden ${CARD}" aria-labelledby="list-heading">
+  <div class="flex flex-wrap items-baseline justify-between gap-2 border-b border-gray-200 px-5 py-4">
+    <h3 id="list-heading" class="text-xl font-semibold text-gray-900">Bills paid on this day (${list.length})</h3>
+    <p class="text-sm text-gray-700">Oldest bill number first</p>
+  </div>
+  <ul>${list.map(billRow).join('')}</ul>
+  <div class="flex items-center justify-between gap-4 border-t-2 border-gray-300 bg-gray-50 px-5 py-4">
+    <p class="text-lg font-bold text-gray-900">Total · ${bills(list.length)}</p>
+    <p class="text-lg font-bold text-gray-900">${peso(list.reduce((s, b) => s + b.total, 0))}</p>
+  </div>
+</section>`;
+const emptyDay = `
+<section class="mt-6 ${CARD} px-6 py-12 text-center">
+  <span class="mx-auto grid size-14 place-content-center rounded-full bg-gray-100 text-gray-600">${ic('banknote','size-7')}</span>
+  <p class="mt-3 text-lg font-semibold text-gray-900">No bills were paid on this day</p>
+  <p class="mt-1 text-base text-gray-700">Look at the day before, or at the whole week.</p>
+</section>`;
+const periodTable = (title, colName, rows, tagWord) => {
+  const t = totals(rows);
+  const cell = r => {
+    if (r.state === 'future') return `<td class="px-5 py-2 text-base text-gray-600" colspan="2">Not yet</td>`;
+    if (!r.count) return `<td class="px-5 py-2 text-base text-gray-600">No payments</td><td class="px-5 py-2 text-right text-base text-gray-600">${peso(0)}</td>`;
+    return `<td class="px-5 py-2 text-base text-gray-900">${bills(r.count)}</td><td class="px-5 py-2 text-right text-lg font-semibold text-gray-900">${peso(r.total)}</td>`;
+  };
+  return `
+<section class="mt-6 overflow-hidden ${CARD}" aria-labelledby="table-heading">
+  <div class="border-b border-gray-200 px-5 py-4"><h3 id="table-heading" class="text-xl font-semibold text-gray-900">${title}</h3>
+    <p class="text-sm text-gray-700">Click a ${colName.toLowerCase()} to see it on its own.</p></div>
+  <table class="w-full">
+    <thead class="bg-gray-50"><tr class="text-left text-sm font-semibold text-gray-700">
+      <th class="px-5 py-2 font-semibold" scope="col">${colName}</th><th class="px-5 py-2 font-semibold" scope="col">Bills paid</th><th class="px-5 py-2 text-right font-semibold" scope="col">Money received</th></tr></thead>
+    <tbody>${rows.map(r => `
+      <tr class="border-t border-gray-100 ${r.state === 'today' ? 'bg-violet-50' : ''}">
+        <th scope="row" class="px-5 py-1 text-left font-normal">
+          ${r.state === 'future' ? `<span class="inline-flex min-h-11 items-center text-base text-gray-600">${r.label}</span>`
+            : `<a class="inline-flex min-h-11 items-center text-base font-medium text-blue-600 underline underline-offset-2">${r.label}</a>`}
+          ${r.state === 'today' ? `<span class="ml-2 rounded-full bg-violet-100 px-2.5 py-0.5 text-sm font-semibold text-violet-800">${tagWord}</span>` : ''}
+        </th>${cell(r)}</tr>`).join('')}</tbody>
+    <tfoot><tr class="border-t-2 border-gray-300 bg-gray-50">
+      <th scope="row" class="px-5 py-4 text-left text-lg font-bold text-gray-900">Total</th>
+      <td class="px-5 py-4 text-base text-gray-800">${bills(t.count)}</td>
+      <td class="px-5 py-4 text-right text-lg font-bold text-gray-900">${peso(t.total)}</td></tr></tfoot>
+  </table>
+</section>`;
+};
+
+// ---------- Big chart dialog ----------
+const bigChart = c => {
+  const rows = c.rows, max = niceMax(Math.max(...rows.map(r => r.total || 0)));
+  const paidRows = done(rows).filter(r => r.total);
+  const t = totals(rows);
+  const best = paidRows.reduce((a, r) => (!a || r.total > a.total ? r : a), null);
+  const avg = paidRows.length ? t.total / paidRows.length : 0;
+  const avgPct = Math.round(avg / max * 100);
+  const statTile = (label, value, sub) => `<div class="rounded-xl border border-gray-200 bg-gray-50 p-4"><p class="text-base text-gray-700">${label}</p><p class="text-xl font-semibold text-gray-900">${value}</p><p class="text-sm text-gray-700">${sub}</p></div>`;
+  return `
+<div class="absolute inset-0 z-40 grid place-items-center bg-gray-900/50 p-6">
+  <div role="dialog" aria-modal="true" aria-labelledby="big-heading" class="w-full max-w-[68rem] rounded-2xl bg-white shadow-xl">
+    <div class="flex items-start gap-4 border-b border-gray-200 px-6 py-5">
+      <div class="flex-1"><h2 id="big-heading" class="text-2xl font-bold text-gray-900">${c.bigTitle}</h2><p class="text-base text-gray-700">${c.sub}</p></div>
+      <button type="button" autofocus class="${BTN_OUTLINE}">${ic('x')}Close</button>
+    </div>
+    <div class="px-6 py-5">
+      <div class="mb-6 grid grid-cols-4 gap-4">
+        ${statTile('Money received', peso(t.total), `from ${bills(t.count)}`)}
+        ${statTile(c.bestWord, best ? peso(best.total) : '—', best ? best.label : 'None')}
+        ${statTile(c.avgWord, peso(avg), `${c.unitPlural} with payments only`)}
+        ${statTile(c.countWord, `${paidRows.length} of ${done(rows).length}`, c.countSub)}
+      </div>
+      <div class="flex gap-3" aria-hidden="true">
+        <div class="flex h-80 w-20 shrink-0 flex-col justify-between text-right text-base text-gray-700"><span>${pesoWhole(max)}</span><span>${pesoWhole(max / 2)}</span><span>₱0</span></div>
+        <div class="relative flex-1">
+          <div class="pointer-events-none absolute inset-x-0 top-0 h-80">
+            <div class="absolute inset-x-0 top-0 border-t border-gray-200"></div>
+            <div class="absolute inset-x-0 top-1/2 border-t border-gray-200"></div>
+            <div class="absolute inset-x-0 bottom-0 border-t border-gray-400"></div>
+            ${avg ? `<div class="absolute inset-x-0 border-t-2 border-dashed border-amber-500" style="bottom:${avgPct}%"><span class="absolute -top-7 right-0 rounded bg-amber-50 px-2 text-sm font-semibold text-amber-900 ring-1 ring-amber-300">Average ${peso(avg)}</span></div>` : ''}
+          </div>
+          <div class="relative flex ${c.bigGap}">
+            ${rows.map(r => {
+              const on = r.state === 'today' || r.state === 'sel';
+              const h = r.state === 'future' || !r.total ? 0 : Math.round(r.total / max * 100);
+              return `<div class="flex min-w-0 flex-1 flex-col items-center">
+                <div class="relative flex h-80 w-full items-end justify-center">
+                  ${c.amounts && h ? `<span class="absolute w-full text-center text-sm font-semibold text-gray-900" style="bottom: calc(${h}% + 4px)">${peso(r.total)}</span>` : ''}
+                  ${bar(r, max, 'bg-violet-400')}
+                </div>
+                <p class="mt-2 text-center text-sm leading-tight ${on ? 'font-bold text-violet-800' : r.state === 'future' ? 'text-gray-500' : 'text-gray-800'}">${c.bigTick(r)}</p>
+                ${on ? `<p class="text-sm font-semibold text-violet-800">${c.tagWord}</p>` : ''}
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+      </div>
+      <p class="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-base text-gray-800">
+        <span class="inline-flex items-center gap-2"><span class="size-4 rounded bg-violet-400"></span>Money received</span>
+        <span class="inline-flex items-center gap-2"><span class="size-4 rounded bg-violet-700"></span>${c.tagWord}</span>
+        <span class="inline-flex items-center gap-2"><span class="h-0 w-6 border-t-2 border-dashed border-amber-500"></span>Average</span>
+        ${rows.some(r => r.state === 'future') ? '<span class="inline-flex items-center gap-2"><span class="h-3 w-5 rounded-t border-2 border-dashed border-gray-300"></span>Not yet</span>' : ''}
+      </p>
+      ${c.note ? `<p class="mt-2 text-base text-gray-700">${c.note}</p>` : ''}
+    </div>
+  </div>
+</div>`;
+};
+
+// ---------- Chart settings per period ----------
+const dayNum = r => r.label.split(' ').pop();
+const CH = {
+  week: { rows:WEEK, title:'This week, day by day', sub:'Mon, Nov 23 to Sun, Nov 29', gap:'gap-1.5', tick:r => r.label.slice(0, 3),
+    bigTitle:'Money received each day', bigGap:'gap-3', amounts:true, bigTick:r => `${r.label.slice(0, 3)}<br>${r.label.slice(5)}`,
+    tagWord:'Today', bestWord:'Best day', avgWord:'Average per day', unitPlural:'Days', countWord:'Days with payments', countSub:'so far this week' },
+  lastweek: { rows:LASTWEEK, title:'That week, day by day', sub:'Mon, Nov 16 to Sun, Nov 22', gap:'gap-1.5', tick:r => r.label.slice(0, 3),
+    bigTitle:'Money received each day', bigGap:'gap-3', amounts:true, bigTick:r => `${r.label.slice(0, 3)}<br>${r.label.slice(5)}`,
+    tagWord:'This day', bestWord:'Best day', avgWord:'Average per day', unitPlural:'Days', countWord:'Days with payments', countSub:'in that week' },
+  month: { rows:OCT, title:'October, day by day', sub:'October 1 to 31, 2026', gap:'gap-0.5', tick:(r, i) => [0, 9, 19, 30].includes(i) ? dayNum(r) : '',
+    bigTitle:'Money received each day', bigGap:'gap-1', amounts:false, bigTick:r => dayNum(r),
+    tagWord:'Selected', bestWord:'Best day', avgWord:'Average per day', unitPlural:'Days', countWord:'Days with payments', countSub:'Sundays the clinic is closed',
+    note:'With 31 days the amounts would be too small to read on the bars, so they are in the table on the page.' },
+  year: { rows:YEAR, title:'2026, month by month', sub:'January to December', gap:'gap-1', tick:(r, i) => [0, 3, 6, 9].includes(i) ? r.label.slice(0, 3) : '',
+    bigTitle:'Money received each month', bigGap:'gap-2', amounts:true, bigTick:r => r.label.slice(0, 3),
+    tagWord:'This month, so far', bestWord:'Best month', avgWord:'Average per month', unitPlural:'Months', countWord:'Months with payments', countSub:'so far this year' }
+};
+
+// ---------- Page ----------
+const pageHeader = `
+<div class="mb-5">
+  <h1 class="text-2xl font-bold text-gray-900">Income</h1>
+  <p class="mt-1 text-base text-gray-700">Money received from paid bills. Payment is cash.</p>
+</div>`;
+const layout = (kind, label, current, h, chart, mainBelow, overlay = '') => frame(`
+${pageHeader}
+${toolbar(kind, label, current)}
+<div class="grid grid-cols-[minmax(0,1fr)_22rem] items-start gap-6">
+  <div class="min-w-0">${hero(h)}${tiles(h)}${mainBelow}</div>
+  <div class="sticky top-6 space-y-6">${compactChart(chart)}${notPaid}</div>
+</div>`, overlay);
+
+const WEEK_T = totals(WEEK), YEAR_T = totals(YEAR);
+
+// ---------- Phone ----------
+const phoneView = () => `
+<div class="w-[390px] overflow-hidden rounded-[2rem] border-8 border-gray-800 bg-gray-50 shadow-lg">
+  <header class="flex h-16 items-center gap-3 border-b border-gray-200 bg-white px-4">
+    <span class="${BTN_OUTLINE}">${ic('menu')}Menu</span>
+    <div class="ml-auto"><span class="${BTN_OUTLINE}">${ic('bell')}<span class="sr-only">Notifications</span></span></div>
+  </header>
+  <main class="space-y-4 px-4 py-6">
+    <div><h1 class="text-2xl font-bold">Income</h1><p class="mt-1 text-base text-gray-700">Money received from paid bills. Payment is cash.</p></div>
+    <section class="${CARD} space-y-3 p-2">
+      <nav class="grid grid-cols-4 gap-1 rounded-xl bg-gray-100 p-1">${KINDS.map(([k, l]) => `<a class="inline-flex min-h-11 items-center justify-center rounded-lg text-base ${k === 'day' ? 'bg-white font-semibold text-violet-800 shadow-sm ring-2 ring-violet-600' : 'text-gray-800'}">${l}</a>`).join('')}</nav>
+      <h2 class="text-center text-lg font-bold">Today, Tuesday, November 24</h2>
+      <div class="grid grid-cols-2 gap-2"><a class="${BTN_OUTLINE}">${ic('chevLeft')}Previous</a><span class="${BTN_OFF}" aria-disabled="true">Next${ic('chevRight')}</span></div>
+    </section>
+    <section class="rounded-2xl bg-gradient-to-br from-violet-800 to-violet-600 p-5 text-white">
+      <p class="text-base font-semibold text-violet-100">Money received · Today</p>
+      <p class="mt-1 text-4xl font-bold tracking-tight">${peso(4300)}</p>
+      <p class="text-lg text-violet-50">from 5 bills paid</p>
+      <p class="mt-3 inline-flex rounded-full bg-white/15 px-3 py-1 text-base">Yesterday: ${peso(4850)} from 6 bills</p>
+    </section>
+    <section class="${CARD} divide-y divide-gray-100">
+      ${[['stethoscope','From visits',peso(3450)],['pill','Over the counter',peso(850)],['percent','Discounts given',`${peso(150)} on 1 bill`]].map(([i, l, v]) => `<div class="flex items-center gap-3 p-4"><span class="grid size-9 place-content-center rounded-lg bg-violet-50 text-violet-700">${ic(i)}</span><span class="flex-1 text-base text-gray-700">${l}</span><span class="text-base font-semibold">${v}</span></div>`).join('')}
+    </section>
+    ${compactChart(CH.week)}
+    ${notPaid}
+    <section class="${CARD} overflow-hidden">
+      <h3 class="border-b border-gray-200 px-4 py-3 text-lg font-semibold">Bills paid on this day (5)</h3>
+      <div class="p-4"><div class="flex justify-between"><p class="text-lg font-semibold">HV-2026-0041</p><p class="text-lg font-semibold">${peso(450)}</p></div>
+        <p class="text-base text-gray-800">Rosa Dela Cruz · for Max</p>
+        <span class="mt-3 flex min-h-11 items-center justify-center gap-2 rounded-lg border border-violet-300 bg-violet-50 text-base font-semibold text-violet-800">Open${ic('arrowRight')}</span></div>
+      <p class="border-t border-gray-100 py-2 text-center text-sm text-gray-600">… 4 more bills, then the Total line</p>
+    </section>
+  </main>
+</div>`;
+
+// ---------- Frames ----------
+const dayHero = { when:'Today', total:4300, count:5, visits:3450, disc:150, discCount:1, compare:`Yesterday: ${peso(4850)} from 6 bills` };
+const weekPage = overlay => layout('week', 'This week: Nov 23 to 29', true,
+  { when:'This week', ...WEEK_T, compare:`Last week: ${peso(21400)} from 27 bills` }, CH.week,
+  periodTable('Day by day', 'Day', WEEK, 'Today'), overlay);
+const monthPage = overlay => layout('month', 'October 2026', false,
+  { when:'October 2026', ...OCT_T, compare:`The month before (September): ${peso(61450)} from 86 bills` }, { ...CH.month, rows: OCT },
+  periodTable('Day by day', 'Day', OCT, ''), overlay);
+
+const states = [
+  { id:'day', label:'1 · Day: today',
+    html: layout('day', 'Today, Tuesday, November 24', true, dayHero, CH.week, billList(TODAY_BILLS)),
+    caption:`<p><b>New layout: two columns.</b> Left: the money. Right, on every frame and staying in place while you scroll: <b>the chart</b>, then <b>Not paid yet</b>.</p>
+<p><b>Top bar of the page:</b> one white strip with <b>Day · Week · Month · Year</b> as a segmented switch (the chosen one white with a violet outline), and on the right <b>Previous</b>, the period named in words with a calendar icon, and <b>Next</b> (grayed on the current period).</p>
+<p><b>Money received</b> is now a violet card, like the balance card of a cash app: the amount big in white, “from 5 bills paid”, and the comparison in a soft pill. Under it, three tiles with icons: <b>From visits</b>, <b>Over the counter</b>, <b>Discounts given</b>.</p>
+<p><b>Chart on a Day:</b> one day is one number, so the side chart shows <b>the week that day is in</b>, with that day's bar dark violet. The whole chart card is one big button; its bottom line says “See the chart bigger” (frames 6 and 7).</p>
+<p>Below: the bills paid today, then <b>Total · 5 bills · ₱4,300.00</b>. Still no violet button on the page: the violet card is a heading, not something to click.</p>` },
+  { id:'empty', label:'2 · Day: no payments',
+    html: layout('day', 'Sunday, November 22', false, { when:'Sun, Nov 22', total:0, count:0, compare:`The day before (Sat, Nov 21): ${peso(3900)} from 5 bills` }, CH.lastweek, emptyDay),
+    caption:`<p><b>A past day with nothing paid.</b> The violet card says ₱0.00 and “No bills were paid.”; the three tiles are left out. The side chart shows that day's week (Nov 16 to 22) with Sunday as a thin gray line, marked “This day”. <b>Back to today</b> sits under the period strip; Next is active.</p>` },
+  { id:'week', label:'3 · Week', html: weekPage(),
+    caption:`<p><b>Week.</b> Same layout. The side chart is the same week; today is dark violet, the days to come are small dashed boxes. The main column has the day-by-day table (rows link to each day, days to come say “Not yet”, Total at the bottom).</p>` },
+  { id:'month', label:'4 · Month (October)', html: monthPage(),
+    caption:`<p><b>A past month.</b> The side chart has 31 thin bars with day numbers 1, 10, 20, 31 under them. The full table is in the main column.</p>` },
+  { id:'year', label:'5 · Year',
+    html: layout('year', 'This year: 2026', true, { when:'2026 so far', ...YEAR_T, compare:`Last year: ${peso(698500)} from 1,012 bills` }, CH.year,
+      periodTable('Month by month', 'Month', YEAR, 'So far')),
+    caption:`<p><b>Year.</b> Side chart: 12 bars (Jan, Apr, Jul, Oct written under them), November dark violet, December dashed. Main: the month-by-month table.</p>` },
+  { id:'bigweek', label:'6 · Chart opened: week', html: weekPage(bigChart(CH.week)),
+    caption:`<p><b>Clicking the chart opens it big</b>, in the same kind of dialog the other admin pages use (Close button focused first, Escape or clicking outside also closes it).</p>
+<p><b>Full detail:</b> four tiles on top (Money received, Best day, Average per day, Days with payments), then a tall chart with <b>the exact amount on every bar</b>, the date under each bar, an <b>orange dashed line for the average</b> with its amount written on it, and a key under the chart (each colour also has a word, so colour never carries meaning alone).</p>` },
+  { id:'bigmonth', label:'7 · Chart opened: month', html: monthPage(bigChart(CH.month)),
+    caption:`<p><b>The month, big.</b> 31 bars with every day number under them, the average line, and the four tiles (best day, average per day the clinic took payments, days with payments). With 31 days, amounts on each bar would be too small to read, so the dialog says the exact amounts are in the table.</p>` },
+  { id:'phone', label:'8 · Phone', html: phoneView(),
+    caption:`<p><b>Phone width.</b> One column: the period strip (switch, day name, Previous / Next), the violet card, the three numbers as rows, <b>the chart</b> (tap to open it big: on a phone the dialog fills the screen), Not paid yet, then the bills.</p>` }
+];
+
+const sw = document.getElementById('switcher');
+function show(id) {
+  const s = states.find(x => x.id === id);
+  document.getElementById('stage').innerHTML = s.html;
+  document.getElementById('caption').innerHTML = s.caption;
+  [...sw.children].forEach(b => {
+    const on = b.dataset.id === id;
+    b.className = 'min-h-11 rounded-lg px-4 text-base font-medium ' + (on ? 'bg-violet-600 text-white' : 'border border-gray-300 bg-white text-gray-800 hover:bg-gray-50');
+  });
+}
+states.forEach(s => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.dataset.id = s.id; b.textContent = s.label;
+  b.onclick = () => show(s.id);
+  sw.appendChild(b);
+});
+show('day');
+</script>
+</body>
+</html>

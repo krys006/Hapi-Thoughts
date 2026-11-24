@@ -65,6 +65,12 @@ urlpatterns = [
         views.admin_billing_item_delete,
         name="admin_billing_item_delete",
     ),
+    # ── Admin — Income summary (read-only) ────────────────────────────────
+    path(
+        "admin/income/",
+        views.admin_income,
+        name="admin_income",
+    ),
     # ── Pet Owner — Billing ───────────────────────────────────────────────
     path(
         "owner/billing/",

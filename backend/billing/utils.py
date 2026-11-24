@@ -2,6 +2,7 @@
 
 import calendar
 import datetime
+import math
 from decimal import Decimal
 from itertools import groupby
 from urllib.parse import urlencode
@@ -9,8 +10,17 @@ from urllib.parse import urlencode
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Exists, OuterRef, Q
-from django.db.models.functions import Coalesce, Lower
+from django.db.models import (
+    Count,
+    DecimalField,
+    Exists,
+    F,
+    OuterRef,
+    Q,
+    Sum,
+    Value,
+)
+from django.db.models.functions import Coalesce, Lower, TruncMonth
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
@@ -28,6 +38,7 @@ from appointments.utils import (
     search_walkin_owners,
     walkin_owner_list,
 )
+from dashboard.templatetags.friendly_dates import friendly_date_on, long_date_on
 from medical.utils import short_date
 from notifications.models import Notification
 from notifications.utils import (
@@ -347,14 +358,19 @@ def send_bill(receipt):
 OWNER_RECEIPT_STATUSES = (BillingReceipt.PENDING, BillingReceipt.PAID)
 
 
+def bill_has_items():
+    """An Exists() that is true for a receipt with at least one item. One
+    rule for the owner pages and the admin Income "Not paid yet" box."""
+    return Exists(BillingItem.objects.filter(receipt=OuterRef("pk")))
+
+
 def owner_receipts(owner):
     """The receipts this owner can see: their own, Unpaid or Paid. An Unpaid
     one only once it has an item (the clinic may still be filling it in); the
     check is part of the same query. Every owner page reads receipts here."""
-    has_items = Exists(BillingItem.objects.filter(receipt=OuterRef("pk")))
     return BillingReceipt.objects.filter(
         owner=owner, payment_status__in=OWNER_RECEIPT_STATUSES
-    ).filter(Q(payment_status=BillingReceipt.PAID) | has_items)
+    ).filter(Q(payment_status=BillingReceipt.PAID) | bill_has_items())
 
 
 def owner_visit_bill(owner, appointment):
@@ -362,14 +378,13 @@ def owner_visit_bill(owner, appointment):
     receipt is what owner_receipts allows (Unpaid with an item, or Paid), else
     None. preparing is True for an Unpaid bill with no items yet: the page
     says the bill is being prepared. Cancelled or missing: (None, False)."""
-    has_items = Exists(BillingItem.objects.filter(receipt=OuterRef("pk")))
     receipt = (
         BillingReceipt.objects.filter(
             owner=owner,
             appointment=appointment,
             payment_status__in=OWNER_RECEIPT_STATUSES,
         )
-        .annotate(has_items=has_items)
+        .annotate(has_items=bill_has_items())
         .first()
     )
     if receipt is None:
@@ -1009,6 +1024,430 @@ def receipt_detail_context(receipt, today):
         "clinic_settings": get_clinic_settings(),
         "service_options": service_options(billable_services()),
         "today": today,
+    }
+
+
+# ── Income summary (admin_income, batch I-1) ─────────────────────────────────
+# Read-only. Money comes only from Paid bills, counted on the day they were
+# paid (payment_date, else billing_date). Nothing here writes a row.
+
+INCOME_KINDS = ("day", "week", "month", "year")
+INCOME_FIRST_DAY = datetime.date(2000, 1, 1)
+MONEY = DecimalField(max_digits=14, decimal_places=2)
+NO_MONEY = Value(Decimal("0.00"), output_field=MONEY)
+# (kind, is the period the current one) -> the word for the marked bar
+INCOME_MARKED_WORDS = {
+    ("day", True): "Today",
+    ("day", False): "This day",
+    ("week", True): "Today",
+    ("week", False): "Today",
+    ("month", True): "Today",
+    ("month", False): "Selected",
+    ("year", True): "So far",
+    ("year", False): "Selected",
+}
+
+
+def paid_bills():
+    """Every PAID bill with paid_day (a date): payment_date, else
+    billing_date. Unpaid and Cancelled bills never count."""
+    return BillingReceipt.objects.filter(payment_status=BillingReceipt.PAID).annotate(
+        paid_day=Coalesce("payment_date", "billing_date")
+    )
+
+
+def _money_sum(expression, **options):
+    """Sum() that is Decimal("0.00") instead of None when nothing matches."""
+    return Coalesce(
+        Sum(expression, output_field=MONEY, **options), NO_MONEY, output_field=MONEY
+    )
+
+
+def _bills_words(count):
+    """ "1 bill" / "6 bills"."""
+    return f"{count} bill" if count == 1 else f"{count} bills"
+
+
+def _income_url(kind, day):
+    return f"{reverse('admin_income')}?{urlencode({'period': kind, 'date': day})}"
+
+
+def _income_start(kind, day):
+    """The first day of the period that holds day."""
+    if kind == "week":
+        return day - datetime.timedelta(days=day.weekday())
+    if kind == "month":
+        return day.replace(day=1)
+    if kind == "year":
+        return day.replace(month=1, day=1)
+    return day
+
+
+def _income_end(kind, start):
+    """The last day (inclusive) of the period that starts on start."""
+    if kind == "week":
+        return start + datetime.timedelta(days=6)
+    if kind == "month":
+        return start.replace(day=calendar.monthrange(start.year, start.month)[1])
+    if kind == "year":
+        return start.replace(month=12, day=31)
+    return start
+
+
+def _income_shift(kind, start, step):
+    """The start of the period `step` (-1 or 1) periods from start."""
+    if kind == "week":
+        return start + datetime.timedelta(weeks=step)
+    if kind == "month":
+        year, month_index = divmod(start.year * 12 + start.month - 1 + step, 12)
+        return datetime.date(year, month_index + 1, 1)
+    if kind == "year":
+        return start.replace(year=start.year + step)
+    return start + datetime.timedelta(days=step)
+
+
+def _income_date(value, today):
+    """The ?date= as a date; today for a missing or bad value, a date after
+    today or one before 2000-01-01."""
+    try:
+        day = datetime.date.fromisoformat(value)
+    except (TypeError, ValueError):
+        return today
+    return day if INCOME_FIRST_DAY <= day <= today else today
+
+
+def _short_day(day, today):
+    """ "Nov 23" (the year too when it isn't this year: "Nov 23, 2025")."""
+    text = date_format(day, "M j")
+    return text if day.year == today.year else f"{text}, {day.year}"
+
+
+def _range_words(start, end, today):
+    """ "Nov 23 to 29", "Nov 30 to Dec 6" (the year only when it isn't this
+    year; a range across two years names both)."""
+    if start.year != end.year:
+        return f"{_short_day(start, today)} to {_short_day(end, today)}"
+    if start.month == end.month:
+        words = f"{date_format(start, 'M j')} to {end.day}"
+    else:
+        words = f"{date_format(start, 'M j')} to {date_format(end, 'M j')}"
+    return words if start.year == today.year else f"{words}, {start.year}"
+
+
+def _day_words(p, today):
+    label = long_date_on(p["start"], today)
+    if p["is_current"]:
+        return label, "Today", "Yesterday"
+    before = friendly_date_on(p["compare_start"], today)
+    when = friendly_date_on(p["start"], today)
+    return label, when, f"The day before ({before})"
+
+
+def _week_words(p, today):
+    words = _range_words(p["start"], p["end"], today)
+    if p["is_current"]:
+        return f"This week: {words}", "This week", "Last week"
+    before = _range_words(p["compare_start"], p["compare_end"], today)
+    when = f"Week of {_short_day(p['start'], today)}"
+    return words, when, f"The week before ({before})"
+
+
+def _month_words(p, today):
+    name = date_format(p["start"], "F Y")
+    if p["is_current"]:
+        return f"This month: {name}", "This month", "Last month"
+    before = date_format(p["compare_start"], "F Y")
+    return name, name, f"The month before ({before})"
+
+
+def _year_words(p, today):
+    year = p["start"].year
+    if p["is_current"]:
+        return f"This year: {year}", f"{year} so far", "Last year"
+    return str(year), str(year), f"The year before ({p['compare_start'].year})"
+
+
+INCOME_WORDS = {
+    "day": _day_words,
+    "week": _week_words,
+    "month": _month_words,
+    "year": _year_words,
+}
+
+
+def income_period(params, today):
+    """
+    The period from the request's ?period=day|week|month|year (anything else
+    is day) and ?date= (ISO; a bad value, a date after today or before
+    2000-01-01 is today; then moved to the period's start, a week starting
+    on Monday). A dict: kind, date (the date asked for, before it was moved),
+    start, end (inclusive), is_current, prev_start (None before 2000-01-01),
+    next_start (None after today), label, when, compare_label and the
+    previous period's compare_start / compare_end. No queries.
+    """
+    kind = params.get("period")
+    if kind not in INCOME_KINDS:
+        kind = "day"
+    asked = _income_date(params.get("date"), today)
+    start = _income_start(kind, asked)
+    end = _income_end(kind, start)
+    before = _income_shift(kind, start, -1)
+    after = _income_shift(kind, start, 1)
+    period = {
+        "kind": kind,
+        "date": asked,
+        "start": start,
+        "end": end,
+        "is_current": start <= today <= end,
+        "prev_start": before if before >= INCOME_FIRST_DAY else None,
+        "next_start": after if after <= today else None,
+        "compare_start": before,
+        "compare_end": _income_end(kind, before),
+    }
+    label, when, compare_label = INCOME_WORDS[kind](period, today)
+    return {**period, "label": label, "when": when, "compare_label": compare_label}
+
+
+def income_totals(start, end, compare_start, compare_end):
+    """
+    The period's numbers and the previous period's, in ONE query: total,
+    count, visits (total of bills with a visit), discount (what was taken
+    off), discount_count, over_counter (total - visits), compare_total and
+    compare_count. Sums are Decimal and never None.
+    """
+    here = Q(paid_day__range=(start, end))
+    before = Q(paid_day__range=(compare_start, compare_end))
+    totals = (
+        paid_bills()
+        .filter(paid_day__range=(min(start, compare_start), end))
+        .aggregate(
+            total=_money_sum("total_amount", filter=here),
+            count=Count("pk", filter=here),
+            visits=_money_sum(
+                "total_amount", filter=here & Q(appointment__isnull=False)
+            ),
+            discount=_money_sum(F("subtotal") - F("total_amount"), filter=here),
+            discount_count=Count("pk", filter=here & Q(subtotal__gt=F("total_amount"))),
+            compare_total=_money_sum("total_amount", filter=before),
+            compare_count=Count("pk", filter=before),
+        )
+    )
+    totals["over_counter"] = totals["total"] - totals["visits"]
+    return totals
+
+
+def income_compare_line(period, totals):
+    """ "Yesterday: ₱4,850.00 from 6 bills" or "Yesterday: no bills paid"."""
+    label, count = period["compare_label"], totals["compare_count"]
+    if not count:
+        return f"{label}: no bills paid"
+    return f"{label}: {peso(totals['compare_total'])} from {_bills_words(count)}"
+
+
+def income_rows(period, today):
+    """
+    One row for every day (week, month; the Day view gives the week that
+    holds the day) or every month (year) of the range, in order, empty ones
+    too, from ONE grouped query. Each row: day, label, short, count, total,
+    state ("future" after today, "marked" for today's row, the looked-at day
+    in the Day view, else "") and url (None for a future row).
+    """
+    kind = period["kind"]
+    if kind == "day":
+        first = _income_start("week", period["start"])
+        last = _income_end("week", first)
+    else:
+        first, last = period["start"], period["end"]
+    by_month = kind == "year"
+    found = {
+        row["bucket"]: row
+        for row in paid_bills()
+        .filter(paid_day__range=(first, last))
+        .annotate(bucket=TruncMonth("paid_day") if by_month else F("paid_day"))
+        .values("bucket")
+        .annotate(count=Count("pk"), total=Sum("total_amount"))
+        .order_by()
+    }
+    if by_month:
+        days = [datetime.date(first.year, month, 1) for month in range(1, 13)]
+        marked, link_kind = today.replace(day=1), "month"
+    else:
+        span = (last - first).days + 1
+        days = [first + datetime.timedelta(days=n) for n in range(span)]
+        marked = period["start"] if kind == "day" else today
+        link_kind = "day"
+    rows = []
+    for day in days:
+        hit = found.get(day)
+        future = day > today
+        state = "future" if future else "marked" if day == marked else ""
+        rows.append(
+            {
+                "day": day,
+                "label": date_format(day, "F" if by_month else "D, M j"),
+                "short": date_format(day, "M" if by_month else "D"),
+                "count": hit["count"] if hit else 0,
+                "total": hit["total"] if hit else Decimal("0.00"),
+                "state": state,
+                "url": None if future else _income_url(link_kind, day.isoformat()),
+            }
+        )
+    return rows
+
+
+def _chart_top(maximum):
+    """A round number above the highest bar: ceil(max / 10^k * 2) / 2 * 10^k,
+    k = digits of max - 1 (4,850 -> 5,000; 66,900 -> 70,000; 1,200 -> 1,500).
+    1,000 when everything is 0."""
+    if maximum <= 0:
+        return Decimal("1000")
+    scale = Decimal(10) ** (len(str(int(maximum))) - 1 if maximum >= 1 else 0)
+    return max(Decimal(math.ceil(maximum / scale * 2)) / 2 * scale, Decimal("1"))
+
+
+def _chart_pct(total, top):
+    """A bar's height, a whole number 0 to 100."""
+    return min(round(total / top * 100), 100)
+
+
+def _chart_tick(kind, row):
+    """The label under a bar: every bar in a week, days 1, 10, 20 and the last
+    in a month, Jan Apr Jul Oct in a year, else ""."""
+    day = row["day"]
+    if kind in ("day", "week"):
+        return row["short"]
+    if kind == "year":
+        return row["short"] if day.month in (1, 4, 7, 10) else ""
+    last = calendar.monthrange(day.year, day.month)[1]
+    return str(day.day) if day.day in (1, 10, 20, last) else ""
+
+
+def _chart_words(period, today):
+    """(title, sub) of the chart: "This week, day by day" and the dates."""
+    kind, start = period["kind"], period["start"]
+    if kind == "year":
+        return f"{start.year}, month by month", f"January to December {start.year}"
+    if kind == "month":
+        name = date_format(start, "F")
+        name = name if start.year == today.year else f"{name} {start.year}"
+        return f"{name}, day by day", _range_words(start, period["end"], today)
+    first = _income_start("week", start)
+    last = _income_end("week", first)
+    this_week = first <= today <= last
+    title = "This week, day by day" if this_week else "That week, day by day"
+    return title, _range_words(first, last, today)
+
+
+def income_chart(period, rows, today):
+    """
+    The chart's numbers, no queries. Adds pct (0 to 100) and tick to every
+    row. Returns top, half, best (the row with the most money, the first on a
+    tie), average (money of the days or months with payments / how many),
+    average_pct (None without an average), with_payments (rows up to today
+    with money), so_far (rows up to today), marked_word, title, sub,
+    big_title and show_amounts (False for a month: 31 bars are too small).
+    """
+    kind = period["kind"]
+    up_to_today = [row for row in rows if row["state"] != "future"]
+    paid = [row for row in up_to_today if row["total"] > 0]
+    top = _chart_top(max((row["total"] for row in up_to_today), default=Decimal(0)))
+    best = None
+    for row in paid:
+        if best is None or row["total"] > best["total"]:
+            best = row
+    average = None
+    if paid:
+        average = sum((row["total"] for row in paid), Decimal("0")) / len(paid)
+    for row in rows:
+        counts = row["state"] != "future" and row["total"] > 0
+        row["pct"] = _chart_pct(row["total"], top) if counts else 0
+        row["tick"] = _chart_tick(kind, row)
+    title, sub = _chart_words(period, today)
+    return {
+        "top": top,
+        "half": top / 2,
+        "best": best,
+        "average": average,
+        "average_pct": None if average is None else _chart_pct(average, top),
+        "with_payments": len(paid),
+        "so_far": len(up_to_today),
+        "marked_word": INCOME_MARKED_WORDS[(kind, period["is_current"])],
+        "title": title,
+        "sub": sub,
+        "big_title": f"Money received each {'month' if kind == 'year' else 'day'}",
+        "show_amounts": kind != "month",
+    }
+
+
+def income_day_bills(day):
+    """The bills paid on day, oldest first, with owner and pet loaded. Each
+    gets from_visit (it has a visit) and discount (subtotal - total; shown
+    when above 0)."""
+    bills = list(
+        paid_bills()
+        .filter(paid_day=day)
+        .select_related("owner", "pet")
+        .order_by("created_at", "pk")
+    )
+    for bill in bills:
+        bill.from_visit = bill.appointment_id is not None
+        bill.discount = bill.subtotal - bill.total_amount
+    return bills
+
+
+def unpaid_snapshot():
+    """The "Not paid yet" box, ONE query: count and total of the Unpaid bills
+    that have at least one item (not tied to the period), and the Billing
+    Unpaid tab's url."""
+    snapshot = (
+        BillingReceipt.objects.filter(payment_status=BillingReceipt.PENDING)
+        .filter(bill_has_items())
+        .aggregate(count=Count("pk"), total=_money_sum("total_amount"))
+    )
+    snapshot["url"] = f"{reverse('admin_receipt_list')}?status=pending"
+    return snapshot
+
+
+def income_context(params, today):
+    """
+    Context for the Income page: period, totals, compare_line, rows, chart,
+    bills (the Day view only, else None), unpaid, back_to_today_url (None on
+    the current period), prev_url / next_url (None when not allowed) and
+    period_links (Day, Week, Month, Year for the same date, with is_active).
+    At most four queries however many bills: totals, rows, bills (Day only),
+    unpaid.
+    """
+    period = income_period(params, today)
+    kind = period["kind"]
+    totals = income_totals(
+        period["start"], period["end"], period["compare_start"], period["compare_end"]
+    )
+    rows = income_rows(period, today)
+    prev_start, next_start = period["prev_start"], period["next_start"]
+    return {
+        "period": period,
+        "totals": totals,
+        "compare_line": income_compare_line(period, totals),
+        "rows": rows,
+        "chart": income_chart(period, rows, today),
+        "bills": income_day_bills(period["start"]) if kind == "day" else None,
+        "unpaid": unpaid_snapshot(),
+        "back_to_today_url": (
+            None
+            if period["is_current"]
+            else f"{reverse('admin_income')}?{urlencode({'period': kind})}"
+        ),
+        "prev_url": _income_url(kind, prev_start) if prev_start else None,
+        "next_url": _income_url(kind, next_start) if next_start else None,
+        "period_links": [
+            {
+                "kind": name,
+                "label": name.capitalize(),
+                "url": _income_url(name, period["date"]),
+                "is_active": name == kind,
+            }
+            for name in INCOME_KINDS
+        ],
     }
 
 

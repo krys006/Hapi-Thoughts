@@ -22,6 +22,7 @@ from django.utils import timezone
 from django.utils.html import escape
 
 from appointments.models import Appointment, ClinicSettings
+from billing import utils as billing_utils
 from billing import views as billing_views
 from billing.forms import BillingItemForm, BillingReceiptForm, ServiceForm
 from billing.models import BillingItem, BillingReceipt, Service
@@ -9030,3 +9031,937 @@ class AdminBillSendTests(FrozenBillingTestBase):
             encoding="utf-8"
         )
         self.assertIn('name == "send"', icon)
+
+
+# ── Income summary, batch I-1 (admin_income) ─────────────────────────────────
+
+# Tue, Nov 24, 2026 in Manila (the clock is frozen here for every Income test)
+INCOME_TODAY = datetime.date(2026, 11, 24)
+INCOME_NOW = datetime.datetime(2026, 11, 24, 10, 0, tzinfo=MANILA)
+INCOME_URL = "/admin/income/"
+# The whole page is the layout's queries plus the Income context's (4 on the
+# Day view: totals, rows, bills, unpaid; 3 on the others). It must stay under
+# this and must not grow with the number of bills.
+INCOME_PAGE_QUERIES_MAX = 14
+
+
+class IncomeTestBase(FrozenBillingTestBase):
+    """Admin logged in, the clock frozen at 10:00 on Tue, Nov 24, 2026."""
+
+    def setUp(self):
+        super().setUp()
+        self.now = INCOME_NOW
+        # The session made in setUp expires after two weeks of the OLD clock
+        self.client.force_login(self.admin)
+        self.visit_hour = 7
+
+    def _paid(
+        self,
+        paid_on=INCOME_TODAY,
+        total="100.00",
+        subtotal=None,
+        visit=False,
+        status=BillingReceipt.PAID,
+        billing_date=None,
+    ):
+        """A bill with the given totals (no items). paid_on=None leaves the
+        payment date empty (the bill date is used instead)."""
+        appointment = None
+        if visit:
+            self.visit_hour += 1
+            appointment = Appointment.objects.create(
+                owner=self.owner,
+                pet=self.pet,
+                date=paid_on or INCOME_TODAY,
+                time=datetime.time(self.visit_hour, 0),
+                status=Appointment.COMPLETED,
+            )
+        return BillingReceipt.objects.create(
+            receipt_number=BillingReceipt.generate_receipt_number(),
+            owner=self.owner,
+            pet=self.pet,
+            appointment=appointment,
+            payment_status=status,
+            payment_date=paid_on,
+            billing_date=billing_date or paid_on or INCOME_TODAY,
+            subtotal=Decimal(subtotal or total),
+            total_amount=Decimal(total),
+        )
+
+    def _period(self, today=INCOME_TODAY, **params):
+        return billing_utils.income_period(params, today)
+
+    def _totals(self, **params):
+        p = self._period(**params)
+        return billing_utils.income_totals(
+            p["start"], p["end"], p["compare_start"], p["compare_end"]
+        )
+
+    def _chart(self, **params):
+        p = self._period(**params)
+        rows = billing_utils.income_rows(p, INCOME_TODAY)
+        return p, rows, billing_utils.income_chart(p, rows, INCOME_TODAY)
+
+
+class IncomePeriodTests(IncomeTestBase):
+
+    def test_each_kind_has_start_end_and_is_current(self):
+        cases = {
+            "day": ("2026-11-24", "2026-11-24"),
+            "week": ("2026-11-23", "2026-11-29"),
+            "month": ("2026-11-01", "2026-11-30"),
+            "year": ("2026-01-01", "2026-12-31"),
+        }
+        for kind, (start, end) in cases.items():
+            with self.subTest(kind=kind):
+                p = self._period(period=kind, date="2026-11-24")
+                self.assertEqual(p["kind"], kind)
+                self.assertEqual(p["start"], datetime.date.fromisoformat(start))
+                self.assertEqual(p["end"], datetime.date.fromisoformat(end))
+                self.assertTrue(p["is_current"])
+
+    def test_weeks_start_on_monday_and_a_past_period_is_not_current(self):
+        p = self._period(period="week", date="2026-11-22")  # a Sunday
+        self.assertEqual(p["start"], datetime.date(2026, 11, 16))
+        self.assertEqual(p["end"], datetime.date(2026, 11, 22))
+        self.assertFalse(p["is_current"])
+        self.assertFalse(self._period(period="month", date="2026-10-31")["is_current"])
+        self.assertFalse(self._period(period="year", date="2025-12-31")["is_current"])
+
+    def test_a_bad_period_is_day(self):
+        for value in ("nonsense", "", "WEEK", None):
+            with self.subTest(period=value):
+                params = {} if value is None else {"period": value}
+                self.assertEqual(
+                    billing_utils.income_period(params, INCOME_TODAY)["kind"], "day"
+                )
+
+    def test_a_bad_future_or_old_date_is_today(self):
+        for value in (
+            "nope",
+            "",
+            "2026-13-45",
+            "2026-11-25",
+            "2099-01-01",
+            "1999-12-31",
+        ):
+            with self.subTest(date=value):
+                p = self._period(date=value)
+                self.assertEqual(p["start"], INCOME_TODAY)
+        self.assertEqual(
+            self._period(period="week", date="2099-01-01")["start"],
+            datetime.date(2026, 11, 23),
+        )
+        self.assertEqual(self._period().get("start"), INCOME_TODAY)
+
+    def test_the_date_moves_to_the_start_of_its_period(self):
+        self.assertEqual(
+            self._period(period="week", date="2026-11-18")["start"],
+            datetime.date(2026, 11, 16),
+        )
+        self.assertEqual(
+            self._period(period="month", date="2026-10-15")["start"],
+            datetime.date(2026, 10, 1),
+        )
+        self.assertEqual(
+            self._period(period="year", date="2025-06-30")["start"],
+            datetime.date(2025, 1, 1),
+        )
+        # The date that was asked for is kept for the Day / Week / Month / Year links
+        self.assertEqual(
+            self._period(period="month", date="2026-10-15")["date"],
+            datetime.date(2026, 10, 15),
+        )
+
+    def test_prev_start_is_none_before_2000_and_next_start_none_after_today(self):
+        self.assertIsNone(self._period(date="2000-01-01")["prev_start"])
+        self.assertEqual(
+            self._period(date="2000-01-01")["next_start"], datetime.date(2000, 1, 2)
+        )
+        self.assertEqual(
+            self._period(date="2000-01-02")["prev_start"], datetime.date(2000, 1, 1)
+        )
+        self.assertIsNone(self._period(period="month", date="2000-01-15")["prev_start"])
+        self.assertIsNone(self._period(period="year", date="2000-06-01")["prev_start"])
+        self.assertEqual(
+            self._period(period="month", date="2000-02-10")["prev_start"],
+            datetime.date(2000, 1, 1),
+        )
+        for kind in ("day", "week", "month", "year"):
+            with self.subTest(kind=kind):
+                self.assertIsNone(self._period(period=kind)["next_start"])
+        self.assertEqual(self._period(date="2026-11-23")["next_start"], INCOME_TODAY)
+        self.assertEqual(
+            self._period(period="week", date="2026-11-16")["next_start"],
+            datetime.date(2026, 11, 23),
+        )
+        self.assertEqual(
+            self._period(period="month", date="2026-10-01")["next_start"],
+            datetime.date(2026, 11, 1),
+        )
+        self.assertEqual(
+            self._period(period="year", date="2025-05-05")["next_start"],
+            datetime.date(2026, 1, 1),
+        )
+
+    def test_the_compare_range_is_the_period_before(self):
+        p = self._period(period="month", date="2026-03-20")
+        self.assertEqual(p["compare_start"], datetime.date(2026, 2, 1))
+        self.assertEqual(p["compare_end"], datetime.date(2026, 2, 28))
+        p = self._period(period="month", date="2026-01-05")
+        self.assertEqual(p["compare_start"], datetime.date(2025, 12, 1))
+        self.assertEqual(p["compare_end"], datetime.date(2025, 12, 31))
+        p = self._period(period="week")
+        self.assertEqual(p["compare_start"], datetime.date(2026, 11, 16))
+        self.assertEqual(p["compare_end"], datetime.date(2026, 11, 22))
+
+    def test_the_words(self):
+        later = datetime.date(2026, 12, 10)  # a Thursday
+        cases = [
+            # (today, params, label, when, compare_label)
+            (INCOME_TODAY, {}, "Today, Tuesday, November 24", "Today", "Yesterday"),
+            (
+                INCOME_TODAY,
+                {"date": "2026-11-22"},
+                "Sunday, November 22",
+                "Sun, Nov 22",
+                "The day before (Sat, Nov 21)",
+            ),
+            (
+                INCOME_TODAY,
+                {"period": "week"},
+                "This week: Nov 23 to 29",
+                "This week",
+                "Last week",
+            ),
+            (
+                INCOME_TODAY,
+                {"period": "week", "date": "2026-11-16"},
+                "Nov 16 to 22",
+                "Week of Nov 16",
+                "The week before (Nov 9 to 15)",
+            ),
+            (
+                later,
+                {"period": "week", "date": "2026-11-30"},
+                "Nov 30 to Dec 6",
+                "Week of Nov 30",
+                "The week before (Nov 23 to 29)",
+            ),
+            (
+                INCOME_TODAY,
+                {"period": "month"},
+                "This month: November 2026",
+                "This month",
+                "Last month",
+            ),
+            (
+                INCOME_TODAY,
+                {"period": "month", "date": "2026-10-10"},
+                "October 2026",
+                "October 2026",
+                "The month before (September 2026)",
+            ),
+            (
+                INCOME_TODAY,
+                {"period": "year"},
+                "This year: 2026",
+                "2026 so far",
+                "Last year",
+            ),
+            (
+                INCOME_TODAY,
+                {"period": "year", "date": "2025-03-03"},
+                "2025",
+                "2025",
+                "The year before (2024)",
+            ),
+            # Another year: the year is shown
+            (
+                INCOME_TODAY,
+                {"date": "2025-03-05"},
+                "Wednesday, March 5, 2025",
+                "Wed, Mar 5, 2025",
+                "The day before (Tue, Mar 4, 2025)",
+            ),
+            (
+                INCOME_TODAY,
+                {"period": "week", "date": "2025-03-05"},
+                "Mar 3 to 9, 2025",
+                "Week of Mar 3, 2025",
+                "The week before (Feb 24 to Mar 2, 2025)",
+            ),
+        ]
+        for today, params, label, when, compare in cases:
+            with self.subTest(params=params, today=today):
+                p = billing_utils.income_period(params, today)
+                self.assertEqual(p["label"], label)
+                self.assertEqual(p["when"], when)
+                self.assertEqual(p["compare_label"], compare)
+
+    def test_a_week_across_two_years_names_both(self):
+        p = billing_utils.income_period(
+            {"period": "week", "date": "2025-12-31"}, INCOME_TODAY
+        )
+        self.assertEqual(p["label"], "Dec 29, 2025 to Jan 4")
+
+    def test_no_queries(self):
+        with self.assertNumQueries(0):
+            self._period(period="week", date="2026-11-18")
+
+
+class IncomeTotalsTests(IncomeTestBase):
+
+    def test_only_paid_bills_count(self):
+        self._paid(total="100.00")
+        self._paid(total="50.00", status=BillingReceipt.PENDING, paid_on=None)
+        self._paid(total="70.00", status=BillingReceipt.CANCELLED, paid_on=None)
+        totals = self._totals()
+        self.assertEqual(totals["total"], Decimal("100.00"))
+        self.assertEqual(totals["count"], 1)
+
+    def test_a_cancelled_bill_with_a_payment_date_is_still_left_out(self):
+        self._paid(total="70.00", status=BillingReceipt.CANCELLED)
+        self.assertEqual(self._totals()["count"], 0)
+
+    def test_counts_on_the_payment_date_else_the_bill_date(self):
+        # Paid on Nov 23 but billed on Nov 24: it belongs to Nov 23
+        self._paid(
+            paid_on=datetime.date(2026, 11, 23),
+            billing_date=INCOME_TODAY,
+            total="40.00",
+        )
+        # No payment date: the bill date (Nov 24)
+        self._paid(paid_on=None, billing_date=INCOME_TODAY, total="25.00")
+        today = self._totals()
+        self.assertEqual((today["count"], today["total"]), (1, Decimal("25.00")))
+        yesterday = self._totals(date="2026-11-23")
+        self.assertEqual(
+            (yesterday["count"], yesterday["total"]), (1, Decimal("40.00"))
+        )
+
+    def test_the_last_day_counts_and_the_next_day_does_not(self):
+        self._paid(paid_on=datetime.date(2026, 10, 31), total="10.00")
+        self._paid(paid_on=datetime.date(2026, 11, 30), total="20.00")
+        self._paid(paid_on=datetime.date(2026, 11, 1), total="30.00")
+        november = self._totals(period="month")
+        self.assertEqual((november["count"], november["total"]), (2, Decimal("50.00")))
+        week = self._totals(period="week", date="2026-11-16")
+        self.assertEqual(week["count"], 0)
+
+    def test_a_zero_bill_is_counted(self):
+        self._paid(total="0.00")
+        totals = self._totals()
+        self.assertEqual((totals["count"], totals["total"]), (1, Decimal("0.00")))
+
+    def test_visits_and_over_the_counter_add_up_to_the_total(self):
+        self._paid(total="300.00", visit=True)
+        self._paid(total="200.00")
+        totals = self._totals()
+        self.assertEqual(totals["visits"], Decimal("300.00"))
+        self.assertEqual(totals["over_counter"], Decimal("200.00"))
+        self.assertEqual(totals["visits"] + totals["over_counter"], totals["total"])
+
+    def test_discount_and_discount_count(self):
+        self._paid(total="450.00", subtotal="500.00")
+        self._paid(total="90.00", subtotal="100.00")
+        self._paid(total="200.00")
+        totals = self._totals()
+        self.assertEqual(totals["discount"], Decimal("60.00"))
+        self.assertEqual(totals["discount_count"], 2)
+
+    def test_the_compare_range_numbers(self):
+        self._paid(paid_on=datetime.date(2026, 11, 23), total="40.00")
+        self._paid(paid_on=datetime.date(2026, 11, 23), total="60.00")
+        self._paid(paid_on=datetime.date(2026, 11, 22), total="999.00")
+        totals = self._totals()
+        self.assertEqual(
+            (totals["compare_count"], totals["compare_total"]), (2, Decimal("100.00"))
+        )
+        self.assertEqual((totals["count"], totals["total"]), (0, Decimal("0.00")))
+
+    def test_one_query(self):
+        self._paid()
+        with self.assertNumQueries(1):
+            self._totals(period="month")
+
+    def test_empty_is_zeros_not_none(self):
+        totals = self._totals()
+        for key in ("total", "visits", "discount", "over_counter", "compare_total"):
+            with self.subTest(key=key):
+                self.assertEqual(totals[key], Decimal("0.00"))
+                self.assertIsInstance(totals[key], Decimal)
+        for key in ("count", "discount_count", "compare_count"):
+            with self.subTest(key=key):
+                self.assertEqual(totals[key], 0)
+
+    def test_compare_line(self):
+        p = self._period()
+        yesterday = datetime.date(2026, 11, 23)
+        none = self._totals()
+        self.assertEqual(
+            billing_utils.income_compare_line(p, none), "Yesterday: no bills paid"
+        )
+        self._paid(paid_on=yesterday, total="4850.00")
+        one = self._totals()
+        self.assertEqual(
+            billing_utils.income_compare_line(p, one),
+            "Yesterday: ₱4,850.00 from 1 bill",
+        )
+        for _ in range(5):
+            self._paid(paid_on=yesterday, total="0.00")
+        six = self._totals()
+        self.assertEqual(
+            billing_utils.income_compare_line(p, six),
+            "Yesterday: ₱4,850.00 from 6 bills",
+        )
+        past = self._period(date="2026-11-22")
+        self.assertEqual(
+            billing_utils.income_compare_line(past, self._totals(date="2026-11-22")),
+            "The day before (Sat, Nov 21): no bills paid",
+        )
+
+
+class IncomeRowsTests(IncomeTestBase):
+
+    def _rows(self, **params):
+        return billing_utils.income_rows(self._period(**params), INCOME_TODAY)
+
+    def test_a_week_has_every_day_in_order(self):
+        rows = self._rows(period="week")
+        days = [row["day"] for row in rows]
+        self.assertEqual(
+            days,
+            [datetime.date(2026, 11, 23) + datetime.timedelta(n) for n in range(7)],
+        )
+        self.assertEqual(
+            [row["short"] for row in rows],
+            ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        )
+        self.assertEqual(rows[0]["label"], "Mon, Nov 23")
+        self.assertEqual([row["count"] for row in rows], [0] * 7)
+        self.assertEqual(rows[0]["total"], Decimal("0.00"))
+
+    def test_a_month_has_every_day_including_empty_ones(self):
+        self._paid(paid_on=datetime.date(2026, 11, 3), total="10.00")
+        rows = self._rows(period="month")
+        self.assertEqual(len(rows), 30)
+        self.assertEqual(rows[0]["day"], datetime.date(2026, 11, 1))
+        self.assertEqual(rows[-1]["day"], datetime.date(2026, 11, 30))
+        self.assertEqual((rows[2]["count"], rows[2]["total"]), (1, Decimal("10.00")))
+        self.assertEqual(rows[1]["count"], 0)
+        self.assertEqual(len(self._rows(period="month", date="2026-02-10")), 28)
+
+    def test_a_year_has_twelve_months(self):
+        self._paid(paid_on=datetime.date(2026, 11, 3), total="10.00")
+        self._paid(paid_on=datetime.date(2026, 11, 20), total="15.00")
+        self._paid(paid_on=datetime.date(2026, 1, 1), total="5.00")
+        rows = self._rows(period="year")
+        self.assertEqual(len(rows), 12)
+        self.assertEqual([row["day"].month for row in rows], list(range(1, 13)))
+        self.assertEqual((rows[0]["label"], rows[0]["short"]), ("January", "Jan"))
+        self.assertEqual((rows[10]["count"], rows[10]["total"]), (2, Decimal("25.00")))
+        self.assertEqual((rows[0]["count"], rows[0]["total"]), (1, Decimal("5.00")))
+        self.assertEqual(rows[5]["count"], 0)
+
+    def test_future_rows_and_the_marked_row(self):
+        week = self._rows(period="week")
+        self.assertEqual(
+            [row["state"] for row in week],
+            ["", "marked", "future", "future", "future", "future", "future"],
+        )
+        self.assertTrue(
+            all(row["url"] is None for row in week if row["state"] == "future")
+        )
+        month = self._rows(period="month")
+        self.assertEqual([row["state"] for row in month].count("future"), 6)
+        self.assertEqual(
+            [row["day"] for row in month if row["state"] == "marked"], [INCOME_TODAY]
+        )
+        year = self._rows(period="year")
+        self.assertEqual(year[10]["state"], "marked")
+        self.assertEqual(year[11]["state"], "future")
+        self.assertIsNone(year[11]["url"])
+        self.assertEqual({row["state"] for row in year[:10]}, {""})
+
+    def test_a_past_period_has_no_marked_row(self):
+        for params in (
+            {"period": "week", "date": "2026-11-16"},
+            {"period": "month", "date": "2026-10-01"},
+            {"period": "year", "date": "2025-01-01"},
+        ):
+            with self.subTest(params=params):
+                states = {row["state"] for row in self._rows(**params)}
+                self.assertEqual(states, {""})
+
+    def test_urls(self):
+        week = self._rows(period="week")
+        self.assertEqual(week[0]["url"], "/admin/income/?period=day&date=2026-11-23")
+        year = self._rows(period="year")
+        self.assertEqual(year[0]["url"], "/admin/income/?period=month&date=2026-01-01")
+        self.assertEqual(year[10]["url"], "/admin/income/?period=month&date=2026-11-01")
+
+    def test_the_day_view_gives_that_days_week(self):
+        rows = self._rows(date="2026-11-18")  # a Wednesday
+        self.assertEqual(rows[0]["day"], datetime.date(2026, 11, 16))
+        self.assertEqual(rows[-1]["day"], datetime.date(2026, 11, 22))
+        self.assertEqual(len(rows), 7)
+        self.assertEqual(
+            [row["day"] for row in rows if row["state"] == "marked"],
+            [datetime.date(2026, 11, 18)],
+        )
+        today_rows = self._rows()
+        self.assertEqual(
+            [row["day"] for row in today_rows if row["state"] == "marked"],
+            [INCOME_TODAY],
+        )
+
+    def test_one_query(self):
+        for kind in ("day", "week", "month", "year"):
+            with self.subTest(kind=kind):
+                with self.assertNumQueries(1):
+                    self._rows(period=kind)
+
+
+class IncomeChartTests(IncomeTestBase):
+
+    def test_top_is_a_round_number(self):
+        for biggest, top in (
+            ("4850.00", "5000"),
+            ("66900.00", "70000"),
+            ("1200.00", "1500"),
+            ("0.00", "1000"),
+        ):
+            with self.subTest(biggest=biggest):
+                self.assertEqual(
+                    billing_utils._chart_top(Decimal(biggest)), Decimal(top)
+                )
+        self._paid(total="4850.00")
+        _, _, chart = self._chart(period="week")
+        self.assertEqual(chart["top"], Decimal("5000"))
+        self.assertEqual(chart["half"], Decimal("2500"))
+
+    def test_top_is_1000_when_everything_is_zero(self):
+        _, _, chart = self._chart(period="week")
+        self.assertEqual(chart["top"], Decimal("1000"))
+
+    def test_pct_best_average_and_counts(self):
+        self._paid(paid_on=datetime.date(2026, 11, 23), total="1200.00")
+        self._paid(paid_on=INCOME_TODAY, total="300.00")
+        _, rows, chart = self._chart(period="week")
+        self.assertEqual(chart["top"], Decimal("1500"))
+        self.assertEqual([row["pct"] for row in rows], [80, 20, 0, 0, 0, 0, 0])
+        self.assertEqual(chart["best"]["day"], datetime.date(2026, 11, 23))
+        self.assertEqual(chart["average"], Decimal("750"))
+        self.assertEqual(chart["average_pct"], 50)
+        self.assertEqual(chart["with_payments"], 2)
+        self.assertEqual(chart["so_far"], 2)
+
+    def test_best_on_a_tie_is_the_first(self):
+        self._paid(paid_on=datetime.date(2026, 11, 24), total="500.00")
+        self._paid(paid_on=datetime.date(2026, 11, 23), total="500.00")
+        _, _, chart = self._chart(period="week")
+        self.assertEqual(chart["best"]["day"], datetime.date(2026, 11, 23))
+
+    def test_nothing_paid_has_no_best_or_average(self):
+        _, rows, chart = self._chart(period="week")
+        self.assertIsNone(chart["best"])
+        self.assertIsNone(chart["average"])
+        self.assertIsNone(chart["average_pct"])
+        self.assertEqual((chart["with_payments"], chart["so_far"]), (0, 2))
+        self.assertTrue(all(row["pct"] == 0 for row in rows))
+
+    def test_a_past_week_counts_all_seven_days_so_far(self):
+        self._paid(paid_on=datetime.date(2026, 11, 17), total="100.00")
+        _, _, chart = self._chart(period="week", date="2026-11-16")
+        self.assertEqual((chart["with_payments"], chart["so_far"]), (1, 7))
+        self.assertEqual(chart["average"], Decimal("100"))
+
+    def test_marked_word(self):
+        cases = [
+            ({}, "Today"),
+            ({"date": "2026-11-20"}, "This day"),
+            ({"period": "week"}, "Today"),
+            ({"period": "month"}, "Today"),
+            ({"period": "month", "date": "2026-10-01"}, "Selected"),
+            ({"period": "year"}, "So far"),
+            ({"period": "year", "date": "2025-01-01"}, "Selected"),
+        ]
+        for params, word in cases:
+            with self.subTest(params=params):
+                p = self._period(**params)
+                chart = billing_utils.income_chart(p, [], INCOME_TODAY)
+                self.assertEqual(chart["marked_word"], word)
+
+    def test_tick_per_kind(self):
+        _, week, _ = self._chart(period="week")
+        self.assertEqual(
+            [row["tick"] for row in week],
+            ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        )
+        _, day_view, _ = self._chart()
+        self.assertEqual([row["tick"] for row in day_view][0], "Mon")
+        _, month, _ = self._chart(period="month")
+        self.assertEqual(
+            [row["tick"] for row in month if row["tick"]], ["1", "10", "20", "30"]
+        )
+        _, february, _ = self._chart(period="month", date="2026-02-01")
+        self.assertEqual(
+            [row["tick"] for row in february if row["tick"]], ["1", "10", "20", "28"]
+        )
+        _, year, _ = self._chart(period="year")
+        self.assertEqual(
+            [row["tick"] for row in year if row["tick"]], ["Jan", "Apr", "Jul", "Oct"]
+        )
+        self.assertEqual(year[1]["tick"], "")
+
+    def test_show_amounts_and_big_title(self):
+        expected = {
+            "day": (True, "Money received each day"),
+            "week": (True, "Money received each day"),
+            "month": (False, "Money received each day"),
+            "year": (True, "Money received each month"),
+        }
+        for kind, (amounts, title) in expected.items():
+            with self.subTest(kind=kind):
+                _, _, chart = self._chart(period=kind)
+                self.assertEqual(chart["show_amounts"], amounts)
+                self.assertEqual(chart["big_title"], title)
+
+    def test_titles_and_subs(self):
+        cases = [
+            ({}, "This week, day by day", "Nov 23 to 29"),
+            ({"date": "2026-11-18"}, "That week, day by day", "Nov 16 to 22"),
+            ({"period": "week"}, "This week, day by day", "Nov 23 to 29"),
+            (
+                {"period": "week", "date": "2026-11-16"},
+                "That week, day by day",
+                "Nov 16 to 22",
+            ),
+            ({"period": "month"}, "November, day by day", "Nov 1 to 30"),
+            (
+                {"period": "month", "date": "2026-10-05"},
+                "October, day by day",
+                "Oct 1 to 31",
+            ),
+            (
+                {"period": "month", "date": "2025-10-05"},
+                "October 2025, day by day",
+                "Oct 1 to 31, 2025",
+            ),
+            ({"period": "year"}, "2026, month by month", "January to December 2026"),
+            (
+                {"period": "year", "date": "2025-02-02"},
+                "2025, month by month",
+                "January to December 2025",
+            ),
+        ]
+        for params, title, sub in cases:
+            with self.subTest(params=params):
+                _, _, chart = self._chart(**params)
+                self.assertEqual(chart["title"], title)
+                self.assertEqual(chart["sub"], sub)
+
+    def test_no_queries(self):
+        p = self._period(period="month")
+        rows = billing_utils.income_rows(p, INCOME_TODAY)
+        with self.assertNumQueries(0):
+            billing_utils.income_chart(p, rows, INCOME_TODAY)
+
+
+class IncomeDayBillsTests(IncomeTestBase):
+
+    def test_oldest_first_with_from_visit_and_discount(self):
+        first = self._paid(total="450.00", subtotal="500.00", visit=True)
+        self._later(300)
+        second = self._paid(total="100.00")
+        bills = billing_utils.income_day_bills(INCOME_TODAY)
+        self.assertEqual([b.pk for b in bills], [first.pk, second.pk])
+        self.assertEqual([b.from_visit for b in bills], [True, False])
+        self.assertEqual(
+            [b.discount for b in bills], [Decimal("50.00"), Decimal("0.00")]
+        )
+
+    def _later(self, seconds):
+        self.now = self.now + datetime.timedelta(seconds=seconds)
+
+    def test_the_same_second_is_ordered_by_pk(self):
+        a = self._paid()
+        b = self._paid()
+        self.assertEqual(
+            [x.pk for x in billing_utils.income_day_bills(INCOME_TODAY)], [a.pk, b.pk]
+        )
+
+    def test_unpaid_cancelled_and_other_days_are_left_out(self):
+        kept = self._paid()
+        self._paid(status=BillingReceipt.PENDING, paid_on=None)
+        self._paid(status=BillingReceipt.CANCELLED, paid_on=None)
+        self._paid(paid_on=datetime.date(2026, 11, 23))
+        self._paid(paid_on=datetime.date(2026, 11, 25))
+        self.assertEqual(
+            [b.pk for b in billing_utils.income_day_bills(INCOME_TODAY)], [kept.pk]
+        )
+
+    def test_the_bill_date_is_used_without_a_payment_date(self):
+        bill = self._paid(paid_on=None, billing_date=INCOME_TODAY)
+        self.assertEqual(
+            [b.pk for b in billing_utils.income_day_bills(INCOME_TODAY)], [bill.pk]
+        )
+
+    def test_owner_and_pet_come_with_one_query(self):
+        for _ in range(3):
+            self._paid()
+        with self.assertNumQueries(1):
+            bills = billing_utils.income_day_bills(INCOME_TODAY)
+            names = [(b.owner.full_name, b.pet.name) for b in bills]
+        self.assertEqual(names, [("Ana Cruz", "Bantay")] * 3)
+
+
+@PLAIN_STATIC
+class UnpaidSnapshotTests(IncomeTestBase):
+
+    def _pending(self, price=None, status=BillingReceipt.PENDING):
+        receipt = self._empty_receipt(payment_status=status)
+        if price:
+            self._item(receipt, price)
+            receipt.calculate_totals()
+        return receipt
+
+    def test_pending_with_items_only(self):
+        self._pending("300.00")
+        self._pending("200.00")
+        self._pending()  # Unpaid but empty
+        self._pending("999.00", status=BillingReceipt.PAID)
+        self._pending("888.00", status=BillingReceipt.CANCELLED)
+        snapshot = billing_utils.unpaid_snapshot()
+        self.assertEqual(snapshot["count"], 2)
+        self.assertEqual(snapshot["total"], Decimal("500.00"))
+
+    def test_nothing_unpaid_is_zeros(self):
+        self._pending()
+        snapshot = billing_utils.unpaid_snapshot()
+        self.assertEqual((snapshot["count"], snapshot["total"]), (0, Decimal("0.00")))
+
+    def test_one_query_and_the_unpaid_tab_url(self):
+        self._pending("300.00")
+        with self.assertNumQueries(1):
+            snapshot = billing_utils.unpaid_snapshot()
+        self.assertEqual(
+            snapshot["url"], reverse("admin_receipt_list") + "?status=pending"
+        )
+
+    def test_the_url_opens_the_unpaid_tab(self):
+        response = self.client.get(billing_utils.unpaid_snapshot()["url"])
+        self.assertEqual(response.context["active_tab"], "pending")
+
+
+@PLAIN_STATIC
+class AdminIncomePageTests(IncomeTestBase):
+
+    def _get(self, **params):
+        return self.client.get(INCOME_URL, params)
+
+    def _html(self, **params):
+        response = self._get(**params)
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _unpaid_with_item(self, price="300.00"):
+        receipt = self._empty_receipt()
+        self._item(receipt, price)
+        receipt.calculate_totals()
+        return receipt
+
+    def test_the_url(self):
+        self.assertEqual(reverse("admin_income"), INCOME_URL)
+
+    def test_admin_gets_the_page(self):
+        response = self._get()
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "admin/billing/income.html")
+        text = page_text(response.content.decode())
+        self.assertIn("Income", text)
+        self.assertIn("Money received from paid bills. Payment is cash.", text)
+
+    def test_a_pet_owner_is_refused_like_other_admin_billing_pages(self):
+        self.client.force_login(self.owner.user)
+        refused = self._get()
+        other = self.client.get(reverse("admin_receipt_list"))
+        self.assertEqual(refused.status_code, 302)
+        self.assertEqual(refused.url, other.url)
+
+    def test_a_logged_out_visitor_is_sent_to_log_in(self):
+        self.client.logout()
+        refused = self._get()
+        other = self.client.get(reverse("admin_receipt_list"))
+        self.assertEqual(refused.status_code, 302)
+        self.assertEqual(refused.url, other.url)
+
+    def test_post_is_405(self):
+        self.assertEqual(self.client.post(INCOME_URL, {}).status_code, 405)
+        self.assertEqual(
+            self.client.post(INCOME_URL + "?period=week", {"x": "1"}).status_code, 405
+        )
+
+    def test_nothing_is_written(self):
+        self._paid(total="650.00")
+        self._unpaid_with_item()
+
+        def state():
+            return (
+                list(
+                    BillingReceipt.objects.order_by("pk").values_list(
+                        "pk", "updated_at", "payment_status", "total_amount"
+                    )
+                ),
+                BillingItem.objects.count(),
+                Notification.objects.count(),
+            )
+
+        before = state()
+        for params in (
+            {},
+            {"period": "week"},
+            {"period": "month", "date": "2026-10-01"},
+            {"period": "year"},
+            {"period": "x", "date": "bad"},
+        ):
+            with self.subTest(params=params):
+                self._get(**params)
+        self.assertEqual(state(), before)
+
+    def test_the_page_shows_the_label_the_money_the_compare_line_and_not_paid_yet(self):
+        self._paid(total="650.00")
+        self._paid(paid_on=datetime.date(2026, 11, 23), total="100.00")
+        self._unpaid_with_item("300.00")
+        text = page_text(self._html())
+        self.assertIn("Today, Tuesday, November 24", text)
+        self.assertIn("Money received · Today", text)
+        self.assertIn("₱650.00", text)
+        self.assertIn("from 1 bill paid", text)
+        self.assertIn("Yesterday: ₱100.00 from 1 bill", text)
+        self.assertIn("Not paid yet", text)
+        self.assertIn("₱300.00 from 1 bill", text)
+        self.assertIn("From visits: ₱0.00", text)
+        self.assertIn("Over the counter: ₱650.00", text)
+
+    def test_no_bills_says_so(self):
+        text = page_text(self._html())
+        self.assertIn("No bills were paid.", text)
+        self.assertIn("No bills were paid on this day.", text)
+        self.assertIn("Yesterday: no bills paid", text)
+        self.assertNotIn("Over the counter", text)
+
+    def test_the_day_view_lists_the_bills(self):
+        bill = self._paid(total="450.00", subtotal="500.00", visit=True)
+        html = self._html()
+        text = page_text(html)
+        self.assertIn("Bills paid on this day (1)", text)
+        self.assertIn(bill.receipt_number, text)
+        self.assertIn("From a visit", text)
+        self.assertIn("₱50.00 off", text)
+        self.assertIn("Ana Cruz", text)
+        self.assertIn("for Bantay", text)
+        self.assertIn(reverse("admin_receipt_detail", args=[bill.pk]), html)
+        self.assertIn(reverse("admin_owner_detail", args=[self.owner.pk]), html)
+
+    def test_week_month_and_year_show_a_table_with_links(self):
+        self._paid(paid_on=datetime.date(2026, 11, 23), total="100.00")
+        for kind, first_link in (
+            ("week", "?period=day&amp;date=2026-11-23"),
+            ("month", "?period=day&amp;date=2026-11-01"),
+            ("year", "?period=month&amp;date=2026-01-01"),
+        ):
+            with self.subTest(kind=kind):
+                html = self._html(period=kind)
+                text = page_text(html)
+                self.assertIn(first_link, html)
+                self.assertIn("Not yet", text)
+                self.assertIn("Total", text)
+                self.assertIn("₱100.00", text)
+                self.assertNotIn("Bills paid on this day", text)
+
+    def test_the_table_total_equals_the_money(self):
+        for day in (23, 24):
+            self._paid(paid_on=datetime.date(2026, 11, day), total="125.50")
+        html = self._html(period="week")
+        footer = re.search(r"(?s)<tfoot>.*?</tfoot>", html).group(0)
+        self.assertIn("₱251.00", footer)
+        self.assertIn("₱251.00", page_text(html))
+
+    def test_next_is_not_a_link_on_the_current_period_and_back_to_today_is_absent(self):
+        for kind in ("day", "week", "month", "year"):
+            with self.subTest(kind=kind):
+                html = self._html(period=kind)
+                self.assertIsNone(re.search(r"<a [^>]*>Next</a>", html))
+                self.assertIn("Next", page_text(html))
+                self.assertIsNotNone(re.search(r"<a [^>]*>Previous</a>", html))
+                self.assertNotIn("Back to today", html)
+
+    def test_a_past_period_has_next_and_back_to_today(self):
+        html = self._html(date="2026-11-20")
+        self.assertIsNotNone(
+            re.search(r'<a href="[^"]*date=2026-11-21[^"]*"[^>]*>Next</a>', html)
+        )
+        self.assertIn("Back to today", html)
+        self.assertIn('href="/admin/income/?period=day"', html)
+
+    def test_previous_is_not_a_link_at_the_first_day(self):
+        html = self._html(date="2000-01-01")
+        self.assertIsNone(re.search(r"<a [^>]*>Previous</a>", html))
+
+    def test_period_links_keep_the_date(self):
+        html = self._html(period="month", date="2026-10-15")
+        for kind in ("day", "week", "month", "year"):
+            self.assertIn(f"?period={kind}&amp;date=2026-10-15", html)
+        self.assertIn('aria-current="page">Month</a>', html)
+
+    def test_bad_input_shows_today(self):
+        for params in (
+            {"period": "nonsense"},
+            {"period": "week", "date": "2099-01-01"},
+        ):
+            with self.subTest(params=params):
+                text = page_text(self._html(**params))
+                self.assertTrue(
+                    "Today, Tuesday, November 24" in text
+                    or "This week: Nov 23 to 29" in text
+                )
+
+    def test_the_context_uses_at_most_five_queries_for_every_view(self):
+        for kind in ("day", "week", "month", "year"):
+            with self.subTest(kind=kind):
+                for _ in range(3):
+                    self._paid(total="10.00")
+                with CaptureQueriesContext(connection) as queries:
+                    billing_utils.income_context({"period": kind}, INCOME_TODAY)
+                self.assertLessEqual(len(queries), 5)
+
+    def test_the_whole_page_has_a_fixed_query_count_for_3_and_for_30_bills(self):
+        for kind in ("day", "week", "month", "year"):
+            with self.subTest(kind=kind):
+                BillingReceipt.objects.all().delete()
+                for _ in range(3):
+                    self._paid(total="10.00", visit=True)
+                with CaptureQueriesContext(connection) as few:
+                    first = self.client.get(INCOME_URL, {"period": kind})
+                self.assertEqual(first.status_code, 200)
+                self.assertLessEqual(len(few), INCOME_PAGE_QUERIES_MAX)
+                for _ in range(27):
+                    self._paid(total="10.00")
+                with self.assertNumQueries(len(few)):
+                    response = self.client.get(INCOME_URL, {"period": kind})
+                self.assertEqual(response.status_code, 200)
+
+    def test_template_source_rules(self):
+        source = (BILLING_TEMPLATES / "income.html").read_text(encoding="utf-8")
+        self.assertNotIn("<!--", source)
+        self.assertNotIn("onclick", source)
+        self.assertNotIn("btn-primary", source)
+        self.assertNotIn("hx-", source)
+        self.assertNotIn("<form", source)
+        self.assertNotIn("<script", source)
+        links = re.findall(r"(?s)<a\b.*?</a>", source)
+        self.assertTrue(links)
+        for link in links:
+            self.assertNotIn("\n", link)

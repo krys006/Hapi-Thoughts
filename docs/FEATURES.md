@@ -379,6 +379,19 @@ PENDING or CONFIRMED → CANCELLED
 | Print bill (the button shows on a Paid bill) | `complete` (8b-8) |
 | Receive a notification when a bill is paid | `complete` |
 
+### 5.4 Income summary (Admin)
+| Feature | Status |
+|---|---|
+| Read-only Income page (admin only, GET only; never changes a row) | `complete (backend, I-1)` |
+| Money received from Paid bills by paid day (payment date, else bill date); Unpaid and Cancelled bills never count | `complete (backend, I-1)` |
+| Day / Week / Month / Year with Previous / Next and Back to today | `complete (backend, I-1)` |
+| Comparison with the period before ("Yesterday: ₱X from N bills") | `complete (backend, I-1)` |
+| From visits / Over the counter / Discounts given | `complete (backend, I-1)` |
+| Bills paid on a day (Day view) | `complete (backend, I-1)` |
+| Day-by-day and month-by-month table | `complete (backend, I-1)` |
+| "Not paid yet" snapshot (Unpaid bills with items), linking to the Billing Unpaid tab | `complete (backend, I-1)` |
+| Bar chart at the side and a bigger chart (the design, sidebar link and icons) | `planned` (I-2) |
+
 ### Bill Format (the printout)
 ```
 ┌─────────────────────────────────────────┐
@@ -592,7 +605,7 @@ These features will NOT be built in v1 under any circumstances:
 - Marketplace or e-commerce features
 - Receptionist or staff role management
 - Inventory management
-- Reporting and analytics module
+- Reporting and analytics module (beyond the read-only Income summary in 5.4)
 - Mobile application (iOS / Android)
 
 ---
@@ -604,7 +617,7 @@ These features will NOT be built in v1 under any circumstances:
 | Staff / receptionist role | Add role options to User model |
 | Multi-vet support | Veterinarian table in DB, Appointment already has `veterinarian_id` |
 | SMS notifications | Add SMS provider config to notification system |
-| Reporting module | Billing and appointment data already structured for this |
+| Reporting module | The Income summary (5.4) is read-only; exports (CSV/PDF), custom date ranges and per-service, per-owner or per-pet breakdowns are future work |
 | Online payments | Billing system designed to accommodate payment status updates |
 | Record GCash or bank transfer payments | Payments are cash only today; `payment_method` always saves "Cash" |
 | Auto-delete notifications | Can add scheduler when hosting plan allows |
