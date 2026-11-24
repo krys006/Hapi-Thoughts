@@ -397,7 +397,8 @@ PENDING or CONFIRMED → CANCELLED
 | "Not paid yet" card | `complete (I-2a)` |
 | Sidebar link "Income" under Billing | `complete (I-2a)` |
 | Phone layout (one column) | `complete (I-2a)` |
-| Compact bar chart at the side and a bigger chart that opens on click | `planned (I-2b)` |
+| Compact bar chart at the side (one button; bars, labels, "See the chart bigger") | `complete (I-2b)` |
+| Bigger chart in a dialog: four stat tiles, tall bars with the exact amount (not on a month), average line, key in words | `complete (I-2b)` |
 
 ### Bill Format (the printout)
 ```

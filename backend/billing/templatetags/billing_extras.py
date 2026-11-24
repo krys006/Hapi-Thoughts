@@ -18,3 +18,18 @@ def peso(value):
     except InvalidOperation:
         return ""
     return f"₱{amount:,.2f}"
+
+
+@register.filter
+def peso_whole(value):
+    """Whole pesos so it fits over a chart bar: 61200 → ₱61,200, but an
+    amount with centavos keeps them: 61200.5 → ₱61,200.50. "" for no value."""
+    if value is None or value == "":
+        return ""
+    try:
+        amount = Decimal(str(value))
+    except InvalidOperation:
+        return ""
+    if amount == amount.to_integral_value():
+        return f"₱{amount:,.0f}"
+    return f"₱{amount:,.2f}"

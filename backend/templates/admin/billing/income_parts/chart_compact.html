@@ -1,0 +1,25 @@
+{% load billing_extras %}
+{% comment %}
+  Compact chart: ONE button (spans only, no div) that opens the big chart dialog
+  (income_parts/chart_dialog.html, id income-chart-dialog) through dialogs.js.
+  Reads: chart (title, sub, top), rows (state, pct, tick), period.kind (the gap).
+  The bars part is aria-hidden: the button's name is its visible text. A bar's
+  height is the only inline style (a whole number from the server).
+{% endcomment %}
+<button type="button" data-dialog-open="income-chart-dialog" class="group block min-h-11 w-full rounded-xl border border-gray-200 bg-white p-5 text-left shadow-sm hover:border-violet-300 hover:ring-2 hover:ring-violet-200">
+  <span class="block text-lg font-semibold text-gray-900">{{ chart.title }}</span>
+  <span class="block text-sm text-gray-700">{{ chart.sub }}</span>
+  <span class="mt-4 flex gap-2" aria-hidden="true">
+    <span class="flex h-36 w-16 shrink-0 flex-col justify-between text-right text-sm text-gray-700"><span>{{ chart.top|peso_whole }}</span><span>₱0</span></span>
+    <span class="relative block min-w-0 flex-1">
+      <span class="absolute inset-x-0 top-0 border-t border-gray-200"></span>
+      <span class="absolute inset-x-0 top-36 border-t border-gray-400"></span>
+      <span class="relative flex {% if period.kind == 'month' %}gap-0.5{% elif period.kind == 'year' %}gap-1{% else %}gap-1.5{% endif %}">
+        {% for row in rows %}
+          <span class="flex min-w-0 flex-1 flex-col items-center"><span class="flex h-36 w-full items-end justify-center">{% if row.state == "future" %}<span class="block h-2 w-[72%] rounded-t border-2 border-dashed border-gray-300"></span>{% elif row.pct %}<span class="block w-[72%] rounded-t-md {% if row.state == 'marked' %}bg-violet-700{% else %}bg-violet-300{% endif %}" style="height: {{ row.pct }}%"></span>{% else %}<span class="block h-1 w-[72%] rounded bg-gray-300"></span>{% endif %}</span><span class="mt-1 h-5 text-sm {% if row.state == 'marked' %}font-bold text-violet-800{% else %}text-gray-700{% endif %}">{{ row.tick }}</span></span>
+        {% endfor %}
+      </span>
+    </span>
+  </span>
+  <span class="mt-4 flex min-h-11 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white text-base font-semibold text-gray-800 group-hover:bg-gray-50">{% include "components/icon.html" with name="maximize-2" %}See the chart bigger</span>
+</button>
