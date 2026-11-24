@@ -1338,6 +1338,33 @@ def _chart_words(period, today):
     return title, _range_words(first, last, today)
 
 
+def _chart_totals(kind, rows, today):
+    """The big chart's tile words and sums (no queries): total and count over
+    the rows up to today, best_word, avg_word, count_word, unit_plural and
+    count_sub ("so far this week" while the range still holds today or later,
+    else "in that week")."""
+    up_to_today = [row for row in rows if row["state"] != "future"]
+    by_month = kind == "year"
+    unit = "month" if by_month else "day"
+    last = rows[-1]["day"] if rows else None
+    if last is not None and by_month:
+        last = last.replace(day=31)  # the year's last month runs to Dec 31
+    still_open = last is not None and last >= today
+    range_word = "week" if kind in ("day", "week") else kind
+    count_sub = f"in that {range_word}"
+    if still_open:
+        count_sub = f"so far this {range_word}"
+    return {
+        "total": sum((row["total"] for row in up_to_today), Decimal("0")),
+        "count": sum(row["count"] for row in up_to_today),
+        "best_word": f"Best {unit}",
+        "avg_word": f"Average per {unit}",
+        "count_word": f"{unit.capitalize()}s with payments",
+        "unit_plural": f"{unit.capitalize()}s",
+        "count_sub": count_sub,
+    }
+
+
 def income_chart(period, rows, today):
     """
     The chart's numbers, no queries. Adds pct (0 to 100) and tick to every
@@ -1345,7 +1372,8 @@ def income_chart(period, rows, today):
     tie), average (money of the days or months with payments / how many),
     average_pct (None without an average), with_payments (rows up to today
     with money), so_far (rows up to today), marked_word, title, sub,
-    big_title and show_amounts (False for a month: 31 bars are too small).
+    big_title and show_amounts (False for a month: 31 bars are too small),
+    plus what _chart_totals gives for the big chart's four tiles.
     """
     kind = period["kind"]
     up_to_today = [row for row in rows if row["state"] != "future"]
@@ -1376,6 +1404,7 @@ def income_chart(period, rows, today):
         "sub": sub,
         "big_title": f"Money received each {'month' if kind == 'year' else 'day'}",
         "show_amounts": kind != "month",
+        **_chart_totals(kind, rows, today),
     }
 
 

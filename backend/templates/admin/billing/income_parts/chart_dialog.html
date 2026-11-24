@@ -1,0 +1,88 @@
+{% load billing_extras %}
+{% comment %}
+  Big chart dialog, opened by the compact chart's button (data-dialog-open).
+  Reads: chart (big_title, sub, total, count, best, best_word, average,
+  average_pct, avg_word, unit_plural, with_payments, so_far, count_word,
+  count_sub, top, half, marked_word, show_amounts), rows (day, short, total,
+  state, pct), period.kind (the gaps and the labels under the bars).
+  The chart part is aria-hidden (the table or the list on the page says the
+  same in words). Only a bar's height and the average line's bottom are inline
+  styles (whole numbers from the server). Month: no amounts on the bars, a note.
+  On a phone the dialog fills the screen and the chart scrolls sideways inside it.
+{% endcomment %}
+<dialog id="income-chart-dialog" aria-labelledby="income-chart-title" class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-[68rem] overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-xl backdrop:bg-gray-900/50 max-sm:h-dvh max-sm:max-h-none max-sm:w-full max-sm:max-w-none max-sm:rounded-none">
+  <div class="flex items-start gap-4 border-b border-gray-200 px-6 py-5 max-sm:px-4">
+    <div class="min-w-0 flex-1">
+      <h2 id="income-chart-title" class="text-2xl font-bold text-gray-900">{{ chart.big_title }}</h2>
+      <p class="text-base text-gray-700">{{ chart.sub }}</p>
+    </div>
+    <button type="button" class="btn btn-outline min-h-12 px-5 font-semibold" data-dialog-close autofocus>{% include "components/icon.html" with name="x" %}Close</button>
+  </div>
+
+  <div class="px-6 py-5 max-sm:px-4">
+    <div class="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
+      <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
+        <p class="text-base text-gray-700">Money received</p>
+        <p class="text-xl font-semibold text-gray-900">{{ chart.total|peso }}</p>
+        <p class="text-sm text-gray-700">from {{ chart.count }} bill{{ chart.count|pluralize }}</p>
+      </div>
+      <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
+        <p class="text-base text-gray-700">{{ chart.best_word }}</p>
+        <p class="text-xl font-semibold text-gray-900">{% if chart.best %}{{ chart.best.total|peso }}{% else %}—{% endif %}</p>
+        <p class="text-sm text-gray-700">{% if chart.best %}{{ chart.best.label }}{% else %}None{% endif %}</p>
+      </div>
+      <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
+        <p class="text-base text-gray-700">{{ chart.avg_word }}</p>
+        <p class="text-xl font-semibold text-gray-900">{% if chart.average %}{{ chart.average|peso }}{% else %}—{% endif %}</p>
+        <p class="text-sm text-gray-700">{% if chart.average %}{{ chart.unit_plural }} with payments only{% else %}No payments yet{% endif %}</p>
+      </div>
+      <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
+        <p class="text-base text-gray-700">{{ chart.count_word }}</p>
+        <p class="text-xl font-semibold text-gray-900">{{ chart.with_payments }} of {{ chart.so_far }}</p>
+        <p class="text-sm text-gray-700">{{ chart.count_sub }}</p>
+      </div>
+    </div>
+
+    <div class="overflow-x-auto pb-2">
+      <div class="flex min-w-[48rem] gap-3" aria-hidden="true">
+        <div class="flex h-80 w-20 shrink-0 flex-col justify-between text-right text-base text-gray-700"><span>{{ chart.top|peso_whole }}</span><span>{{ chart.half|peso_whole }}</span><span>₱0</span></div>
+        <div class="relative min-w-0 flex-1">
+          <div class="pointer-events-none absolute inset-x-0 top-0 h-80">
+            <div class="absolute inset-x-0 top-0 border-t border-gray-200"></div>
+            <div class="absolute inset-x-0 top-1/2 border-t border-gray-200"></div>
+            <div class="absolute inset-x-0 bottom-0 border-t border-gray-400"></div>
+            {% if chart.average %}
+              <div class="absolute inset-x-0 border-t-2 border-dashed border-amber-500" style="bottom: {{ chart.average_pct }}%"><span class="absolute -top-7 right-0 rounded bg-amber-50 px-2 text-sm font-semibold text-amber-900 ring-1 ring-amber-300">Average {{ chart.average|peso }}</span></div>
+            {% endif %}
+          </div>
+          <div class="relative flex {% if period.kind == 'month' %}gap-1{% elif period.kind == 'year' %}gap-2{% else %}gap-3{% endif %}">
+            {% for row in rows %}
+              <div class="flex min-w-0 flex-1 flex-col items-center">
+                {# The amount sits above the bar in the same column, so only the bar needs a style. #}
+                <div class="relative flex h-80 w-full flex-col items-center justify-end">
+                  {% if chart.show_amounts and row.state != "future" and row.total > 0 %}<span class="w-full shrink-0 pb-1 text-center text-sm font-semibold leading-tight text-gray-900">{{ row.total|peso_whole }}</span>{% endif %}
+                  {% if row.state == "future" %}<span class="block h-2 w-[72%] shrink-0 rounded-t border-2 border-dashed border-gray-300"></span>{% elif row.pct %}<span class="block w-[72%] shrink-0 rounded-t-md {% if row.state == 'marked' %}bg-violet-700{% else %}bg-violet-400{% endif %}" style="height: {{ row.pct }}%"></span>{% else %}<span class="block h-1 w-[72%] shrink-0 rounded bg-gray-300"></span>{% endif %}
+                </div>
+                <p class="mt-2 text-center text-sm leading-tight {% if row.state == 'marked' %}font-bold text-violet-800{% elif row.state == 'future' %}text-gray-500{% else %}text-gray-800{% endif %}">
+                  {% if period.kind == "month" %}{{ row.day|date:"j" }}{% elif period.kind == "year" %}{{ row.short }}{% else %}{{ row.short }}<span class="block">{{ row.day|date:"M j" }}</span>{% endif %}
+                </p>
+                {% if row.state == "marked" %}<p class="text-sm font-semibold text-violet-800">{{ chart.marked_word }}</p>{% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p class="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-base text-gray-800">
+      <span class="inline-flex items-center gap-2"><span class="size-4 rounded bg-violet-400"></span>Money received</span>
+      <span class="inline-flex items-center gap-2"><span class="size-4 rounded bg-violet-700"></span>{{ chart.marked_word }}</span>
+      {% if chart.average %}<span class="inline-flex items-center gap-2"><span class="h-0 w-6 border-t-2 border-dashed border-amber-500"></span>Average</span>{% endif %}
+      {# Future rows are always the last ones, so the last row says if there are any. #}
+      {% with last=rows|last %}{% if last.state == "future" %}<span class="inline-flex items-center gap-2"><span class="h-3 w-5 rounded-t border-2 border-dashed border-gray-300"></span>Not yet</span>{% endif %}{% endwith %}
+    </p>
+    {% if not chart.show_amounts %}
+      <p class="mt-2 text-base text-gray-700">With 31 days the amounts would be too small to read on the bars, so they are in the table on the page.</p>
+    {% endif %}
+  </div>
+</dialog>

@@ -26,7 +26,7 @@ from billing import utils as billing_utils
 from billing import views as billing_views
 from billing.forms import BillingItemForm, BillingReceiptForm, ServiceForm
 from billing.models import BillingItem, BillingReceipt, Service
-from billing.templatetags.billing_extras import peso
+from billing.templatetags.billing_extras import peso, peso_whole
 from billing.utils import (
     LOCKED_MESSAGE,
     NO_ITEMS_MESSAGE,
@@ -10258,7 +10258,8 @@ class IncomePageDesignTests(IncomeTestBase):
 
     def test_the_label_is_the_h2_with_a_calendar_icon(self):
         html = self._html()
-        main = income_main(html)
+        # I-2b: the chart dialog has its own h2, so the page's is counted outside it
+        main = re.sub(r"(?s)<dialog.*?</dialog>", "", income_main(html))
         self.assertEqual(main.count("<h2"), 1)
         heading = re.search(r"(?s)<h2.*?</h2>", main).group(0)
         self.assertIn("Today, Tuesday, November 24", page_text(heading))
@@ -10457,12 +10458,12 @@ class IncomeSidebarTests(IncomeTestBase):
                 nav = self._nav(reverse(name))
                 self.assertNotIn('aria-current="page"', self._link(nav, INCOME_URL))
 
-    def test_the_banknote_icon_is_in_the_icon_file_and_maximize_is_not(self):
+    def test_the_banknote_and_maximize_2_icons_are_in_the_icon_file(self):
         icon = (Path(settings.BASE_DIR) / "templates/components/icon.html").read_text(
             encoding="utf-8"
         )
         self.assertIn('name == "banknote"', icon)
-        self.assertNotIn("maximize-2", icon)
+        self.assertIn('name == "maximize-2"', icon)  # I-2b: was assertNotIn
 
 
 @PLAIN_STATIC
@@ -10486,48 +10487,54 @@ class IncomePageMarkupTests(IncomeTestBase):
         ):
             yield params, self._html(**params)
 
-    def test_no_button_form_dialog_script_htmx_or_html_comment_in_the_page(self):
+    def test_no_form_script_htmx_or_html_comment_and_only_the_chart_controls(self):
+        # I-2b: "<button", "<dialog", "data-dialog" and "btn btn" used to be
+        # forbidden; the approved chart adds ONE opener button, ONE dialog and
+        # its Close button (outline, so still no btn-primary).
         for params, html in self._every_view():
             with self.subTest(params=params):
                 main = income_main(html)
                 for forbidden in (
-                    "<button",
                     "<form",
-                    "<dialog",
                     "<script",
                     "<!--",
                     "hx-",
                     "onclick",
-                    "data-dialog",
                     "btn-primary",
-                    "btn btn",
                 ):
                     self.assertNotIn(forbidden, main)
+                self.assertEqual(main.count("<dialog"), 1)
+                self.assertEqual(main.count("<button"), 2)  # opener + Close
+                self.assertEqual(main.count("data-dialog-open="), 1)
+                self.assertEqual(main.count("data-dialog-close"), 1)
+                self.assertEqual(main.count("btn btn"), 1)  # Close, outline
 
     def test_the_layout_keeps_its_own_single_form(self):
         html = self._html()
         self.assertEqual(html.count("<form"), 1)
         self.assertIn(reverse("logout"), html[html.index("<form") :][:120])
 
-    def test_no_chart_markup_yet(self):
-        icon = (Path(settings.BASE_DIR) / "templates/components/icon.html").read_text(
-            encoding="utf-8"
-        )
-        self.assertNotIn("maximize", icon)
+    def test_only_the_two_chart_pictures_are_aria_hidden_besides_icons(self):
+        # I-2b: was "no chart markup yet" (aria-hidden only on svg, no
+        # "See the chart bigger", no border-dashed, no maximize icon).
         for params, html in self._every_view():
             with self.subTest(params=params):
                 main = income_main(html)
                 hidden = re.findall(r'<(\w+)[^>]*aria-hidden="true"', main)
-                self.assertTrue(set(hidden) <= {"svg"}, hidden)
-                self.assertNotIn("See the chart bigger", main)
-                self.assertNotIn("border-dashed", main)
+                others = [tag for tag in hidden if tag != "svg"]
+                self.assertEqual(others, ["span", "div"])  # compact bars, big chart
+                self.assertEqual(main.count("See the chart bigger"), 1)
 
     def test_one_h1_one_h2_and_h3_for_the_list_and_table_titles(self):
         for params, html in self._every_view():
             with self.subTest(params=params):
                 self.assertEqual(html.count("<h1"), 1)
-                self.assertEqual(income_main(html).count("<h2"), 1)
-                self.assertLessEqual(income_main(html).count("<h3"), 1)
+                # I-2b: the chart dialog has its own h2; the page's is still one
+                main = income_main(html)
+                page = re.sub(r"(?s)<dialog.*?</dialog>", "", main)
+                self.assertEqual(page.count("<h2"), 1)
+                self.assertEqual(main.count("<h2"), 2)
+                self.assertLessEqual(main.count("<h3"), 1)
 
     def test_every_link_is_on_one_line_in_every_source(self):
         for path in INCOME_SOURCES:
@@ -10546,6 +10553,8 @@ class IncomePageMarkupTests(IncomeTestBase):
                 "bill_list.html",
                 "period_table.html",
                 "not_paid.html",
+                "chart_compact.html",  # I-2b
+                "chart_dialog.html",  # I-2b
             },
         )
         for path in INCOME_TEMPLATES.glob("*.html"):
@@ -10554,3 +10563,513 @@ class IncomePageMarkupTests(IncomeTestBase):
                 self.assertIn("{% comment %}", source)
                 self.assertIn("Reads:", source)
                 self.assertNotIn("<!--", source)
+
+    def test_style_is_only_a_bar_height_or_the_average_line_bottom(self):
+        # I-2b: the only inline styles, whole numbers from the server
+        seen = 0
+        for params, html in self._every_view():
+            with self.subTest(params=params):
+                main = income_main(html)
+                found = re.findall(r"<(\w+)([^>]*?) style=\"([^\"]*)\"", main)
+                seen += len(found)  # a week without bills has none
+                for _, attributes, value in found:
+                    self.assertRegex(value, r"^(height|bottom): \d+%$")
+                    self.assertTrue(
+                        "w-[72%]" in attributes or "border-amber-500" in attributes
+                    )
+                self.assertEqual(main.count("style="), len(found))
+        self.assertGreater(seen, 0)
+
+
+# ── Income summary, batch I-2b (the chart) ───────────────────────────────────
+
+
+def income_compact(html):
+    """The compact chart's button."""
+    found = re.search(
+        r'(?s)<button type="button" data-dialog-open="income-chart-dialog".*?</button>',
+        income_main(html),
+    )
+    assert found, "No compact chart button"
+    return found.group(0)
+
+
+def income_dialog(html):
+    """The big chart dialog."""
+    found = re.search(r'(?s)<dialog id="income-chart-dialog".*?</dialog>', html)
+    assert found, "No chart dialog"
+    return found.group(0)
+
+
+class IncomeChartTotalsTests(IncomeTestBase):
+
+    NEW_KEYS = {
+        "total",
+        "count",
+        "best_word",
+        "avg_word",
+        "count_word",
+        "unit_plural",
+        "count_sub",
+    }
+    OLD_KEYS = {
+        "top",
+        "half",
+        "best",
+        "average",
+        "average_pct",
+        "with_payments",
+        "so_far",
+        "marked_word",
+        "title",
+        "sub",
+        "big_title",
+        "show_amounts",
+    }
+
+    def _week_bills(self):
+        self._paid(paid_on=datetime.date(2026, 11, 23), total="1200.00")
+        self._paid(total="100.00")
+        self._paid(total="200.00")
+
+    def test_total_and_count_are_over_the_rows_up_to_today(self):
+        self._week_bills()
+        # paid on a day to come: its row is "future", so it is left out
+        self._paid(paid_on=datetime.date(2026, 11, 26), total="999.00")
+        _, rows, chart = self._chart(period="week")
+        self.assertEqual(rows[3]["total"], Decimal("999.00"))
+        self.assertEqual(rows[3]["state"], "future")
+        self.assertEqual(chart["total"], Decimal("1500.00"))
+        self.assertEqual(chart["count"], 3)
+
+    def test_the_words_for_a_day_a_week_and_a_month_are_days(self):
+        for params in ({}, {"period": "week"}, {"period": "month"}):
+            with self.subTest(params=params):
+                _, _, chart = self._chart(**params)
+                self.assertEqual(chart["best_word"], "Best day")
+                self.assertEqual(chart["avg_word"], "Average per day")
+                self.assertEqual(chart["count_word"], "Days with payments")
+                self.assertEqual(chart["unit_plural"], "Days")
+
+    def test_the_words_for_a_year_are_months(self):
+        _, _, chart = self._chart(period="year")
+        self.assertEqual(chart["best_word"], "Best month")
+        self.assertEqual(chart["avg_word"], "Average per month")
+        self.assertEqual(chart["count_word"], "Months with payments")
+        self.assertEqual(chart["unit_plural"], "Months")
+
+    def test_count_sub_for_a_current_range(self):
+        cases = (
+            ({}, "so far this week"),
+            ({"period": "week"}, "so far this week"),
+            ({"period": "month"}, "so far this month"),
+            ({"period": "year"}, "so far this year"),
+            # a day in the current week, but not today: the week is not over
+            ({"date": "2026-11-23"}, "so far this week"),
+        )
+        for params, words in cases:
+            with self.subTest(params=params):
+                _, _, chart = self._chart(**params)
+                self.assertEqual(chart["count_sub"], words)
+
+    def test_count_sub_for_a_past_range(self):
+        cases = (
+            ({"date": "2026-11-18"}, "in that week"),
+            ({"period": "week", "date": "2026-11-16"}, "in that week"),
+            ({"period": "month", "date": "2026-10-05"}, "in that month"),
+            ({"period": "year", "date": "2025-02-02"}, "in that year"),
+        )
+        for params, words in cases:
+            with self.subTest(params=params):
+                _, _, chart = self._chart(**params)
+                self.assertEqual(chart["count_sub"], words)
+
+    def test_the_year_is_still_so_far_in_december(self):
+        # The last row is December 1st, which is before Dec 15, but the year
+        # is not over.
+        today = datetime.date(2026, 12, 15)
+        period = self._period(today=today, period="year")
+        rows = billing_utils.income_rows(period, today)
+        chart = billing_utils.income_chart(period, rows, today)
+        self.assertEqual(chart["count_sub"], "so far this year")
+
+    def test_empty_data(self):
+        _, _, chart = self._chart(period="week")
+        self.assertEqual(chart["total"], Decimal("0"))
+        self.assertEqual(chart["count"], 0)
+
+    def test_no_queries(self):
+        self._week_bills()
+        p = self._period(period="year")
+        rows = billing_utils.income_rows(p, INCOME_TODAY)
+        with self.assertNumQueries(0):
+            billing_utils.income_chart(p, rows, INCOME_TODAY)
+
+    def test_the_old_keys_and_values_are_unchanged(self):
+        self._paid(paid_on=datetime.date(2026, 11, 23), total="1200.00")
+        self._paid(total="300.00")
+        _, _, chart = self._chart(period="week")
+        self.assertEqual(set(chart), self.OLD_KEYS | self.NEW_KEYS)
+        self.assertEqual(chart["top"], Decimal("1500"))
+        self.assertEqual(chart["half"], Decimal("750"))
+        self.assertEqual(chart["best"]["day"], datetime.date(2026, 11, 23))
+        self.assertEqual(chart["average"], Decimal("750"))
+        self.assertEqual(chart["average_pct"], 50)
+        self.assertEqual((chart["with_payments"], chart["so_far"]), (2, 2))
+        self.assertEqual(chart["marked_word"], "Today")
+        self.assertEqual(chart["title"], "This week, day by day")
+        self.assertEqual(chart["big_title"], "Money received each day")
+        self.assertTrue(chart["show_amounts"])
+
+
+class PesoWholeFilterTests(TestCase):
+
+    def test_whole_pesos_and_centavos_only_when_there_are_some(self):
+        cases = (
+            (Decimal("61200"), "₱61,200"),
+            (Decimal("61200.00"), "₱61,200"),
+            (Decimal("61200.50"), "₱61,200.50"),
+            (Decimal("5000"), "₱5,000"),
+            (Decimal("1E+3"), "₱1,000"),
+            (Decimal("0.5"), "₱0.50"),
+            (0, "₱0"),
+            (750, "₱750"),
+        )
+        for value, text in cases:
+            with self.subTest(value=value):
+                self.assertEqual(peso_whole(value), text)
+
+    def test_nothing_or_not_a_number_is_empty(self):
+        for value in (None, "", "abc"):
+            with self.subTest(value=value):
+                self.assertEqual(peso_whole(value), "")
+
+
+@PLAIN_STATIC
+class IncomeCompactChartTests(IncomeTestBase):
+
+    BAR = (
+        r'<span class="block w-\[72%\] rounded-t-md (bg-violet-\d+)" '
+        r'style="height: (\d+)%">'
+    )
+    LABEL = r'<span class="mt-1 h-5 text-sm[^"]*">(.*?)</span>'
+    VIEWS = (
+        ({}, 7),
+        ({"date": "2026-11-22"}, 7),
+        ({"period": "week"}, 7),
+        ({"period": "month"}, 30),
+        ({"period": "year"}, 12),
+    )
+
+    def _get(self, **params):
+        response = self.client.get(INCOME_URL, params)
+        self.assertEqual(response.status_code, 200)
+        return response, response.content.decode()
+
+    def _bills(self):
+        self._paid(paid_on=datetime.date(2026, 11, 23), total="1200.00")
+        self._paid(total="300.00")
+
+    def test_one_button_opens_the_dialog_in_every_view(self):
+        self._bills()
+        for params, _ in self.VIEWS:
+            with self.subTest(params=params):
+                _, html = self._get(**params)
+                main = income_main(html)
+                self.assertEqual(
+                    main.count(
+                        '<button type="button" data-dialog-open="income-chart-dialog"'
+                    ),
+                    1,
+                )
+                compact = income_compact(html)
+                self.assertNotIn("<div", compact)
+                self.assertIn("min-h-11", compact)
+
+    def test_title_and_sub(self):
+        _, html = self._get()
+        text = page_text(income_compact(html))
+        self.assertIn("This week, day by day", text)
+        self.assertIn("Nov 23 to 29", text)
+        _, html = self._get(period="year")
+        text = page_text(income_compact(html))
+        self.assertIn("2026, month by month", text)
+        self.assertIn("January to December 2026", text)
+
+    def test_one_column_per_row_and_heights_equal_pct(self):
+        self._bills()
+        self._paid(paid_on=datetime.date(2026, 10, 15), total="800.00")
+        for params, columns in self.VIEWS:
+            with self.subTest(params=params):
+                response, html = self._get(**params)
+                compact = income_compact(html)
+                self.assertEqual(len(re.findall(self.LABEL, compact)), columns)
+                rows = response.context["rows"]
+                self.assertEqual(len(rows), columns)
+                heights = [int(h) for _, h in re.findall(self.BAR, compact)]
+                self.assertEqual(heights, [r["pct"] for r in rows if r["pct"]])
+
+    def test_the_marked_bar_is_dark_and_the_others_light(self):
+        self._bills()
+        _, html = self._get(period="week")
+        bars = re.findall(self.BAR, income_compact(html))
+        self.assertEqual(bars, [("bg-violet-300", "80"), ("bg-violet-700", "20")])
+        for params, _ in self.VIEWS:
+            with self.subTest(params=params):
+                _, html = self._get(**params)
+                compact = income_compact(html)
+                self.assertLessEqual(compact.count("bg-violet-700"), 1)
+                self.assertEqual(compact.count("font-bold text-violet-800"), 1)
+
+    def test_future_rows_are_dashed_and_zero_rows_a_thin_line(self):
+        _, html = self._get(period="week")  # nothing paid: Mon and Tue are zero
+        compact = income_compact(html)
+        self.assertEqual(compact.count("border-dashed"), 5)
+        self.assertEqual(compact.count("block h-1 w-[72%] rounded bg-gray-300"), 2)
+        self.assertEqual(re.findall(self.BAR, compact), [])
+
+    def test_labels_come_from_tick(self):
+        for params, _ in self.VIEWS:
+            with self.subTest(params=params):
+                response, html = self._get(**params)
+                labels = re.findall(self.LABEL, income_compact(html))
+                self.assertEqual(labels, [r["tick"] for r in response.context["rows"]])
+        _, html = self._get(period="month")
+        shown = [t for t in re.findall(self.LABEL, income_compact(html)) if t]
+        self.assertEqual(shown, ["1", "10", "20", "30"])
+
+    def test_gaps_follow_the_kind(self):
+        for params, gap in (
+            ({"period": "week"}, "gap-1.5"),
+            ({}, "gap-1.5"),
+            ({"period": "month"}, "gap-0.5"),
+            ({"period": "year"}, "gap-1"),
+        ):
+            with self.subTest(params=params):
+                _, html = self._get(**params)
+                self.assertIn(f'<span class="relative flex {gap}">', html)
+
+    def test_the_bars_part_is_aria_hidden_and_the_name_is_the_visible_text(self):
+        self._bills()
+        _, html = self._get()
+        compact = income_compact(html)
+        hidden = re.search(
+            r'<span class="mt-4 flex gap-2" aria-hidden="true">', compact
+        )
+        self.assertIsNotNone(hidden)
+        before, after = compact[: hidden.start()], compact[hidden.end() :]
+        self.assertIn("This week, day by day", before)
+        self.assertIn("Nov 23 to 29", before)
+        self.assertIn("See the chart bigger", after)
+        self.assertNotIn("See the chart bigger", before)
+
+    def test_the_axis_is_whole_pesos_and_the_bottom_line_has_the_icon(self):
+        self._bills()
+        _, html = self._get()
+        compact = income_compact(html)
+        self.assertIn("<span>₱1,500</span><span>₱0</span>", compact)
+        self.assertIn("w-16", compact)
+        self.assertNotIn("k</span>", compact)
+        self.assertIn('d="M15 3h6v6"', compact)  # maximize-2
+        self.assertIn("See the chart bigger", page_text(compact))
+
+    def test_the_chart_comes_before_not_paid_yet(self):
+        for params, _ in self.VIEWS:
+            with self.subTest(params=params):
+                _, html = self._get(**params)
+                main = income_main(html)
+                self.assertLess(
+                    main.index('data-dialog-open="income-chart-dialog"'),
+                    main.index("Not paid yet"),
+                )
+
+
+@PLAIN_STATIC
+class IncomeChartDialogTests(IncomeTestBase):
+
+    AMOUNT = r'<span class="w-full shrink-0 pb-1 text-center[^"]*">(.*?)</span>'
+    LABEL = r'(?s)<p class="mt-2 text-center text-sm leading-tight[^"]*">(.*?)</p>'
+    KEY = r'(?s)<p class="mt-5 flex flex-wrap.*?</p>'
+    NOTE = "With 31 days the amounts would be too small to read on the bars"
+
+    def _get(self, **params):
+        response = self.client.get(INCOME_URL, params)
+        self.assertEqual(response.status_code, 200)
+        return response, response.content.decode()
+
+    def _dialog(self, **params):
+        return income_dialog(self._get(**params)[1])
+
+    def _week_bills(self):
+        self._paid(paid_on=datetime.date(2026, 11, 23), total="1200.00")
+        self._paid(total="300.00")
+
+    def test_one_dialog_with_a_close_button_that_has_focus_first(self):
+        views = ({}, {"period": "week"}, {"period": "month"}, {"period": "year"})
+        for params in views:
+            with self.subTest(params=params):
+                _, html = self._get(**params)
+                self.assertEqual(html.count('<dialog id="income-chart-dialog"'), 1)
+                dialog = income_dialog(html)
+                close = re.search(
+                    r'(?s)<button type="button" class="([^"]*)"'
+                    r"[^>]*data-dialog-close autofocus>(.*?)</button>",
+                    dialog,
+                )
+                self.assertIsNotNone(close)
+                self.assertIn("btn-outline", close.group(1))
+                self.assertIn("min-h-12", close.group(1))
+                self.assertEqual(page_text(close.group(2)), "Close")
+                self.assertIn("<svg", close.group(2))
+                self.assertNotIn("btn-primary", dialog)
+
+    def test_the_dialog_is_wide_and_fills_a_phone(self):
+        dialog = self._dialog()
+        self.assertIn("max-w-[68rem]", dialog)
+        self.assertIn("max-sm:h-dvh", dialog)
+        self.assertIn("max-sm:w-full", dialog)
+        self.assertIn("backdrop:bg-gray-900/50", dialog)
+        self.assertIn('aria-labelledby="income-chart-title"', dialog)
+
+    def test_the_header_has_the_big_title_and_the_sub(self):
+        text = page_text(self._dialog())
+        self.assertIn("Money received each day Nov 23 to 29", text)
+        text = page_text(self._dialog(period="year"))
+        self.assertIn("Money received each month January to December 2026", text)
+
+    def test_the_tiles_for_a_week(self):
+        self._paid(paid_on=datetime.date(2026, 11, 23), total="1200.00")
+        self._paid(total="100.00")
+        self._paid(total="200.00")
+        text = page_text(self._dialog(period="week"))
+        self.assertIn("Money received ₱1,500.00 from 3 bills", text)
+        self.assertIn("Best day ₱1,200.00 Mon, Nov 23", text)
+        self.assertIn("Average per day ₱750.00 Days with payments only", text)
+        self.assertIn("Days with payments 2 of 2 so far this week", text)
+
+    def test_the_tiles_for_a_year(self):
+        self._week_bills()
+        self._paid(paid_on=datetime.date(2026, 10, 15), total="800.00")
+        text = page_text(self._dialog(period="year"))
+        self.assertIn("Money received ₱2,300.00 from 3 bills", text)
+        self.assertIn("Best month ₱1,500.00 November", text)
+        self.assertIn("Average per month ₱1,150.00 Months with payments only", text)
+        self.assertIn("Months with payments 2 of 11 so far this year", text)
+
+    def test_one_bill_says_bill(self):
+        self._paid(total="300.00")
+        self.assertIn("from 1 bill ", page_text(self._dialog()) + " ")
+
+    def test_amounts_on_the_bars_for_week_day_view_and_year_not_month(self):
+        self._week_bills()
+        self._paid(paid_on=datetime.date(2026, 10, 15), total="800.00")
+        for params, amounts in (
+            ({"period": "week"}, ["₱1,200", "₱300"]),
+            ({}, ["₱1,200", "₱300"]),
+            ({"period": "year"}, ["₱800", "₱1,500"]),
+            ({"period": "month"}, []),
+        ):
+            with self.subTest(params=params):
+                dialog = self._dialog(**params)
+                self.assertEqual(re.findall(self.AMOUNT, dialog), amounts)
+        self.assertNotIn(self.NOTE, page_text(self._dialog(period="week")))
+        self.assertNotIn(self.NOTE, page_text(self._dialog(period="year")))
+        self.assertNotIn(self.NOTE, page_text(self._dialog()))
+        self.assertIn(
+            self.NOTE + ", so they are in the table on the page.",
+            page_text(self._dialog(period="month")),
+        )
+
+    def test_an_amount_with_centavos_keeps_them(self):
+        self._paid(total="61200.50")
+        dialog = self._dialog(period="week")
+        self.assertEqual(re.findall(self.AMOUNT, dialog), ["₱61,200.50"])
+
+    def test_the_average_line_only_with_an_average(self):
+        self._week_bills()
+        dialog = self._dialog(period="week")
+        self.assertIn('style="bottom: 50%"', dialog)
+        self.assertIn("Average ₱750.00", page_text(dialog))
+        self.assertIn("border-amber-500", dialog)
+
+    def test_the_axis_is_in_whole_pesos(self):
+        self._week_bills()
+        dialog = self._dialog(period="week")
+        self.assertIn("<span>₱1,500</span><span>₱750</span><span>₱0</span>", dialog)
+        self.assertEqual(dialog.count("border-t border-"), 3)  # three grid lines
+
+    def test_empty_data(self):
+        for params in ({"period": "week"}, {"period": "month"}, {"period": "year"}):
+            with self.subTest(params=params):
+                dialog = self._dialog(**params)
+                text = page_text(dialog)
+                self.assertNotIn("style=", dialog)  # no bar, no average line
+                self.assertNotIn("border-amber-500", dialog)
+                self.assertNotIn("Average ₱", text)
+                self.assertNotIn(" Average", re.search(self.KEY, dialog).group(0))
+                self.assertIn("Best", text)
+                self.assertRegex(text, r"Best (day|month) — None")
+                self.assertRegex(text, r"Average per (day|month) — No payments yet")
+                self.assertRegex(text, r"(Days|Months) with payments 0 of \d+")
+                self.assertIn("Money received ₱0.00 from 0 bills", text)
+                axis = "<span>₱1,000</span><span>₱500</span><span>₱0</span>"
+                self.assertIn(axis, dialog)
+                self.assertIn("block h-1 w-[72%] shrink-0 rounded bg-gray-300", dialog)
+
+    def test_the_key_in_words(self):
+        self._week_bills()
+        key = page_text(re.search(self.KEY, self._dialog(period="week")).group(0))
+        self.assertEqual(key, "Money received Today Average Not yet")
+        # A past week has no future row and no marked bar
+        self._paid(paid_on=datetime.date(2026, 11, 17), total="100.00")
+        response, html = self._get(period="week", date="2026-11-16")
+        key = page_text(re.search(self.KEY, income_dialog(html)).group(0))
+        marked = response.context["chart"]["marked_word"]
+        self.assertEqual(key, f"Money received {marked} Average")
+        # No bills at all: no Average in the key
+        old_year = self._dialog(period="year", date="2025-01-01")
+        key = page_text(re.search(self.KEY, old_year).group(0))
+        self.assertEqual(key, "Money received Selected")
+
+    def test_the_labels_under_the_bars(self):
+        _, html = self._get(period="week")
+        labels = [page_text(x) for x in re.findall(self.LABEL, income_dialog(html))]
+        self.assertEqual(labels[0], "Mon Nov 23")
+        self.assertEqual(labels[6], "Sun Nov 29")
+        _, html = self._get(period="month")
+        labels = [page_text(x) for x in re.findall(self.LABEL, income_dialog(html))]
+        self.assertEqual(labels, [str(n) for n in range(1, 31)])
+        _, html = self._get(period="year")
+        labels = [page_text(x) for x in re.findall(self.LABEL, income_dialog(html))]
+        self.assertEqual(labels[:3], ["Jan", "Feb", "Mar"])
+        self.assertEqual(len(labels), 12)
+
+    def test_the_marked_word_sits_under_the_marked_bar(self):
+        self._week_bills()
+        for params, word in (
+            ({"period": "week"}, "Today"),
+            ({"period": "year"}, "So far"),
+        ):
+            with self.subTest(params=params):
+                dialog = self._dialog(**params)
+                found = re.findall(
+                    r'<p class="text-sm font-semibold text-violet-800">(.*?)</p>',
+                    dialog,
+                )
+                self.assertEqual(found, [word])
+
+    def test_a_day_view_charts_that_days_week_with_the_day_marked(self):
+        self._paid(paid_on=datetime.date(2026, 11, 22), total="500.00")
+        response, html = self._get(date="2026-11-22")
+        rows = response.context["rows"]
+        self.assertEqual(rows[0]["day"], datetime.date(2026, 11, 16))
+        self.assertEqual(rows[-1]["day"], datetime.date(2026, 11, 22))
+        marked = [r["day"] for r in rows if r["state"] == "marked"]
+        self.assertEqual(marked, [datetime.date(2026, 11, 22)])
+        dialog = income_dialog(html)
+        self.assertIn(
+            '<p class="text-sm font-semibold text-violet-800">This day</p>', dialog
+        )
+        self.assertIn("bg-violet-700", dialog)
+        self.assertEqual(re.findall(self.AMOUNT, dialog), ["₱500"])
+        self.assertIn("Best day ₱500.00 Sun, Nov 22", page_text(dialog))

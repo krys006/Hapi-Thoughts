@@ -6,11 +6,11 @@
 {% block page_subtitle %}Money received from paid bills. Payment is cash.{% endblock %}
 
 {% block content %}
-  {# Income page (batch I-2a, mockup docs/mockups/income_v2.html). Read-only: links only, no form, no button, no script. The numbers come from billing.utils.income_context. Parts are in income_parts/. #}
+  {# Income page (batches I-2a and I-2b, mockup docs/mockups/income_v2.html). Read-only: links, plus the chart button and the chart dialog's Close button (dialogs.js, no script of its own); no form. The numbers come from billing.utils.income_context. Parts are in income_parts/. #}
 
   {% include "admin/billing/income_parts/toolbar.html" %}
 
-  {# Three children in one grid. In the HTML (and on a phone) they come in this order: top (money card and tiles), side (Not paid yet), below (the bills or the table). From lg: the top and the below sit in the left column (rows 1 and 2), and the side is the right column, as tall as both rows, and sticky. Batch I-2b adds the compact chart to the side child, above Not paid yet, so the side child stays a wrapper. #}
+  {# Three children in one grid. In the HTML (and on a phone) they come in this order: top (money card and tiles), side (Not paid yet), below (the bills or the table). From lg: the top and the below sit in the left column (rows 1 and 2), and the side is the right column, as tall as both rows, and sticky. The side child holds the compact chart, above Not paid yet. #}
   <div class="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
     <div class="min-w-0 lg:col-start-1 lg:row-start-1">
       {% include "admin/billing/income_parts/hero.html" %}
@@ -18,6 +18,7 @@
     </div>
 
     <div class="space-y-6 lg:sticky lg:top-6 lg:col-start-2 lg:row-start-1 lg:row-span-2">
+      {% include "admin/billing/income_parts/chart_compact.html" %}
       {% include "admin/billing/income_parts/not_paid.html" %}
     </div>
 
@@ -29,4 +30,7 @@
       {% endif %}
     </div>
   </div>
+
+  {# The big chart dialog, written once. The compact chart's button opens it. #}
+  {% include "admin/billing/income_parts/chart_dialog.html" %}
 {% endblock %}
