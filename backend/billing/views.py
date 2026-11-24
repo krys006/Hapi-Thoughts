@@ -4,6 +4,7 @@ from django.contrib import messages
 from django.db import transaction
 from django.utils import timezone
 from django.utils.cache import patch_vary_headers
+from django.views.decorators.http import require_GET
 
 from accounts.utils import owner_profile_required, render_results_swap
 from appointments.utils import is_owner_results_swap
@@ -19,6 +20,7 @@ from .utils import (
     create_receipt,
     create_visit_receipt,
     discount_saved_message,
+    income_context,
     initial_pet_pick,
     lock_pending_receipt,
     mark_receipt_cancelled,
@@ -381,6 +383,23 @@ def admin_receipt_mark_cancelled(request, pk):
         messages.success(request, "Bill cancelled.")
 
     return redirect("admin_receipt_detail", pk=pk)
+
+
+# ── Admin — Income summary ────────────────────────────────────────────────────
+
+
+@login_required
+@require_GET
+def admin_income(request):
+    """Admin view — money received from Paid bills for a day, week, month or
+    year (?period=, ?date=; income_context). Read-only: GET only, writes
+    nothing."""
+    if request.user.role != "admin":
+        return redirect("owner_dashboard")
+
+    # Read once, so every date on the page agrees
+    context = income_context(request.GET, timezone.localdate())
+    return render(request, "admin/billing/income.html", context)
 
 
 # ── Pet Owner — Billing ───────────────────────────────────────────────────────

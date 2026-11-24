@@ -631,6 +631,7 @@ urlpatterns = [
 /admin/pets/breed-options/      ← pets (HTMX: Breed options for ?species=, name admin_pet_breed_options)
 /admin/medical/  /admin/vaccinations/  ← medical
 /admin/billing/  /admin/services/  ← billing
+/admin/income/                  ← billing (Income summary, read-only)
 /admin/health/                  ← health
 
 /notifications/...              ← Shared by both roles (not per-role)
