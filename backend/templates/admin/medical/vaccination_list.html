@@ -7,9 +7,12 @@
   {% include "admin/medical/vaccination_list_parts/search_form.html" with id_prefix="topbar" form_class="hidden min-w-0 flex-1 items-center gap-3 md:flex" %}
 {% endblock %}
 
-{# No button: a vaccination is added from the pet's page or a medical record #}
+{# Add vaccination asks for the pet first, then opens the pet's vaccination form; it shows on every tab #}
 {% block page_title %}Vaccinations{% endblock %}
 {% block page_subtitle %}Every vaccination given at the clinic.{% endblock %}
+{% block page_actions %}
+  <a href="{% url 'admin_vaccination_choose_pet' %}" class="btn btn-primary">{% include "components/icon.html" with name="plus" %}Add vaccination</a>
+{% endblock %}
 
 {% block content %}
   {% include "admin/medical/vaccination_list_parts/search_form.html" with id_prefix="page" form_class="mb-4 flex items-center gap-3 md:hidden" %}

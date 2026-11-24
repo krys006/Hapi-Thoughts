@@ -260,6 +260,8 @@ templates/
 │   │   │   ├── row.html              ← split row: pet | divider | owner | Open (+ Restore)
 │   │   │   ├── restore_dialog.html   ← one per restorable row (archived pet, active owner)
 │   │   │   └── empty.html
+│   │   ├── choose_owner.html         ← Add a pet, step 1 "choose the owner" (admin_pet_choose_owner); no violet button; built like walkin_find.html
+│   │   ├── _choose_owner_results.html ← its owner list / search results (HTMX, target #owner-results; Choose → admin_pet_add)
 │   │   ├── pet_detail.html
 │   │   ├── pet_detail_parts/         ← Includes for pet_detail.html (not HTMX partials, so no `_`; the waiting request's Keep / Archive dialogs are deletion_requests_parts/ with return_to="pet")
 │   │   │   ├── header.html           ← back link, pet_avatar lg, name + Archived / Deletion requested tags, "Species · Breed · age · Owner"
@@ -291,6 +293,8 @@ templates/
 │   │       ├── keep_dialog.html      ← one per waiting request (reject URL; return_to="requests" or "pet")
 │   │       └── history_row.html      ← answered request: Archived / Kept pill, "By the clinic" for a direct archive
 │   ├── medical/
+│   │   ├── choose_pet.html           ← "Choose the pet" for Add medical record and Add vaccination (one template; title, subtitle, back link, search label and Choose target come from CHOOSE_PET_* in medical/utils.py); no violet button
+│   │   ├── _choose_pet_results.html  ← its pet list / search results (HTMX, target #pet-results)
 │   │   ├── record_list.html
 │   │   ├── record_list_parts/        ← Includes for record_list.html (not HTMX partials, so no `_`; the pager is appointments' list_parts/pager.html; the owner half and the dialog's contact lines come from vaccination_list_parts/)
 │   │   │   ├── search_form.html      ← search (q + the open tab); top bar md+, page body on phones
@@ -1293,6 +1297,12 @@ The main admin user is an elderly vet. Every migrated admin page follows these:
 - Risky actions (cancel, decline, mark paid) ask for confirmation in plain words.
 - Flash messages stay until closed.
 - One primary (violet) button per page, top right.
+- The Pets, Medical records and Vaccinations lists each have one violet Add
+  button in the header (Add pet, Add medical record, Add vaccination; every
+  tab, `page_actions` block like Add owner). Each opens a "choose first" page
+  (owner or pet) that has no violet button at all: its helper box
+  ("First visit at the clinic?" / "Pet not registered yet?") is `btn-outline`
+  and Choose is the light-violet link.
 - Test every slice at 150% browser zoom.
 
 ### Components (`templates/components/`)

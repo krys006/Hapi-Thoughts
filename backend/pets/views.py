@@ -14,6 +14,10 @@ from django.shortcuts import (
 )
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.cache import patch_vary_headers
+from django.views.decorators.http import require_GET
+
+from appointments.utils import is_owner_results_swap
 
 from .forms import (
     AdminOwnerEmailForm,
@@ -43,6 +47,7 @@ from .utils import (
     archived_pet_refusal,
     barangay_choices,
     breed_choices,
+    choose_owner_context,
     create_owner,
     deletion_answer_refusal,
     deletion_requests_context,
@@ -931,6 +936,31 @@ def admin_owner_resend_link(request, pk):
 # ---------------------------------------------------------------------------
 # Admin — Add Pet (to existing owner)
 # ---------------------------------------------------------------------------
+
+
+@login_required
+@require_GET
+def admin_pet_choose_owner(request):
+    """
+    Admin view — "Add a pet", step 1: choose the owner (a pet always has
+    one). Read only: Choose links to admin_pet_add. The search box filters
+    as you type; those HTMX requests get only the results partial.
+
+    URL: /admin/pets/add/
+    """
+    guard = _require_admin(request)
+    if guard:
+        return guard
+
+    template = (
+        "admin/pets/_choose_owner_results.html"
+        if is_owner_results_swap(request)
+        else "admin/pets/choose_owner.html"
+    )
+    response = render(request, template, choose_owner_context(request.GET))
+    # The same URL answers with the partial or the full page
+    patch_vary_headers(response, ["HX-Request"])
+    return response
 
 
 @login_required

@@ -23,7 +23,12 @@ from django.utils.text import Truncator
 
 from accounts.utils import create_owner_user
 from appointments.models import Appointment
-from appointments.utils import get_clinic_settings, paging_links
+from appointments.utils import (
+    WALKIN_SEARCH_LIMIT,
+    get_clinic_settings,
+    paging_links,
+    walkin_owner_matches,
+)
 from notifications.models import Notification
 from notifications.utils import compact_message, notify
 
@@ -494,6 +499,37 @@ def pet_list_context(params):
         .order_by("species"),
         "total_count": page_obj.paginator.count,
     }
+
+
+def choose_owner_context(params):
+    """
+    Context for "Add a pet", step 1 (choose the owner), from the GET params.
+    Active owners only, last name A to Z, each with active_pets prefetched.
+    The search rule is the walk-in's (walkin_owner_matches). With no ?q= the
+    list is paged (OWNER_PAGE_SIZE); with ?q= there is no pager and at most
+    WALKIN_SEARCH_LIMIT owners show (is_cut says there were more).
+    """
+    q = params.get("q", "").strip()
+    owners = (
+        walkin_owner_matches(q.split())
+        .order_by("last_name", "first_name", "pk")
+        .prefetch_related(_active_pets_prefetch())
+    )
+    context = {"q": q, "search_limit": WALKIN_SEARCH_LIMIT, "page_obj": None}
+    if q:
+        found = list(owners[: WALKIN_SEARCH_LIMIT + 1])
+        context["owners"] = found[:WALKIN_SEARCH_LIMIT]
+        context["is_cut"] = len(found) > WALKIN_SEARCH_LIMIT
+        return context
+
+    page_obj = Paginator(owners, OWNER_PAGE_SIZE).get_page(params.get("page"))
+    context.update(
+        owners=page_obj.object_list,
+        owner_count=page_obj.paginator.count,
+        page_obj=page_obj,
+        **paging_links(page_obj, ""),
+    )
+    return context
 
 
 # ── Deletion requests ────────────────────────────────────────────────────────

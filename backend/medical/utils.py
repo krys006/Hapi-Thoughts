@@ -20,6 +20,7 @@ from django.utils.text import Truncator
 from appointments.models import Appointment
 from appointments.utils import (
     OWNER_STATUS_WORDS,
+    WALKIN_SEARCH_LIMIT,
     get_clinic_settings,
     paging_links,
     time_label,
@@ -35,7 +36,7 @@ from notifications.utils import (
     when_line,
 )
 from pets.models import Pet
-from pets.utils import ARCHIVED_PET, RECORD_HEADING_CHARS, pet_state
+from pets.utils import ARCHIVED_PET, RECORD_HEADING_CHARS, pet_state, search_pets
 
 from .models import MedicalRecord, Vaccination
 
@@ -82,6 +83,62 @@ def active_pet_filter(prefix="pet__"):
     """Not ARCHIVED_PET (pets/utils.py) through prefix: the pet and its
     owner are both active."""
     return ~_prefixed(ARCHIVED_PET, prefix)
+
+
+# ── "Choose the pet" pages (Add medical record, Add vaccination) ─────────────
+
+# One page and one template for both; the words and the targets come from here.
+# choose_url_name takes the pet's pk (the existing form for that pet).
+CHOOSE_PET_RECORD = {
+    "page_url_name": "admin_medical_record_choose_pet",
+    "choose_url_name": "admin_medical_record_create",
+    "back_url_name": "admin_medical_record_list",
+    "back_label": "Back to medical records",
+    "title": "Add medical record",
+    "subtitle": "Choose the pet this visit record is for.",
+    "search_label": "Find the pet",
+}
+CHOOSE_PET_VACCINATION = {
+    "page_url_name": "admin_vaccination_choose_pet",
+    "choose_url_name": "admin_vaccination_standalone_create",
+    "back_url_name": "admin_vaccination_list",
+    "back_label": "Back to vaccinations",
+    "title": "Add vaccination",
+    "subtitle": "Choose the pet that was vaccinated.",
+    "search_label": "Find the pet",
+}
+
+
+def choose_pet_context(params, words):
+    """
+    Context for a "choose the pet" page from the GET params; words is
+    CHOOSE_PET_RECORD or CHOOSE_PET_VACCINATION. Active pets only (not
+    archived, owner not archived: active_pet_filter), pet name A to Z, each
+    with its owner. The search is the Pets list's (search_pets). With no ?q=
+    the list is paged (LIST_PAGE_SIZE); with ?q= there is no pager and at most
+    WALKIN_SEARCH_LIMIT pets show (is_cut says there were more).
+    """
+    q = params.get("q", "").strip()
+    pets = (
+        search_pets(Pet.objects.filter(active_pet_filter("")), q)
+        .select_related("owner")
+        .order_by("name", "owner__first_name", "pk")
+    )
+    context = {**words, "q": q, "search_limit": WALKIN_SEARCH_LIMIT, "page_obj": None}
+    if q:
+        found = list(pets[: WALKIN_SEARCH_LIMIT + 1])
+        context["pets"] = found[:WALKIN_SEARCH_LIMIT]
+        context["is_cut"] = len(found) > WALKIN_SEARCH_LIMIT
+        return context
+
+    page_obj = Paginator(pets, LIST_PAGE_SIZE).get_page(params.get("page"))
+    context.update(
+        pets=page_obj.object_list,
+        pet_count=page_obj.paginator.count,
+        page_obj=page_obj,
+        **paging_links(page_obj, ""),
+    )
+    return context
 
 
 def _later_doses(pet, vaccine_name, custom_vaccine_name, date_administered):

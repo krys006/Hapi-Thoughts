@@ -124,6 +124,12 @@ urlpatterns = [
         views.admin_pet_list,
         name="admin_pet_list",
     ),
+    # Add a pet, step 1: choose the owner (read only)
+    path(
+        "admin/pets/add/",
+        views.admin_pet_choose_owner,
+        name="admin_pet_choose_owner",
+    ),
     path(
         "admin/pets/add/<int:owner_pk>/",
         views.admin_pet_add,

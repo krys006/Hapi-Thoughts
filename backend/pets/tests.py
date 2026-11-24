@@ -3523,12 +3523,14 @@ class PetsListPageTests(TestCase):
         self.assertContains(response, "Every pet registered at the clinic.")
 
     def test_no_primary_button_outside_dialogs(self):
+        # Approved change (Add pet button): the one violet button is Add pet
         _pet(self.ana)
         _pet(self.ana, "Old", is_archived=True, archived_at=timezone.now())
         for params in ({}, {"status": "archived"}, {"q": "zzz"}):
             with self.subTest(params=params):
                 html = _outside_dialogs(self._html(**params))
-                self.assertEqual(html.count("btn-primary"), 0)
+                self.assertEqual(html.count("btn-primary"), 1)
+                self.assertIn(reverse("admin_pet_choose_owner"), html)
 
     def test_search_form_in_top_bar_and_page_body(self):
         html = self._html(q="cruz")
@@ -3890,7 +3892,7 @@ class PetsListPageTests(TestCase):
             (
                 "No pet matches “rex”",
                 "Check the spelling, or look in the Archived tab. To add a pet, "
-                "open its owner first.",
+                "use Add pet above.",
             ),
         )
         self.assertEqual(
@@ -4054,7 +4056,9 @@ class DeletionRequestsPageTests(TestCase):
         self._answered("Spot", PetDeletionRequest.APPROVED)
         html = self._html()
         self.assertIn("btn-primary", html)  # the Keep dialog's confirm
-        self.assertEqual(_outside_dialogs(html).count("btn-primary"), 0)
+        # Approved change (Add pet button): the one violet button outside them
+        self.assertEqual(_outside_dialogs(html).count("btn-primary"), 1)
+        self.assertIn(reverse("admin_pet_choose_owner"), _outside_dialogs(html))
 
     def test_intro(self):
         self.assertIn(
@@ -9967,3 +9971,232 @@ class OwnerPetsSwapMarkupTests(_PetsSwapBase):
                 self.assertNotIn("{% extends", source)
                 for link in re.findall(r"(?s)<a\b.*?</a>", source):
                     self.assertNotIn("\n", link)
+
+
+class PetsListAddButtonTests(TestCase):
+    """The violet Add pet button in the header of every tab of the Pets page."""
+
+    def setUp(self):
+        _admin(self)
+        ana = _owner(email="ana@example.com")
+        _request(_pet(ana))
+        _pet(ana, "Old", is_archived=True, archived_at=timezone.now())
+        pets = reverse("admin_pet_list")
+        self.pages = {
+            "active": pets,
+            "archived": f"{pets}?status=archived",
+            "searching": f"{pets}?q=zzz",
+            "requests": reverse("admin_deletion_requests"),
+        }
+
+    def test_add_pet_is_on_every_tab_and_opens_the_choose_page(self):
+        target = reverse("admin_pet_choose_owner")
+        for tab, url in self.pages.items():
+            with self.subTest(tab=tab):
+                html = self.client.get(url).content.decode()
+                self.assertRegex(
+                    html,
+                    rf'(?s)<a href="{target}" class="btn btn-primary">\s*'
+                    r"<svg[^>]*>.*?</svg>\s*Add pet</a>",
+                )
+
+    def test_each_page_has_exactly_one_violet_button_outside_dialogs(self):
+        for tab, url in self.pages.items():
+            with self.subTest(tab=tab):
+                html = _outside_dialogs(self.client.get(url).content.decode())
+                self.assertEqual(html.count("btn-primary"), 1)
+
+
+class PetChooseOwnerViewTests(TestCase):
+    """admin_pet_choose_owner: "Add a pet", step 1 (choose the owner)."""
+
+    def setUp(self):
+        self.admin = _admin(self)
+        self.url = reverse("admin_pet_choose_owner")
+        self.ana = _owner(email="ana@example.com", contact_number="0917 123 4567")
+        self.ben = _owner(first="Ben", last="Santos", email="ben@example.com")
+        self.zoe = _owner(first="Zoe", last="Adams", email="zoe@example.com")
+        _pet(self.ana, "Bantay")
+        _pet(self.ben, "Muning", species="Cat")
+
+    def _get(self, **params):
+        return self.client.get(self.url, params)
+
+    def _html(self, **params):
+        return self._get(**params).content.decode()
+
+    def _names(self, **params):
+        return [o.full_name for o in self._get(**params).context["owners"]]
+
+    def _many(self, count, start=0, last="Test"):
+        for i in range(start, start + count):
+            owner = _owner(first=f"Owner{i:02d}", last=last, email=f"o{i}@example.com")
+            _pet(owner, f"Pet{i:02d}")
+
+    # ─── Who may open it ──────────────────────────────────────────────────────
+
+    def test_a_pet_owner_is_sent_to_their_dashboard(self):
+        self.client.force_login(self.ana.user)
+        response = self._get()
+        self.assertRedirects(
+            response, reverse("owner_dashboard"), fetch_redirect_response=False
+        )
+
+    def test_anonymous_goes_to_login(self):
+        self.client.logout()
+        response = self._get()
+        self.assertRedirects(
+            response, reverse("admin_login"), fetch_redirect_response=False
+        )
+
+    def test_get_only_and_it_writes_nothing(self):
+        owners, pets = PetOwner.objects.count(), Pet.objects.count()
+        self.assertEqual(self.client.post(self.url, {"q": "x"}).status_code, 405)
+        self.assertEqual(PetOwner.objects.count(), owners)
+        self.assertEqual(Pet.objects.count(), pets)
+
+    # ─── The list ─────────────────────────────────────────────────────────────
+
+    def test_lists_active_owners_a_to_z_by_last_name(self):
+        _archive(_owner(first="Old", last="Archer", email="old@example.com"))
+        self.assertEqual(self._names(), ["Zoe Adams", "Ana Cruz", "Ben Santos"])
+        html = self._html()
+        self.assertNotIn("Old Archer", html)
+        self.assertIn("All pet owners (3)", html)
+        self.assertIn('<p class="text-sm text-gray-600">A to Z</p>', html)
+
+    def test_each_owner_shows_phone_and_pets(self):
+        html = self._html()
+        self.assertIn("0917 123 4567", html)
+        self.assertIn("Bantay", html)
+        self.assertEqual(html.count("No phone number"), 2)
+        self.assertIn("No pets yet", html)  # Zoe
+
+    def test_search_by_owner_name_pet_name_and_phone(self):
+        for q, expected in (
+            ("cruz", ["Ana Cruz"]),
+            ("muning", ["Ben Santos"]),
+            ("0917", ["Ana Cruz"]),
+            ("ben san", ["Ben Santos"]),
+            ("ana santos", []),  # every word must match
+        ):
+            with self.subTest(q=q):
+                self.assertEqual(self._names(q=q), expected)
+
+    def test_the_search_leaves_out_archived_owners(self):
+        _archive(_owner(first="Old", last="Cruz", email="old@example.com"))
+        self.assertEqual(self._names(q="cruz"), ["Ana Cruz"])
+
+    def test_no_match_says_so_and_offers_add_owner(self):
+        html = self._html(q="zzz")
+        # (the title is a live region here, so _empty_state does not match it)
+        self.assertIn(
+            '<p class="text-lg font-semibold text-gray-900" aria-live="polite">'
+            "No owner matches “zzz”</p>",
+            html,
+        )
+        self.assertIn(
+            '<p class="mt-1 max-w-sm text-base text-gray-600">Check the spelling. '
+            "If this is their first visit, add the owner first.</p>",
+            html,
+        )
+        self.assertIn("First visit at the clinic?", html)
+        self.assertIn(
+            f'<a href="{reverse("admin_owner_create")}" class="btn btn-outline '
+            'min-h-12 font-semibold">',
+            html,
+        )
+        self.assertIn("Clear search", html)
+
+    def test_pager_at_26_owners_and_none_while_searching(self):
+        self._many(23)  # 3 + 23 = 26
+        html = self._html()
+        row = '<li class="flex flex-wrap items-center gap-4 border-t'
+        self.assertEqual(html.count(row), 25)
+        self.assertIn("Showing 1–25 of 26", html)
+        self.assertEqual(self._html(page=2).count(row), 1)
+        searched = self._html(q="test")
+        self.assertNotIn("Showing 1", searched)
+        self.assertIn(
+            "More than 20 owners match “test”. Showing the first 20.", searched
+        )
+        self.assertEqual(searched.count(row), 20)
+
+    def test_choose_goes_to_the_existing_add_pet_form_for_that_owner(self):
+        html = self._html()
+        for owner in (self.ana, self.ben, self.zoe):
+            with self.subTest(owner=owner.full_name):
+                href = reverse("admin_pet_add", args=[owner.pk])
+                self.assertRegex(
+                    html,
+                    rf'<a href="{href}" class="[^"]*">Choose'
+                    rf'<span class="sr-only"> {owner.full_name}</span>',
+                )
+        self.assertNotIn("return=", html)
+
+    # ─── The page ─────────────────────────────────────────────────────────────
+
+    def test_words_back_link_and_no_violet_button(self):
+        html = self._html()
+        self.assertIn("<title>Add a pet — Hapi Vet Admin</title>", html)
+        self.assertIn(
+            '<h1 class="text-2xl font-bold text-gray-900">Add a pet</h1>', html
+        )
+        self.assertIn(
+            "A pet always belongs to one owner, so choose the owner first.", html
+        )
+        self.assertRegex(
+            html,
+            rf'<a href="{reverse("admin_pet_list")}" class="[^"]*">\s*<svg'
+            r"[^>]*>(?s:.*?)</svg>\s*Back to pets</a>",
+        )
+        self.assertIn("Find the owner</label>", html)
+        self.assertIn('placeholder="Owner name, pet name or phone"', html)
+        self.assertIn("The list gets shorter as you type.", html)
+        self.assertEqual(html.count("btn-primary"), 0)
+        self.assertIn("First visit at the clinic?", html)
+
+    def test_the_search_works_without_javascript_and_narrows_with_htmx(self):
+        html = self._html(q="cruz")
+        form = re.search(r'(?s)<form method="get".*?</form>', html).group(0)
+        self.assertIn(f'action="{self.url}"', form)
+        self.assertIn('<button type="submit" class="btn btn-outline', form)
+        self.assertIn('value="cruz"', form)
+        self.assertIn('hx-trigger="input changed delay:500ms, search"', form)
+        self.assertIn('hx-target="#owner-results"', form)
+        self.assertIn(f'hx-get="{self.url}"', form)
+        self.assertNotIn("<!--", html)
+        self.assertNotIn("onclick", html)
+
+    def test_htmx_gets_only_the_results(self):
+        response = self.client.get(
+            self.url,
+            {"q": "cruz"},
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET="owner-results",
+        )
+        self.assertTemplateUsed(response, "admin/pets/_choose_owner_results.html")
+        self.assertTemplateNotUsed(response, "admin/pets/choose_owner.html")
+        self.assertNotIn("<html", response.content.decode())
+        self.assertIn("HX-Request", response["Vary"])
+
+    def test_the_sidebar_highlights_pets(self):
+        html = self._html()
+        pets = reverse("admin_pet_list")
+        owners = reverse("admin_owner_list")
+        self.assertRegex(html, rf'<a href="{pets}"[^>]*aria-current="page"')
+        self.assertNotRegex(html, rf'<a href="{owners}"[^>]*aria-current="page"')
+
+    # ─── Query count ──────────────────────────────────────────────────────────
+
+    def _queries(self, **params):
+        self._get(**params)  # warm-up
+        with CaptureQueriesContext(connection) as queries:
+            self.assertEqual(self._get(**params).status_code, 200)
+        return len(queries)
+
+    def test_query_count_is_flat_for_3_and_30_owners(self):
+        three = self._queries()
+        self._many(27)
+        self.assertEqual(self._queries(), three)
+        self.assertEqual(self._queries(q="test"), self._queries(q="ana"))

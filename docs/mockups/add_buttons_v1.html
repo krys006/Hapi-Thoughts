@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Add buttons v1</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif; }
+</style>
+</head>
+<body class="bg-gray-200 text-gray-900 antialiased">
+<header class="sticky top-0 z-30 border-b border-gray-300 bg-white/95 px-6 py-3 backdrop-blur">
+  <p class="mb-2 text-sm font-semibold text-gray-700">Add buttons v1 · Pets, Medical records, Vaccinations · frame copied from layouts/admin.html · the search boxes on the “choose” pages really filter</p>
+  <div id="switcher" class="flex flex-wrap gap-2"></div>
+</header>
+<div class="overflow-x-auto p-6">
+  <div id="caption" class="mb-4 max-w-[1280px] space-y-2 rounded-xl border border-violet-200 bg-violet-50 p-4 text-base text-gray-800"></div>
+  <div id="stage"></div>
+  <p class="mt-3 text-sm text-gray-600">Desktop frame is 1280 px wide: a 1920×1080 screen at 150% zoom. All names and numbers are made up.</p>
+</div>
+<script>
+// ---------- Icons ----------
+const P = {
+  paw:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  house:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  calendar:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  userPlus:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/>',
+  fileText:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  syringe:'<path d="m18 2 4 4"/><path d="m17 7 3-3"/><path d="M19 9 8.7 19.3c-1 1-2.5 1-3.4 0l-.6-.6c-1-1-1-2.5 0-3.4L15 5"/><path d="m9 11 4 4"/><path d="m5 19-3 3"/><path d="m14 4 6 6"/>',
+  bookOpen:'<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+  banknote:'<rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/>',
+  tag:'<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
+  settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="m4.9 4.9 2.1 2.1"/><path d="m17 17 2.1 2.1"/><path d="M2 12h3"/><path d="M19 12h3"/><path d="m4.9 19.1 2.1-2.1"/><path d="m17 7 2.1-2.1"/>',
+  logout:'<path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>',
+  search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  arrowRight:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  arrowLeft:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  menu:'<path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/>',
+  chevronLeft:'<path d="m15 18-6-6 6-6"/>', chevronRight:'<path d="m9 18 6-6-6-6"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  calendarClock:'<path d="M16 14v2.2l1.6 1"/><path d="M16 2v4"/><path d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5"/><path d="M3 10h5"/><path d="M8 2v4"/><circle cx="16" cy="16" r="6"/>',
+  image:'<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+  dog:'<path d="M11.25 16.25h1.5L12 17z"/><path d="M16 14v.5"/><path d="M4.42 11.247A13.152 13.152 0 0 0 4 14.556C4 18.728 7.582 21 12 21s8-2.272 8-6.444a11.702 11.702 0 0 0-.493-3.309"/><path d="M8 14v.5"/><path d="M8.5 8.5c-.384 1.05-1.083 2.028-2.344 2.5-1.931.722-3.576-.297-3.656-1-.113-.994 1.177-6.53 4-7 1.923-.321 3.651.845 3.651 2.235A7.497 7.497 0 0 1 14 5.277c0-1.39 1.844-2.598 3.767-2.277 2.823.47 4.113 6.006 4 7-.08.703-1.725 1.722-3.656 1-1.261-.472-1.855-1.45-2.239-2.5"/>',
+  cat:'<path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z"/><path d="M8 14v.5"/><path d="M16 14v.5"/><path d="M11.25 16.25h1.5L12 17l-.75-.75Z"/>',
+  rabbit:'<path d="M13 16a3 3 0 0 1 2.24 5"/><path d="M18 12h.01"/><path d="M18 21h-8a4 4 0 0 1-4-4 7 7 0 0 1 7-7h.2L9.6 6.4a1 1 0 1 1 2.8-2.8L15.8 7h.2c3.3 0 6 2.7 6 6v1a2 2 0 0 1-2 2h-1a3 3 0 0 0-3 3"/><path d="M20 8.54V4a2 2 0 1 0-4 0v3"/><path d="M7.612 12.524a3 3 0 1 0-1.6 4.3"/>',
+  bird:'<path d="M16 7h.01"/><path d="M3.4 18H12a8 8 0 0 0 8-8V7a4 4 0 0 0-7.28-2.3L2 20"/><path d="m20 7 2 .5-2 .5"/><path d="M10 18v3"/><path d="M14 17.75V21"/><path d="M7 18a6 6 0 0 0 3.84-10.61"/>'
+};
+const ic = (n, c = 'size-5 shrink-0', s = 2) =>
+  `<svg class="${c}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${s}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+// ---------- Shared classes ----------
+const BTN = 'inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-base font-medium whitespace-nowrap transition-colors';
+const BTN_PRIMARY = `${BTN} bg-violet-600 text-white hover:bg-violet-700`;
+const BTN_OUTLINE = `${BTN} border border-gray-300 bg-white text-gray-800 hover:bg-gray-50`;
+const INPUT = 'block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-base text-gray-900 placeholder:text-gray-500';
+const CHOOSE = 'inline-flex min-h-11 items-center gap-2 rounded-lg border border-violet-300 bg-violet-50 px-5 text-base font-semibold text-violet-800 hover:border-violet-400 hover:bg-violet-100';
+
+// ---------- Frame ----------
+const navLink = (icon, label, active = false, count = 0) =>
+  `<a class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base ${active ? 'bg-white font-semibold text-violet-800 shadow-sm ring-1 ring-violet-200' : 'text-gray-800 hover:bg-violet-200/70'}">${ic(icon)}<span class="flex-1">${label}</span>${count ? `<span class="rounded-full bg-violet-600 px-2 text-sm font-semibold text-white">${count}</span>` : ''}</a>`;
+const sidebar = active => `
+<aside class="flex w-56 shrink-0 flex-col border-r border-violet-200 bg-violet-100">
+  <div class="flex h-16 shrink-0 items-center gap-3 px-5">
+    <a class="-mx-2 flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-lg px-2"><span class="grid size-10 shrink-0 place-content-center rounded-lg bg-gradient-to-br from-amber-300 to-amber-700 text-white">${ic('image')}</span>
+      <p class="line-clamp-2 text-base font-semibold leading-5 text-gray-900">Hapi Tutz Vet. Supplies</p></a>
+  </div>
+  <nav class="flex-1 space-y-1 px-3 py-2">
+    <p class="px-3 pb-1 pt-1 text-sm font-semibold text-violet-800">Daily work</p>
+    ${navLink('house','Dashboard')}${navLink('calendar','Appointments',false,2)}${navLink('users','Pet owners')}${navLink('paw','Pets',active==='pets')}
+    <p class="px-3 pb-1 pt-5 text-sm font-semibold text-violet-800">Records</p>
+    ${navLink('fileText','Medical records',active==='records')}${navLink('syringe','Vaccinations',active==='vax')}${navLink('bookOpen','Health library')}
+    <p class="px-3 pb-1 pt-5 text-sm font-semibold text-violet-800">Clinic</p>
+    ${navLink('receipt','Billing')}${navLink('banknote','Income')}${navLink('tag','Services and prices')}${navLink('settings','Clinic settings')}
+  </nav>
+  <div class="border-t border-violet-200 px-3 py-3"><a class="flex min-h-11 items-center gap-3 rounded-lg px-3 text-base text-gray-800">${ic('logout')}Log out</a></div>
+</aside>`;
+const topSearch = ph => `
+<form class="flex w-full max-w-[36rem] items-center gap-2" role="search" onsubmit="return false">
+  <div class="relative flex-1"><span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-600">${ic('search')}</span>
+  <input type="search" placeholder="${ph}" class="${INPUT} pl-10"></div>
+  <button type="button" class="${BTN_OUTLINE} font-semibold">Search</button>
+</form>`;
+const frame = (active, ph, body) => `
+<div class="relative flex min-h-[820px] w-[1280px] overflow-hidden rounded-xl border border-gray-300 bg-gray-50 shadow-sm">
+  ${sidebar(active)}
+  <div class="min-w-0 flex-1">
+    <header class="flex h-16 shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-8">${topSearch(ph)}<div class="ml-auto"><span class="${BTN_OUTLINE}">${ic('bell')}<span>Notifications</span></span></div></header>
+    <main class="px-8 py-6">${body}</main>
+  </div>
+</div>`;
+
+// ---------- Pieces ----------
+const link = (t, i = '') => `<a class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">${i ? ic(i) : ''}${t}</a>`;
+const pageHeader = (title, sub, action = '') => `
+<div class="mb-6 flex flex-wrap items-start justify-between gap-4">
+  <div><h1 class="text-2xl font-bold text-gray-900">${title}</h1><p class="mt-1 text-base text-gray-600">${sub}</p></div>
+  ${action}
+</div>`;
+const pill = (cls, icon, text) => `<span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm font-medium ${cls}">${icon ? ic(icon,'size-4 shrink-0') : ''}${text}</span>`;
+const petAvatar = species => `<span class="grid size-10 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-600 ring-1 ring-violet-200">${ic(species,'size-6 shrink-0',1.5)}</span>`;
+const initials = n => { const p = n.split(' '); return (p[0][0] + p[p.length-1][0]).toUpperCase(); };
+const ownerAv = n => `<span class="grid size-10 shrink-0 place-content-center rounded-full bg-violet-50 text-base font-semibold tracking-wide text-violet-700 ring-1 ring-violet-200">${initials(n)}</span>`;
+const ownerLink = n => `<a class="font-medium text-blue-600 underline underline-offset-2">${n}</a>`;
+const openBtn = `<a class="${CHOOSE}">Open${ic('arrowRight')}</a>`;
+const listCard = (rows, foot = '') => `<div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"><ul>${rows}</ul>${foot}</div>`;
+const pager = (n, total) => `<div class="flex flex-wrap items-center gap-3 border-t border-gray-200 px-5 py-3"><p class="flex-1 text-base text-gray-700">Showing 1–${n} of ${total}</p><nav class="flex gap-3" aria-label="Pages"><span class="${BTN} border border-gray-200 bg-gray-50 text-gray-600" aria-disabled="true">${ic('chevronLeft')}Previous</span><a class="${BTN_OUTLINE}">Next${ic('chevronRight')}</a></nav></div>`;
+const tabsRow = (items, active) => `<nav class="mb-4 flex flex-wrap gap-2" aria-label="Show">${items.map(([id, label, count, yellow]) => id === active
+  ? `<a class="inline-flex min-h-12 items-center gap-2 rounded-lg bg-violet-50 px-4 text-base font-semibold text-violet-800 ring-2 ring-violet-600" aria-current="page">${label}<span class="rounded-full px-2 text-sm font-semibold ${yellow ? 'bg-yellow-200 text-yellow-900' : 'bg-violet-100 text-violet-800'}">${count}</span></a>`
+  : `<a class="inline-flex min-h-12 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-800 hover:bg-gray-50">${label}<span class="rounded-full px-2 text-sm font-semibold ${yellow ? 'bg-yellow-200 text-yellow-900' : 'bg-gray-100 text-gray-800'}">${count}</span></a>`).join('')}</nav>`;
+
+// ---------- Data ----------
+const PETS = [
+  ['Bantay','dog','Dog · Aspin','2 yrs','Ana Cruz'], ['Bella','dog','Dog · Shih Tzu','4 yrs','Marites Lopez'],
+  ['Blackie','dog','Dog · Aspin','6 yrs','Pedro Dimaculangan'], ['Brownie','dog','Dog · Aspin','3 yrs','Liza Cruz'],
+  ['Bruno','dog','Dog · Labrador','5 yrs','Jun Aquino'], ['Choco','dog','Dog · Shih Tzu','1 yr','Liza Cruz'],
+  ['Chloe','cat','Cat · Persian','2 yrs','Nena Reyes'], ['Coco','dog','Dog · Poodle','7 yrs','Carmen Hernandez'],
+  ['Ginger','cat','Cat · Puspin','3 yrs','Lito Valdez'], ['Kitty','cat','Cat · Puspin','9 mos','Grace Domingo'],
+  ['Kiwi','bird','Bird · Lovebird','1 yr','Gina Santos'], ['Luna','cat','Cat · Siamese','4 yrs','Fe Pascual'],
+  ['Max','dog','Dog · Labrador','6 yrs','Rosa Dela Cruz'], ['Snowball','rabbit','Rabbit','1 yr','Jun Aquino']
+];
+const OWNERS = [
+  ['Jun Aquino','',['Bruno','Snowball']], ['Ana Cruz','',['Bantay']], ['Liza Cruz','0917 123 4567',['Brownie','Choco']],
+  ['Rosa Dela Cruz','0920 444 7788',['Max','Muning']], ['Pedro Dimaculangan','0919 774 3310',['Blackie']],
+  ['Grace Domingo','0917 902 6655',['Kitty']], ['Carmen Hernandez','0915 663 2290',['Coco']],
+  ['Marites Lopez','0920 778 1145',['Bella']], ['Fe Pascual','0917 556 1023',['Luna']], ['Nena Reyes','0915 228 6640',['Chloe','Buddy']],
+  ['Gina Santos','0918 442 5567',['Kiwi']], ['Lito Valdez','0916 870 3321',['Ginger']]
+];
+
+// ---------- The three list pages, each with its new violet button ----------
+const ADD_PET = `<a class="${BTN_PRIMARY}">${ic('plus')}Add pet</a>`;
+const ADD_REC = `<a class="${BTN_PRIMARY}">${ic('plus')}Add medical record</a>`;
+const ADD_VAX = `<a class="${BTN_PRIMARY}">${ic('plus')}Add vaccination</a>`;
+
+const petRow = ([name, sp, sb, age, owner]) => `
+<li class="grid grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)_auto] items-center gap-5 border-t border-gray-100 px-5 py-4 first:border-t-0">
+  <div class="flex min-w-0 items-center gap-4">${petAvatar(sp)}<div class="min-w-0"><p class="text-lg font-semibold text-gray-900">${name}</p><p class="text-base text-gray-700">${sb} · ${age}</p></div></div>
+  <span class="h-10 w-px bg-gray-200" aria-hidden="true"></span>
+  <div class="flex min-w-0 items-center gap-3">${ownerAv(owner)}<div class="min-w-0"><p class="text-sm text-gray-600">Owner</p><p class="truncate text-base">${ownerLink(owner)}</p></div></div>
+  ${openBtn}
+</li>`;
+const petsPage = () => frame('pets', 'Search pets: pet name, owner, species or breed',
+  pageHeader('Pets', 'Every pet registered at the clinic.', ADD_PET) +
+  tabsRow([['active','Active',31],['archived','Archived',3],['requests','Deletion requests',2,true]], 'active') +
+  listCard(PETS.slice(0, 5).map(petRow).join(''), pager(25, 31)));
+
+const REC = [
+  ['Tue, Nov 24','Max','dog','Skin allergy, itchy back','','Rosa Dela Cruz'],
+  ['Mon, Nov 23','Bantay','dog','Wound on the left paw','Follow-up Nov 30','Ana Cruz'],
+  ['Sat, Nov 21','Chloe','cat','Eye infection','Follow-up Nov 28','Nena Reyes'],
+  ['Fri, Nov 20','Luna','cat','','','Fe Pascual'],
+  ['Thu, Nov 19','Coco','dog','Dental cleaning','','Carmen Hernandez']
+];
+const recRow = ([date, pet, sp, dx, fu, owner]) => `
+<li class="grid grid-cols-[8rem_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-5 border-t border-gray-100 px-5 py-4 first:border-t-0">
+  <p class="text-base font-semibold text-gray-900">${date}</p>
+  <div class="flex min-w-0 items-center gap-3">${petAvatar(sp)}<div class="min-w-0"><p class="text-lg font-semibold">${pet}</p><p class="truncate text-base ${dx ? 'text-gray-800' : 'text-gray-600'}">${dx || 'No diagnosis written'}</p></div></div>
+  <div class="min-w-0"><p class="truncate text-base">${ownerLink(owner)}</p>${fu ? `<p class="mt-1">${pill('bg-blue-100 text-blue-900','calendarClock',fu)}</p>` : ''}</div>
+  ${openBtn}
+</li>`;
+const recordsPage = () => frame('records', 'Search records: pet, owner or diagnosis',
+  pageHeader('Medical records', 'Every visit record written at the clinic.', ADD_REC) +
+  tabsRow([['fu','Follow-ups in 7 days',2,true],['all','All',184]], 'all') +
+  listCard(REC.map(recRow).join(''), pager(25, 184)));
+
+const VAX = [
+  ['Max','dog','Anti-rabies','Given Nov 3','Next due Dec 3','Due soon','Rosa Dela Cruz'],
+  ['Bantay','dog','6-in-1','Given Oct 20','Next due Nov 17','Overdue','Ana Cruz'],
+  ['Luna','cat','Deworming','Given Oct 7','Next due Jan 7','','Fe Pascual'],
+  ['Choco','dog','Anti-rabies','Given Sep 14','Next due Sep 14, 2027','','Liza Cruz']
+];
+const vaxRow = ([pet, sp, vac, given, next, state, owner]) => `
+<li class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-5 border-t border-gray-100 px-5 py-4 first:border-t-0">
+  <div class="flex min-w-0 items-center gap-3">${petAvatar(sp)}<div class="min-w-0"><p class="text-lg font-semibold">${pet}</p><p class="text-base text-gray-800">${vac}</p></div></div>
+  <div class="min-w-0"><p class="text-base text-gray-800">${given}</p><p class="text-sm text-gray-700">${next}</p></div>
+  <div class="min-w-0"><p class="truncate text-base">${ownerLink(owner)}</p>${state ? `<p class="mt-1">${state === 'Overdue' ? pill('bg-red-100 text-red-800','clock',state) : pill('bg-yellow-100 text-yellow-900','clock',state)}</p>` : ''}</div>
+  ${openBtn}
+</li>`;
+const vaxPage = () => frame('vax', 'Search vaccinations: pet, owner or vaccine',
+  pageHeader('Vaccinations', 'Every vaccine given at the clinic.', ADD_VAX) +
+  tabsRow([['due','Due in 7 days',3,true],['over','Overdue',1],['all','All',212]], 'all') +
+  listCard(VAX.map(vaxRow).join(''), pager(25, 212)));
+
+// ---------- The "choose" pages ----------
+const KINDS = {
+  pet:  { active:'pets', back:'Back to pets', title:'Add a pet', sub:'A pet always belongs to one owner, so choose the owner first.',
+          label:'Find the owner', ph:'Owner name, pet name or phone', step:'Who owns the pet?', list:'All pet owners' },
+  rec:  { active:'records', back:'Back to medical records', title:'Add medical record', sub:'Choose the pet this visit record is for.',
+          label:'Find the pet', ph:'Pet name, owner name, species or breed', step:'Which pet?', list:'All pets' },
+  vax:  { active:'vax', back:'Back to vaccinations', title:'Add vaccination', sub:'Choose the pet that was vaccinated.',
+          label:'Find the pet', ph:'Pet name, owner name, species or breed', step:'Which pet?', list:'All pets' }
+};
+const chooseOwner = ([name, phone, pets]) => `
+<li class="flex flex-wrap items-center gap-4 border-t border-gray-100 px-5 py-4 first:border-t-0">
+  ${ownerAv(name)}
+  <div class="min-w-0 flex-1"><p class="text-base font-semibold">${name}</p><p class="text-sm text-gray-600">${phone || 'No phone number'}</p><p class="text-base text-gray-800">${pets.join(', ')}</p></div>
+  <a class="${CHOOSE}">Choose<span class="sr-only"> ${name}</span>${ic('arrowRight')}</a>
+</li>`;
+const choosePet = ([name, sp, sb, age, owner]) => `
+<li class="flex flex-wrap items-center gap-4 border-t border-gray-100 px-5 py-4 first:border-t-0">
+  ${petAvatar(sp)}
+  <div class="min-w-0 flex-1"><p class="text-lg font-semibold">${name}</p><p class="text-base text-gray-700">${sb} · ${age}</p><p class="text-sm text-gray-600">Owner: ${owner}</p></div>
+  <a class="${CHOOSE}">Choose<span class="sr-only"> ${name}</span>${ic('arrowRight')}</a>
+</li>`;
+const words = q => q.toLowerCase().split(/\s+/).filter(Boolean);
+function results(kind, q) {
+  const K = KINDS[kind]; q = q.trim();
+  const isOwner = kind === 'pet';
+  const data = isOwner ? OWNERS : PETS;
+  const hay = r => (isOwner ? [r[0], r[1], r[1].replace(/\s/g,''), ...r[2]] : [r[0], r[2], r[4], r[1]]).join(' ').toLowerCase();
+  const hits = q ? data.filter(r => words(q).every(w => hay(r).includes(w))) : data;
+  if (!hits.length) return `
+    <div class="rounded-xl border border-gray-200 bg-white px-6 py-8 text-center shadow-sm">
+      <span class="mx-auto mb-3 grid size-12 place-content-center rounded-xl bg-gray-100 text-gray-700">${ic('search','size-6 shrink-0')}</span>
+      <p class="text-lg font-semibold">No ${isOwner ? 'owner' : 'pet'} matches “${q}”</p>
+      <p class="mt-1 text-base text-gray-700">Check the spelling.${isOwner ? ' If this is their first visit, add the owner first.' : ' If the pet is not registered yet, add the pet first.'}</p>
+    </div>`;
+  const head = q ? `<p class="mb-2 text-base text-gray-700">${hits.length} ${hits.length === 1 ? (isOwner ? 'owner matches' : 'pet matches') : (isOwner ? 'owners match' : 'pets match')} “${q}”</p>`
+    : `<div class="mb-2 flex flex-wrap items-baseline justify-between gap-2"><h2 class="text-lg font-semibold">${K.list} <span class="font-normal text-gray-600">(${isOwner ? 34 : 31})</span></h2><p class="text-sm text-gray-600">A to Z</p></div>`;
+  return head + `<ul class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">${hits.map(isOwner ? chooseOwner : choosePet).join('')}</ul>`;
+}
+const helpBox = kind => kind === 'pet'
+  ? `<div class="mb-6 flex flex-wrap items-center gap-4 rounded-xl border border-gray-200 bg-white px-5 py-4 shadow-sm">
+      <span class="grid size-12 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-700 ring-1 ring-violet-200">${ic('userPlus','size-6 shrink-0')}</span>
+      <div class="min-w-0 flex-1"><p class="text-lg font-semibold text-gray-900">First visit at the clinic?</p><p class="text-base text-gray-700">Add the owner first. You can add their pets on the next page.</p></div>
+      <a class="${BTN_OUTLINE} min-h-12 font-semibold">${ic('userPlus')}Add owner</a></div>`
+  : `<div class="mb-6 flex flex-wrap items-center gap-4 rounded-xl border border-gray-200 bg-white px-5 py-4 shadow-sm">
+      <span class="grid size-12 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-700 ring-1 ring-violet-200">${ic('paw','size-6 shrink-0')}</span>
+      <div class="min-w-0 flex-1"><p class="text-lg font-semibold text-gray-900">Pet not registered yet?</p><p class="text-base text-gray-700">Add the pet first, from its owner. Then come back here.</p></div>
+      <a class="${BTN_OUTLINE} min-h-12 font-semibold">${ic('plus')}Add pet</a></div>`;
+const choosePage = (kind, q = '') => {
+  const K = KINDS[kind];
+  return frame(K.active, 'Find a pet or owner', `
+<div class="mb-4">${link(K.back, 'arrowLeft')}</div>
+<div class="mb-5"><h1 class="text-2xl font-bold">${K.title}</h1><p class="mt-1 text-base text-gray-600">${K.sub}</p></div>
+<div class="max-w-3xl">
+  ${helpBox(kind)}
+  <form class="mb-1 flex flex-wrap items-end gap-3" onsubmit="return false">
+    <label class="min-w-0 flex-1"><span class="mb-1.5 block text-base font-medium text-gray-800">${K.label}</span>
+      <span class="relative block"><span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-gray-600">${ic('search')}</span>
+      <input id="q" data-kind="${kind}" type="search" value="${q}" placeholder="${K.ph}" autocomplete="off" class="min-h-12 w-full rounded-lg border border-gray-300 bg-white pl-12 pr-4 text-base text-gray-900 placeholder:text-gray-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200"></span></label>
+    <button type="button" class="${BTN_OUTLINE} min-h-12 font-semibold">${ic('search')}Search</button>
+  </form>
+  <div class="mb-4 flex min-h-11 flex-wrap items-center justify-between gap-3"><p class="text-sm text-gray-600">The list gets shorter as you type.</p><span id="clear" class="${q ? '' : 'invisible'}">${link('Clear search','x')}</span></div>
+  <div id="results" aria-live="polite">${results(kind, q)}</div>
+</div>`);
+};
+
+// ---------- Phone ----------
+const phoneShell = inner => `
+<div class="w-[390px] shrink-0 overflow-hidden rounded-[2rem] border-8 border-gray-800 bg-gray-50 shadow-lg">
+  <header class="flex h-16 items-center gap-3 border-b border-gray-200 bg-white px-4"><span class="${BTN_OUTLINE}">${ic('menu')}Menu</span><div class="ml-auto"><span class="${BTN_OUTLINE}">${ic('bell')}<span class="sr-only">Notifications</span></span></div></header>
+  <main class="px-4 py-6">${inner}</main>
+</div>`;
+const phoneView = () => `<div class="flex gap-8">
+${phoneShell(`
+  <div class="mb-4"><h1 class="text-2xl font-bold">Medical records</h1><p class="mt-1 text-base text-gray-600">Every visit record written at the clinic.</p>
+    <a class="${BTN_PRIMARY} mt-4 w-full">${ic('plus')}Add medical record</a></div>
+  ${tabsRow([['fu','Follow-ups in 7 days',2,true],['all','All',184]], 'all')}
+  <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"><ul>${REC.slice(0,2).map(r => `
+    <li class="border-t border-gray-100 p-4 first:border-t-0"><p class="text-sm text-gray-600">${r[0]}</p>
+      <div class="mt-1 flex items-center gap-3">${petAvatar(r[2])}<div class="min-w-0"><p class="text-lg font-semibold">${r[1]}</p><p class="text-base text-gray-800">${r[3]}</p></div></div>
+      <span class="mt-3 flex min-h-11 items-center justify-center gap-2 rounded-lg border border-violet-300 bg-violet-50 text-base font-semibold text-violet-800">Open${ic('arrowRight')}</span></li>`).join('')}</ul></div>`)}
+${phoneShell(`
+  <div class="mb-3">${link('Back to medical records','arrowLeft')}</div>
+  <h1 class="text-2xl font-bold">Add medical record</h1><p class="mt-1 text-base text-gray-600">Choose the pet this visit record is for.</p>
+  <div class="mt-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm"><p class="text-lg font-semibold">Pet not registered yet?</p><p class="text-base text-gray-700">Add the pet first, from its owner.</p><a class="${BTN_OUTLINE} mt-3 w-full font-semibold">${ic('plus')}Add pet</a></div>
+  <label class="mt-4 block"><span class="mb-1.5 block text-base font-medium">Find the pet</span><input type="search" placeholder="Pet name, owner name…" class="${INPUT} min-h-12"></label>
+  <ul class="mt-4 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">${PETS.slice(0,2).map(p => `
+    <li class="border-t border-gray-100 p-4 first:border-t-0"><div class="flex items-center gap-3">${petAvatar(p[1])}<div class="min-w-0"><p class="text-lg font-semibold">${p[0]}</p><p class="text-base text-gray-700">${p[2]} · ${p[3]}</p><p class="text-sm text-gray-600">Owner: ${p[4]}</p></div></div>
+      <span class="mt-3 flex min-h-11 items-center justify-center gap-2 rounded-lg border border-violet-300 bg-violet-50 text-base font-semibold text-violet-800">Choose${ic('arrowRight')}</span></li>`).join('')}</ul>`)}
+</div>`;
+
+// ---------- States ----------
+const states = [
+  { id:'pets', label:'1 · Pets: Add pet', html: petsPage(),
+    caption:`<p><b>Pets list.</b> The page header gets a violet <b>Add pet</b> button at the right, like <b>Add owner</b> on the Pet owners page. It shows on all three tabs and is the one violet button on the page. (Before, this page said a pet is added from its owner's page; that still works.)</p>
+<p>A pet always belongs to exactly one owner, so the button opens a short page that asks <b>who owns the pet</b> first (next frame).</p>` },
+  { id:'owner', label:'2 · Add pet: choose the owner', html: choosePage('pet'),
+    caption:`<p><b>Step before the pet form.</b> Same idea as step 1 of a walk-in: every active owner is listed (A to Z, 25 a page), and the list narrows as you type (owner name, pet name or phone). <b>Choose</b> opens the pet form you already have for that owner (<code>Add pet</code> on the owner's page), unchanged. Archived owners are not listed.</p>
+<p>First visit? The <b>Add owner</b> box sends them to the existing Add owner page; its next page already offers to add their pets. This page has no violet button, only the light-violet <b>Choose</b>.</p>
+<p>Try typing “cruz” or “bruno” in the search box.</p>` },
+  { id:'records', label:'3 · Medical records: Add', html: recordsPage(),
+    caption:`<p><b>Medical records list.</b> A violet <b>Add medical record</b> button in the page header, on both tabs. Until now this page had no violet button.</p>
+<p>A record belongs to a pet, so the button opens a <b>choose the pet</b> page (next frame). Writing a record from a visit still starts from the appointment page, as before.</p>` },
+  { id:'pickrec', label:'4 · Add record: choose the pet', html: choosePage('rec'),
+    caption:`<p><b>Choose the pet.</b> Every active pet is listed with its owner, and the list narrows as you type (pet name, owner name, species or breed). <b>Choose</b> opens the existing new-record form for that pet, unchanged (<code>Add medical record</code> on the pet's page).</p>
+<p>Archived pets, and pets whose owner is archived, are left out: the server already refuses new records for them. A pet that is not registered yet gets the <b>Add pet</b> box, which leads to frame 2.</p>` },
+  { id:'vax', label:'5 · Vaccinations: Add', html: vaxPage(),
+    caption:`<p><b>Vaccinations list.</b> A violet <b>Add vaccination</b> button in the page header, on all three tabs (Due in 7 days, Overdue, All). The page had no violet button before.</p>` },
+  { id:'pickvax', label:'6 · Add vaccination: choose the pet', html: choosePage('vax'),
+    caption:`<p><b>Same page, other words.</b> It is the same “choose the pet” page as frame 4 with its own title, subtitle and back link. <b>Choose</b> opens the existing standalone vaccination form for that pet, unchanged. Same exclusions: archived pets and pets of archived owners are not listed.</p>` },
+  { id:'nomatch', label:'7 · No match', html: choosePage('rec', 'rex'),
+    caption:`<p><b>No match.</b> A plain message and the <b>Add pet</b> box above it, so there is always a next step.</p>` },
+  { id:'phone', label:'8 · Phone', html: phoneView(),
+    caption:`<p><b>Phone width.</b> On the list the violet button sits under the title at full width (a 44 px-high target that is easy to tap); on the choose page the box for a missing pet comes first, then the search, then the pets with a full-width <b>Choose</b>.</p>` }
+];
+
+// ---------- Switcher ----------
+const sw = document.getElementById('switcher');
+function bind() {
+  const input = document.getElementById('q');
+  if (!input) return;
+  const kind = input.dataset.kind;
+  input.addEventListener('input', () => {
+    document.getElementById('results').innerHTML = results(kind, input.value);
+    document.getElementById('clear').className = input.value.trim() ? '' : 'invisible';
+  });
+  document.getElementById('clear').addEventListener('click', () => {
+    input.value = ''; document.getElementById('results').innerHTML = results(kind, '');
+    document.getElementById('clear').className = 'invisible'; input.focus();
+  });
+}
+function show(id) {
+  const s = states.find(x => x.id === id);
+  document.getElementById('stage').innerHTML = s.html;
+  document.getElementById('caption').innerHTML = s.caption;
+  [...sw.children].forEach(b => {
+    const on = b.dataset.id === id;
+    b.className = 'min-h-11 rounded-lg px-4 text-base font-medium ' + (on ? 'bg-violet-600 text-white' : 'border border-gray-300 bg-white text-gray-800 hover:bg-gray-50');
+  });
+  bind();
+}
+states.forEach(s => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.dataset.id = s.id; b.textContent = s.label; b.onclick = () => show(s.id);
+  sw.appendChild(b);
+});
+show('pets');
+</script>
+</body>
+</html>

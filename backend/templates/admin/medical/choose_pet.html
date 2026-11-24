@@ -1,0 +1,56 @@
+{% extends "layouts/admin.html" %}
+{% comment %}
+  "Choose the pet" page for Add medical record (admin_medical_record_choose_pet)
+  and Add vaccination (admin_vaccination_choose_pet): one template, the
+  words and targets come from the view (medical/utils.py CHOOSE_PET_*).
+  Choose opens the existing form for that pet. Built like walk-in step 1:
+  the search box filters the list as you type (HTMX swaps #pet-results,
+  never the input); Search is a plain GET for no-JS. No violet button here:
+  the box for a missing pet and Search are plain outlines, Choose is light
+  violet.
+  Context: page_url_name, choose_url_name, back_url_name, back_label, title,
+  subtitle, search_label, q; the rest is in _choose_pet_results.html.
+{% endcomment %}
+
+{% block title %}{{ title }} — Hapi Vet Admin{% endblock %}
+
+{# The header is drawn in the page body below, so the back link, title and cards line up #}
+{% block page_header %}{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+  <a href="{% url back_url_name %}" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="arrow-left" %}{{ back_label }}</a>
+</div>
+<div class="mb-5">
+  <h1 class="text-2xl font-bold text-gray-900">{{ title }}</h1>
+  <p class="mt-1 text-base text-gray-600">{{ subtitle }}</p>
+</div>
+
+<div class="max-w-3xl">
+  <section class="mb-6 flex flex-wrap items-center gap-4 rounded-xl border border-gray-200 bg-white px-5 py-4 shadow-sm" aria-labelledby="new-pet-title">
+    <span class="grid size-12 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-700 ring-1 ring-violet-200">{% include "components/icon.html" with name="paw-print" class="size-6 shrink-0" %}</span>
+    <div class="min-w-0 flex-1">
+      <h2 id="new-pet-title" class="text-lg font-semibold text-gray-900">Pet not registered yet?</h2>
+      <p class="text-base text-gray-700">Add the pet first, from its owner. Then come back here.</p>
+    </div>
+    <a href="{% url 'admin_pet_choose_owner' %}" class="btn btn-outline min-h-12 font-semibold">{% include "components/icon.html" with name="plus" %}Add pet</a>
+  </section>
+
+  {# Typing filters the list below (HTMX swaps #pet-results, never the input); Search is a plain GET for no-JS #}
+  <form method="get" action="{% url page_url_name %}" class="mb-1 flex flex-wrap items-end gap-3" role="search">
+    <div class="min-w-0 flex-1 space-y-1.5">
+      <label for="choose-q" class="block text-base font-medium text-gray-800">{{ search_label }}</label>
+      <div class="relative">
+        {% include "components/icon.html" with name="search" class="pointer-events-none absolute top-1/2 left-3.5 size-5 shrink-0 -translate-y-1/2 text-gray-600" %}
+        <input type="search" id="choose-q" name="q" value="{{ q }}" class="input min-h-12 pl-11" placeholder="Pet name, owner name, species or breed" autocomplete="off" autofocus hx-get="{% url page_url_name %}" hx-trigger="input changed delay:500ms, search" hx-target="#pet-results" hx-replace-url="true">
+      </div>
+    </div>
+    <button type="submit" class="btn btn-outline min-h-12 font-semibold">{% include "components/icon.html" with name="search" %}Search</button>
+  </form>
+  <p class="mb-4 mt-2 text-sm text-gray-600">The list gets shorter as you type.</p>
+
+  <div id="pet-results">
+    {% include "admin/medical/_choose_pet_results.html" %}
+  </div>
+</div>
+{% endblock %}
