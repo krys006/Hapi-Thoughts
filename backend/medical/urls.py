@@ -8,6 +8,12 @@ urlpatterns = [
         views.admin_medical_record_list,
         name="admin_medical_record_list",
     ),
+    # Add medical record, step 1: choose the pet (read only)
+    path(
+        "admin/medical/add/",
+        views.admin_medical_record_choose_pet,
+        name="admin_medical_record_choose_pet",
+    ),
     path(
         "admin/medical/pet/<int:pet_pk>/create/",
         views.admin_medical_record_create,
@@ -55,6 +61,12 @@ urlpatterns = [
         "admin/vaccinations/",
         views.admin_vaccination_list,
         name="admin_vaccination_list",
+    ),
+    # Add vaccination, step 1: choose the pet (read only)
+    path(
+        "admin/vaccinations/add/",
+        views.admin_vaccination_choose_pet,
+        name="admin_vaccination_choose_pet",
     ),
     path(
         "admin/pets/<int:pet_pk>/vaccination/create/",

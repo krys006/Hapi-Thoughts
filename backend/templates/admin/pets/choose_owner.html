@@ -1,0 +1,53 @@
+{% extends "layouts/admin.html" %}
+{% comment %}
+  Add a pet, step 1: "choose the owner" (admin_pet_choose_owner). A pet
+  always has one owner, so Choose opens the existing Add pet form for that
+  owner (admin_pet_add). Built like walk-in step 1: the search box filters
+  the list as you type (HTMX swaps #owner-results, never the input); Search
+  is a plain GET for no-JS. No violet button here: the box for a new owner
+  and Search are plain outlines, Choose is light violet.
+  Context: see _choose_owner_results.html.
+{% endcomment %}
+
+{% block title %}Add a pet — Hapi Vet Admin{% endblock %}
+
+{# The header is drawn in the page body below, so the back link, title and cards line up #}
+{% block page_header %}{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+  <a href="{% url 'admin_pet_list' %}" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="arrow-left" %}Back to pets</a>
+</div>
+<div class="mb-5">
+  <h1 class="text-2xl font-bold text-gray-900">Add a pet</h1>
+  <p class="mt-1 text-base text-gray-600">A pet always belongs to one owner, so choose the owner first.</p>
+</div>
+
+<div class="max-w-3xl">
+  <section class="mb-6 flex flex-wrap items-center gap-4 rounded-xl border border-gray-200 bg-white px-5 py-4 shadow-sm" aria-labelledby="new-owner-title">
+    <span class="grid size-12 shrink-0 place-content-center rounded-xl bg-violet-50 text-violet-700 ring-1 ring-violet-200">{% include "components/icon.html" with name="user-plus" class="size-6 shrink-0" %}</span>
+    <div class="min-w-0 flex-1">
+      <h2 id="new-owner-title" class="text-lg font-semibold text-gray-900">First visit at the clinic?</h2>
+      <p class="text-base text-gray-700">Add the owner first. You can add their pets on the next page.</p>
+    </div>
+    <a href="{% url 'admin_owner_create' %}" class="btn btn-outline min-h-12 font-semibold">{% include "components/icon.html" with name="user-plus" %}Add owner</a>
+  </section>
+
+  {# Typing filters the list below (HTMX swaps #owner-results, never the input); Search is a plain GET for no-JS #}
+  <form method="get" action="{% url 'admin_pet_choose_owner' %}" class="mb-1 flex flex-wrap items-end gap-3" role="search">
+    <div class="min-w-0 flex-1 space-y-1.5">
+      <label for="choose-q" class="block text-base font-medium text-gray-800">Find the owner</label>
+      <div class="relative">
+        {% include "components/icon.html" with name="search" class="pointer-events-none absolute top-1/2 left-3.5 size-5 shrink-0 -translate-y-1/2 text-gray-600" %}
+        <input type="search" id="choose-q" name="q" value="{{ q }}" class="input min-h-12 pl-11" placeholder="Owner name, pet name or phone" autocomplete="off" autofocus hx-get="{% url 'admin_pet_choose_owner' %}" hx-trigger="input changed delay:500ms, search" hx-target="#owner-results" hx-replace-url="true">
+      </div>
+    </div>
+    <button type="submit" class="btn btn-outline min-h-12 font-semibold">{% include "components/icon.html" with name="search" %}Search</button>
+  </form>
+  <p class="mb-4 mt-2 text-sm text-gray-600">The list gets shorter as you type.</p>
+
+  <div id="owner-results">
+    {% include "admin/pets/_choose_owner_results.html" %}
+  </div>
+</div>
+{% endblock %}

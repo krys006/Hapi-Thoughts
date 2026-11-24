@@ -7,9 +7,12 @@
   {% include "admin/medical/record_list_parts/search_form.html" with id_prefix="topbar" form_class="hidden min-w-0 flex-1 items-center gap-3 md:flex" %}
 {% endblock %}
 
-{# No button: a record is added from a visit or the pet's page #}
+{# Add medical record asks for the pet first; a record from a visit still starts on the appointment page. Shows on every tab #}
 {% block page_title %}Medical records{% endblock %}
 {% block page_subtitle %}Every visit record written at the clinic.{% endblock %}
+{% block page_actions %}
+  <a href="{% url 'admin_medical_record_choose_pet' %}" class="btn btn-primary">{% include "components/icon.html" with name="plus" %}Add medical record</a>
+{% endblock %}
 
 {% block content %}
   {% include "admin/medical/record_list_parts/search_form.html" with id_prefix="page" form_class="mb-4 flex items-center gap-3 md:hidden" %}

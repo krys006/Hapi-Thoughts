@@ -3,6 +3,10 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.cache import patch_vary_headers
+from django.views.decorators.http import require_GET
+
+from appointments.utils import is_results_swap
 
 from .models import MedicalRecord, PrescriptionItem, TestResultFile, Vaccination
 from .forms import (
@@ -13,8 +17,11 @@ from .forms import (
     VaccinationEditForm,
 )
 from .utils import (
+    CHOOSE_PET_RECORD,
+    CHOOSE_PET_VACCINATION,
     RECORD_EXISTS,
     can_remove_medicines,
+    choose_pet_context,
     followup_reminder_return,
     medical_history_context,
     new_vaccination_initial,
@@ -48,6 +55,40 @@ from pets.utils import archived_pet_refusal
 # ── Admin — Medical Records ───────────────────────────────────────────────────
 
 RECORD_FORM = "admin/medical/record_form.html"
+
+
+def _choose_pet_response(request, words):
+    """The "choose the pet" page for Add medical record / Add vaccination:
+    the full page, or only the results for the filter-as-you-type HTMX
+    request (target #pet-results). Read only."""
+    if request.user.role != "admin":
+        return redirect("owner_dashboard")
+
+    template = (
+        "admin/medical/_choose_pet_results.html"
+        if is_results_swap(request, "pet-results")
+        else "admin/medical/choose_pet.html"
+    )
+    response = render(request, template, choose_pet_context(request.GET, words))
+    # The same URL answers with the partial or the full page
+    patch_vary_headers(response, ["HX-Request"])
+    return response
+
+
+@login_required
+@require_GET
+def admin_medical_record_choose_pet(request):
+    """Admin view — Add medical record, step 1: choose the pet.
+    URL: /admin/medical/add/. Choose opens admin_medical_record_create."""
+    return _choose_pet_response(request, CHOOSE_PET_RECORD)
+
+
+@login_required
+@require_GET
+def admin_vaccination_choose_pet(request):
+    """Admin view — Add vaccination, step 1: choose the pet.
+    URL: /admin/vaccinations/add/. Choose opens the standalone create."""
+    return _choose_pet_response(request, CHOOSE_PET_VACCINATION)
 
 
 @login_required

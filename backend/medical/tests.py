@@ -2778,10 +2778,12 @@ class VaccinationListPageTests(MedicalListPageTestBase):
     def test_no_primary_button_outside_dialogs(self):
         self._dose(3)
         self._dose(-3, vaccine_name=Vaccination.DEWORMING)
+        # Approved change (Add vaccination button): the one violet button
         for params in ({}, {"tab": "overdue"}, {"tab": "all"}, {"q": "zzz"}):
             with self.subTest(params=params):
                 html = self._html(**params)
-                self.assertEqual(_outside_dialogs(html).count("btn-primary"), 0)
+                self.assertEqual(_outside_dialogs(html).count("btn-primary"), 1)
+                self.assertIn(reverse("admin_vaccination_choose_pet"), html)
 
     def test_search_forms_with_the_hidden_tab(self):
         for tab in ("due", "overdue", "all"):
@@ -3280,10 +3282,12 @@ class RecordListPageTests(MedicalListPageTestBase):
 
     def test_no_primary_button_outside_dialogs(self):
         self._rec(follow_days=3)
+        # Approved change (Add medical record button): the one violet button
         for params in ({}, {"tab": "followups"}, {"q": "zzz"}):
             with self.subTest(params=params):
                 html = self._html(**params)
-                self.assertEqual(_outside_dialogs(html).count("btn-primary"), 0)
+                self.assertEqual(_outside_dialogs(html).count("btn-primary"), 1)
+                self.assertIn(reverse("admin_medical_record_choose_pet"), html)
 
     def test_search_forms_with_the_hidden_tab(self):
         for tab in ("followups", "all"):
@@ -7647,3 +7651,298 @@ class OwnerRecordPageTests(FrozenMedicalTestBase):
         self._fill(27, record)
         with self.assertNumQueries(RECORD_PAGE_QUERIES):
             self.assertEqual(self._get(record).status_code, 200)
+
+
+class MedicalListsAddButtonTests(MedicalListTestBase):
+    """The violet Add button in the header of the Medical records and
+    Vaccinations lists: on every tab, one violet button, the right target."""
+
+    def _html(self, url_name, **params):
+        response = self.client.get(reverse(url_name), params)
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def _check(self, url_name, target_name, label, param_sets):
+        target = reverse(target_name)
+        for params in param_sets:
+            with self.subTest(page=url_name, params=params):
+                html = self._html(url_name, **params)
+                self.assertRegex(
+                    html,
+                    rf'(?s)<a href="{target}" class="btn btn-primary">\s*'
+                    rf"<svg[^>]*>.*?</svg>\s*{label}</a>",
+                )
+                self.assertEqual(_outside_dialogs(html).count("btn-primary"), 1)
+
+    def test_add_medical_record_on_both_tabs(self):
+        self._check(
+            "admin_medical_record_list",
+            "admin_medical_record_choose_pet",
+            "Add medical record",
+            ({"tab": "followups"}, {"tab": "all"}, {"q": "zzz"}),
+        )
+
+    def test_add_vaccination_on_all_three_tabs(self):
+        self._check(
+            "admin_vaccination_list",
+            "admin_vaccination_choose_pet",
+            "Add vaccination",
+            ({"tab": "due"}, {"tab": "overdue"}, {"tab": "all"}, {"q": "zzz"}),
+        )
+
+    def test_each_button_only_on_its_own_page(self):
+        records = self._html("admin_medical_record_list")
+        vaccinations = self._html("admin_vaccination_list")
+        self.assertNotIn(reverse("admin_vaccination_choose_pet"), records)
+        self.assertNotIn(reverse("admin_medical_record_choose_pet"), vaccinations)
+
+
+class _ChoosePetBase(MedicalListTestBase):
+    """Ana Cruz (Bantay, Coco), Ben Santos (Muning), an archived pet (Oldie)
+    and a pet of an archived owner (Ghost). Set by each subclass: url_name,
+    choose_name, title, subtitle, back_name, back_label."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse(self.url_name)
+        self.coco = Pet.objects.create(
+            owner=self.owner, name="Coco", species="Dog", breed="Poodle"
+        )
+        Pet.objects.create(
+            owner=self.owner, name="Oldie", species="Dog", is_archived=True
+        )
+        cara_user = User.objects.create_user(
+            username="cara_archer", email="cara@example.com", role=User.PET_OWNER
+        )
+        cara = PetOwner.objects.create(
+            user=cara_user, first_name="Cara", last_name="Archer", is_archived=True
+        )
+        Pet.objects.create(owner=cara, name="Ghost", species="Cat")
+
+    def _get(self, **params):
+        return self.client.get(self.url, params)
+
+    def _html(self, **params):
+        return self._get(**params).content.decode()
+
+    def _names(self, **params):
+        return [p.name for p in self._get(**params).context["pets"]]
+
+    def _more(self, count):
+        for i in range(count):
+            Pet.objects.create(owner=self.owner, name=f"Pet{i:02d}", species="Dog")
+
+
+ROW = '<li class="flex flex-wrap items-center gap-4 border-t'
+
+
+class _ChoosePetChecks:
+    """The checks both "choose the pet" pages share (mixed into a
+    _ChoosePetBase subclass)."""
+
+    # ─── Who may open it ──────────────────────────────────────────────────────
+
+    def test_a_pet_owner_is_sent_to_their_dashboard(self):
+        self.client.force_login(self.owner_user)
+        self.assertRedirects(
+            self._get(), reverse("owner_dashboard"), fetch_redirect_response=False
+        )
+
+    def test_anonymous_goes_to_login(self):
+        self.client.logout()
+        self.assertRedirects(
+            self._get(), reverse("admin_login"), fetch_redirect_response=False
+        )
+
+    def test_get_only_and_it_writes_nothing(self):
+        pets, records = Pet.objects.count(), MedicalRecord.objects.count()
+        self.assertEqual(self.client.post(self.url, {"q": "x"}).status_code, 405)
+        self.assertEqual(Pet.objects.count(), pets)
+        self.assertEqual(MedicalRecord.objects.count(), records)
+        self.assertEqual(Vaccination.objects.count(), 0)
+
+    # ─── The list ─────────────────────────────────────────────────────────────
+
+    def test_lists_active_pets_a_to_z_with_their_owner(self):
+        self.assertEqual(self._names(), ["Bantay", "Coco", "Muning"])
+        html = self._html()
+        self.assertIn("All pets (3)", html)
+        self.assertIn('<p class="text-sm text-gray-600">A to Z</p>', html)
+        self.assertIn("Owner: Ana Cruz", html)
+        self.assertIn("Owner: Ben Santos", html)
+        self.assertIn("Dog · Poodle", html)
+
+    def test_an_archived_pet_and_a_pet_of_an_archived_owner_are_left_out(self):
+        for params in ({}, {"q": "oldie"}, {"q": "ghost"}, {"q": "archer"}):
+            with self.subTest(params=params):
+                html = self._html(**params)
+                self.assertNotIn("Oldie", html)
+                self.assertNotIn("Ghost", html)
+
+    def test_search_by_pet_owner_species_and_breed(self):
+        for q, expected in (
+            ("bantay", ["Bantay"]),
+            ("santos", ["Muning"]),
+            ("cat", ["Muning"]),
+            ("poodle", ["Coco"]),
+            ("ana cruz", ["Bantay", "Coco"]),
+            ("ana santos", []),  # every word must match
+        ):
+            with self.subTest(q=q):
+                self.assertEqual(self._names(q=q), expected)
+
+    def test_no_match_says_so_and_offers_add_pet(self):
+        html = self._html(q="rex")
+        self.assertIn(
+            '<p class="text-lg font-semibold text-gray-900" aria-live="polite">'
+            "No pet matches “rex”</p>",
+            html,
+        )
+        self.assertIn(
+            '<p class="mt-1 max-w-sm text-base text-gray-600">Check the spelling. '
+            "If the pet is not registered yet, add the pet first.</p>",
+            html,
+        )
+        self.assertIn("Pet not registered yet?", html)
+        self.assertIn(
+            f'<a href="{reverse("admin_pet_choose_owner")}" class="btn btn-outline '
+            'min-h-12 font-semibold">',
+            html,
+        )
+        self.assertIn("Clear search", html)
+
+    def test_pager_at_26_pets_and_none_while_searching(self):
+        self._more(23)  # 3 + 23 = 26
+        html = self._html()
+        self.assertEqual(html.count(ROW), 25)
+        self.assertIn("Showing 1–25 of 26", html)
+        self.assertEqual(self._html(page=2).count(ROW), 1)
+        searched = self._html(q="pet")
+        self.assertNotIn("Showing 1", searched)
+        self.assertIn("More than 20 pets match “pet”. Showing the first 20.", searched)
+        self.assertEqual(searched.count(ROW), 20)
+
+    def test_choose_goes_to_the_existing_form_for_that_pet(self):
+        html = self._html()
+        for pet in (self.pet, self.coco, self.muning):
+            with self.subTest(pet=pet.name):
+                href = reverse(self.choose_name, args=[pet.pk])
+                self.assertRegex(
+                    html,
+                    rf'<a href="{href}" class="[^"]*">Choose'
+                    rf'<span class="sr-only"> {pet.name}</span>',
+                )
+
+    # ─── The page ─────────────────────────────────────────────────────────────
+
+    def test_title_subtitle_back_link_and_no_violet_button(self):
+        html = self._html()
+        self.assertIn(f"<title>{self.title} — Hapi Vet Admin</title>", html)
+        self.assertIn(
+            f'<h1 class="text-2xl font-bold text-gray-900">{self.title}</h1>', html
+        )
+        self.assertIn(self.subtitle, html)
+        self.assertRegex(
+            html,
+            rf'<a href="{reverse(self.back_name)}" class="[^"]*">\s*<svg'
+            rf"[^>]*>(?s:.*?)</svg>\s*{self.back_label}</a>",
+        )
+        self.assertIn("Find the pet</label>", html)
+        self.assertIn('placeholder="Pet name, owner name, species or breed"', html)
+        self.assertIn("The list gets shorter as you type.", html)
+        self.assertEqual(html.count("btn-primary"), 0)
+        self.assertIn("Pet not registered yet?", html)
+
+    def test_the_search_works_without_javascript_and_narrows_with_htmx(self):
+        html = self._html(q="bantay")
+        form = re.search(r'(?s)<form method="get".*?</form>', html).group(0)
+        self.assertIn(f'action="{self.url}"', form)
+        self.assertIn('<button type="submit" class="btn btn-outline', form)
+        self.assertIn('value="bantay"', form)
+        self.assertIn('hx-trigger="input changed delay:500ms, search"', form)
+        self.assertIn('hx-target="#pet-results"', form)
+        self.assertIn(f'hx-get="{self.url}"', form)
+        for text in ("<!--", "onclick", "hx-confirm"):
+            self.assertNotIn(text, html)
+
+    def test_htmx_gets_only_the_results(self):
+        response = self.client.get(
+            self.url,
+            {"q": "bantay"},
+            HTTP_HX_REQUEST="true",
+            HTTP_HX_TARGET="pet-results",
+        )
+        self.assertTemplateUsed(response, "admin/medical/_choose_pet_results.html")
+        self.assertTemplateNotUsed(response, "admin/medical/choose_pet.html")
+        self.assertNotIn("<html", response.content.decode())
+        self.assertIn("HX-Request", response["Vary"])
+        # Another target (or a history restore) gets the whole page
+        other = self.client.get(
+            self.url, {"q": "bantay"}, HTTP_HX_REQUEST="true", HTTP_HX_TARGET="x"
+        )
+        self.assertTemplateUsed(other, "admin/medical/choose_pet.html")
+
+    def test_the_sidebar_highlights_the_right_item(self):
+        html = self._html()
+        lists = {
+            "admin_pet_list": False,
+            "admin_medical_record_list": False,
+            "admin_vaccination_list": False,
+        }
+        lists[self.back_name] = True
+        for name, current in lists.items():
+            with self.subTest(link=name):
+                found = re.search(
+                    rf'<a href="{reverse(name)}"[^>]*aria-current="page"', html
+                )
+                self.assertEqual(found is not None, current)
+
+    # ─── Query count ──────────────────────────────────────────────────────────
+
+    def _queries(self, **params):
+        self._get(**params)  # warm-up
+        with CaptureQueriesContext(connection) as queries:
+            self.assertEqual(self._get(**params).status_code, 200)
+        return len(queries)
+
+    def test_query_count_is_flat_for_3_and_30_pets(self):
+        three = self._queries()
+        self._more(27)
+        self.assertEqual(self._queries(), three)
+        self.assertEqual(self._queries(q="pet"), self._queries(q="bantay"))
+
+
+class RecordChoosePetViewTests(_ChoosePetChecks, _ChoosePetBase):
+    """admin_medical_record_choose_pet: Add medical record, step 1."""
+
+    url_name = "admin_medical_record_choose_pet"
+    choose_name = "admin_medical_record_create"
+    title = "Add medical record"
+    subtitle = "Choose the pet this visit record is for."
+    back_name = "admin_medical_record_list"
+    back_label = "Back to medical records"
+
+    def test_the_words_differ_from_the_vaccination_page(self):
+        html = self._html()
+        self.assertNotIn("Add vaccination", html)
+        self.assertNotIn("Choose the pet that was vaccinated.", html)
+        self.assertNotIn("Back to vaccinations", html)
+        self.assertNotIn("vaccination/create", html)  # the vaccination form's links
+
+
+class VaccinationChoosePetViewTests(_ChoosePetChecks, _ChoosePetBase):
+    """admin_vaccination_choose_pet: Add vaccination, step 1."""
+
+    url_name = "admin_vaccination_choose_pet"
+    choose_name = "admin_vaccination_standalone_create"
+    title = "Add vaccination"
+    subtitle = "Choose the pet that was vaccinated."
+    back_name = "admin_vaccination_list"
+    back_label = "Back to vaccinations"
+
+    def test_the_words_differ_from_the_record_page(self):
+        html = self._html()
+        self.assertNotIn("Add medical record", html)
+        self.assertNotIn("Choose the pet this visit record is for.", html)
+        self.assertNotIn("Back to medical records", html)
+        self.assertNotIn("/admin/medical/pet/", html)  # the record form's links

@@ -1,0 +1,60 @@
+{% comment %}
+  "Choose the pet" results, under the search box. Included by
+  choose_pet.html, and returned alone by the two choose-pet views for the
+  filter-as-you-type HTMX request (target #pet-results).
+  Context: q, pets (each with its owner), is_cut, search_limit,
+  page_url_name, choose_url_name (takes the pet's pk); with no q also
+  pet_count, page_obj, prev_page_query, next_page_query (pager).
+  The heading, match line and empty-state title are the live regions.
+{% endcomment %}
+{% if q %}
+  <div class="mb-3 flex justify-end">
+    <a href="{% url page_url_name %}" class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-blue-600 underline underline-offset-2">{% include "components/icon.html" with name="x" %}Clear search</a>
+  </div>
+{% endif %}
+
+<section aria-labelledby="results-title">
+  {% if q %}
+    {% if pets %}
+      <h2 id="results-title" class="mb-2 text-base text-gray-700" aria-live="polite">{% if is_cut %}More than {{ search_limit }} pets match “{{ q }}”. Showing the first {{ search_limit }}.{% else %}{{ pets|length }} pet{{ pets|length|pluralize:" matches,s match" }} “{{ q }}”{% endif %}</h2>
+    {% else %}
+      <h2 id="results-title" class="sr-only">Search results</h2>
+    {% endif %}
+  {% else %}
+    <div class="mb-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+      <h2 id="results-title" class="text-lg font-semibold text-gray-900" aria-live="polite">All pets ({{ pet_count }})</h2>
+      <p class="text-sm text-gray-600">A to Z</p>
+    </div>
+  {% endif %}
+
+  {% if pets %}
+    <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      <ul>
+        {% for pet in pets %}
+          <li class="flex flex-wrap items-center gap-4 border-t border-gray-100 px-5 py-4 first:border-t-0">
+            {% include "components/pet_avatar.html" with pet=pet size="sm" %}
+            <div class="min-w-0 flex-1">
+              <p class="text-lg font-semibold text-gray-900">{{ pet.name }}</p>
+              <p class="text-base text-gray-700">{{ pet.species }}{% if pet.breed %} · {{ pet.breed }}{% endif %}{% if pet.date_of_birth %} · {{ pet.age }}{% endif %}</p>
+              <p class="text-sm text-gray-600">Owner: {{ pet.owner.full_name }}</p>
+            </div>
+            <a href="{% url choose_url_name pet.pk %}" class="inline-flex min-h-11 items-center gap-2 whitespace-nowrap rounded-lg border border-violet-300 bg-violet-50 px-5 text-base font-semibold text-violet-800 hover:border-violet-400 hover:bg-violet-100">Choose<span class="sr-only"> {{ pet.name }}</span>{% include "components/icon.html" with name="arrow-right" %}</a>
+          </li>
+        {% endfor %}
+      </ul>
+      {% if page_obj %}
+        {% include "admin/appointments/list_parts/pager.html" %}
+      {% endif %}
+    </div>
+  {% elif q %}
+    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+      {% with title="No pet matches “"|add:q|add:"”" %}
+        {% include "components/empty_state.html" with icon="search" title=title text="Check the spelling. If the pet is not registered yet, add the pet first." live=True %}
+      {% endwith %}
+    </div>
+  {% else %}
+    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+      {% include "components/empty_state.html" with icon="paw-print" title="No active pets yet" text="Use Add pet above to register the first one." %}
+    </div>
+  {% endif %}
+</section>

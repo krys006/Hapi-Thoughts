@@ -10,7 +10,7 @@
       {% if active_tab == "archived" %}
         {% include "components/empty_state.html" with icon="search" title=title text="Check the spelling, or look in the Active tab." %}
       {% else %}
-        {% include "components/empty_state.html" with icon="search" title=title text="Check the spelling, or look in the Archived tab. To add a pet, open its owner first." %}
+        {% include "components/empty_state.html" with icon="search" title=title text="Check the spelling, or look in the Archived tab. To add a pet, use Add pet above." %}
       {% endif %}
     {% endwith %}
   {% elif owner_filter and not active_count and not archived_count %}

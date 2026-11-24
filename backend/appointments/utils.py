@@ -1109,22 +1109,46 @@ def _walkin_owner_rows(owners):
     )
 
 
-def is_owner_results_swap(request):
-    """True for the filter-as-you-type request from an owner step's search
-    box (walk-in step 1, New receipt step 1), which only needs the results
-    (target #owner-results). A history restore (or a request without HTMX)
+def is_results_swap(request, target):
+    """True for the filter-as-you-type request from a search box whose
+    results sit in #<target>. A history restore (or a request without HTMX)
     gets the full page."""
     headers = request.headers
     return (
         bool(headers.get("HX-Request"))
-        and headers.get("HX-Target") == "owner-results"
+        and headers.get("HX-Target") == target
         and not headers.get("HX-History-Restore-Request")
     )
+
+
+def is_owner_results_swap(request):
+    """True for the filter-as-you-type request from an owner step's search
+    box (walk-in step 1, New receipt step 1), which only needs the results
+    (target #owner-results)."""
+    return is_results_swap(request, "owner-results")
 
 
 def walkin_owner_list():
     """Step 1 with no search: every non-archived owner, first name A to Z."""
     return _walkin_owner_rows(PetOwner.objects.filter(is_archived=False))
+
+
+def walkin_owner_matches(words):
+    """Non-archived owners (unordered) where every word matches the first
+    name, last name or phone, or the name of one of their non-archived pets
+    (case-insensitive). Shared by the walk-in and the Add pet owner step."""
+    active_pets = Pet.objects.filter(is_archived=False)
+    owners = PetOwner.objects.filter(is_archived=False)
+    for word in words:
+        # A subquery (not a join on pets) keeps one row per owner
+        pet_owner_ids = active_pets.filter(name__icontains=word).values("owner_id")
+        owners = owners.filter(
+            Q(first_name__icontains=word)
+            | Q(last_name__icontains=word)
+            | Q(contact_number__icontains=word)
+            | Q(pk__in=pet_owner_ids)
+        )
+    return owners
 
 
 def search_walkin_owners(q):
@@ -1139,19 +1163,7 @@ def search_walkin_owners(q):
     if not words:
         return [], False
 
-    active_pets = Pet.objects.filter(is_archived=False)
-    owners = PetOwner.objects.filter(is_archived=False)
-    for word in words:
-        # A subquery (not a join on pets) keeps one row per owner
-        pet_owner_ids = active_pets.filter(name__icontains=word).values("owner_id")
-        owners = owners.filter(
-            Q(first_name__icontains=word)
-            | Q(last_name__icontains=word)
-            | Q(contact_number__icontains=word)
-            | Q(pk__in=pet_owner_ids)
-        )
-
-    owners = _walkin_owner_rows(owners)
+    owners = _walkin_owner_rows(walkin_owner_matches(words))
     # One extra row tells us whether the list was cut
     found = list(owners[: WALKIN_SEARCH_LIMIT + 1])
     return found[:WALKIN_SEARCH_LIMIT], len(found) > WALKIN_SEARCH_LIMIT

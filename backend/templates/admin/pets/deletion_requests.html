@@ -9,6 +9,10 @@
 
 {% block page_title %}Pets{% endblock %}
 {% block page_subtitle %}Every pet registered at the clinic.{% endblock %}
+{# Same Add pet button as the other two tabs #}
+{% block page_actions %}
+  <a href="{% url 'admin_pet_choose_owner' %}" class="btn btn-primary">{% include "components/icon.html" with name="plus" %}Add pet</a>
+{% endblock %}
 
 {% block content %}
   {% include "admin/pets/pets_list_parts/search_form.html" with id_prefix="page" form_class="mb-4 flex items-center gap-3 md:hidden" %}
